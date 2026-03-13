@@ -492,24 +492,26 @@ export default function Home() {
           // onPlaceClick={setSelectedPlace}
         />        */}
 
-        {selectedPlace ? (
-          <PlacePreviewCard
-            place={selectedPlace}
-            isSaved={isPlaceSaved(selectedPlace.id)}
-            savedFolderColor={savedColorMap[selectedPlace.id]}
-            onSave={handleOpenSaveModal}
-            onOpenDetail={(place) => {
-              setDetailPlace(place);
-              navigate(`/place/${place.id}`);
-            }}
-            onOpenCurator={(curatorName) => {
-              handleOpenCuratorByName(curatorName);
-              navigate(`/curator/${encodeURIComponent(curatorName)}`);
-            }}
-          />
-        ) : null}
+{selectedPlace ? (
+  <PlacePreviewCard
+    place={selectedPlace}
+    isSaved={isPlaceSaved(selectedPlace.id)}
+    savedFolderColor={savedColorMap[selectedPlace.id]}
+    onSave={handleOpenSaveModal}
+    onOpenDetail={(place) => {
+      setDetailPlace(place);
+      navigate(`/place/${place.id}`);
+    }}
+    onOpenCurator={(curatorName) => {
+      handleOpenCuratorByName(curatorName);
+      navigate(`/curator/${encodeURIComponent(curatorName)}`);
+    }}
+    onClose={() => setSelectedPlace(null)}
+  />
+) : null}
 
-        <PlaceList
+{/* 기본 목록은 숨김. 마커 클릭 시 하단 카드로만 노출 */}
+        {/*<PlaceList
           places={filteredPlaces}
           onSelectPlace={setSelectedPlace}
           onOpenDetail={(place) => {
@@ -523,7 +525,7 @@ export default function Home() {
           }}
           isPlaceSaved={isPlaceSaved}
           getSavedFolderColor={(placeId) => savedColorMap[placeId]}
-        />
+        />*/}
       </div>
 
       <PlaceDetail

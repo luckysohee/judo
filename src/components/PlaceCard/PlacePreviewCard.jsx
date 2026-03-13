@@ -5,6 +5,7 @@ export default function PlacePreviewCard({
   onSave,
   onOpenDetail,
   onOpenCurator,
+  onClose,
 }) {
   if (!place) return null;
 
@@ -13,80 +14,93 @@ export default function PlacePreviewCard({
 
   return (
     <div style={styles.overlayWrap}>
-      <section style={styles.card}>
-        <img src={place.image} alt={place.name} style={styles.image} />
+      <div style={styles.sheet}>
+        <div style={styles.handleWrap}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={styles.handleButton}
+            aria-label="카드 닫기"
+          >
+            <span style={styles.handleBar} />
+          </button>
+        </div>
 
-        <div style={styles.body}>
-          <div style={styles.topRow}>
-            <div style={styles.titleWrap}>
-              <div style={styles.name}>{place.name}</div>
-              <div style={styles.meta}>
-                저장 {place.savedCount} · {place.region}
+        <div style={styles.contentRow}>
+          <img src={place.image} alt={place.name} style={styles.image} />
+
+          <div style={styles.body}>
+            <div style={styles.topRow}>
+              <div style={styles.titleWrap}>
+                <div style={styles.name}>{place.name}</div>
+                <div style={styles.meta}>
+                  {place.region} · 저장 {place.savedCount}
+                </div>
               </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={() => onSave(place)}
-              style={{
-                ...styles.saveButton,
-                backgroundColor: isSaved ? "#FFD54F" : "#2ECC71",
-                color: "#111111",
-              }}
-            >
-              {isSaved ? "저장됨" : "저장"}
-            </button>
-          </div>
-
-          {savedFolderColor ? (
-            <div style={styles.savedColorRow}>
-              <span
+              <button
+                type="button"
+                onClick={() => onSave(place)}
                 style={{
-                  ...styles.savedColorDot,
-                  backgroundColor: savedFolderColor,
+                  ...styles.saveButton,
+                  backgroundColor: isSaved ? "#FFD54F" : "#2ECC71",
+                  color: "#111111",
                 }}
-              />
-              <span style={styles.savedColorText}>저장 폴더 색상</span>
+              >
+                {isSaved ? "저장됨" : "저장"}
+              </button>
             </div>
-          ) : null}
 
-          <div style={styles.curatorRow}>
-            <span style={styles.label}>대표 큐레이터</span>
-            <button
-              type="button"
-              onClick={() => onOpenCurator(place.primaryCurator)}
-              style={styles.primaryCuratorButton}
-            >
-              {place.primaryCurator}
-            </button>
-          </div>
+            {savedFolderColor ? (
+              <div style={styles.savedColorRow}>
+                <span
+                  style={{
+                    ...styles.savedColorDot,
+                    backgroundColor: savedFolderColor,
+                  }}
+                />
+                <span style={styles.savedColorText}>저장 폴더 색상</span>
+              </div>
+            ) : null}
 
-          <div style={styles.recommendLine}>
-            추천 큐레이터: {visibleExtraCurators.join(" · ")}
-            {extraCuratorCount > 0 ? ` +${extraCuratorCount}` : ""}
-          </div>
+            <div style={styles.curatorRow}>
+              <span style={styles.label}>대표 큐레이터</span>
+              <button
+                type="button"
+                onClick={() => onOpenCurator(place.primaryCurator)}
+                style={styles.primaryCuratorButton}
+              >
+                {place.primaryCurator}
+              </button>
+            </div>
 
-          <div style={styles.comment}>{place.comment}</div>
+            <div style={styles.recommendLine}>
+              추천 큐레이터: {visibleExtraCurators.join(" · ")}
+              {extraCuratorCount > 0 ? ` +${extraCuratorCount}` : ""}
+            </div>
 
-          <div style={styles.tagRow}>
-            {place.tags.map((tag) => (
-              <span key={tag} style={styles.tag}>
-                {tag}
-              </span>
-            ))}
-          </div>
+            <div style={styles.comment}>{place.comment}</div>
 
-          <div style={styles.bottomRow}>
-            <button
-              type="button"
-              onClick={() => onOpenDetail(place)}
-              style={styles.detailButton}
-            >
-              상세보기
-            </button>
+            <div style={styles.tagRow}>
+              {place.tags.map((tag) => (
+                <span key={tag} style={styles.tag}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            <div style={styles.bottomRow}>
+              <button
+                type="button"
+                onClick={() => onOpenDetail(place)}
+                style={styles.detailButton}
+              >
+                상세보기
+              </button>
+            </div>
           </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }
@@ -94,30 +108,54 @@ export default function PlacePreviewCard({
 const styles = {
   overlayWrap: {
     position: "absolute",
-    left: "12px",
-    right: "12px",
-    bottom: "12px",
-    zIndex: 25,
+    left: "10px",
+    right: "10px",
+    bottom: "10px",
+    zIndex: 30,
     pointerEvents: "none",
+    animation: "judoSlideUp 0.24s ease-out",
   },
-  card: {
+  sheet: {
     pointerEvents: "auto",
+    backgroundColor: "rgba(18,18,18,0.98)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: "22px",
+    boxShadow: "0 16px 32px rgba(0,0,0,0.34)",
+    backdropFilter: "blur(12px)",
+    overflow: "hidden",
+  },
+  handleWrap: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "8px",
+    paddingBottom: "4px",
+  },
+  handleButton: {
+    width: "100%",
+    border: "none",
+    backgroundColor: "transparent",
+    display: "flex",
+    justifyContent: "center",
+    padding: "4px 0 6px",
+    cursor: "pointer",
+  },
+  handleBar: {
+    width: "46px",
+    height: "5px",
+    borderRadius: "999px",
+    backgroundColor: "#5c5c5c",
+  },
+  contentRow: {
     display: "flex",
     gap: "12px",
-    backgroundColor: "rgba(20,20,20,0.96)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "18px",
-    overflow: "hidden",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
-    backdropFilter: "blur(10px)",
-    padding: "14px",
+    padding: "12px 14px 14px",
   },
   image: {
-    width: "132px",
-    height: "156px",
+    width: "126px",
+    height: "152px",
     objectFit: "cover",
-    borderRadius: "14px",
-    backgroundColor: "#222222",
+    borderRadius: "16px",
+    backgroundColor: "#242424",
     flexShrink: 0,
   },
   body: {
@@ -144,12 +182,12 @@ const styles = {
   },
   meta: {
     fontSize: "12px",
-    color: "#cfcfcf",
+    color: "#cbcbcb",
   },
   saveButton: {
     border: "none",
     borderRadius: "999px",
-    padding: "9px 12px",
+    padding: "10px 12px",
     fontSize: "12px",
     fontWeight: 800,
     whiteSpace: "nowrap",
@@ -221,7 +259,7 @@ const styles = {
   },
   bottomRow: {
     marginTop: "auto",
-    paddingTop: "10px",
+    paddingTop: "12px",
     display: "flex",
     justifyContent: "flex-end",
   },
@@ -230,7 +268,7 @@ const styles = {
     backgroundColor: "#111111",
     color: "#ffffff",
     borderRadius: "10px",
-    padding: "9px 12px",
+    padding: "10px 13px",
     fontSize: "12px",
     fontWeight: 700,
   },
