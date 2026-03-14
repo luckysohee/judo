@@ -15,6 +15,7 @@ export default function MapView({
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
+  const suppressMapClickRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
 
@@ -52,11 +53,13 @@ export default function MapView({
         });
 
         mapRef.current = map;
-
-        // 기본 지도 타입 고정
         map.setMapTypeId(window.kakao.maps.MapTypeId.ROADMAP);
 
-        // 컨트롤 숨김
+        window.kakao.maps.event.addListener(map, "click", () => {
+          if (suppressMapClickRef.current) return;
+          setSelectedPlace(null);
+        });
+
         if (window.kakao.maps.ZoomControl) {
           const zoomControl = new window.kakao.maps.ZoomControl();
           map.addControl(
@@ -101,7 +104,7 @@ export default function MapView({
       });
       markersRef.current = [];
     };
-  }, []);
+  }, [setSelectedPlace]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -131,7 +134,12 @@ export default function MapView({
         isSelected: false,
         savedColor: savedColorMap?.[place.id] || null,
         onClick: (clickedPlace) => {
+          suppressMapClickRef.current = true;
           setSelectedPlace(clickedPlace);
+
+          window.setTimeout(() => {
+            suppressMapClickRef.current = false;
+          }, 180);
         },
       });
 
@@ -145,7 +153,6 @@ export default function MapView({
       clustererRef.current.addMarkers(nextMarkers);
     }
 
-    // place 목록이 바뀌었을 때만 bounds 재설정
     if (places.length === 1) {
       mapRef.current.setCenter(
         new window.kakao.maps.LatLng(places[0].lat, places[0].lng)

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -7,18 +9,38 @@ export default function PlacePreviewCard({
   onOpenCurator,
   onClose,
 }) {
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    setClosing(false);
+  }, [place?.id]);
+
   if (!place) return null;
 
   const extraCuratorCount = Math.max(place.curators.length - 3, 0);
   const visibleExtraCurators = place.curators.slice(1, 3);
 
+  const handleClose = () => {
+    setClosing(true);
+
+    window.setTimeout(() => {
+      onClose();
+    }, 360);
+  };
+
   return (
-    <div style={styles.overlayWrap}>
+    <div
+      style={{
+        ...styles.overlayWrap,
+        opacity: closing ? 0 : 1,
+        transform: closing ? "translateY(36px)" : "translateY(0)",
+      }}
+    >
       <div style={styles.sheet}>
         <div style={styles.handleWrap}>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             style={styles.handleButton}
             aria-label="카드 닫기"
           >
@@ -111,9 +133,9 @@ const styles = {
     left: "10px",
     right: "10px",
     bottom: "10px",
-    zIndex: 30,
+    zIndex: 99999,
     pointerEvents: "none",
-    animation: "judoSlideUp 0.24s ease-out",
+    transition: "opacity 360ms ease, transform 360ms ease",
   },
   sheet: {
     pointerEvents: "auto",
@@ -227,6 +249,7 @@ const styles = {
     fontSize: "13px",
     fontWeight: 700,
     textAlign: "left",
+    cursor: "pointer",
   },
   recommendLine: {
     marginTop: "6px",
@@ -271,5 +294,6 @@ const styles = {
     padding: "10px 13px",
     fontSize: "12px",
     fontWeight: 700,
+    cursor: "pointer",
   },
 };

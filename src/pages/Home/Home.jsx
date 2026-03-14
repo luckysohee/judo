@@ -9,7 +9,6 @@ import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
 import CuratorPage from "../../components/CuratorPage/CuratorPage";
-import PlaceList from "../../components/PlaceList/PlaceList";
 import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
 import CuratorApplyForm from "../../components/CuratorApplyForm/CuratorApplyForm";
 
@@ -318,30 +317,6 @@ export default function Home() {
     return basePowerCurators[0] || allCurators[0] || null;
   }, [allCurators]);
 
-  const trendingCurators = useMemo(() => {
-    const baseOnly = (baseCurators || [])
-      .map(normalizeCurator)
-      .filter((curator) => curator?.name !== todayCurator?.name);
-
-    return baseOnly.slice(0, 3);
-  }, [todayCurator]);
-
-  const newCurators = useMemo(() => {
-    const baseNames = new Set((baseCurators || []).map((item) => item.name));
-
-    return (dbCurators || [])
-      .map(normalizeCurator)
-      .filter(Boolean)
-      .filter((curator) => !baseNames.has(curator.name))
-      .slice(0, 5);
-  }, [dbCurators]);
-
-  const newPlaces = useMemo(() => {
-    return [...allPlaces]
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 3);
-  }, [allPlaces]);
-
   const curatorColorMap = useMemo(() => {
     return allCurators.reduce((acc, curator) => {
       acc[curator.name] = curator.color;
@@ -462,7 +437,6 @@ export default function Home() {
           />
         ) : null}
 
-
         <div style={styles.mapSection}>
           <MapView
             places={filteredPlaces}
@@ -481,51 +455,27 @@ export default function Home() {
               onSelectAll={handleSelectAllCurators}
             />
           </div>
+
+          <div style={styles.mapCardOverlay}>
+            {selectedPlace ? (
+              <PlacePreviewCard
+                place={selectedPlace}
+                isSaved={isPlaceSaved(selectedPlace.id)}
+                savedFolderColor={savedColorMap[selectedPlace.id]}
+                onSave={handleOpenSaveModal}
+                onOpenDetail={(place) => {
+                  setDetailPlace(place);
+                  navigate(`/place/${place.id}`);
+                }}
+                onOpenCurator={(curatorName) => {
+                  handleOpenCuratorByName(curatorName);
+                  navigate(`/curator/${encodeURIComponent(curatorName)}`);
+                }}
+                onClose={() => setSelectedPlace(null)}
+              />
+            ) : null}
+          </div>
         </div>
-{/* 
-        <DiscoverySection
-          todayCurator={todayCurator}
-          trendingCurators={trendingCurators}
-          newCurators={newCurators}
-          // newPlaces={newPlaces}
-          onCuratorClick={handleOpenCuratorByName}
-          // onPlaceClick={setSelectedPlace}
-        />        */}
-
-{selectedPlace ? (
-  <PlacePreviewCard
-    place={selectedPlace}
-    isSaved={isPlaceSaved(selectedPlace.id)}
-    savedFolderColor={savedColorMap[selectedPlace.id]}
-    onSave={handleOpenSaveModal}
-    onOpenDetail={(place) => {
-      setDetailPlace(place);
-      navigate(`/place/${place.id}`);
-    }}
-    onOpenCurator={(curatorName) => {
-      handleOpenCuratorByName(curatorName);
-      navigate(`/curator/${encodeURIComponent(curatorName)}`);
-    }}
-    onClose={() => setSelectedPlace(null)}
-  />
-) : null}
-
-{/* 기본 목록은 숨김. 마커 클릭 시 하단 카드로만 노출 */}
-        {/*<PlaceList
-          places={filteredPlaces}
-          onSelectPlace={setSelectedPlace}
-          onOpenDetail={(place) => {
-            setDetailPlace(place);
-            navigate(`/place/${place.id}`);
-          }}
-          onSave={handleOpenSaveModal}
-          onOpenCurator={(curatorName) => {
-            handleOpenCuratorByName(curatorName);
-            navigate(`/curator/${encodeURIComponent(curatorName)}`);
-          }}
-          isPlaceSaved={isPlaceSaved}
-          getSavedFolderColor={(placeId) => savedColorMap[placeId]}
-        />*/}
       </div>
 
       <PlaceDetail
@@ -652,92 +602,6 @@ function SearchIntentSummary({ parsedQuery, count }) {
   );
 }
 
-function DiscoverySection({
-  todayCurator,
-  trendingCurators,
-  newCurators,
-  // newPlaces,
-  onCuratorClick,
-  // onPlaceClick,
-}) {
-  return (
-    <section style={styles.discoverySection}>
-      <div style={styles.discoveryBlock}>
-        <div style={styles.discoveryTitle}>🔥 오늘의 큐레이터</div>
-        <button
-          type="button"
-          onClick={() => onCuratorClick(todayCurator.name)}
-          style={{
-            ...styles.discoveryCard,
-            borderColor: todayCurator.color,
-          }}
-        >
-          <div style={styles.discoveryCardTitle}>
-            {todayCurator.displayName || todayCurator.name}
-          </div>
-          <div style={styles.discoveryCardText}>{todayCurator.subtitle}</div>
-        </button>
-      </div>
-
-      <div style={styles.discoveryBlock}>
-        <div style={styles.discoveryTitle}>📈 떠오르는 큐레이터</div>
-        <div style={styles.discoveryRow}>
-          {trendingCurators.map((curator) => (
-            <button
-              key={curator.id}
-              type="button"
-              onClick={() => onCuratorClick(curator.name)}
-              style={{
-                ...styles.smallChip,
-                borderColor: curator.color,
-              }}
-            >
-              {curator.displayName || curator.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {Array.isArray(newCurators) && newCurators.length > 0 ? (
-        <div style={styles.discoveryBlock}>
-          <div style={styles.discoveryTitle}>🆕 NEW 큐레이터</div>
-          <div style={styles.discoveryRow}>
-            {newCurators.map((curator) => (
-              <button
-                key={curator.id}
-                type="button"
-                onClick={() => onCuratorClick(curator.name)}
-                style={{
-                  ...styles.smallChip,
-                  borderColor: curator.color,
-                }}
-              >
-                NEW · {curator.displayName || curator.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* <div style={styles.discoveryBlock}>
-        <div style={styles.discoveryTitle}>🆕 신상 술집</div>
-        <div style={styles.discoveryRow}>
-          {newPlaces.map((place) => (
-            <button
-              key={place.id}
-              type="button"
-              onClick={() => onPlaceClick(place)}
-              style={styles.smallChip}
-            >
-              {place.name}
-            </button>
-          ))}
-        </div>
-      </div> */}
-    </section>
-  );
-}
-
 function getDistanceKm(from, to) {
   const toRad = (value) => (value * Math.PI) / 180;
 
@@ -814,62 +678,31 @@ const styles = {
     padding: "7px 10px",
     fontSize: "12px",
   },
-  discoverySection: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-  discoveryBlock: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  discoveryTitle: {
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#f4f4f4",
-  },
-  discoveryCard: {
-    border: "1px solid #333333",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "14px",
-    padding: "12px",
-    textAlign: "left",
-  },
-  discoveryCardTitle: {
-    fontSize: "16px",
-    fontWeight: 700,
-    marginBottom: "4px",
-  },
-  discoveryCardText: {
-    fontSize: "13px",
-    color: "#c9c9c9",
-  },
   discoveryRow: {
     display: "flex",
     gap: "8px",
     flexWrap: "wrap",
   },
-  smallChip: {
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "999px",
-    padding: "8px 12px",
-    fontSize: "13px",
-  },
-    mapSection: {
+  mapSection: {
     position: "relative",
     marginBottom: "16px",
+    overflow: "visible",
+    zIndex: 1,
   },
-  mapFilterOverlay: {       //지도위에 띄우기
+  mapFilterOverlay: {
     position: "absolute",
     top: "56px",
     left: "12px",
     right: "12px",
     zIndex: 20,
+    pointerEvents: "none",
+  },
+  mapCardOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
     pointerEvents: "none",
   },
 };
