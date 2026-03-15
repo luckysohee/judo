@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import MarkerLegend from "../../components/Map/MarkerLegend";
+
 import Header from "../../components/Header/Header";
 import SearchBar from "../../components/SearchBar/SearchBar";
 import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
@@ -164,6 +166,10 @@ export default function Home() {
               onToggle={handleCuratorToggle}
               onSelectAll={handleSelectAllCurators}
             />
+
+            <div style={styles.legendOverlay}>
+              <MarkerLegend />
+            </div>
 
           </div>
 
@@ -380,6 +386,11 @@ summaryChip: {
   fontSize: "10px",
 },
 
-
+legendOverlay: {
+  position: "absolute",
+  top: "58px",
+  right: "10px",
+  zIndex: 20,
+},
 
 };
