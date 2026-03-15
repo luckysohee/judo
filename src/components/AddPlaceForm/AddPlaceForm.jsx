@@ -1,363 +1,452 @@
 import { useMemo, useState } from "react";
 import { addCustomPlace } from "../../utils/customPlacesStorage";
 
+const REGION_OPTIONS = [
+  "을지로",
+  "성수",
+  "한남",
+  "압구정",
+  "강남",
+  "문래",
+  "망원",
+  "연남",
+  "해방촌",
+  "서촌",
+];
+
+const TAG_OPTIONS = [
+  "노포",
+  "소주",
+  "맥주",
+  "와인",
+  "하이볼",
+  "데이트",
+  "2차",
+  "1차",
+  "혼술",
+  "회식",
+  "해산물",
+  "안주맛집",
+  "분위기",
+  "심야",
+];
+
 export default function AddPlaceForm({
   open,
-  curators,
+  curators = [],
   onClose,
   onAdded,
 }) {
-  const [keyword, setKeyword] = useState("");
-  const [results, setResults] = useState([]);
-  const [selectedResult, setSelectedResult] = useState(null);
-  const [selectedCurator, setSelectedCurator] = useState(curators[0]?.name || "");
-  const [tags, setTags] = useState("소주,안주맛집");
+  const [name, setName] = useState("");
+  const [region, setRegion] = useState("");
+  const [address, setAddress] = useState("");
+  const [image, setImage] = useState("");
   const [comment, setComment] = useState("");
-  const [uploadedImage, setUploadedImage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [selectedCurators, setSelectedCurators] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
-  const tagArray = useMemo(() => {
-    return tags
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }, [tags]);
+  const safeCurators = useMemo(() => {
+    return Array.isArray(curators) ? curators.filter(Boolean) : [];
+  }, [curators]);
 
   if (!open) return null;
 
-  const handleSearch = () => {
-    if (!window.kakao || !window.kakao.maps || !window.kakao.maps.services) {
-      setErrorMessage("카카오 Places 서비스를 불러오지 못했습니다.");
+  const resetForm = () => {
+    setName("");
+    setRegion("");
+    setAddress("");
+    setImage("");
+    setComment("");
+    setLat("");
+    setLng("");
+    setSelectedTags([]);
+    setSelectedCurators([]);
+    setSubmitting(false);
+  };
+
+  const handleToggleTag = (tag) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleToggleCurator = (curatorName) => {
+    setSelectedCurators((prev) =>
+      prev.includes(curatorName)
+        ? prev.filter((item) => item !== curatorName)
+        : [...prev, curatorName]
+    );
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+
+    if (!name.trim()) {
+      alert("술집 이름을 입력해 주세요.");
       return;
     }
 
-    if (!keyword.trim()) {
-      setErrorMessage("검색어를 입력해 주세요.");
+    if (!region.trim()) {
+      alert("지역을 선택해 주세요.");
       return;
     }
 
-    const placesService = new window.kakao.maps.services.Places();
+    if (selectedCurators.length === 0) {
+      alert("큐레이터를 최소 1명 선택해 주세요.");
+      return;
+    }
 
-    placesService.keywordSearch(keyword, (data, status) => {
-      if (status === window.kakao.maps.services.Status.OK) {
-        setResults(data);
-        setErrorMessage("");
-      } else if (status === window.kakao.maps.services.Status.ZERO_RESULT) {
-        setResults([]);
-        setErrorMessage("검색 결과가 없습니다.");
-      } else {
-        setResults([]);
-        setErrorMessage("장소 검색 중 오류가 발생했습니다.");
-      }
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+
+    if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+      alert("위도와 경도를 올바르게 입력해 주세요.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    const primaryCurator = selectedCurators[0];
+
+    addCustomPlace({
+      name: name.trim(),
+      region: region.trim(),
+      address: address.trim(),
+      image: image.trim() || "https://placehold.co/400x400?text=JU-DO",
+      comment: comment.trim() || "직접 추가한 술집입니다.",
+      lat: parsedLat,
+      lng: parsedLng,
+      primaryCurator,
+      curators: selectedCurators,
+      tags: selectedTags,
     });
-  };
 
-  const handleImageChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setUploadedImage(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleAdd = () => {
-    if (!selectedResult) {
-      setErrorMessage("추가할 장소를 선택해 주세요.");
-      return;
-    }
-
-    if (!selectedCurator) {
-      setErrorMessage("대표 큐레이터를 선택해 주세요.");
-      return;
-    }
-
-    try {
-      const payload = {
-        name: selectedResult.place_name,
-        region: inferRegion(selectedResult.address_name),
-        lat: Number(selectedResult.y),
-        lng: Number(selectedResult.x),
-        image:
-          uploadedImage ||
-          "https://placehold.co/800x500?text=JU-DO+Custom+Place",
-        primaryCurator: selectedCurator,
-        curators: [selectedCurator],
-        tags: tagArray.length > 0 ? tagArray : ["술집"],
-        comment: comment.trim() || `${selectedResult.place_name} 추천 술집`,
-        savedCount: 0,
-        address:
-          selectedResult.address_name || selectedResult.road_address_name || "",
-      };
-
-      addCustomPlace(payload);
-
-      setKeyword("");
-      setResults([]);
-      setSelectedResult(null);
-      setComment("");
-      setUploadedImage("");
-      setErrorMessage("");
+    if (typeof onAdded === "function") {
       onAdded();
-      onClose();
-    } catch (error) {
-      setErrorMessage(error.message);
     }
+
+    alert("술집이 추가되었습니다.");
+    handleClose();
   };
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
-        <div style={styles.title}>술집 추가</div>
+    <div style={styles.overlay} onClick={handleClose}>
+      <div style={styles.backdrop} />
 
-        <div style={styles.label}>장소 검색</div>
-        <div style={styles.searchRow}>
-          <input
-            type="text"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder="예: 을지로 골목집"
-            style={styles.input}
-          />
-          <button type="button" onClick={handleSearch} style={styles.searchButton}>
-            검색
+      <div style={styles.sheet} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.handleWrap}>
+          <button
+            type="button"
+            onClick={handleClose}
+            style={styles.handleButton}
+            aria-label="술집 추가 닫기"
+          >
+            <span style={styles.handleBar} />
           </button>
         </div>
 
-        <div style={styles.resultList}>
-          {results.map((item) => {
-            const selected = selectedResult?.id === item.id;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSelectedResult(item)}
-                style={{
-                  ...styles.resultItem,
-                  borderColor: selected ? "#2ECC71" : "#333333",
-                }}
-              >
-                <div style={styles.resultName}>{item.place_name}</div>
-                <div style={styles.resultAddress}>{item.address_name}</div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={styles.label}>대표 큐레이터</div>
-        <select
-          value={selectedCurator}
-          onChange={(event) => setSelectedCurator(event.target.value)}
-          style={styles.select}
-        >
-          {curators.map((curator) => (
-            <option key={curator.id} value={curator.name}>
-              {curator.name}
-            </option>
-          ))}
-        </select>
-
-        <div style={styles.label}>태그 (쉼표로 구분)</div>
-        <input
-          type="text"
-          value={tags}
-          onChange={(event) => setTags(event.target.value)}
-          placeholder="노포,소주,2차"
-          style={styles.input}
-        />
-
-        <div style={styles.label}>한 줄 설명</div>
-        <textarea
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-          placeholder="을지로에서 2차로 가기 좋은 술집"
-          style={styles.textarea}
-        />
-
-        <div style={styles.label}>대표 사진 업로드</div>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleImageChange}
-          style={styles.fileInput}
-        />
-
-        {uploadedImage ? (
-          <img src={uploadedImage} alt="preview" style={styles.previewImage} />
-        ) : null}
-
-        {errorMessage ? <div style={styles.errorText}>{errorMessage}</div> : null}
-
-        <div style={styles.bottomRow}>
-          <button type="button" onClick={onClose} style={styles.cancelButton}>
-            취소
-          </button>
-          <button type="button" onClick={handleAdd} style={styles.addButton}>
-            추가
+        <div style={styles.header}>
+          <div style={styles.title}>술집 추가</div>
+          <button type="button" onClick={handleClose} style={styles.closeButton}>
+            닫기
           </button>
         </div>
+
+        <form onSubmit={handleSubmit} style={styles.content}>
+          <Field label="술집 이름">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="예: 을지로 골목집"
+              style={styles.input}
+            />
+          </Field>
+
+          <Field label="지역">
+            <div style={styles.chipWrap}>
+              {REGION_OPTIONS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setRegion(item)}
+                  style={{
+                    ...styles.chip,
+                    ...(region === item ? styles.chipActive : null),
+                  }}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="주소">
+            <input
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              placeholder="예: 서울 중구 ..."
+              style={styles.input}
+            />
+          </Field>
+
+          <Field label="대표 이미지 URL">
+            <input
+              value={image}
+              onChange={(event) => setImage(event.target.value)}
+              placeholder="https://..."
+              style={styles.input}
+            />
+          </Field>
+
+          <div style={styles.row2}>
+            <Field label="위도">
+              <input
+                value={lat}
+                onChange={(event) => setLat(event.target.value)}
+                placeholder="37.56..."
+                style={styles.input}
+              />
+            </Field>
+
+            <Field label="경도">
+              <input
+                value={lng}
+                onChange={(event) => setLng(event.target.value)}
+                placeholder="126.97..."
+                style={styles.input}
+              />
+            </Field>
+          </div>
+
+          <Field label="한줄 코멘트">
+            <textarea
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              placeholder="이 술집 추천 이유를 적어주세요"
+              style={styles.textarea}
+            />
+          </Field>
+
+          <Field label="태그">
+            <div style={styles.chipWrap}>
+              {TAG_OPTIONS.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => handleToggleTag(tag)}
+                  style={{
+                    ...styles.chip,
+                    ...(selectedTags.includes(tag) ? styles.chipActive : null),
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="큐레이터">
+            <div style={styles.chipWrap}>
+              {safeCurators.map((curator) => {
+                const curatorName = curator.name;
+                const active = selectedCurators.includes(curatorName);
+
+                return (
+                  <button
+                    key={curator.id || curatorName}
+                    type="button"
+                    onClick={() => handleToggleCurator(curatorName)}
+                    style={{
+                      ...styles.chip,
+                      borderColor: curator.color || "#444444",
+                      ...(active
+                        ? {
+                            backgroundColor: curator.color || "#2ECC71",
+                            color: "#111111",
+                            borderColor: curator.color || "#2ECC71",
+                          }
+                        : null),
+                    }}
+                  >
+                    {curator.displayName || curatorName}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
+          <div style={styles.submitRow}>
+            <button
+              type="submit"
+              disabled={submitting}
+              style={styles.submitButton}
+            >
+              {submitting ? "추가 중..." : "술집 추가하기"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
 
-function inferRegion(address = "") {
-  if (address.includes("을지로")) return "을지로";
-  if (address.includes("성수")) return "성수";
-  if (address.includes("강남")) return "강남";
-  if (address.includes("연남")) return "연남";
-  if (address.includes("망원")) return "망원";
-  if (address.includes("종로")) return "종로";
-  return "서울";
+function Field({ label, children }) {
+  return (
+    <div style={styles.field}>
+      <div style={styles.label}>{label}</div>
+      {children}
+    </div>
+  );
 }
 
 const styles = {
   overlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 75,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    zIndex: 320,
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  backdrop: {
+    position: "absolute",
+    inset: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheet: {
+    position: "relative",
+    width: "100%",
+    maxHeight: "82vh",
+    backgroundColor: "rgba(18,18,18,0.98)",
+    borderTopLeftRadius: "24px",
+    borderTopRightRadius: "24px",
+    boxShadow: "0 -10px 30px rgba(0,0,0,0.35)",
+    overflow: "hidden",
+    animation: "judoBottomSheetUp 260ms ease-out",
+  },
+  handleWrap: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "8px",
+    paddingBottom: "2px",
+  },
+  handleButton: {
+    width: "100%",
+    border: "none",
+    backgroundColor: "transparent",
+    display: "flex",
+    justifyContent: "center",
+    padding: "4px 0 6px",
+    cursor: "pointer",
+  },
+  handleBar: {
+    width: "48px",
+    height: "5px",
+    borderRadius: "999px",
+    backgroundColor: "#5e5e5e",
+  },
+  header: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    padding: "16px",
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "460px",
-    maxHeight: "92vh",
-    overflowY: "auto",
-    backgroundColor: "#111111",
-    border: "1px solid #2a2a2a",
-    borderRadius: "20px",
-    padding: "18px",
+    justifyContent: "space-between",
+    padding: "8px 16px 12px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
   },
   title: {
-    fontSize: "20px",
+    fontSize: "18px",
     fontWeight: 800,
     color: "#ffffff",
-    marginBottom: "14px",
+  },
+  closeButton: {
+    border: "1px solid #3a3a3a",
+    backgroundColor: "#171717",
+    color: "#ffffff",
+    borderRadius: "999px",
+    padding: "8px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  content: {
+    padding: "14px 16px 24px",
+    overflowY: "auto",
+    maxHeight: "calc(82vh - 64px)",
+  },
+  field: {
+    marginBottom: "16px",
   },
   label: {
     fontSize: "13px",
+    fontWeight: 700,
     color: "#ffffff",
     marginBottom: "8px",
-    marginTop: "12px",
-    fontWeight: 700,
-  },
-  searchRow: {
-    display: "flex",
-    gap: "8px",
   },
   input: {
-    flex: 1,
-    height: "44px",
-    border: "1px solid #333333",
-    borderRadius: "12px",
-    padding: "0 12px",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  searchButton: {
-    border: "none",
-    backgroundColor: "#2ECC71",
-    color: "#111111",
-    borderRadius: "12px",
-    padding: "0 14px",
-    fontSize: "13px",
-    fontWeight: 800,
-  },
-  resultList: {
-    marginTop: "10px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  resultItem: {
-    border: "1px solid #333333",
-    backgroundColor: "#171717",
-    borderRadius: "12px",
-    padding: "10px",
-    textAlign: "left",
-  },
-  resultName: {
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#ffffff",
-    marginBottom: "4px",
-  },
-  resultAddress: {
-    fontSize: "12px",
-    color: "#bdbdbd",
-  },
-  select: {
     width: "100%",
     height: "44px",
-    border: "1px solid #333333",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "#171717",
+    color: "#ffffff",
     borderRadius: "12px",
     padding: "0 12px",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
     outline: "none",
+    fontSize: "14px",
+    boxSizing: "border-box",
   },
   textarea: {
     width: "100%",
-    minHeight: "90px",
-    border: "1px solid #333333",
+    minHeight: "100px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "#171717",
+    color: "#ffffff",
     borderRadius: "12px",
     padding: "12px",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
     outline: "none",
+    fontSize: "14px",
     resize: "vertical",
     boxSizing: "border-box",
   },
-  fileInput: {
-    width: "100%",
-    color: "#ffffff",
-  },
-  previewImage: {
-    marginTop: "12px",
-    width: "100%",
-    height: "180px",
-    objectFit: "cover",
-    borderRadius: "12px",
-    border: "1px solid #2a2a2a",
-  },
-  errorText: {
-    marginTop: "10px",
-    color: "#FF6B6B",
-    fontSize: "13px",
-  },
-  bottomRow: {
-    marginTop: "16px",
+  chipWrap: {
     display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  chip: {
+    border: "1px solid #333333",
+    backgroundColor: "#151515",
+    color: "#ffffff",
+    borderRadius: "999px",
+    padding: "8px 11px",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  chipActive: {
+    backgroundColor: "#ffffff",
+    color: "#111111",
+    borderColor: "#ffffff",
+  },
+  row2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
     gap: "10px",
   },
-  cancelButton: {
-    flex: 1,
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px",
-    fontSize: "14px",
-    fontWeight: 700,
+  submitRow: {
+    paddingTop: "4px",
   },
-  addButton: {
-    flex: 1,
+  submitButton: {
+    width: "100%",
+    height: "48px",
     border: "none",
+    borderRadius: "14px",
     backgroundColor: "#2ECC71",
     color: "#111111",
-    borderRadius: "12px",
-    padding: "12px",
     fontSize: "14px",
     fontWeight: 800,
   },

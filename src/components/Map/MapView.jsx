@@ -15,7 +15,8 @@ export default function MapView({
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
-  const suppressMapClickRef = useRef(false);
+  const ignoreMapClickRef = useRef(false);
+
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
 
@@ -30,7 +31,7 @@ export default function MapView({
       if (!window.kakao || !window.kakao.maps) {
         retryCount += 1;
 
-        if (retryCount > 30) {
+        if (retryCount > 40) {
           setMapError(
             "카카오 지도를 불러오지 못했습니다. index.html 스크립트와 API 키를 확인해 주세요."
           );
@@ -44,41 +45,39 @@ export default function MapView({
       window.kakao.maps.load(() => {
         if (!mounted || mapRef.current || !mapContainerRef.current) return;
 
-        const map = new window.kakao.maps.Map(mapContainerRef.current, {
-          center: new window.kakao.maps.LatLng(
-            SEOUL_CENTER.lat,
-            SEOUL_CENTER.lng
-          ),
-          level: 6,
-        });
-
-        mapRef.current = map;
-        map.setMapTypeId(window.kakao.maps.MapTypeId.ROADMAP);
-
-        window.kakao.maps.event.addListener(map, "click", () => {
-          if (suppressMapClickRef.current) return;
-          setSelectedPlace(null);
-        });
-
-        if (window.kakao.maps.ZoomControl) {
-          const zoomControl = new window.kakao.maps.ZoomControl();
-          map.addControl(
-            zoomControl,
-            window.kakao.maps.ControlPosition.RIGHT
-          );
-        }
-
-        if (window.kakao.maps.MarkerClusterer) {
-          clustererRef.current = new window.kakao.maps.MarkerClusterer({
-            map,
-            averageCenter: true,
-            minLevel: 6,
-            disableClickZoom: false,
-            gridSize: 60,
+        try {
+          const map = new window.kakao.maps.Map(mapContainerRef.current, {
+            center: new window.kakao.maps.LatLng(
+              SEOUL_CENTER.lat,
+              SEOUL_CENTER.lng
+            ),
+            level: 6,
           });
-        }
 
-        setMapReady(true);
+          mapRef.current = map;
+          map.setMapTypeId(window.kakao.maps.MapTypeId.ROADMAP);
+
+          window.kakao.maps.event.addListener(map, "click", () => {
+            if (ignoreMapClickRef.current) return;
+            setSelectedPlace(null);
+          });
+
+          if (window.kakao.maps.MarkerClusterer) {
+            clustererRef.current = new window.kakao.maps.MarkerClusterer({
+              map,
+              averageCenter: true,
+              minLevel: 6,
+              disableClickZoom: false,
+              gridSize: 60,
+            });
+          }
+
+          setMapReady(true);
+          setMapError("");
+        } catch (error) {
+          console.error("map init error:", error);
+          setMapError("지도 초기화 중 오류가 발생했습니다.");
+        }
       });
     };
 
@@ -130,19 +129,18 @@ export default function MapView({
       const marker = createMarker({
         map: clustererRef.current ? null : mapRef.current,
         place,
-        color: curatorColorMap?.[place.primaryCurator] || "#2ECC71",
-        isSelected: false,
+        isSelected: selectedPlace?.id === place.id,
         savedColor: savedColorMap?.[place.id] || null,
         onClick: (clickedPlace) => {
-          suppressMapClickRef.current = true;
+          ignoreMapClickRef.current = true;
           setSelectedPlace(clickedPlace);
 
           window.setTimeout(() => {
-            suppressMapClickRef.current = false;
-          }, 180);
+            ignoreMapClickRef.current = false;
+          }, 200);
         },
       });
-
+      
       bounds.extend(new window.kakao.maps.LatLng(place.lat, place.lng));
       return marker;
     });
@@ -175,17 +173,25 @@ export default function MapView({
         }
       });
     };
-  }, [places, setSelectedPlace, mapReady, curatorColorMap, savedColorMap]);
+  }, [
+    places,
+    selectedPlace,
+    setSelectedPlace,
+    mapReady,
+    curatorColorMap,
+    savedColorMap,
+  ]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedPlace) return;
 
-    mapRef.current.panTo(
-      new window.kakao.maps.LatLng(
-        selectedPlace.lat + 0.0007,
-        selectedPlace.lng
-      )
+    // 카드가 하단에 뜨므로 마커가 카드에 안 가려지게 살짝 위로 이동
+    const target = new window.kakao.maps.LatLng(
+      selectedPlace.lat + 0.0007,
+      selectedPlace.lng
     );
+
+    mapRef.current.panTo(target);
   }, [selectedPlace, mapReady]);
 
   const moveToSeoulCenter = () => {
@@ -223,9 +229,7 @@ export default function MapView({
         }
       },
       () => {
-        alert(
-          "현재 위치를 가져오지 못했습니다. 브라우저 권한 또는 HTTPS 환경을 확인해 주세요."
-        );
+        alert("현재 위치를 가져오지 못했습니다.");
       },
       {
         enableHighAccuracy: true,
@@ -236,28 +240,7 @@ export default function MapView({
   };
 
   return (
-    <section>
-      <div style={styles.mapHeaderRow}>
-        <div style={styles.mapTitle}>서울 중심 지도</div>
-
-        <div style={styles.buttonRow}>
-          <button
-            type="button"
-            style={styles.controlButton}
-            onClick={moveToSeoulCenter}
-          >
-            서울 중심
-          </button>
-          <button
-            type="button"
-            style={styles.controlButton}
-            onClick={moveToCurrentLocation}
-          >
-            내 위치
-          </button>
-        </div>
-      </div>
-
+    <section style={styles.wrap}>
       <div style={styles.mapOuter}>
         {mapError ? (
           <div style={styles.errorBox}>{mapError}</div>
@@ -265,40 +248,36 @@ export default function MapView({
           <div ref={mapContainerRef} style={styles.mapInner} />
         )}
       </div>
+
+      <div style={styles.mapControls}>
+        <button
+          type="button"
+          style={styles.controlButton}
+          onClick={moveToSeoulCenter}
+        >
+          서울 중심
+        </button>
+        <button
+          type="button"
+          style={styles.controlButton}
+          onClick={moveToCurrentLocation}
+        >
+          내 위치
+        </button>
+      </div>
     </section>
   );
 }
 
 const styles = {
-  mapHeaderRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: "10px",
-    gap: "12px",
-  },
-  mapTitle: {
-    fontSize: "15px",
-    fontWeight: 700,
-    color: "#ffffff",
-  },
-  buttonRow: {
-    display: "flex",
-    gap: "8px",
-  },
-  controlButton: {
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "999px",
-    padding: "8px 12px",
-    fontSize: "12px",
-    fontWeight: 600,
-    whiteSpace: "nowrap",
+  wrap: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
   },
   mapOuter: {
     width: "100%",
-    height: "560px",
+    height: "100%",
     borderRadius: "22px",
     overflow: "hidden",
     border: "1px solid #2a2a2a",
@@ -307,6 +286,26 @@ const styles = {
   mapInner: {
     width: "100%",
     height: "100%",
+  },
+  mapControls: {
+    position: "absolute",
+    right: "12px",
+    bottom: "160px",
+    zIndex: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  controlButton: {
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(20,20,20,0.9)",
+    color: "#ffffff",
+    borderRadius: "999px",
+    padding: "9px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+    backdropFilter: "blur(10px)",
   },
   errorBox: {
     width: "100%",

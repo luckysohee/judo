@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import Header from "../../components/Header/Header";
 import SearchBar from "../../components/SearchBar/SearchBar";
 import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
@@ -15,474 +16,221 @@ import CuratorApplyForm from "../../components/CuratorApplyForm/CuratorApplyForm
 import { fetchSupabaseCurators } from "../../utils/supabaseCurators";
 import { places } from "../../data/places";
 import { curators as baseCurators } from "../../data/curators";
+
 import {
   getFolders,
   getSavedPlacesMap,
   getPlaceFolderIds,
   getPrimarySavedFolderColor,
   isPlaceSaved,
-  isCuratorFollowed,
   savePlaceToFolder,
-  toggleFollowCurator,
 } from "../../utils/storage";
+
 import parseNaturalQuery from "../../utils/parseNaturalQuery";
 import { getCustomPlaces } from "../../utils/customPlacesStorage";
-import normalizeText from "../../utils/normalizeText";
-import { isFuzzyMatch, levenshteinDistance } from "../../utils/fuzzyMatch";
-
-const DEFAULT_TAG_POOL = [
-  "노포",
-  "소주",
-  "맥주",
-  "와인",
-  "하이볼",
-  "데이트",
-  "2차",
-  "1차",
-  "혼술",
-  "회식",
-  "해산물",
-  "안주맛집",
-  "분위기",
-  "심야",
-];
-
-function normalizeCurator(curator) {
-  if (!curator) return null;
-
-  return {
-    id: curator.id || curator.slug || curator.name,
-    name: curator.name || curator.slug || "",
-    displayName:
-      curator.displayName || curator.display_name || curator.name || "",
-    aliases: Array.isArray(curator.aliases) ? curator.aliases : [],
-    color: curator.color || "#2ECC71",
-    subtitle: curator.subtitle || "주도 큐레이터",
-    bio: curator.bio || "주도 큐레이터입니다.",
-    avatar:
-      curator.avatar ||
-      curator.avatar_url ||
-      "https://placehold.co/240x240?text=JU-DO",
-    followers: curator.followers || curator.followers_count || 0,
-    isPower: Boolean(curator.isPower || curator.is_power),
-    createdAt: curator.createdAt || curator.created_at || null,
-  };
-}
-
-const DEFAULT_SELECTED_CURATORS = (baseCurators || [])
-  .map(normalizeCurator)
-  .filter((curator) => curator?.isPower)
-  .map((curator) => curator.name);
 
 export default function Home() {
+
   const navigate = useNavigate();
 
-  const [query, setQuery] = useState("");
-  const [selectedCurators, setSelectedCurators] = useState(
-    DEFAULT_SELECTED_CURATORS
-  );
-  const [selectedPlace, setSelectedPlace] = useState(null);
-  const [detailPlace, setDetailPlace] = useState(null);
-  const [saveTargetPlace, setSaveTargetPlace] = useState(null);
-  const [folders, setFolders] = useState([]);
-  const [savedMap, setSavedMap] = useState({});
-  const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
-  const [openedCurator, setOpenedCurator] = useState(null);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [customPlaces, setCustomPlaces] = useState([]);
-  const [addPlaceOpen, setAddPlaceOpen] = useState(false);
-  const [curatorApplyOpen, setCuratorApplyOpen] = useState(false);
-  const [curatorFollowState, setCuratorFollowState] = useState(false);
-  const [dbCurators, setDbCurators] = useState([]);
+  const [query,setQuery] = useState("");
 
-  useEffect(() => {
-    refreshStorageState();
+  const [selectedPlace,setSelectedPlace] = useState(null);
+  const [detailPlace,setDetailPlace] = useState(null);
+
+  const [saveTargetPlace,setSaveTargetPlace] = useState(null);
+
+  const [folders,setFolders] = useState([]);
+  const [savedMap,setSavedMap] = useState({});
+
+  const [savedPlacesOpen,setSavedPlacesOpen] = useState(false);
+
+  const [customPlaces,setCustomPlaces] = useState([]);
+
+  const [addPlaceOpen,setAddPlaceOpen] = useState(false);
+  const [curatorApplyOpen,setCuratorApplyOpen] = useState(false);
+
+  const [dbCurators,setDbCurators] = useState([]);
+
+  const [selectedCurators,setSelectedCurators] = useState([]);
+
+  useEffect(()=>{
+    refreshStorage();
     refreshCustomPlaces();
     refreshDbCurators();
-  }, []);
+  },[]);
 
-  useEffect(() => {
-    if (openedCurator) {
-      setCuratorFollowState(isCuratorFollowed(openedCurator.name));
-    }
-  }, [openedCurator]);
-
-  const allPlaces = useMemo(() => {
-    return [...customPlaces, ...places];
-  }, [customPlaces]);
-
-  const allCurators = useMemo(() => {
-    const normalizedBase = (baseCurators || [])
-      .map(normalizeCurator)
-      .filter(Boolean);
-
-    const normalizedDb = (dbCurators || [])
-      .map(normalizeCurator)
-      .filter(Boolean);
-
-    const merged = [...normalizedBase, ...normalizedDb];
-    const seen = new Set();
-
-    return merged.filter((curator) => {
-      if (!curator?.name) return false;
-      if (seen.has(curator.name)) return false;
-      seen.add(curator.name);
-      return true;
-    });
-  }, [dbCurators]);
-
-  const parsedQuery = useMemo(() => parseNaturalQuery(query), [query]);
-
-  const searchSuggestions = useMemo(() => {
-    try {
-      const q = normalizeText(query);
-
-      if (!q || q.length < 2) return [];
-
-      const curatorSuggestions = (allCurators || [])
-        .filter((curator) => {
-          const candidateTexts = [
-            curator?.name || "",
-            curator?.displayName || "",
-            ...(Array.isArray(curator?.aliases) ? curator.aliases : []),
-          ];
-
-          return candidateTexts.some((text) => {
-            const normalized = normalizeText(text);
-            return normalized.includes(q) || isFuzzyMatch(q, text);
-          });
-        })
-        .map((curator) => {
-          const candidateTexts = [
-            curator?.name || "",
-            curator?.displayName || "",
-            ...(Array.isArray(curator?.aliases) ? curator.aliases : []),
-          ].filter(Boolean);
-
-          const score =
-            candidateTexts.length > 0
-              ? Math.min(
-                  ...candidateTexts.map((text) => levenshteinDistance(q, text))
-                )
-              : 999;
-
-          return {
-            type: "큐레이터",
-            label: curator?.displayName || curator?.name || "",
-            actualName: curator?.name || "",
-            score,
-          };
-        });
-
-      const placeSuggestions = (allPlaces || [])
-        .filter((place) => {
-          const placeName = place?.name || "";
-          return (
-            normalizeText(placeName).includes(q) || isFuzzyMatch(q, placeName)
-          );
-        })
-        .map((place) => ({
-          type: "술집",
-          label: place?.name || "",
-          actualName: place?.name || "",
-          score: levenshteinDistance(q, place?.name || ""),
-        }));
-
-      const tagSuggestions = DEFAULT_TAG_POOL.filter((tag) => {
-        return normalizeText(tag).includes(q) || isFuzzyMatch(q, tag);
-      }).map((tag) => ({
-        type: "태그",
-        label: tag,
-        actualName: tag,
-        score: levenshteinDistance(q, tag),
-      }));
-
-      const merged = [
-        ...curatorSuggestions,
-        ...placeSuggestions,
-        ...tagSuggestions,
-      ].filter((item) => item && item.label);
-
-      const unique = [];
-      const seen = new Set();
-
-      for (const item of merged) {
-        const key = `${item.type}-${normalizeText(item.label)}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          unique.push(item);
-        }
-      }
-
-      unique.sort((a, b) => {
-        if (a.score !== b.score) return a.score - b.score;
-        return a.label.length - b.label.length;
-      });
-
-      return unique.slice(0, 6).map(({ type, label, actualName }) => ({
-        type,
-        label,
-        actualName,
-      }));
-    } catch (error) {
-      console.error("searchSuggestions error:", error);
-      return [];
-    }
-  }, [query, allPlaces, allCurators]);
-
-  const filteredPlaces = useMemo(() => {
-    let result = [...allPlaces];
-
-    result = result.filter((place) => {
-      return (
-        selectedCurators.length === 0 ||
-        place.curators.some((curatorName) =>
-          selectedCurators.includes(curatorName)
-        )
-      );
-    });
-
-    if (parsedQuery.curator) {
-      result = result.filter((place) =>
-        place.curators.includes(parsedQuery.curator)
-      );
-    }
-
-    if (parsedQuery.region) {
-      result = result.filter((place) => place.region === parsedQuery.region);
-    }
-
-    if (parsedQuery.tags.length > 0) {
-      result = result.filter((place) =>
-        parsedQuery.tags.every((tag) => place.tags.includes(tag))
-      );
-    }
-
-    if (parsedQuery.remainingText) {
-      result = result.filter((place) => {
-        const haystack = normalizeText(
-          [
-            place.name,
-            place.region,
-            place.primaryCurator,
-            ...place.curators,
-            ...place.tags,
-            place.comment,
-            place.address,
-          ].join(" ")
-        );
-
-        return haystack.includes(normalizeText(parsedQuery.remainingText));
-      });
-    }
-
-    if (parsedQuery.sortBySaved) {
-      result.sort((a, b) => b.savedCount - a.savedCount);
-    }
-
-    if (parsedQuery.wantsWalkingDistance && currentLocation) {
-      result.sort((a, b) => {
-        const distanceA = getDistanceKm(currentLocation, {
-          lat: a.lat,
-          lng: a.lng,
-        });
-        const distanceB = getDistanceKm(currentLocation, {
-          lat: b.lat,
-          lng: b.lng,
-        });
-        return distanceA - distanceB;
-      });
-    }
-
-    return result;
-  }, [allPlaces, selectedCurators, parsedQuery, currentLocation]);
-
-  useEffect(() => {
-    if (!selectedPlace) return;
-
-    const stillExists = filteredPlaces.some(
-      (place) => place.id === selectedPlace.id
-    );
-
-    if (!stillExists) {
-      setSelectedPlace(null);
-    }
-  }, [filteredPlaces, selectedPlace]);
-
-  const todayCurator = useMemo(() => {
-    const basePowerCurators = (baseCurators || [])
-      .map(normalizeCurator)
-      .filter((curator) => curator?.isPower);
-
-    return basePowerCurators[0] || allCurators[0] || null;
-  }, [allCurators]);
-
-  const curatorColorMap = useMemo(() => {
-    return allCurators.reduce((acc, curator) => {
-      acc[curator.name] = curator.color;
-      return acc;
-    }, {});
-  }, [allCurators]);
-
-  const savedColorMap = useMemo(() => {
-    return allPlaces.reduce((acc, place) => {
-      acc[place.id] = getPrimarySavedFolderColor(place.id, folders);
-      return acc;
-    }, {});
-  }, [allPlaces, folders, savedMap]);
-
-  const savedPlacesByFolder = useMemo(() => {
-    const result = {};
-
-    folders.forEach((folder) => {
-      result[folder.id] = allPlaces.filter((place) => {
-        const ids = savedMap[place.id] || [];
-        return ids.includes(folder.id);
-      });
-    });
-
-    return result;
-  }, [folders, savedMap, allPlaces]);
-
-  const openedCuratorPlaces = useMemo(() => {
-    if (!openedCurator) return [];
-    return allPlaces.filter((place) =>
-      place.curators.includes(openedCurator.name)
-    );
-  }, [openedCurator, allPlaces]);
-
-  function refreshStorageState() {
+  function refreshStorage(){
     setFolders(getFolders());
     setSavedMap(getSavedPlacesMap());
   }
 
-  function refreshCustomPlaces() {
+  function refreshCustomPlaces(){
     setCustomPlaces(getCustomPlaces());
   }
 
-  async function refreshDbCurators() {
-    try {
-      const data = await fetchSupabaseCurators();
-      setDbCurators(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("refreshDbCurators error:", error);
-      setDbCurators([]);
-    }
+  async function refreshDbCurators(){
+    const data = await fetchSupabaseCurators();
+    setDbCurators(data || []);
   }
 
-  const handleCuratorToggle = (curatorName) => {
-    setSelectedCurators((prev) => {
-      if (prev.includes(curatorName)) {
-        return prev.filter((name) => name !== curatorName);
-      }
-      return [...prev, curatorName];
+  const allPlaces = useMemo(()=>{
+    return [...customPlaces,...places];
+  },[customPlaces]);
+
+  const parsedQuery = useMemo(()=>parseNaturalQuery(query),[query]);
+
+  const curatorColorMap = useMemo(()=>{
+    const map={};
+    baseCurators.forEach(c=>map[c.name]=c.color);
+    return map;
+  },[]);
+
+  const savedColorMap = useMemo(()=>{
+    const map={};
+    allPlaces.forEach(p=>{
+      map[p.id] = getPrimarySavedFolderColor(p.id,folders);
     });
-  };
+    return map;
+  },[allPlaces,folders,savedMap]);
 
-  const handleSelectAllCurators = () => {
-    setSelectedCurators(allCurators.map((curator) => curator.name));
-  };
+  const filteredPlaces = useMemo(()=>{
 
-  const handleOpenSaveModal = (place) => {
-    setSaveTargetPlace(place);
-  };
+    let result=[...allPlaces];
 
-  const handleSaveToFolder = (placeId, folderId) => {
-    savePlaceToFolder(placeId, folderId);
-    refreshStorageState();
-  };
+    if(selectedCurators.length>0){
 
-  const handleOpenCuratorByName = (curatorName) => {
-    const curator = allCurators.find((item) => item.name === curatorName);
+      result=result.filter(place=>
+        place.curators.some(c=>selectedCurators.includes(c))
+      );
 
-    if (curator) {
-      setOpenedCurator(curator);
-      setCuratorFollowState(isCuratorFollowed(curator.name));
     }
+
+    if(parsedQuery.remainingText){
+
+      const q=parsedQuery.remainingText.toLowerCase();
+
+      result=result.filter(place=>
+        place.name.toLowerCase().includes(q)
+      );
+
+    }
+
+    return result;
+
+  },[allPlaces,selectedCurators,parsedQuery]);
+
+  const handleCuratorToggle = (name)=>{
+
+    setSelectedCurators(prev=>{
+
+      if(prev.includes(name)){
+        return prev.filter(c=>c!==name);
+      }
+
+      return [...prev,name];
+
+    });
+
   };
 
-  if (!todayCurator) {
-    return (
-      <div style={styles.page}>
-        <Header />
-        <div style={styles.content}>큐레이터 데이터를 불러오는 중입니다.</div>
-      </div>
-    );
-  }
+  const handleSelectAllCurators = ()=>{
+    setSelectedCurators(baseCurators.map(c=>c.name));
+  };
 
   return (
+
     <div style={styles.page}>
-      <Header />
+
+      <Header/>
 
       <div style={styles.content}>
-        <TopActionRow
-          onOpenSavedPlaces={() => navigate("/saved")}
-          onOpenAddPlace={() => setAddPlaceOpen(true)}
-          onOpenCuratorApply={() => setCuratorApplyOpen(true)}
-          onOpenAdmin={() => navigate("/admin/applications")}
-        />
-
-        <SearchBar
-          query={query}
-          setQuery={setQuery}
-          onExampleClick={setQuery}
-          suggestions={searchSuggestions}
-          placeholder="예: 을지로 2차 노포 / 도보로 가까운 해산물 안주"
-        />
-
-        {query.trim() ? (
-          <SearchIntentSummary
-            parsedQuery={parsedQuery}
-            count={filteredPlaces.length}
-          />
-        ) : null}
 
         <div style={styles.mapSection}>
+
           <MapView
             places={filteredPlaces}
             selectedPlace={selectedPlace}
             setSelectedPlace={setSelectedPlace}
             curatorColorMap={curatorColorMap}
             savedColorMap={savedColorMap}
-            onCurrentLocationChange={setCurrentLocation}
           />
 
-          <div style={styles.mapFilterOverlay}>
+          <div style={styles.curatorOverlay}>
+
             <CuratorFilterBar
-              curators={allCurators}
+              curators={baseCurators}
               selectedCurators={selectedCurators}
               onToggle={handleCuratorToggle}
               onSelectAll={handleSelectAllCurators}
             />
+
+          </div>
+
+          <div style={styles.keywordOverlay}>
+
+            {query.trim() && (
+              <div style={styles.keywordBox}>
+                검색 결과 {filteredPlaces.length}개
+              </div>
+            )}
+
+          </div>
+
+          <div style={styles.searchOverlay}>
+
+            <SearchBar
+              query={query}
+              setQuery={setQuery}
+              placeholder="예: 을지로 2차 노포"
+            />
+
           </div>
 
           <div style={styles.mapCardOverlay}>
-            {selectedPlace ? (
+
+            {selectedPlace && (
+
               <PlacePreviewCard
                 place={selectedPlace}
                 isSaved={isPlaceSaved(selectedPlace.id)}
                 savedFolderColor={savedColorMap[selectedPlace.id]}
-                onSave={handleOpenSaveModal}
-                onOpenDetail={(place) => {
-                  setDetailPlace(place);
-                  navigate(`/place/${place.id}`);
-                }}
-                onOpenCurator={(curatorName) => {
-                  handleOpenCuratorByName(curatorName);
-                  navigate(`/curator/${encodeURIComponent(curatorName)}`);
-                }}
-                onClose={() => setSelectedPlace(null)}
+                onSave={setSaveTargetPlace}
+                onOpenDetail={(p)=>setDetailPlace(p)}
+                onClose={()=>setSelectedPlace(null)}
               />
-            ) : null}
+
+            )}
+
           </div>
+
         </div>
+
+      </div>
+
+      <div style={styles.bottomBar}>
+
+        <button
+          style={styles.bottomButton}
+          onClick={()=>setSavedPlacesOpen(true)}
+        >
+          내⭐저장
+        </button>
+
+        <button
+          style={styles.bottomButton}
+          onClick={()=>setAddPlaceOpen(true)}
+        >
+          + 술집 추가
+        </button>
+
       </div>
 
       <PlaceDetail
         place={detailPlace}
         isSaved={detailPlace ? isPlaceSaved(detailPlace.id) : false}
-        onClose={() => setDetailPlace(null)}
-        onSave={handleOpenSaveModal}
+        onClose={()=>setDetailPlace(null)}
+        onSave={setSaveTargetPlace}
       />
 
       <SaveFolderModal
@@ -492,217 +240,146 @@ export default function Home() {
         savedFolderIds={
           saveTargetPlace ? getPlaceFolderIds(saveTargetPlace.id) : []
         }
-        onClose={() => setSaveTargetPlace(null)}
-        onSaveToFolder={handleSaveToFolder}
-        onFoldersUpdated={refreshStorageState}
+        onClose={()=>setSaveTargetPlace(null)}
+        onSaveToFolder={(placeId,folderId)=>{
+          savePlaceToFolder(placeId,folderId);
+          refreshStorage();
+        }}
       />
 
       <SavedPlaces
         open={savedPlacesOpen}
         folders={folders}
-        savedPlacesByFolder={savedPlacesByFolder}
-        onClose={() => setSavedPlacesOpen(false)}
-        onOpenPlaceDetail={(place) => {
-          setSavedPlacesOpen(false);
-          setDetailPlace(place);
-          navigate(`/place/${place.id}`);
-        }}
-      />
-
-      <CuratorPage
-        open={!!openedCurator}
-        curator={openedCurator}
-        places={openedCuratorPlaces}
-        curatorColorMap={curatorColorMap}
-        savedColorMap={savedColorMap}
-        onClose={() => setOpenedCurator(null)}
-        onOpenPlaceDetail={(place) => {
-          setOpenedCurator(null);
-          setDetailPlace(place);
-          navigate(`/place/${place.id}`);
-        }}
-        onSelectPlace={(place) => {
-          setSelectedPlace(place);
-        }}
-        followState={curatorFollowState}
-        onToggleFollow={() => {
-          if (!openedCurator) return;
-          const next = toggleFollowCurator(openedCurator.name);
-          setCuratorFollowState(next.includes(openedCurator.name));
-        }}
+        onClose={()=>setSavedPlacesOpen(false)}
       />
 
       <AddPlaceForm
         open={addPlaceOpen}
-        curators={allCurators}
-        onClose={() => setAddPlaceOpen(false)}
+        curators={baseCurators}
+        onClose={()=>setAddPlaceOpen(false)}
         onAdded={refreshCustomPlaces}
       />
 
       <CuratorApplyForm
         open={curatorApplyOpen}
-        onClose={() => setCuratorApplyOpen(false)}
+        onClose={()=>setCuratorApplyOpen(false)}
       />
+
     </div>
+
   );
-}
 
-function TopActionRow({
-  onOpenSavedPlaces,
-  onOpenAddPlace,
-  onOpenCuratorApply,
-  onOpenAdmin,
-}) {
-  return (
-    <div style={styles.topActionRow}>
-      <button type="button" onClick={onOpenSavedPlaces} style={styles.actionButton}>
-        ⭐ 내 저장
-      </button>
-      <button type="button" onClick={onOpenAddPlace} style={styles.actionButton}>
-        + 술집 추가
-      </button>
-      <button type="button" onClick={onOpenCuratorApply} style={styles.actionButton}>
-        신청
-      </button>
-      <button type="button" onClick={onOpenAdmin} style={styles.actionButton}>
-        관리자
-      </button>
-    </div>
-  );
-}
-
-function SearchIntentSummary({ parsedQuery, count }) {
-  const chips = [];
-
-  if (parsedQuery.region) chips.push(`지역: ${parsedQuery.region}`);
-  if (parsedQuery.curator) chips.push(`큐레이터: ${parsedQuery.curator}`);
-  parsedQuery.tags.forEach((tag) => chips.push(`태그: ${tag}`));
-  if (parsedQuery.wantsWalkingDistance) chips.push("거리순");
-  if (parsedQuery.sortBySaved) chips.push("저장순");
-
-  return (
-    <section style={styles.summaryWrap}>
-      <div style={styles.summaryTop}>
-        <div style={styles.summaryTitle}>AI 검색 해석</div>
-        <div style={styles.summaryCount}>결과 {count}개</div>
-      </div>
-
-      <div style={styles.discoveryRow}>
-        {chips.length > 0 ? (
-          chips.map((chip) => (
-            <span key={chip} style={styles.summaryChip}>
-              {chip}
-            </span>
-          ))
-        ) : (
-          <span style={styles.summaryChip}>일반 키워드 검색</span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function getDistanceKm(from, to) {
-  const toRad = (value) => (value * Math.PI) / 180;
-
-  const R = 6371;
-  const dLat = toRad(to.lat - from.lat);
-  const dLng = toRad(to.lng - from.lng);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(from.lat)) *
-      Math.cos(toRad(to.lat)) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
 }
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#111111",
-    color: "#ffffff",
-    fontFamily:
-      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+
+  page:{
+    minHeight:"100vh",
+    background:"#111",
+    color:"#fff"
   },
-  content: {
-    padding: "12px 16px 24px",
+
+  content:{
+    padding:"8px 10px 16px"
   },
-  topActionRow: {
-    display: "flex",
-    gap: "10px",
-    marginBottom: "14px",
-    flexWrap: "wrap",
+
+  mapSection:{
+    position:"relative",
+    height:"78vh",
+    borderRadius:"20px",
+    overflow:"hidden"
   },
-  actionButton: {
-    flex: 1,
-    minWidth: "90px",
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px",
-    fontSize: "14px",
-    fontWeight: 700,
+
+  curatorOverlay:{
+    position:"absolute",
+    top:"10px",
+    left:"10px",
+    right:"10px",
+    zIndex:20
   },
+
+  keywordOverlay:{
+    position:"absolute",
+    bottom:"78px",
+    left:"10px",
+    right:"10px",
+    zIndex:20
+  },
+
+  keywordBox:{
+    background:"#1b1b1b",
+    padding:"10px",
+    borderRadius:"10px",
+    fontSize:"13px"
+  },
+
+  searchOverlay:{
+    position:"absolute",
+    bottom:"18px",
+    left:"10px",
+    right:"10px",
+    zIndex:20
+  },
+
+  mapCardOverlay:{
+    position:"absolute",
+    bottom:"140px",
+    left:0,
+    right:0,
+    zIndex:30,
+    pointerEvents:"none"
+  },
+
+  bottomBar:{
+    position:"fixed",
+    bottom:0,
+    left:0,
+    right:0,
+    display:"flex",
+    gap:"10px",
+    padding:"12px",
+    background:"#111",
+    borderTop:"1px solid #2a2a2a"
+  },
+
+  bottomButton:{
+    flex:1,
+    height:"44px",
+    borderRadius:"12px",
+    border:"none",
+    background:"#1e1e1e",
+    color:"#fff",
+    fontWeight:"700"
+  },
+
   summaryWrap: {
-    marginBottom: "14px",
-    border: "1px solid #2a2a2a",
-    backgroundColor: "#161616",
-    borderRadius: "14px",
-    padding: "12px",
-  },
-  summaryTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: "8px",
-  },
-  summaryTitle: {
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#ffffff",
-  },
-  summaryCount: {
-    fontSize: "12px",
-    color: "#bdbdbd",
-  },
-  summaryChip: {
-    border: "1px solid #333333",
-    backgroundColor: "#1f1f1f",
-    color: "#f4f4f4",
-    borderRadius: "999px",
-    padding: "7px 10px",
-    fontSize: "12px",
-  },
-  discoveryRow: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap",
-  },
-  mapSection: {
-    position: "relative",
-    marginBottom: "16px",
-    overflow: "visible",
-    zIndex: 1,
-  },
-  mapFilterOverlay: {
-    position: "absolute",
-    top: "56px",
-    left: "12px",
-    right: "12px",
-    zIndex: 20,
-    pointerEvents: "none",
-  },
-  mapCardOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 9999,
-    pointerEvents: "none",
-  },
+  border: "1px solid rgba(255,255,255,0.06)",
+  backgroundColor: "rgba(17,17,17,0.92)",
+  borderRadius: "14px",
+  padding: "8px 10px",
+  backdropFilter: "blur(8px)",
+},
+
+summaryTitle: {
+  fontSize: "11px",
+  fontWeight: 700,
+  color: "#ffffff",
+},
+
+summaryCount: {
+  fontSize: "10px",
+  color: "#bdbdbd",
+},
+
+summaryChip: {
+  border: "1px solid #333333",
+  backgroundColor: "#1f1f1f",
+  color: "#f4f4f4",
+  borderRadius: "999px",
+  padding: "5px 8px",
+  fontSize: "10px",
+},
+
+
+
 };

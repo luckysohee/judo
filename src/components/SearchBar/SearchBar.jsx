@@ -1,124 +1,101 @@
-import normalizeText from "../../utils/normalizeText";
-
-const QUICK_EXAMPLES = [
-  "을지로 2차 노포",
-  "성수 데이트 와인",
-  "강남 해산물 안주",
-  "도보로 가까운 2차",
-];
-
 export default function SearchBar({
   query,
   setQuery,
   onExampleClick,
   suggestions = [],
-  placeholder = "지역 / 술집 / 큐레이터 검색",
+  placeholder = "검색어를 입력해 주세요",
 }) {
-  const handleSubmit = (event) => {
-    event.preventDefault();
-  };
-
-  const handleClear = () => {
-    setQuery("");
-  };
-
-  const safeSuggestions = Array.isArray(suggestions)
-    ? suggestions.filter((item) => item && item.label)
+  const visibleSuggestions = Array.isArray(suggestions)
+    ? suggestions.slice(0, 3)
     : [];
 
-  const showSuggestions = query.trim().length > 0 && safeSuggestions.length > 0;
-
   return (
-    <div style={styles.wrap}>
-      <form onSubmit={handleSubmit} style={styles.form}>
-        <div style={styles.inputWrap}>
-          <span style={styles.icon}>🔍</span>
+    <section style={styles.section}>
+      <div style={styles.searchWrap}>
+        <span style={styles.icon}>🔎</span>
 
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={placeholder}
-            style={styles.input}
-          />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={placeholder}
+          style={styles.input}
+        />
 
-          {query ? (
-            <button
-              type="button"
-              onClick={handleClear}
-              style={styles.clearButton}
-              aria-label="검색어 지우기"
-            >
-              ×
-            </button>
-          ) : null}
-        </div>
-      </form>
+        {query ? (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            style={styles.clearButton}
+            aria-label="검색어 지우기"
+          >
+            ✕
+          </button>
+        ) : null}
+      </div>
 
-      {showSuggestions ? (
-        <div style={styles.suggestionBox}>
-          <div style={styles.suggestionTitle}>추천 검색어</div>
-          <div style={styles.suggestionList}>
-            {safeSuggestions.map((item) => {
-              const exactVisualMatch =
-                normalizeText(item.label) === normalizeText(query);
+      {!query.trim() ? (
+        <div style={styles.exampleRow}>
+          <button
+            type="button"
+            onClick={() => onExampleClick?.("을지로 2차 노포")}
+            style={styles.exampleChip}
+          >
+            을지로 2차 노포
+          </button>
 
-              return (
-                <button
-                  key={`${item.type}-${item.label}`}
-                  type="button"
-                  onClick={() => setQuery(item.actualName || item.label)}
-                  style={{
-                    ...styles.suggestionItem,
-                    borderColor: exactVisualMatch ? "#2ECC71" : "#333333",
-                  }}
-                >
-                  <span style={styles.suggestionType}>{item.type}</span>
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            onClick={() => onExampleClick?.("도보로 가까운 2차")}
+            style={styles.exampleChip}
+          >
+            도보로 가까운 2차
+          </button>
         </div>
       ) : null}
 
-      <div style={styles.exampleRow}>
-        {QUICK_EXAMPLES.map((example) => (
-          <button
-            key={example}
-            type="button"
-            onClick={() => onExampleClick(example)}
-            style={styles.exampleChip}
-          >
-            {example}
-          </button>
-        ))}
-      </div>
-    </div>
+      {query.trim() && visibleSuggestions.length > 0 ? (
+        <div style={styles.suggestionBox}>
+          {visibleSuggestions.map((item) => (
+            <button
+              key={`${item.type}-${item.label}`}
+              type="button"
+              onClick={() => setQuery(item.actualName || item.label)}
+              style={styles.suggestionItem}
+            >
+              <span style={styles.suggestionType}>{item.type}</span>
+              <span style={styles.suggestionLabel}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 const styles = {
-  wrap: {
-    marginBottom: "16px",
+  section: {
+    width: "100%",
   },
-  form: {
-    marginBottom: "10px",
-  },
-  inputWrap: {
+
+  searchWrap: {
+    height: "50px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(18,18,18,0.94)",
+    borderRadius: "16px",
     display: "flex",
     alignItems: "center",
-    backgroundColor: "#1a1a1a",
-    border: "1px solid #2a2a2a",
-    borderRadius: "14px",
+    gap: "8px",
     padding: "0 12px",
-    height: "48px",
+    backdropFilter: "blur(10px)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
   },
+
   icon: {
-    fontSize: "16px",
-    marginRight: "8px",
-    color: "#bdbdbd",
+    fontSize: "14px",
+    opacity: 0.9,
+    flexShrink: 0,
   },
+
   input: {
     flex: 1,
     height: "100%",
@@ -126,66 +103,72 @@ const styles = {
     outline: "none",
     backgroundColor: "transparent",
     color: "#ffffff",
-    fontSize: "15px",
+    fontSize: "14px",
   },
+
   clearButton: {
+    width: "28px",
+    height: "28px",
     border: "none",
-    backgroundColor: "transparent",
-    color: "#bdbdbd",
-    fontSize: "22px",
-    lineHeight: 1,
-    cursor: "pointer",
-    padding: 0,
-    marginLeft: "8px",
-  },
-  suggestionBox: {
-    marginBottom: "10px",
-    border: "1px solid #2a2a2a",
-    backgroundColor: "#161616",
-    borderRadius: "14px",
-    padding: "10px",
-  },
-  suggestionTitle: {
-    fontSize: "12px",
-    color: "#bdbdbd",
-    marginBottom: "8px",
-  },
-  suggestionList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  suggestionItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    textAlign: "left",
-    border: "1px solid #333333",
-    backgroundColor: "#1d1d1d",
+    borderRadius: "999px",
+    backgroundColor: "#2a2a2a",
     color: "#ffffff",
-    borderRadius: "10px",
-    padding: "10px 12px",
-    fontSize: "13px",
+    fontSize: "12px",
+    flexShrink: 0,
   },
-  suggestionType: {
-    fontSize: "11px",
-    color: "#2ECC71",
-    fontWeight: 700,
-    minWidth: "48px",
-  },
+
   exampleRow: {
     display: "flex",
     gap: "8px",
-    overflowX: "auto",
-    paddingBottom: "2px",
+    flexWrap: "wrap",
+    marginTop: "8px",
   },
+
   exampleChip: {
-    whiteSpace: "nowrap",
-    border: "1px solid #333333",
-    backgroundColor: "#151515",
-    color: "#e9e9e9",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(18,18,18,0.92)",
+    color: "#ffffff",
     borderRadius: "999px",
-    padding: "8px 12px",
-    fontSize: "12px",
+    padding: "7px 10px",
+    fontSize: "11px",
+    fontWeight: 600,
+    backdropFilter: "blur(8px)",
+  },
+
+  suggestionBox: {
+    marginTop: "8px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(17,17,17,0.96)",
+    borderRadius: "16px",
+    overflow: "hidden",
+    backdropFilter: "blur(10px)",
+    boxShadow: "0 10px 26px rgba(0,0,0,0.28)",
+  },
+
+  suggestionItem: {
+    width: "100%",
+    border: "none",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    backgroundColor: "transparent",
+    color: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "12px",
+    textAlign: "left",
+  },
+
+  suggestionType: {
+    fontSize: "11px",
+    color: "#9f9f9f",
+    flexShrink: 0,
+  },
+
+  suggestionLabel: {
+    fontSize: "13px",
+    color: "#ffffff",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 };

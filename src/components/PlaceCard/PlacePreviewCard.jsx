@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -9,117 +7,76 @@ export default function PlacePreviewCard({
   onOpenCurator,
   onClose,
 }) {
-  const [closing, setClosing] = useState(false);
-
-  useEffect(() => {
-    setClosing(false);
-  }, [place?.id]);
-
   if (!place) return null;
 
-  const extraCuratorCount = Math.max(place.curators.length - 3, 0);
-  const visibleExtraCurators = place.curators.slice(1, 3);
-
-  const handleClose = () => {
-    setClosing(true);
-
-    window.setTimeout(() => {
-      onClose();
-    }, 360);
-  };
+  const visibleCurators = (place.curators || []).slice(0, 3);
 
   return (
-    <div
-      style={{
-        ...styles.overlayWrap,
-        opacity: closing ? 0 : 1,
-        transform: closing ? "translateY(36px)" : "translateY(0)",
-      }}
-    >
-      <div style={styles.sheet}>
-        <div style={styles.handleWrap}>
-          <button
-            type="button"
-            onClick={handleClose}
-            style={styles.handleButton}
-            aria-label="카드 닫기"
-          >
-            <span style={styles.handleBar} />
-          </button>
-        </div>
+    <div style={styles.wrap}>
+      <div style={styles.card}>
+        <button type="button" onClick={onClose} style={styles.closeButton}>
+          ✕
+        </button>
 
-        <div style={styles.contentRow}>
-          <img src={place.image} alt={place.name} style={styles.image} />
+        <img src={place.image} alt={place.name} style={styles.image} />
 
-          <div style={styles.body}>
-            <div style={styles.topRow}>
-              <div style={styles.titleWrap}>
-                <div style={styles.name}>{place.name}</div>
-                <div style={styles.meta}>
-                  {place.region} · 저장 {place.savedCount}
-                </div>
-              </div>
+        <div style={styles.body}>
+          <div style={styles.titleRow}>
+            <div style={styles.title}>{place.name}</div>
 
-              <button
-                type="button"
-                onClick={() => onSave(place)}
+            {isSaved ? (
+              <div
                 style={{
-                  ...styles.saveButton,
-                  backgroundColor: isSaved ? "#FFD54F" : "#2ECC71",
-                  color: "#111111",
+                  ...styles.savedDot,
+                  backgroundColor: savedFolderColor || "#2ECC71",
                 }}
-              >
-                {isSaved ? "저장됨" : "저장"}
-              </button>
-            </div>
-
-            {savedFolderColor ? (
-              <div style={styles.savedColorRow}>
-                <span
-                  style={{
-                    ...styles.savedColorDot,
-                    backgroundColor: savedFolderColor,
-                  }}
-                />
-                <span style={styles.savedColorText}>저장 폴더 색상</span>
-              </div>
+              />
             ) : null}
+          </div>
 
-            <div style={styles.curatorRow}>
-              <span style={styles.label}>대표 큐레이터</span>
+          <div style={styles.meta}>
+            {place.region} · 저장 {place.savedCount}
+          </div>
+
+          <div style={styles.comment}>{place.comment}</div>
+
+          <div style={styles.tagRow}>
+            {(place.tags || []).slice(0, 4).map((tag) => (
+              <span key={tag} style={styles.tag}>
+                #{tag}
+              </span>
+            ))}
+          </div>
+
+          <div style={styles.curatorRow}>
+            {visibleCurators.map((curator) => (
               <button
+                key={curator}
                 type="button"
-                onClick={() => onOpenCurator(place.primaryCurator)}
-                style={styles.primaryCuratorButton}
+                onClick={() => onOpenCurator?.(curator)}
+                style={styles.curatorChip}
               >
-                {place.primaryCurator}
+                {curator}
               </button>
-            </div>
+            ))}
+          </div>
 
-            <div style={styles.recommendLine}>
-              추천 큐레이터: {visibleExtraCurators.join(" · ")}
-              {extraCuratorCount > 0 ? ` +${extraCuratorCount}` : ""}
-            </div>
+          <div style={styles.actionRow}>
+            <button
+              type="button"
+              onClick={() => onSave(place)}
+              style={styles.saveButton}
+            >
+              {isSaved ? "저장 폴더" : "저장"}
+            </button>
 
-            <div style={styles.comment}>{place.comment}</div>
-
-            <div style={styles.tagRow}>
-              {place.tags.map((tag) => (
-                <span key={tag} style={styles.tag}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-
-            <div style={styles.bottomRow}>
-              <button
-                type="button"
-                onClick={() => onOpenDetail(place)}
-                style={styles.detailButton}
-              >
-                상세보기
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onOpenDetail(place)}
+              style={styles.detailButton}
+            >
+              상세보기
+            </button>
           </div>
         </div>
       </div>
@@ -128,140 +85,73 @@ export default function PlacePreviewCard({
 }
 
 const styles = {
-  overlayWrap: {
-    position: "absolute",
-    left: "10px",
-    right: "10px",
-    bottom: "10px",
-    zIndex: 99999,
-    pointerEvents: "none",
-    transition: "opacity 360ms ease, transform 360ms ease",
-  },
-  sheet: {
-    pointerEvents: "auto",
-    backgroundColor: "rgba(18,18,18,0.98)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "22px",
-    boxShadow: "0 16px 32px rgba(0,0,0,0.34)",
-    backdropFilter: "blur(12px)",
-    overflow: "hidden",
-  },
-  handleWrap: {
-    display: "flex",
-    justifyContent: "center",
-    paddingTop: "8px",
-    paddingBottom: "4px",
-  },
-  handleButton: {
+  wrap: {
     width: "100%",
-    border: "none",
-    backgroundColor: "transparent",
     display: "flex",
     justifyContent: "center",
-    padding: "4px 0 6px",
-    cursor: "pointer",
+    pointerEvents: "auto",
   },
-  handleBar: {
-    width: "46px",
-    height: "5px",
+  card: {
+    width: "92%",
+    backgroundColor: "rgba(18,18,18,0.96)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: "20px",
+    overflow: "hidden",
+    boxShadow: "0 14px 30px rgba(0,0,0,0.32)",
+    backdropFilter: "blur(12px)",
+    animation: "judoCardUp 220ms ease-out",
+    position: "relative",
+  },
+  closeButton: {
+    position: "absolute",
+    right: "10px",
+    top: "10px",
+    border: "none",
+    backgroundColor: "rgba(0,0,0,0.58)",
+    color: "#fff",
     borderRadius: "999px",
-    backgroundColor: "#5c5c5c",
-  },
-  contentRow: {
-    display: "flex",
-    gap: "12px",
-    padding: "12px 14px 14px",
+    width: "30px",
+    height: "30px",
+    fontSize: "13px",
+    zIndex: 2,
   },
   image: {
-    width: "126px",
-    height: "152px",
+    width: "100%",
+    height: "170px",
     objectFit: "cover",
-    borderRadius: "16px",
     backgroundColor: "#242424",
-    flexShrink: 0,
   },
   body: {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
+    padding: "14px 14px 16px",
   },
-  topRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    alignItems: "flex-start",
-  },
-  titleWrap: {
-    minWidth: 0,
-  },
-  name: {
-    fontSize: "19px",
-    fontWeight: 800,
-    color: "#ffffff",
-    marginBottom: "4px",
-    lineHeight: 1.3,
-  },
-  meta: {
-    fontSize: "12px",
-    color: "#cbcbcb",
-  },
-  saveButton: {
-    border: "none",
-    borderRadius: "999px",
-    padding: "10px 12px",
-    fontSize: "12px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-    flexShrink: 0,
-  },
-  savedColorRow: {
-    marginTop: "8px",
+  titleRow: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    justifyContent: "space-between",
+    gap: "10px",
   },
-  savedColorDot: {
+  title: {
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#ffffff",
+    lineHeight: 1.25,
+  },
+  savedDot: {
     width: "10px",
     height: "10px",
     borderRadius: "999px",
+    flexShrink: 0,
   },
-  savedColorText: {
+  meta: {
+    marginTop: "4px",
     fontSize: "12px",
-    color: "#d9d9d9",
-  },
-  curatorRow: {
-    marginTop: "8px",
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    flexWrap: "wrap",
-  },
-  label: {
-    fontSize: "12px",
-    color: "#9f9f9f",
-  },
-  primaryCuratorButton: {
-    border: "none",
-    backgroundColor: "transparent",
-    padding: 0,
-    color: "#ffffff",
-    fontSize: "13px",
-    fontWeight: 700,
-    textAlign: "left",
-    cursor: "pointer",
-  },
-  recommendLine: {
-    marginTop: "6px",
-    fontSize: "12px",
-    color: "#d6d6d6",
-    lineHeight: 1.5,
+    color: "#a9a9a9",
   },
   comment: {
     marginTop: "8px",
     fontSize: "13px",
+    color: "#e8e8e8",
     lineHeight: 1.5,
-    color: "#f4f4f4",
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
@@ -276,24 +166,48 @@ const styles = {
   tag: {
     fontSize: "11px",
     color: "#f3f3f3",
-    backgroundColor: "#2a2a2a",
+    backgroundColor: "#202020",
+    border: "1px solid #343434",
     borderRadius: "999px",
     padding: "5px 8px",
   },
-  bottomRow: {
-    marginTop: "auto",
-    paddingTop: "12px",
+  curatorRow: {
+    marginTop: "10px",
     display: "flex",
-    justifyContent: "flex-end",
+    gap: "6px",
+    flexWrap: "wrap",
+  },
+  curatorChip: {
+    fontSize: "11px",
+    borderRadius: "999px",
+    border: "1px solid #343434",
+    backgroundColor: "#171717",
+    color: "#d4d4d4",
+    padding: "5px 9px",
+  },
+  actionRow: {
+    marginTop: "14px",
+    display: "flex",
+    gap: "8px",
+  },
+  saveButton: {
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #343434",
+    backgroundColor: "#1a1a1a",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   detailButton: {
-    border: "1px solid #444444",
-    backgroundColor: "#111111",
-    color: "#ffffff",
-    borderRadius: "10px",
-    padding: "10px 13px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "none",
+    backgroundColor: "#2ECC71",
+    color: "#111111",
+    fontSize: "13px",
+    fontWeight: 800,
   },
 };

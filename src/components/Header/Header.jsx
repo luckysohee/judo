@@ -1,41 +1,28 @@
 export default function Header() {
   return (
     <header style={styles.header}>
-      <div style={styles.logoRow}>
-        <div style={styles.logo}>JU-DO</div>
-        <div style={styles.logoBadge}>🍶</div>
-      </div>
-      <div style={styles.subtitle}>술꾼들의 별표 지도</div>
+      <div style={styles.title}>JU-DO</div>
     </header>
   );
 }
 
 const styles = {
   header: {
-    position: "sticky",
-    top: 0,
-    zIndex: 20,
-    backgroundColor: "#111111",
-    padding: "20px 16px 12px",
-    borderBottom: "1px solid #222",
-  },
-  logoRow: {
+    height: "44px",
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    padding: "0 14px",
+    backgroundColor: "#111111",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    position: "sticky",
+    top: 0,
+    zIndex: 50,
   },
-  logo: {
-    fontSize: "28px",
+  title: {
+    fontSize: "18px",
     fontWeight: 800,
-    letterSpacing: "0.04em",
     color: "#ffffff",
-  },
-  logoBadge: {
-    fontSize: "22px",
-  },
-  subtitle: {
-    marginTop: "4px",
-    fontSize: "13px",
-    color: "#bdbdbd",
+    letterSpacing: "-0.02em",
+    lineHeight: 1,
   },
 };

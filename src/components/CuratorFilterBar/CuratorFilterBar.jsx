@@ -1,18 +1,24 @@
 export default function CuratorFilterBar({
-  curators,
-  selectedCurators,
+  curators = [],
+  selectedCurators = [],
   onToggle,
   onSelectAll,
 }) {
-  const safeCurators = Array.isArray(curators) ? curators.filter(Boolean) : [];
+  const safeCurators = Array.isArray(curators) ? curators : [];
 
   return (
-    <div style={styles.overlayWrap}>
+    <div style={styles.wrap}>
       <div style={styles.scrollRow}>
         <button
           type="button"
           onClick={onSelectAll}
-          style={styles.allButton}
+          style={{
+            ...styles.chip,
+            ...(selectedCurators.length === safeCurators.length &&
+            safeCurators.length > 0
+              ? styles.chipActive
+              : null),
+          }}
         >
           전체
         </button>
@@ -24,14 +30,16 @@ export default function CuratorFilterBar({
             <button
               key={curator.id || curator.name}
               type="button"
-              onClick={() => onToggle(curator.name)}
+              onClick={() => onToggle?.(curator.name)}
               style={{
                 ...styles.chip,
-                borderColor: curator.color || "#444444",
+                borderColor: active
+                  ? curator.color || "#2ECC71"
+                  : "rgba(255,255,255,0.08)",
                 backgroundColor: active
                   ? curator.color || "#2ECC71"
-                  : "rgba(20,20,20,0.88)",
-                color: "#ffffff",
+                  : "rgba(18,18,18,0.88)",
+                color: active ? "#111111" : "#ffffff",
               }}
             >
               {curator.displayName || curator.name}
@@ -44,10 +52,11 @@ export default function CuratorFilterBar({
 }
 
 const styles = {
-  overlayWrap: {
+  wrap: {
     width: "100%",
-    pointerEvents: "auto",
+    overflow: "hidden",
   },
+
   scrollRow: {
     display: "flex",
     gap: "8px",
@@ -56,26 +65,25 @@ const styles = {
     scrollbarWidth: "none",
     msOverflowStyle: "none",
   },
-  allButton: {
-    flexShrink: 0,
-    whiteSpace: "nowrap",
-    border: "1px solid rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(20,20,20,0.9)",
-    color: "#ffffff",
-    borderRadius: "999px",
-    padding: "10px 14px",
-    fontSize: "13px",
-    fontWeight: 700,
-    backdropFilter: "blur(8px)",
-  },
+
   chip: {
     flexShrink: 0,
-    whiteSpace: "nowrap",
-    border: "1px solid #333333",
+    height: "34px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(18,18,18,0.88)",
+    color: "#ffffff",
     borderRadius: "999px",
-    padding: "10px 14px",
-    fontSize: "13px",
+    padding: "0 12px",
+    fontSize: "12px",
     fontWeight: 700,
-    backdropFilter: "blur(8px)",
+    backdropFilter: "blur(10px)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
+    whiteSpace: "nowrap",
+  },
+
+  chipActive: {
+    backgroundColor: "#ffffff",
+    color: "#111111",
+    borderColor: "#ffffff",
   },
 };

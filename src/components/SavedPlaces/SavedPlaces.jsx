@@ -1,28 +1,43 @@
 export default function SavedPlaces({
   open,
   folders,
-  savedPlacesByFolder,
+  savedPlacesByFolder = {},
   onClose,
   onOpenPlaceDetail,
 }) {
   if (!open) return null;
 
+  const safeFolders = Array.isArray(folders) ? folders : [];
+
   return (
-    <div style={styles.overlay}>
-      <div style={styles.sheet}>
-        <div style={styles.headerRow}>
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.backdrop} />
+
+      <div style={styles.sheet} onClick={(event) => event.stopPropagation()}>
+        <div style={styles.handleWrap}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={styles.handleButton}
+            aria-label="내 저장 닫기"
+          >
+            <span style={styles.handleBar} />
+          </button>
+        </div>
+
+        <div style={styles.header}>
           <div style={styles.title}>내 저장</div>
           <button type="button" onClick={onClose} style={styles.closeButton}>
             닫기
           </button>
         </div>
 
-        {folders.length === 0 ? (
-          <div style={styles.emptyText}>아직 폴더가 없습니다.</div>
-        ) : (
-          <div style={styles.folderList}>
-            {folders.map((folder) => {
-              const places = savedPlacesByFolder[folder.id] || [];
+        <div style={styles.content}>
+          {safeFolders.length === 0 ? (
+            <div style={styles.emptyText}>아직 만든 저장 폴더가 없습니다.</div>
+          ) : (
+            safeFolders.map((folder) => {
+              const items = savedPlacesByFolder[folder.id] || [];
 
               return (
                 <section key={folder.id} style={styles.folderSection}>
@@ -30,33 +45,34 @@ export default function SavedPlaces({
                     <div style={styles.folderLeft}>
                       <span
                         style={{
-                          ...styles.colorDot,
-                          backgroundColor: folder.color,
+                          ...styles.folderDot,
+                          backgroundColor: folder.color || "#2ECC71",
                         }}
                       />
                       <span style={styles.folderName}>{folder.name}</span>
                     </div>
-                    <span style={styles.folderCount}>{places.length}</span>
+                    <span style={styles.folderCount}>{items.length}곳</span>
                   </div>
 
-                  {places.length === 0 ? (
+                  {items.length === 0 ? (
                     <div style={styles.emptyFolderText}>
-                      저장된 술집이 없습니다.
+                      이 폴더엔 아직 저장한 술집이 없습니다.
                     </div>
                   ) : (
                     <div style={styles.placeList}>
-                      {places.map((place) => (
+                      {items.map((place) => (
                         <button
                           key={place.id}
                           type="button"
-                          onClick={() => onOpenPlaceDetail(place)}
-                          style={styles.placeItem}
+                          onClick={() => onOpenPlaceDetail?.(place)}
+                          style={styles.placeCard}
                         >
                           <img
                             src={place.image}
                             alt={place.name}
                             style={styles.placeImage}
                           />
+
                           <div style={styles.placeBody}>
                             <div style={styles.placeName}>{place.name}</div>
                             <div style={styles.placeMeta}>
@@ -70,9 +86,9 @@ export default function SavedPlaces({
                   )}
                 </section>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </div>
     </div>
   );
@@ -82,108 +98,135 @@ const styles = {
   overlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 70,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    zIndex: 300,
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
   },
-  sheet: {
-    width: "100%",
-    maxWidth: "560px",
-    maxHeight: "92vh",
-    overflowY: "auto",
-    backgroundColor: "#111111",
-    borderTopLeftRadius: "22px",
-    borderTopRightRadius: "22px",
-    border: "1px solid #2a2a2a",
-    padding: "16px",
+  backdrop: {
+    position: "absolute",
+    inset: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
   },
-  headerRow: {
+  sheet: {
+    position: "relative",
+    width: "100%",
+    maxHeight: "80vh",
+    backgroundColor: "rgba(18,18,18,0.98)",
+    borderTopLeftRadius: "24px",
+    borderTopRightRadius: "24px",
+    boxShadow: "0 -10px 30px rgba(0,0,0,0.35)",
+    overflow: "hidden",
+    animation: "judoBottomSheetUp 260ms ease-out",
+    backdropFilter: "blur(12px)",
+  },
+  handleWrap: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "8px",
+    paddingBottom: "2px",
+  },
+  handleButton: {
+    width: "100%",
+    border: "none",
+    backgroundColor: "transparent",
+    display: "flex",
+    justifyContent: "center",
+    padding: "4px 0 6px",
+    cursor: "pointer",
+  },
+  handleBar: {
+    width: "48px",
+    height: "5px",
+    borderRadius: "999px",
+    backgroundColor: "#5e5e5e",
+  },
+  header: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: "12px",
+    padding: "8px 16px 12px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
   },
   title: {
-    fontSize: "22px",
+    fontSize: "18px",
     fontWeight: 800,
     color: "#ffffff",
   },
   closeButton: {
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
+    border: "1px solid #3a3a3a",
+    backgroundColor: "#171717",
     color: "#ffffff",
     borderRadius: "999px",
     padding: "8px 12px",
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 700,
+  },
+  content: {
+    padding: "14px 16px 24px",
+    overflowY: "auto",
+    maxHeight: "calc(80vh - 64px)",
   },
   emptyText: {
     color: "#bdbdbd",
     fontSize: "14px",
-    padding: "20px 0",
-  },
-  folderList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "18px",
+    padding: "12px 0",
   },
   folderSection: {
-    border: "1px solid #232323",
-    borderRadius: "16px",
-    padding: "14px",
-    backgroundColor: "#171717",
+    marginBottom: "18px",
   },
   folderHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: "12px",
+    marginBottom: "10px",
   },
   folderLeft: {
     display: "flex",
     alignItems: "center",
-    gap: "10px",
+    gap: "8px",
   },
-  colorDot: {
-    width: "12px",
-    height: "12px",
+  folderDot: {
+    width: "10px",
+    height: "10px",
     borderRadius: "999px",
   },
   folderName: {
-    fontSize: "16px",
+    fontSize: "15px",
     fontWeight: 700,
     color: "#ffffff",
   },
   folderCount: {
-    fontSize: "13px",
-    color: "#bdbdbd",
+    fontSize: "12px",
+    color: "#a9a9a9",
   },
   emptyFolderText: {
     fontSize: "13px",
-    color: "#9f9f9f",
+    color: "#8f8f8f",
+    padding: "6px 0 2px",
   },
   placeList: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
   },
-  placeItem: {
-    display: "flex",
-    gap: "12px",
-    border: "1px solid #2a2a2a",
-    backgroundColor: "#111111",
-    borderRadius: "14px",
+  placeCard: {
+    width: "100%",
+    border: "1px solid rgba(255,255,255,0.06)",
+    backgroundColor: "#151515",
+    borderRadius: "16px",
     padding: "10px",
+    display: "flex",
+    gap: "10px",
     textAlign: "left",
   },
   placeImage: {
-    width: "84px",
-    height: "84px",
+    width: "76px",
+    height: "76px",
+    borderRadius: "12px",
     objectFit: "cover",
-    borderRadius: "10px",
     flexShrink: 0,
+    backgroundColor: "#242424",
   },
   placeBody: {
     minWidth: 0,
@@ -197,12 +240,16 @@ const styles = {
   },
   placeMeta: {
     fontSize: "12px",
-    color: "#bdbdbd",
+    color: "#b8b8b8",
     marginBottom: "6px",
   },
   placeComment: {
-    fontSize: "13px",
-    color: "#f0f0f0",
-    lineHeight: 1.5,
+    fontSize: "12px",
+    color: "#e5e5e5",
+    lineHeight: 1.45,
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
 };
