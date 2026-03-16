@@ -143,3 +143,22 @@ button:focus-visible {
     opacity: 1;
   }
 }
+
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); } /* 전체 길이의 절반만큼 이동 */
+}
+
+/* 스크롤바 숨기기용 */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes judoSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

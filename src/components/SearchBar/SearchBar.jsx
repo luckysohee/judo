@@ -1,30 +1,61 @@
 export default function SearchBar({
   query,
   setQuery,
+  onSubmit,
+  onClear,
   onExampleClick,
   suggestions = [],
   placeholder = "검색어를 입력해 주세요",
+  isLoading = false,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
     : [];
 
+  const handleSubmit = () => {
+    const trimmed = query.trim();
+    if (!trimmed || isLoading) return;
+    onSubmit?.(trimmed);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const handleClear = () => {
+    setQuery("");
+    onClear?.();
+  };
+
   return (
     <section style={styles.section}>
       <div style={styles.searchWrap}>
-        <span style={styles.icon}>🔎</span>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          style={styles.iconButton}
+          aria-label="검색"
+          disabled={isLoading}
+        >
+          <span style={styles.icon}>{isLoading ? "…" : "🔎"}</span>
+        </button>
 
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           style={styles.input}
+          disabled={isLoading}
         />
 
         {query ? (
           <button
             type="button"
-            onClick={() => setQuery("")}
+            onClick={handleClear}
             style={styles.clearButton}
             aria-label="검색어 지우기"
           >
@@ -35,21 +66,13 @@ export default function SearchBar({
 
       {!query.trim() ? (
         <div style={styles.exampleRow}>
-          <button
+          {/* <button
             type="button"
-            onClick={() => onExampleClick?.("을지로 2차 노포")}
+            onClick={() => onExampleClick?.("을지로 조용한 노포 2차")}
             style={styles.exampleChip}
           >
-            을지로 2차 노포
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onExampleClick?.("도보로 가까운 2차")}
-            style={styles.exampleChip}
-          >
-            도보로 가까운 2차
-          </button>
+            을지로 조용한 노포 2차
+          </button> */}
         </div>
       ) : null}
 
@@ -59,7 +82,11 @@ export default function SearchBar({
             <button
               key={`${item.type}-${item.label}`}
               type="button"
-              onClick={() => setQuery(item.actualName || item.label)}
+              onClick={() => {
+                const nextValue = item.actualName || item.label;
+                setQuery(nextValue);
+                onSubmit?.(nextValue);
+              }}
               style={styles.suggestionItem}
             >
               <span style={styles.suggestionType}>{item.type}</span>
@@ -80,7 +107,7 @@ const styles = {
   searchWrap: {
     height: "50px",
     border: "1px solid rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(18,18,18,0.94)",
+    backgroundColor: "rgba(18, 19, 18, 0.94)",
     borderRadius: "16px",
     display: "flex",
     alignItems: "center",
@@ -90,10 +117,23 @@ const styles = {
     boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
   },
 
+  iconButton: {
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    margin: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   icon: {
     fontSize: "14px",
     opacity: 0.9,
     flexShrink: 0,
+    color: "#ffffff",
   },
 
   input: {
@@ -115,6 +155,7 @@ const styles = {
     color: "#ffffff",
     fontSize: "12px",
     flexShrink: 0,
+    cursor: "pointer",
   },
 
   exampleRow: {
@@ -133,6 +174,7 @@ const styles = {
     fontSize: "11px",
     fontWeight: 600,
     backdropFilter: "blur(8px)",
+    cursor: "pointer",
   },
 
   suggestionBox: {
@@ -156,6 +198,7 @@ const styles = {
     gap: "8px",
     padding: "12px",
     textAlign: "left",
+    cursor: "pointer",
   },
 
   suggestionType: {
