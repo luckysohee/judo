@@ -13,6 +13,8 @@ import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
 import { curators as baseCurators } from "../../data/curators";
 import { places } from "../../data/places";
 
+import { useAuth } from "../../context/AuthContext";
+
 import {
   getFolders,
   getSavedPlacesMap,
@@ -29,6 +31,8 @@ const AI_API_BASE_URL =
 
 export default function Home() {
   const mapRef = useRef(null);
+
+  const { user, loading: authLoading, signInWithProvider, signOut } = useAuth();
 
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -48,7 +52,6 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [loadingDots, setLoadingDots] = useState(".");
-
 
   useEffect(() => {
     if (!query.trim()) {
@@ -147,9 +150,8 @@ export default function Home() {
     });
     return map;
   }, [aiReasons]);
-  
 
-    const handleClearSearch = () => {
+  const handleClearSearch = () => {
     setQuery("");
     setSelectedPlace(null);
     setDetailPlace(null);
@@ -257,34 +259,16 @@ export default function Home() {
           <MarkerLegend onSavedOpen={() => setSavedPlacesOpen(true)} />
         </div>
 
-        <div style={styles.sideFabContainer}>
-          <button style={styles.fabAdd} onClick={() => setAddPlaceOpen(true)}>
-            <span style={styles.fabPlus}>+</span>
-            술집 추가
-          </button>
-        </div>
-
-        <div style={styles.bottomBarContainer}>
-          <div style={styles.searchWrapper}>
-            <SearchBar
-              query={query}
-              setQuery={setQuery}
-              onSubmit={handleSearchSubmit}
-              onClear={handleClearSearch}
-              onExampleClick={handleSearchSubmit}
-              placeholder="AI에게 물어보세요. 예: 을지로 조용한 노포 2차"
-              isLoading={isAiSearching}
-            />
-          </div>
-
+        <div style={styles.locationFloatingWrap}>
           <button
-            style={styles.locationBtn}
+            style={styles.locationFloatingBtn}
             onClick={() => mapRef.current?.moveToCurrentLocation?.()}
             aria-label="현재 위치로 이동"
+            type="button"
           >
             <svg
-              width="20"
-              height="20"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -300,6 +284,75 @@ export default function Home() {
               <circle cx="12" cy="12" r="2.5" fill="currentColor" />
             </svg>
           </button>
+        </div>
+
+        <div style={styles.bottomBarContainer}>
+          <div style={styles.searchWrapper}>
+            <SearchBar
+              query={query}
+              setQuery={setQuery}
+              onSubmit={handleSearchSubmit}
+              onClear={handleClearSearch}
+              onExampleClick={handleSearchSubmit}
+              placeholder="AI에게 물어보세요. 예: 을지로 조용한 노포 2차"
+              isLoading={isAiSearching}
+              rightActions={
+                <div style={styles.authRowInline}>
+                  {authLoading ? null : user ? (
+                    <button
+                      type="button"
+                      style={styles.authInlineButton}
+                      onClick={() => {
+                        signOut().catch((error) => {
+                          console.error("signOut error:", error);
+                          alert(error?.message || "로그아웃에 실패했습니다.");
+                        });
+                      }}
+                    >
+                      로그아웃
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.authIconButton,
+                          ...styles.googleButton,
+                        }}
+                        onClick={() => {
+                          signInWithProvider("google").catch((error) => {
+                            console.error("google login error:", error);
+                            alert(error?.message || "구글 로그인에 실패했습니다.");
+                          });
+                        }}
+                        aria-label="Google 로그인"
+                        title="Google 로그인"
+                      >
+                        <span style={styles.googleG}>G</span>
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.authIconButton,
+                          ...styles.kakaoButton,
+                        }}
+                        onClick={() => {
+                          signInWithProvider("kakao").catch((error) => {
+                            console.error("kakao login error:", error);
+                            alert(error?.message || "카카오 로그인에 실패했습니다.");
+                          });
+                        }}
+                        aria-label="Kakao 로그인"
+                        title="Kakao 로그인"
+                      >
+                        <span style={styles.kakaoK}>K</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              }
+            />
+          </div>
         </div>
 
         {(isAiSearching || aiError || aiSummary) && (
@@ -582,6 +635,84 @@ const styles = {
     borderRadius: "18px",
     background: "transparent",
     overflow: "visible",
+  },
+
+  authRowInline: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  authInlineButton: {
+    border: "1px solid rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(17, 17, 17, 0.74)",
+    color: "#ffffff",
+    borderRadius: "999px",
+    height: "34px",
+    padding: "0 10px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  authIconButton: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.16)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: "none",
+    fontSize: "14px",
+    fontWeight: 1000,
+    padding: 0,
+  },
+
+  googleButton: {
+    backgroundColor: "rgba(255,255,255,0.96)",
+    border: "1px solid rgba(0,0,0,0.12)",
+  },
+
+  kakaoButton: {
+    backgroundColor: "#FEE500",
+    border: "1px solid rgba(0,0,0,0.12)",
+  },
+
+  googleG: {
+    color: "#4285F4",
+    fontWeight: 1000,
+    lineHeight: 1,
+  },
+
+  kakaoK: {
+    color: "#111111",
+    fontWeight: 1000,
+    lineHeight: 1,
+  },
+
+  locationFloatingWrap: {
+    position: "absolute",
+    right: "16px",
+    bottom: "92px",
+    zIndex: 96,
+  },
+
+  locationFloatingBtn: {
+    width: "38px",
+    height: "38px",
+    borderRadius: "999px",
+    border: glassBorder,
+    background: glassWhiteStrong,
+    color: "#111",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: floatingShadow,
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
   },
 
   locationBtn: {

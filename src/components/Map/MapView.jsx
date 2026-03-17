@@ -3,6 +3,38 @@ import createMarker from "../../utils/createMarker";
 
 const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
 
+function loadKakaoMapsSdk({ appKey }) {
+  return new Promise((resolve, reject) => {
+    if (window.kakao?.maps) {
+      resolve();
+      return;
+    }
+
+    if (!appKey) {
+      reject(new Error("VITE_KAKAO_JAVASCRIPT_KEY is missing"));
+      return;
+    }
+
+    const existing = document.querySelector('script[data-kakao-maps-sdk="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("Failed to load Kakao Maps SDK")));
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.setAttribute("data-kakao-maps-sdk", "true");
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(
+      appKey
+    )}&autoload=false&libraries=services,clusterer`;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
+    document.head.appendChild(script);
+  });
+}
+
 const MapView = forwardRef(({
   places,
   selectedPlace,
@@ -48,28 +80,52 @@ const MapView = forwardRef(({
     let retryTimer = null;
     const initMap = () => {
       if (!mounted || mapRef.current || !mapContainerRef.current) return;
-      if (!window.kakao || !window.kakao.maps) {
-        retryTimer = window.setTimeout(initMap, 300);
-        return;
-      }
-      window.kakao.maps.load(() => {
-        try {
-          const map = new window.kakao.maps.Map(mapContainerRef.current, {
-            center: new window.kakao.maps.LatLng(SEOUL_CENTER.lat, SEOUL_CENTER.lng),
-            level: 6,
-          });
-          mapRef.current = map;
-          window.kakao.maps.event.addListener(map, "click", () => {
-            if (!ignoreMapClickRef.current) setSelectedPlace(null);
-          });
-          if (window.kakao.maps.MarkerClusterer) {
-            clustererRef.current = new window.kakao.maps.MarkerClusterer({
-              map, averageCenter: true, minLevel: 6, gridSize: 60,
-            });
+
+      const appKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
+      loadKakaoMapsSdk({ appKey })
+        .then(() => {
+          if (!mounted) return;
+          if (!window.kakao || !window.kakao.maps) {
+            setMapError("카카오 지도 SDK 로딩에 실패했습니다.");
+            return;
           }
-          setMapReady(true);
-        } catch (e) { setMapError("지도 로딩 오류"); }
-      });
+
+          window.kakao.maps.load(() => {
+            try {
+              const map = new window.kakao.maps.Map(mapContainerRef.current, {
+                center: new window.kakao.maps.LatLng(
+                  SEOUL_CENTER.lat,
+                  SEOUL_CENTER.lng
+                ),
+                level: 6,
+              });
+              mapRef.current = map;
+              window.kakao.maps.event.addListener(map, "click", () => {
+                if (!ignoreMapClickRef.current) setSelectedPlace(null);
+              });
+              if (window.kakao.maps.MarkerClusterer) {
+                clustererRef.current = new window.kakao.maps.MarkerClusterer({
+                  map,
+                  averageCenter: true,
+                  minLevel: 6,
+                  gridSize: 60,
+                });
+              }
+              setMapReady(true);
+            } catch (e) {
+              console.error("kakao map init error:", e);
+              setMapError("지도 로딩 오류");
+            }
+          });
+        })
+        .catch((e) => {
+          console.error("kakao sdk load error:", e);
+          setMapError(
+            e?.message === "VITE_KAKAO_JAVASCRIPT_KEY is missing"
+              ? "VITE_KAKAO_JAVASCRIPT_KEY가 설정되지 않았습니다. .env에 키를 추가해주세요."
+              : "카카오 지도 SDK를 불러오지 못했습니다."
+          );
+        });
     };
     initMap();
     return () => { mounted = false; clearTimeout(retryTimer); };

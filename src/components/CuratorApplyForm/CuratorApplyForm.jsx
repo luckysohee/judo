@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../context/AuthContext";
 
 export default function CuratorApplyForm({ open, onClose }) {
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [style, setStyle] = useState("");
@@ -25,6 +27,11 @@ export default function CuratorApplyForm({ open, onClose }) {
     setErrorMessage("");
     setMessage("");
 
+    if (!user?.id) {
+      setErrorMessage("신청하려면 로그인이 필요합니다.");
+      return;
+    }
+
     if (!name.trim()) {
       setErrorMessage("이름 또는 활동명을 입력해 주세요.");
       return;
@@ -45,6 +52,7 @@ export default function CuratorApplyForm({ open, onClose }) {
         style: style.trim(),
         regions: regions.trim(),
         sample_places: samplePlaces.trim(),
+        user_id: user.id,
         status: "pending",
       });
 
@@ -57,6 +65,7 @@ export default function CuratorApplyForm({ open, onClose }) {
             style: style.trim(),
             regions: regions.trim(),
             sample_places: samplePlaces.trim(),
+            user_id: user.id,
             status: "pending",
           },
         ])

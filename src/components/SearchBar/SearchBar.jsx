@@ -7,6 +7,7 @@ export default function SearchBar({
   suggestions = [],
   placeholder = "검색어를 입력해 주세요",
   isLoading = false,
+  rightActions = null,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -48,7 +49,10 @@ export default function SearchBar({
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          style={styles.input}
+          style={{
+            ...styles.input,
+            ...(rightActions ? styles.inputWithRightActions : {}),
+          }}
           disabled={isLoading}
         />
 
@@ -61,6 +65,10 @@ export default function SearchBar({
           >
             ✕
           </button>
+        ) : null}
+
+        {rightActions ? (
+          <div style={styles.rightActions}>{rightActions}</div>
         ) : null}
       </div>
 
@@ -146,6 +154,10 @@ const styles = {
     fontSize: "14px",
   },
 
+  inputWithRightActions: {
+    paddingRight: "120px",
+  },
+
   clearButton: {
     width: "28px",
     height: "28px",
@@ -156,6 +168,13 @@ const styles = {
     fontSize: "12px",
     flexShrink: 0,
     cursor: "pointer",
+  },
+
+  rightActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexShrink: 0,
   },
 
   exampleRow: {

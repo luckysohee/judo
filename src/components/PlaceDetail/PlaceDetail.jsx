@@ -1,10 +1,14 @@
 export default function PlaceDetail({
   place,
   isSaved,
+  liveCuratorNameSet,
   onClose,
   onSave,
 }) {
   if (!place) return null;
+
+  const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
+  const isLive = (place.curators || []).some((name) => liveSet.has(name));
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -37,7 +41,10 @@ export default function PlaceDetail({
           <div style={styles.body}>
             <div style={styles.titleRow}>
               <div style={styles.title}>{place.name}</div>
-              {isSaved ? <div style={styles.savedBadge}>SAVED</div> : null}
+              <div style={styles.titleRight}>
+                {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}
+                {isSaved ? <div style={styles.savedBadge}>SAVED</div> : null}
+              </div>
             </div>
 
             <div style={styles.meta}>
@@ -188,11 +195,27 @@ const styles = {
     gap: "12px",
     marginBottom: "6px",
   },
+  titleRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexShrink: 0,
+  },
   title: {
     fontSize: "24px",
     fontWeight: 800,
     color: "#ffffff",
     lineHeight: 1.2,
+  },
+  liveBadge: {
+    fontSize: "10px",
+    fontWeight: 900,
+    color: "#111111",
+    backgroundColor: "#34D17A",
+    borderRadius: "999px",
+    padding: "5px 9px",
+    flexShrink: 0,
+    letterSpacing: "0.5px",
   },
   savedBadge: {
     fontSize: "10px",

@@ -2,6 +2,7 @@ export default function PlacePreviewCard({
   place,
   isSaved,
   savedFolderColor,
+  liveCuratorNameSet,
   onSave,
   onOpenDetail,
   onOpenCurator,
@@ -10,6 +11,8 @@ export default function PlacePreviewCard({
   if (!place) return null;
 
   const visibleCurators = (place.curators || []).slice(0, 3);
+  const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
+  const isLive = (place.curators || []).some((name) => liveSet.has(name));
 
   return (
     <div style={styles.wrap}>
@@ -24,14 +27,18 @@ export default function PlacePreviewCard({
           <div style={styles.titleRow}>
             <div style={styles.title}>{place.name}</div>
 
-            {isSaved ? (
-              <div
-                style={{
-                  ...styles.savedDot,
-                  backgroundColor: savedFolderColor || "#2ECC71",
-                }}
-              />
-            ) : null}
+            <div style={styles.titleRight}>
+              {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}
+
+              {isSaved ? (
+                <div
+                  style={{
+                    ...styles.savedDot,
+                    backgroundColor: savedFolderColor || "#2ECC71",
+                  }}
+                />
+              ) : null}
+            </div>
           </div>
 
           <div style={styles.meta}>
@@ -130,11 +137,29 @@ const styles = {
     justifyContent: "space-between",
     gap: "10px",
   },
+  titleRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexShrink: 0,
+  },
   title: {
     fontSize: "18px",
     fontWeight: 800,
     color: "#ffffff",
     lineHeight: 1.25,
+  },
+  liveBadge: {
+    height: "20px",
+    padding: "0 10px",
+    borderRadius: "999px",
+    backgroundColor: "#34D17A",
+    color: "#111111",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.5px",
+    display: "flex",
+    alignItems: "center",
   },
   savedDot: {
     width: "10px",

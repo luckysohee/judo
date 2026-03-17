@@ -10,7 +10,10 @@ export default function CuratorPage({
   onOpenPlaceDetail,
   onSelectPlace,
   followState,
+  liveState,
+  canEditLive,
   onToggleFollow,
+  onToggleLive,
 }) {
   if (!open || !curator) return null;
 
@@ -41,6 +44,10 @@ export default function CuratorPage({
             <div style={styles.statValue}>{places.length}</div>
             <div style={styles.statLabel}>추천 술집</div>
           </div>
+          <div style={styles.statBox}>
+            <div style={styles.statValue}>{liveState ? "ON" : "OFF"}</div>
+            <div style={styles.statLabel}>LIVE</div>
+          </div>
         </div>
 
         <div style={styles.bioBox}>
@@ -59,9 +66,23 @@ export default function CuratorPage({
               {followState ? "팔로잉" : "팔로우"}
             </button>
 
-            <button type="button" style={styles.shareButton}>
-              공유 준비중
-            </button>
+            {canEditLive ? (
+              <button
+                type="button"
+                onClick={onToggleLive}
+                style={{
+                  ...styles.shareButton,
+                  borderColor: liveState ? "#34D17A" : "#444444",
+                  color: liveState ? "#34D17A" : "#ffffff",
+                }}
+              >
+                {liveState ? "LIVE 끄기" : "LIVE 켜기"}
+              </button>
+            ) : (
+              <button type="button" style={styles.shareButton}>
+                공유 준비중
+              </button>
+            )}
           </div>
         </div>
 

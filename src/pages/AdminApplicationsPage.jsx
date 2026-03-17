@@ -71,8 +71,7 @@ export default function AdminApplicationsPage() {
               application.name.trim()
             )}`,
             color,
-            followers_count: 0,
-            is_power: false,
+            user_id: application.user_id || null,
           },
         ]);
 
