@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SavedPlaces from "../components/SavedPlaces/SavedPlaces";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
@@ -14,9 +14,24 @@ export default function SavedPlacesPage() {
   const navigate = useNavigate();
   const [detailPlace, setDetailPlace] = useState(null);
 
-  const folders = useMemo(() => getFolders(), []);
-  const savedMap = useMemo(() => getSavedPlacesMap(), []);
+  const [folders, setFolders] = useState(() => getFolders());
+  const [savedMap, setSavedMap] = useState(() => getSavedPlacesMap());
+
   const allPlaces = useMemo(() => [...getCustomPlaces(), ...places], []);
+
+  useEffect(() => {
+    const refresh = () => {
+      setFolders(getFolders());
+      setSavedMap(getSavedPlacesMap());
+    };
+
+    window.addEventListener("storage", refresh);
+    window.addEventListener("judo_storage_updated", refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("judo_storage_updated", refresh);
+    };
+  }, []);
 
   const savedPlacesByFolder = useMemo(() => {
     const result = {};

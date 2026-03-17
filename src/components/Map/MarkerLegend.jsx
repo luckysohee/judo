@@ -1,19 +1,43 @@
 // components/Map/MarkerLegend.jsx
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-export default function MarkerLegend({ onSavedOpen }) {
+export default function MarkerLegend({
+  savedOnly,
+  onToggleSavedOnly,
+  onSelectCategory,
+  activeCategory,
+  closeSignal,
+}) {
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (!closeSignal) return;
+    setOpen(false);
+  }, [closeSignal]);
+
   const items = [
-    { label: "단일 추천", color: "#10b981", icon: "🟢" },
-    { label: "공동 추천", color: "#8b5cf6", icon: "🟣" },
-    { label: "프리미엄 스팟", color: "#f59e0b", icon: "🟠" },
-    { label: "저장한 곳", color: "#fff", icon: "⚪" },
+    { key: "basic", label: "단일 추천", color: "#10b981", icon: "🟢" },
+    { key: "hot", label: "공동 추천", color: "#8b5cf6", icon: "🟣" },
+    { key: "premium", label: "프리미엄 스팟", color: "#f59e0b", icon: "🟠" },
+    { key: "saved", label: "저장한 곳", color: "#fff", icon: "⚪" },
   ];
 
   return (
     <div style={styles.wrap}>
+      <button
+        type="button"
+        onClick={onToggleSavedOnly}
+        style={{
+          ...styles.savedOnlyButton,
+          ...(savedOnly ? styles.savedOnlyButtonActive : null),
+        }}
+        aria-label={savedOnly ? "저장한 곳만 보기 해제" : "저장한 곳만 보기"}
+        title={savedOnly ? "저장한 곳만 보기 해제" : "저장한 곳만 보기"}
+      >
+        ★
+      </button>
+
       {!open ? (
         <button
           type="button"
@@ -49,25 +73,20 @@ export default function MarkerLegend({ onSavedOpen }) {
             </button>
           </div>
 
-          {items.map((item, idx) => (
-            <div key={idx} style={styles.row}>
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              style={{
+                ...styles.rowButton,
+                ...(activeCategory === item.key ? styles.rowButtonActive : null),
+              }}
+              onClick={() => onSelectCategory?.(item.key)}
+            >
               <span style={{ ...styles.dot, backgroundColor: item.color }}></span>
               <span style={styles.label}>{item.label}</span>
-            </div>
+            </button>
           ))}
-          {/* 마지막에 추가된 내 저장 버튼 */}
-          <div
-            style={{
-              ...styles.row,
-              marginTop: "8px",
-              borderTop: "1px solid #444",
-              paddingTop: "8px",
-              cursor: "pointer",
-            }}
-            onClick={onSavedOpen}
-          >
-            <span style={styles.label}>⭐ 내 저장</span>
-          </div>
         </div>
       )}
     </div>
@@ -77,6 +96,33 @@ export default function MarkerLegend({ onSavedOpen }) {
 const styles = {
   wrap: {
     pointerEvents: "auto",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: "10px",
+  },
+  savedOnlyButton: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(2, 2, 2, 0.88)",
+    color: "#FFD54F",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    boxShadow: "0 10px 26px rgba(0,0,0,0.28)",
+    cursor: "pointer",
+    padding: 0,
+    fontSize: "16px",
+    fontWeight: 900,
+    lineHeight: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  savedOnlyButtonActive: {
+    border: "1px solid rgba(255,213,79,0.65)",
+    backgroundColor: "rgba(255,213,79,0.12)",
   },
   collapsedButton: {
     width: "34px",
@@ -138,7 +184,22 @@ const styles = {
     fontSize: "12px",
     flexShrink: 0,
   },
-  row: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" },
+  rowButton: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "4px",
+    border: "none",
+    backgroundColor: "transparent",
+    padding: "6px 4px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  rowButtonActive: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
   dot: { width: "10px", height: "10px", borderRadius: "50%" },
   label: { color: "#eee" }
 };

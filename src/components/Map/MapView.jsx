@@ -177,11 +177,38 @@ const MapView = forwardRef(({
   // 3. 선택된 장소로 부드럽게 이동
   useEffect(() => {
     if (mapReady && mapRef.current && selectedPlace) {
-      // panTo를 사용하되, 터덕거림을 줄이기 위해 레벨 조정을 함께 원할 경우 아래 주석 해제
-      // mapRef.current.setLevel(4, {animate: true}); 
-      
-      const moveLatLon = new window.kakao.maps.LatLng(selectedPlace.lat + 0.0008, selectedPlace.lng);
-      mapRef.current.panTo(moveLatLon);
+      const desiredLevel = 4;
+      const currentLevel = mapRef.current.getLevel?.();
+      const panUpPx = 220;
+      const targetLatLng = new window.kakao.maps.LatLng(selectedPlace.lat, selectedPlace.lng);
+
+      const getOffsetLatLng = () => {
+        try {
+          const projection = mapRef.current?.getProjection?.();
+          if (!projection?.pointFromCoords || !projection?.coordsFromPoint) {
+            return new window.kakao.maps.LatLng(selectedPlace.lat + 0.0008, selectedPlace.lng);
+          }
+          const point = projection.pointFromCoords(targetLatLng);
+          point.y += panUpPx;
+          return projection.coordsFromPoint(point);
+        } catch (e) {
+          return new window.kakao.maps.LatLng(selectedPlace.lat + 0.0008, selectedPlace.lng);
+        }
+      };
+
+      const moveToOffset = () => {
+        const offsetLatLng = getOffsetLatLng();
+        mapRef.current.panTo(offsetLatLng);
+      };
+
+      const needsZoomIn = typeof currentLevel === "number" && currentLevel > desiredLevel;
+      if (needsZoomIn) {
+        mapRef.current.setLevel(desiredLevel, { animate: true });
+        // 줌 애니메이션과 동시에 좌표 보정 이동을 하면 덜 자연스러울 수 있어 짧게만 대기합니다.
+        setTimeout(moveToOffset, 180);
+      } else {
+        moveToOffset();
+      }
     }
   }, [selectedPlace, mapReady]);
 

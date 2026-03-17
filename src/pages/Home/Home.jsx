@@ -41,9 +41,11 @@ export default function Home() {
   const [folders, setFolders] = useState([]);
   const [savedMap, setSavedMap] = useState({});
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [customPlaces, setCustomPlaces] = useState([]);
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
+  const [showAll, setShowAll] = useState(true);
 
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
@@ -52,6 +54,8 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [loadingDots, setLoadingDots] = useState(".");
+
+  const [legendCategory, setLegendCategory] = useState(null);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -67,6 +71,12 @@ export default function Home() {
   useEffect(() => {
     refreshStorage();
     refreshCustomPlaces();
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => refreshStorage();
+    window.addEventListener("judo_storage_updated", refresh);
+    return () => window.removeEventListener("judo_storage_updated", refresh);
   }, []);
 
   useEffect(() => {
@@ -97,6 +107,17 @@ export default function Home() {
 
   const allPlaces = useMemo(() => [...customPlaces, ...places], [customPlaces]);
 
+  const savedPlacesByFolder = useMemo(() => {
+    const result = {};
+    folders.forEach((folder) => {
+      result[folder.id] = allPlaces.filter((place) => {
+        const ids = savedMap[place.id] || [];
+        return Array.isArray(ids) && ids.includes(folder.id);
+      });
+    });
+    return result;
+  }, [allPlaces, folders, savedMap]);
+
   const curatorColorMap = useMemo(() => {
     const map = {};
     baseCurators.forEach((c) => {
@@ -114,16 +135,13 @@ export default function Home() {
   }, [allPlaces, folders]);
 
   const filteredByCuratorPlaces = useMemo(() => {
-    let result = [...allPlaces];
+    if (showAll) return [...allPlaces];
+    if (selectedCurators.length === 0) return [];
 
-    if (selectedCurators.length > 0) {
-      result = result.filter((p) =>
-        (p.curators || []).some((c) => selectedCurators.includes(c))
-      );
-    }
-
-    return result;
-  }, [allPlaces, selectedCurators]);
+    return allPlaces.filter((p) =>
+      (p.curators || []).some((c) => selectedCurators.includes(c))
+    );
+  }, [allPlaces, selectedCurators, showAll]);
 
   const displayedPlaces = useMemo(() => {
     if (!query.trim()) return filteredByCuratorPlaces;
@@ -140,6 +158,41 @@ export default function Home() {
         (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
       );
   }, [filteredByCuratorPlaces, aiRecommendedIds, query]);
+
+  const mapDisplayedPlaces = useMemo(() => {
+    if (!showSavedOnly) return displayedPlaces;
+
+    const savedSet = new Set(
+      Object.entries(savedMap)
+        .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
+        .map(([placeId]) => String(placeId))
+    );
+
+    const base = displayedPlaces.length > 0 ? displayedPlaces : allPlaces;
+    return base.filter((p) => savedSet.has(String(p.id)));
+  }, [displayedPlaces, savedMap, showSavedOnly]);
+
+  const mapDisplayedPlacesWithLegend = useMemo(() => {
+    if (!legendCategory) return mapDisplayedPlaces;
+
+    if (legendCategory === "saved") {
+      const savedSet = new Set(
+        Object.entries(savedMap)
+          .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
+          .map(([placeId]) => String(placeId))
+      );
+
+      const base = mapDisplayedPlaces.length > 0 ? mapDisplayedPlaces : allPlaces;
+      return base.filter((p) => savedSet.has(String(p.id)));
+    }
+
+    return mapDisplayedPlaces.filter((p) => {
+      const count = Array.isArray(p?.curators) ? p.curators.length : 1;
+      if (legendCategory === "premium") return count >= 3;
+      if (legendCategory === "hot") return count === 2;
+      return count <= 1;
+    });
+  }, [allPlaces, legendCategory, mapDisplayedPlaces, savedMap]);
 
   const topReasonMap = useMemo(() => {
     const map = {};
@@ -229,7 +282,7 @@ export default function Home() {
       <main style={styles.mainContainer}>
         <MapView
           ref={mapRef}
-          places={displayedPlaces}
+          places={mapDisplayedPlacesWithLegend}
           selectedPlace={selectedPlace}
           setSelectedPlace={setSelectedPlace}
           curatorColorMap={curatorColorMap}
@@ -243,20 +296,56 @@ export default function Home() {
             <CuratorFilterBar
               curators={baseCurators}
               selectedCurators={selectedCurators}
-              onToggle={(name) =>
+              allActive={showAll}
+              onToggle={(name) => {
+                setShowAll(false);
+                setShowSavedOnly(false);
                 setSelectedCurators((prev) =>
                   prev.includes(name)
                     ? prev.filter((c) => c !== name)
                     : [...prev, name]
-                )
-              }
-              onSelectAll={() => setSelectedCurators([])}
+                );
+              }}
+              onSelectAll={() => {
+                setShowAll((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setSelectedCurators([]);
+                    setShowSavedOnly(false);
+                  } else {
+                    setSelectedCurators([]);
+                    setShowSavedOnly(false);
+                  }
+                  return next;
+                });
+              }}
             />
           </div>
         </div>
 
         <div style={styles.legendOverlay}>
-          <MarkerLegend onSavedOpen={() => setSavedPlacesOpen(true)} />
+          <MarkerLegend
+            savedOnly={showSavedOnly}
+            onToggleSavedOnly={() => {
+              setShowSavedOnly((prev) => {
+                const next = !prev;
+                if (next) {
+                  if (selectedPlace && !isPlaceSaved(selectedPlace.id)) {
+                    setSelectedPlace(null);
+                    setDetailPlace(null);
+                  }
+                }
+                return next;
+              });
+            }}
+            activeCategory={legendCategory}
+            closeSignal={selectedPlace || detailPlace}
+            onSelectCategory={(key) => {
+              setLegendCategory((prev) => (prev === key ? null : key));
+              if (selectedPlace) setSelectedPlace(null);
+              if (detailPlace) setDetailPlace(null);
+            }}
+          />
         </div>
 
         <div style={styles.locationFloatingWrap}>
@@ -286,74 +375,76 @@ export default function Home() {
           </button>
         </div>
 
-        <div style={styles.bottomBarContainer}>
-          <div style={styles.searchWrapper}>
-            <SearchBar
-              query={query}
-              setQuery={setQuery}
-              onSubmit={handleSearchSubmit}
-              onClear={handleClearSearch}
-              onExampleClick={handleSearchSubmit}
-              placeholder="AI에게 물어보세요. 예: 을지로 조용한 노포 2차"
-              isLoading={isAiSearching}
-              rightActions={
-                <div style={styles.authRowInline}>
-                  {authLoading ? null : user ? (
-                    <button
-                      type="button"
-                      style={styles.authInlineButton}
-                      onClick={() => {
-                        signOut().catch((error) => {
-                          console.error("signOut error:", error);
-                          alert(error?.message || "로그아웃에 실패했습니다.");
-                        });
-                      }}
-                    >
-                      로그아웃
-                    </button>
-                  ) : (
-                    <>
+        {!selectedPlace && !detailPlace ? (
+          <div style={styles.bottomBarContainer}>
+            <div style={styles.searchWrapper}>
+              <SearchBar
+                query={query}
+                setQuery={setQuery}
+                onSubmit={handleSearchSubmit}
+                onClear={handleClearSearch}
+                onExampleClick={handleSearchSubmit}
+                placeholder="AI에게 물어보세요. 예: 을지로 조용한 노포 2차"
+                isLoading={isAiSearching}
+                rightActions={
+                  <div style={styles.authRowInline}>
+                    {authLoading ? null : user ? (
                       <button
                         type="button"
-                        style={{
-                          ...styles.authIconButton,
-                          ...styles.googleButton,
-                        }}
+                        style={styles.authInlineButton}
                         onClick={() => {
-                          signInWithProvider("google").catch((error) => {
-                            console.error("google login error:", error);
-                            alert(error?.message || "구글 로그인에 실패했습니다.");
+                          signOut().catch((error) => {
+                            console.error("signOut error:", error);
+                            alert(error?.message || "로그아웃에 실패했습니다.");
                           });
                         }}
-                        aria-label="Google 로그인"
-                        title="Google 로그인"
                       >
-                        <span style={styles.googleG}>G</span>
+                        로그아웃
                       </button>
-                      <button
-                        type="button"
-                        style={{
-                          ...styles.authIconButton,
-                          ...styles.kakaoButton,
-                        }}
-                        onClick={() => {
-                          signInWithProvider("kakao").catch((error) => {
-                            console.error("kakao login error:", error);
-                            alert(error?.message || "카카오 로그인에 실패했습니다.");
-                          });
-                        }}
-                        aria-label="Kakao 로그인"
-                        title="Kakao 로그인"
-                      >
-                        <span style={styles.kakaoK}>K</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              }
-            />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          style={{
+                            ...styles.authIconButton,
+                            ...styles.googleButton,
+                          }}
+                          onClick={() => {
+                            signInWithProvider("google").catch((error) => {
+                              console.error("google login error:", error);
+                              alert(error?.message || "구글 로그인에 실패했습니다.");
+                            });
+                          }}
+                          aria-label="Google 로그인"
+                          title="Google 로그인"
+                        >
+                          <span style={styles.googleG}>G</span>
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            ...styles.authIconButton,
+                            ...styles.kakaoButton,
+                          }}
+                          onClick={() => {
+                            signInWithProvider("kakao").catch((error) => {
+                              console.error("kakao login error:", error);
+                              alert(error?.message || "카카오 로그인에 실패했습니다.");
+                            });
+                          }}
+                          aria-label="Kakao 로그인"
+                          title="Kakao 로그인"
+                        >
+                          <span style={styles.kakaoK}>K</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                }
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {(isAiSearching || aiError || aiSummary) && (
           <div style={styles.aiStatusBox}>
@@ -385,7 +476,12 @@ export default function Home() {
           </div>
         )}
 
-        <div style={styles.mapCardOverlay}>
+        <div
+          style={{
+            ...styles.mapCardOverlay,
+            bottom: selectedPlace || detailPlace ? "18px" : styles.mapCardOverlay.bottom,
+          }}
+        >
           {selectedPlace ? (
             <div style={styles.previewStack}>
               {topReasonMap[selectedPlace.id] ? (
@@ -534,6 +630,7 @@ export default function Home() {
       <SavedPlaces
         open={savedPlacesOpen}
         folders={folders}
+        savedPlacesByFolder={savedPlacesByFolder}
         onClose={() => setSavedPlacesOpen(false)}
       />
 
@@ -552,11 +649,13 @@ export default function Home() {
           saveTargetPlace ? getPlaceFolderIds(saveTargetPlace.id) : []
         }
         onClose={() => setSaveTargetPlace(null)}
+        onFoldersUpdated={refreshStorage}
         onSaveToFolder={(pId, fId) => {
           savePlaceToFolder(pId, fId);
           refreshStorage();
         }}
       />
+
     </div>
   );
 }

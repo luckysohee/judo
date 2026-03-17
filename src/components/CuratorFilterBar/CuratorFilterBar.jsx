@@ -1,6 +1,7 @@
 export default function CuratorFilterBar({
   curators = [],
   selectedCurators = [],
+  allActive = false,
   onToggle,
   onSelectAll,
 }) {
@@ -14,10 +15,7 @@ export default function CuratorFilterBar({
           onClick={onSelectAll}
           style={{
             ...styles.chip,
-            ...(selectedCurators.length === safeCurators.length &&
-            safeCurators.length > 0
-              ? styles.chipActive
-              : null),
+            ...(allActive ? styles.chipActive : null),
           }}
         >
           전체

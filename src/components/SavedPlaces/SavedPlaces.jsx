@@ -1,3 +1,7 @@
+import { useMemo, useState } from "react";
+
+import { createFolder, deleteFolder, updateFolder } from "../../utils/storage";
+
 export default function SavedPlaces({
   open,
   folders,
@@ -8,6 +12,63 @@ export default function SavedPlaces({
   if (!open) return null;
 
   const safeFolders = Array.isArray(folders) ? folders : [];
+
+  const COLOR_OPTIONS = useMemo(
+    () => ["#2ECC71", "#FF5A5F", "#8E44AD", "#3498DB", "#F39C12", "#1ABC9C"],
+    []
+  );
+
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderColor, setNewFolderColor] = useState(COLOR_OPTIONS[0]);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [editingFolderId, setEditingFolderId] = useState(null);
+  const [editFolderName, setEditFolderName] = useState("");
+  const [editFolderColor, setEditFolderColor] = useState(COLOR_OPTIONS[0]);
+
+  const startEdit = (folder) => {
+    setEditingFolderId(folder.id);
+    setEditFolderName(folder.name || "");
+    setEditFolderColor(folder.color || COLOR_OPTIONS[0]);
+    setErrorMessage("");
+  };
+
+  const cancelEdit = () => {
+    setEditingFolderId(null);
+    setEditFolderName("");
+    setErrorMessage("");
+  };
+
+  const handleCreate = () => {
+    try {
+      createFolder(newFolderName, newFolderColor);
+      setNewFolderName("");
+      setErrorMessage("");
+    } catch (e) {
+      setErrorMessage(e?.message || "폴더 생성에 실패했습니다.");
+    }
+  };
+
+  const handleUpdate = () => {
+    try {
+      updateFolder(editingFolderId, { name: editFolderName, color: editFolderColor });
+      cancelEdit();
+    } catch (e) {
+      setErrorMessage(e?.message || "폴더 수정에 실패했습니다.");
+    }
+  };
+
+  const handleDelete = (folder) => {
+    const ok = window.confirm(`'${folder.name}' 폴더를 삭제할까요?\n(이 폴더에 저장된 항목 연결도 함께 제거됩니다.)`);
+    if (!ok) return;
+    try {
+      deleteFolder(folder.id);
+      if (editingFolderId === folder.id) cancelEdit();
+      setErrorMessage("");
+    } catch (e) {
+      setErrorMessage(e?.message || "폴더 삭제에 실패했습니다.");
+    }
+  };
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -33,6 +94,77 @@ export default function SavedPlaces({
         </div>
 
         <div style={styles.content}>
+          <div style={styles.manageSection}>
+            <div style={styles.manageTitle}>폴더 만들기</div>
+            <div style={styles.createRow}>
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="폴더 이름"
+                style={styles.input}
+              />
+              <button type="button" onClick={handleCreate} style={styles.primaryButton}>
+                + 생성
+              </button>
+            </div>
+
+            <div style={styles.colorRow}>
+              {COLOR_OPTIONS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setNewFolderColor(color)}
+                  style={{
+                    ...styles.colorButton,
+                    backgroundColor: color,
+                    outline: newFolderColor === color ? "2px solid #ffffff" : "none",
+                  }}
+                  aria-label={`폴더 색상 ${color}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {editingFolderId ? (
+            <div style={styles.manageSection}>
+              <div style={styles.manageTitle}>폴더 수정</div>
+              <div style={styles.createRow}>
+                <input
+                  type="text"
+                  value={editFolderName}
+                  onChange={(e) => setEditFolderName(e.target.value)}
+                  placeholder="폴더 이름"
+                  style={styles.input}
+                />
+                <button type="button" onClick={handleUpdate} style={styles.primaryButton}>
+                  저장
+                </button>
+                <button type="button" onClick={cancelEdit} style={styles.secondaryButton}>
+                  취소
+                </button>
+              </div>
+
+              <div style={styles.colorRow}>
+                {COLOR_OPTIONS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setEditFolderColor(color)}
+                    style={{
+                      ...styles.colorButton,
+                      backgroundColor: color,
+                      outline: editFolderColor === color ? "2px solid #ffffff" : "none",
+                    }}
+                    aria-label={`폴더 색상 ${color}`}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {errorMessage ? <div style={styles.errorText}>{errorMessage}</div> : null}
+
           {safeFolders.length === 0 ? (
             <div style={styles.emptyText}>아직 만든 저장 폴더가 없습니다.</div>
           ) : (
@@ -51,7 +183,23 @@ export default function SavedPlaces({
                       />
                       <span style={styles.folderName}>{folder.name}</span>
                     </div>
-                    <span style={styles.folderCount}>{items.length}곳</span>
+                    <div style={styles.folderRight}>
+                      <span style={styles.folderCount}>{items.length}곳</span>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(folder)}
+                        style={styles.folderActionButton}
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(folder)}
+                        style={styles.folderActionButton}
+                      >
+                        삭제
+                      </button>
+                    </div>
                   </div>
 
                   {items.length === 0 ? (
@@ -167,6 +315,75 @@ const styles = {
     overflowY: "auto",
     maxHeight: "calc(80vh - 64px)",
   },
+  manageSection: {
+    border: "1px solid rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(21,21,21,0.92)",
+    borderRadius: "16px",
+    padding: "12px",
+    marginBottom: "12px",
+  },
+  manageTitle: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#ffffff",
+    marginBottom: "10px",
+  },
+  createRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    marginBottom: "10px",
+  },
+  input: {
+    flex: 1,
+    height: "38px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    backgroundColor: "#101010",
+    color: "#ffffff",
+    padding: "0 12px",
+    fontSize: "13px",
+    outline: "none",
+  },
+  primaryButton: {
+    height: "38px",
+    padding: "0 12px",
+    borderRadius: "12px",
+    border: "none",
+    backgroundColor: "#2ECC71",
+    color: "#111111",
+    fontSize: "12px",
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  secondaryButton: {
+    height: "38px",
+    padding: "0 12px",
+    borderRadius: "12px",
+    border: "1px solid #3a3a3a",
+    backgroundColor: "#171717",
+    color: "#ffffff",
+    fontSize: "12px",
+    fontWeight: 800,
+    flexShrink: 0,
+  },
+  colorRow: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  colorButton: {
+    width: "20px",
+    height: "20px",
+    borderRadius: "999px",
+    border: "none",
+    cursor: "pointer",
+  },
+  errorText: {
+    color: "#ff6b6b",
+    fontSize: "12px",
+    marginBottom: "10px",
+  },
   emptyText: {
     color: "#bdbdbd",
     fontSize: "14px",
@@ -199,6 +416,20 @@ const styles = {
   folderCount: {
     fontSize: "12px",
     color: "#a9a9a9",
+  },
+  folderRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  folderActionButton: {
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    color: "#ffffff",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 800,
   },
   emptyFolderText: {
     fontSize: "13px",
