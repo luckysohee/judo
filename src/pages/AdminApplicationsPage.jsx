@@ -126,6 +126,46 @@ export default function AdminApplicationsPage() {
     }
   };
 
+  const handleDelete = async (application) => {
+    try {
+      setProcessingId(application.id);
+      setErrorMessage("");
+
+      const { error } = await supabase.rpc("delete_curator_application", {
+        application_id: application.id,
+      });
+
+      if (error) throw error;
+
+      await fetchApplications();
+    } catch (error) {
+      console.error("delete error:", error);
+      setErrorMessage(error?.message || "삭제 처리 중 오류가 발생했습니다.");
+    } finally {
+      setProcessingId("");
+    }
+  };
+
+  const handleRevoke = async (application) => {
+    try {
+      setProcessingId(application.id);
+      setErrorMessage("");
+
+      const { error } = await supabase.rpc("revoke_curator_application", {
+        application_id: application.id,
+      });
+
+      if (error) throw error;
+
+      await fetchApplications();
+    } catch (error) {
+      console.error("revoke error:", error);
+      setErrorMessage(error?.message || "되돌리기 처리 중 오류가 발생했습니다.");
+    } finally {
+      setProcessingId("");
+    }
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -197,29 +237,101 @@ export default function AdminApplicationsPage() {
                   </div>
 
                   <div style={styles.buttonRow}>
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(item)}
-                      disabled={!isPending || isProcessing}
-                      style={{
-                        ...styles.approveButton,
-                        opacity: !isPending || isProcessing ? 0.5 : 1,
-                      }}
-                    >
-                      {isProcessing ? "처리 중..." : "승인"}
-                    </button>
+                    {isPending && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleApprove(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.approveButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          {isProcessing ? "처리 중..." : "승인"}
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleReject(item)}
-                      disabled={!isPending || isProcessing}
-                      style={{
-                        ...styles.rejectButton,
-                        opacity: !isPending || isProcessing ? 0.5 : 1,
-                      }}
-                    >
-                      반려
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReject(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.rejectButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          반려
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.deleteButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          삭제
+                        </button>
+                      </>
+                    )}
+
+                    {isApproved && (
+                      <>
+                        <span style={styles.statusText}>승인됨</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRevoke(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.revokeButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          되돌리기
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.deleteButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          삭제
+                        </button>
+                      </>
+                    )}
+
+                    {isRejected && (
+                      <>
+                        <span style={styles.statusTextRejected}>반려됨</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRevoke(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.revokeButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          되돌리기
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.deleteButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          삭제
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -410,5 +522,41 @@ const styles = {
     padding: "12px",
     fontSize: "14px",
     fontWeight: 700,
+  },
+  deleteButton: {
+    flex: 1,
+    border: "1px solid #5a2a2a",
+    backgroundColor: "#2a1515",
+    color: "#FF6B6B",
+    borderRadius: "12px",
+    padding: "12px",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  revokeButton: {
+    flex: 1,
+    border: "1px solid #5a2a2a",
+    backgroundColor: "#2a1515",
+    color: "#FF6B6B",
+    borderRadius: "12px",
+    padding: "12px",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  statusText: {
+    color: "#2ECC71",
+    fontSize: "14px",
+    fontWeight: 700,
+    padding: "12px",
+    display: "flex",
+    alignItems: "center",
+  },
+  statusTextRejected: {
+    color: "#FF6B6B",
+    fontSize: "14px",
+    fontWeight: 700,
+    padding: "12px",
+    display: "flex",
+    alignItems: "center",
   },
 };

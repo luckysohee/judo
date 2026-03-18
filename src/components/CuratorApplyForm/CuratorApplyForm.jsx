@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 
-export default function CuratorApplyForm({ open, onClose }) {
+export default function CuratorApplyForm() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
@@ -21,6 +23,8 @@ export default function CuratorApplyForm({ open, onClose }) {
     setStyle("");
     setRegions("");
     setSamplePlaces("");
+    setMessage("");
+    setErrorMessage("");
   };
 
   const handleSubmit = async () => {
@@ -45,17 +49,6 @@ export default function CuratorApplyForm({ open, onClose }) {
     try {
       setSubmitting(true);
 
-      console.log("submit start");
-      console.log("payload:", {
-        name: name.trim(),
-        contact: contact.trim(),
-        style: style.trim(),
-        regions: regions.trim(),
-        sample_places: samplePlaces.trim(),
-        user_id: user.id,
-        status: "pending",
-      });
-
       const { data, error } = await supabase
         .from("curator_applications")
         .insert([
@@ -71,20 +64,15 @@ export default function CuratorApplyForm({ open, onClose }) {
         ])
         .select();
 
-      console.log("supabase data:", data);
-      console.log("supabase error:", error);
-
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       setMessage("큐레이터 신청이 정상적으로 접수되었습니다.");
       resetForm();
 
       setTimeout(() => {
-        onClose();
+        navigate("/");
         setMessage("");
-      }, 1000);
+      }, 1500);
     } catch (error) {
       console.error("submit error:", error);
       setErrorMessage(
@@ -171,7 +159,7 @@ export default function CuratorApplyForm({ open, onClose }) {
         <div style={styles.buttonRow}>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => navigate("/")}
             style={styles.cancelButton}
             disabled={submitting}
           >

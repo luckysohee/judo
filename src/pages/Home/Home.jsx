@@ -460,6 +460,30 @@ export default function Home() {
             ) : null}
           </div>
 
+          {/* 일반 유저용 큐레이터 신청 버튼 */}
+          {user && !isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate("/curator-apply")}
+              style={{
+                position: "fixed",
+                bottom: 100,
+                right: 20,
+                backgroundColor: "#2ECC71",
+                color: "#111",
+                border: "none",
+                borderRadius: "999px",
+                padding: "12px 20px",
+                fontSize: "14px",
+                fontWeight: 800,
+                boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+                zIndex: 1000,
+              }}
+            >
+              큐레이터 신청
+            </button>
+          )}
+
           <div style={styles.filterWrapper}>
             <CuratorFilterBar
               curators={baseCurators}
