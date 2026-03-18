@@ -27,7 +27,7 @@ function getMarkerTier(place) {
   };
 }
 
-function createMarkerSvg(place, isSelected, savedColor) {
+function createMarkerSvg(place, isSelected, savedColor, isLive) {
   const tier = getMarkerTier(place);
 
   const size = isSelected ? 64 : 50;
@@ -73,6 +73,34 @@ function createMarkerSvg(place, isSelected, savedColor) {
       ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 1}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" />`
       : "";
 
+  const liveRing = isLive
+    ? `
+      <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="rgba(225,29,72,0.92)" stroke-width="2.2" />
+    `
+    : "";
+
+  const liveBadge = isLive
+    ? `
+      <g>
+        <text
+          x="${size / 2}"
+          y="11"
+          dominant-baseline="central"
+          text-anchor="middle"
+          font-size="10"
+          font-weight="1000"
+          fill="#E11D48"
+          stroke="#ffffff"
+          stroke-width="2.4"
+          paint-order="stroke"
+          font-family="Arial, sans-serif"
+        >
+          LIVE
+        </text>
+      </g>
+    `
+    : "";
+
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <defs>
@@ -82,6 +110,7 @@ function createMarkerSvg(place, isSelected, savedColor) {
       </defs>
 
       <g filter="url(#shadow)">
+        ${liveRing}
         ${outerRing}
         <circle
           cx="${size / 2}"
@@ -91,6 +120,7 @@ function createMarkerSvg(place, isSelected, savedColor) {
           stroke="${stroke}"
           stroke-width="2.5"
         />
+
         ${premiumGlow}
         ${savedDot}
         ${overlapBadge}
@@ -104,13 +134,14 @@ function createMarkerSvg(place, isSelected, savedColor) {
         >
           ${tier.emoji}
         </text>
+        ${liveBadge}
       </g>
     </svg>
   `;
 }
 
-function createMarkerImage(place, isSelected, savedColor) {
-  const svg = createMarkerSvg(place, isSelected, savedColor);
+function createMarkerImage(place, isSelected, savedColor, isLive) {
+  const svg = createMarkerSvg(place, isSelected, savedColor, isLive);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 64 : 50;
 
@@ -127,13 +158,14 @@ export default function createMarker({
   map,
   place,
   isSelected = false,
+  isLive = false,
   savedColor = null,
   onClick,
 }) {
   const marker = new window.kakao.maps.Marker({
     map,
     position: new window.kakao.maps.LatLng(place.lat, place.lng),
-    image: createMarkerImage(place, isSelected, savedColor),
+    image: createMarkerImage(place, isSelected, savedColor, isLive),
     zIndex: isSelected ? 20 : 1,
   });
 

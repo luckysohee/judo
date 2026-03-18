@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import MarkerLegend from "../../components/Map/MarkerLegend";
 import SearchBar from "../../components/SearchBar/SearchBar";
@@ -15,6 +16,8 @@ import { places } from "../../data/places";
 
 import { useAuth } from "../../context/AuthContext";
 
+import { supabase } from "../../lib/supabase";
+
 import {
   getFolders,
   getSavedPlacesMap,
@@ -30,9 +33,14 @@ const AI_API_BASE_URL =
   import.meta.env.VITE_AI_API_BASE_URL || "http://localhost:4000";
 
 export default function Home() {
+  const navigate = useNavigate();
   const mapRef = useRef(null);
 
   const { user, loading: authLoading, signInWithProvider, signOut } = useAuth();
+
+  const devAdminUserId = import.meta.env.VITE_ADMIN_USER_ID;
+
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -56,6 +64,92 @@ export default function Home() {
   const [loadingDots, setLoadingDots] = useState(".");
 
   const [legendCategory, setLegendCategory] = useState(null);
+
+  const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
+
+  const livePlaceIdsText = useMemo(() => {
+    try {
+      return Array.from(livePlaceIds || []).join(", ");
+    } catch {
+      return "";
+    }
+  }, [livePlaceIds]);
+
+  useEffect(() => {
+    let mounted = true;
+    let cleanup = null;
+
+    const reset = () => {
+      if (!mounted) return;
+      setLivePlaceIds(new Set());
+    };
+
+    const init = async () => {
+      if (!user) {
+        reset();
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("curator_live_sessions")
+        .select("place_id")
+        .eq("is_live", true);
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error("Failed to fetch curator_live_sessions:", error);
+        reset();
+      } else {
+        const next = new Set(
+          (Array.isArray(data) ? data : []).map((row) => String(row.place_id))
+        );
+        setLivePlaceIds(next);
+      }
+
+      const channel = supabase
+        .channel("curator_live_sessions:live")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "curator_live_sessions" },
+          (payload) => {
+            const newRow = payload?.new || null;
+            const oldRow = payload?.old || null;
+            const newPlaceId = newRow?.place_id != null ? String(newRow.place_id) : null;
+            const oldPlaceId = oldRow?.place_id != null ? String(oldRow.place_id) : null;
+            const newIsLive = Boolean(newRow?.is_live);
+
+            setLivePlaceIds((prev) => {
+              const next = new Set(prev);
+
+              // If the old row was live, remove it first (handles updates or deletes)
+              if (oldPlaceId && Boolean(oldRow?.is_live)) {
+                next.delete(oldPlaceId);
+              }
+
+              // Add the new row if it's live
+              if (newPlaceId && newIsLive) {
+                next.add(newPlaceId);
+              }
+
+              return next;
+            });
+          }
+        )
+        .subscribe();
+
+      cleanup = () => {
+        supabase.removeChannel(channel);
+      };
+    };
+
+    init();
+
+    return () => {
+      mounted = false;
+      if (typeof cleanup === "function") cleanup();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -95,6 +189,39 @@ export default function Home() {
 
     return () => clearInterval(timer);
   }, [isAiSearching]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkAdmin = async () => {
+      if (authLoading) return;
+      if (!user?.id) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        console.error("admin check error:", error);
+        setIsAdmin(false);
+        return;
+      }
+
+      setIsAdmin(data?.role === "admin");
+    };
+
+    checkAdmin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user?.id]);
 
   const refreshStorage = () => {
     setFolders(getFolders());
@@ -173,26 +300,51 @@ export default function Home() {
   }, [displayedPlaces, savedMap, showSavedOnly]);
 
   const mapDisplayedPlacesWithLegend = useMemo(() => {
-    if (!legendCategory) return mapDisplayedPlaces;
+    const savedSet = new Set(
+      Object.entries(savedMap)
+        .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
+        .map(([placeId]) => String(placeId))
+    );
 
-    if (legendCategory === "saved") {
-      const savedSet = new Set(
-        Object.entries(savedMap)
-          .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
-          .map(([placeId]) => String(placeId))
+    const aiBasePlaces = (() => {
+      if (!query.trim()) return allPlaces;
+      if (aiRecommendedIds.length === 0) return allPlaces;
+
+      const idSet = new Set(aiRecommendedIds.map(String));
+      const idOrderMap = new Map(
+        aiRecommendedIds.map((id, index) => [String(id), index])
       );
 
-      const base = mapDisplayedPlaces.length > 0 ? mapDisplayedPlaces : allPlaces;
-      return base.filter((p) => savedSet.has(String(p.id)));
+      return allPlaces
+        .filter((place) => idSet.has(String(place.id)))
+        .sort(
+          (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
+        );
+    })();
+
+    const baseBeforeLegend = legendCategory ? aiBasePlaces : displayedPlaces;
+
+    const afterSavedOnly = showSavedOnly
+      ? (baseBeforeLegend.length > 0 ? baseBeforeLegend : allPlaces).filter((p) =>
+          savedSet.has(String(p.id))
+        )
+      : baseBeforeLegend;
+
+    if (!legendCategory) return afterSavedOnly;
+
+    if (legendCategory === "saved") {
+      return (afterSavedOnly.length > 0 ? afterSavedOnly : allPlaces).filter((p) =>
+        savedSet.has(String(p.id))
+      );
     }
 
-    return mapDisplayedPlaces.filter((p) => {
+    return afterSavedOnly.filter((p) => {
       const count = Array.isArray(p?.curators) ? p.curators.length : 1;
       if (legendCategory === "premium") return count >= 3;
       if (legendCategory === "hot") return count === 2;
       return count <= 1;
     });
-  }, [allPlaces, legendCategory, mapDisplayedPlaces, savedMap]);
+  }, [aiRecommendedIds, allPlaces, displayedPlaces, legendCategory, query, savedMap, showSavedOnly]);
 
   const topReasonMap = useMemo(() => {
     const map = {};
@@ -287,10 +439,26 @@ export default function Home() {
           setSelectedPlace={setSelectedPlace}
           curatorColorMap={curatorColorMap}
           savedColorMap={savedColorMap}
+          livePlaceIds={livePlaceIds}
         />
 
         <div style={styles.headerOverlay}>
-          <h1 style={styles.logo}>JUDO</h1>
+          <div style={styles.logoStack}>
+            <h1 style={styles.logo}>JUDO</h1>
+            {isAdmin ||
+            (import.meta.env.DEV &&
+              devAdminUserId &&
+              user?.id &&
+              String(user.id) === String(devAdminUserId)) ? (
+              <button
+                type="button"
+                onClick={() => navigate("/admin/applications")}
+                style={styles.adminChip}
+              >
+                신청내역
+              </button>
+            ) : null}
+          </div>
 
           <div style={styles.filterWrapper}>
             <CuratorFilterBar
@@ -298,13 +466,15 @@ export default function Home() {
               selectedCurators={selectedCurators}
               allActive={showAll}
               onToggle={(name) => {
-                setShowAll(false);
                 setShowSavedOnly(false);
-                setSelectedCurators((prev) =>
-                  prev.includes(name)
+                setSelectedCurators((prev) => {
+                  const next = prev.includes(name)
                     ? prev.filter((c) => c !== name)
-                    : [...prev, name]
-                );
+                    : [...prev, name];
+
+                  setShowAll(next.length === 0);
+                  return next;
+                });
               }}
               onSelectAll={() => {
                 setShowAll((prev) => {
@@ -689,6 +859,14 @@ const styles = {
     zIndex: 50,
   },
 
+  logoStack: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: "6px",
+    flexShrink: 0,
+  },
+
   logo: {
     margin: 0,
     fontSize: "30px",
@@ -697,6 +875,22 @@ const styles = {
     color: "#111",
     lineHeight: 1,
     flexShrink: 0,
+  },
+
+  adminChip: {
+    border: "1px solid rgba(0,0,0,0.10)",
+    backgroundColor: "rgba(255,255,255,0.86)",
+    color: "#111",
+    borderRadius: "999px",
+    height: "26px",
+    padding: "0 10px",
+    fontSize: "12px",
+    fontWeight: 900,
+    letterSpacing: "-0.2px",
+    cursor: "pointer",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
   },
 
   filterWrapper: {
@@ -752,6 +946,7 @@ const styles = {
     fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
+    pointerEvents: "auto",
   },
 
   authIconButton: {
@@ -795,7 +990,7 @@ const styles = {
     position: "absolute",
     right: "16px",
     bottom: "92px",
-    zIndex: 96,
+    zIndex: 10050,
   },
 
   locationFloatingBtn: {

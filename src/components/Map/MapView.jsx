@@ -41,6 +41,7 @@ const MapView = forwardRef(({
   setSelectedPlace,
   curatorColorMap,
   savedColorMap,
+  livePlaceIds,
   onCurrentLocationChange,
 }, ref) => {
   const mapContainerRef = useRef(null);
@@ -48,6 +49,9 @@ const MapView = forwardRef(({
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
   const ignoreMapClickRef = useRef(false);
+
+  const userInteractedRef = useRef(false);
+  const ignoreViewportEventRef = useRef(false);
 
   // 이전 places 상태를 기억하여 데이터가 실제로 바뀔 때만 범위를 잡기 위함
   const prevPlacesRef = useRef([]);
@@ -100,9 +104,19 @@ const MapView = forwardRef(({
                 level: 6,
               });
               mapRef.current = map;
+
+              const markUserInteracted = () => {
+                if (ignoreViewportEventRef.current) return;
+                userInteractedRef.current = true;
+              };
+
               window.kakao.maps.event.addListener(map, "click", () => {
                 if (!ignoreMapClickRef.current) setSelectedPlace(null);
               });
+
+              window.kakao.maps.event.addListener(map, "dragend", markUserInteracted);
+              window.kakao.maps.event.addListener(map, "zoom_changed", markUserInteracted);
+
               if (window.kakao.maps.MarkerClusterer) {
                 clustererRef.current = new window.kakao.maps.MarkerClusterer({
                   map,
@@ -134,45 +148,69 @@ const MapView = forwardRef(({
   // 2. 마커 업데이트 (데이터 변경 시에만 범위 조정)
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
-    
+
     // 마커 다시 그리기
     markersRef.current.forEach(m => m.setMap(null));
     if (clustererRef.current) clustererRef.current.clear();
     if (!places?.length) return;
 
     const bounds = new window.kakao.maps.LatLngBounds();
-    const nextMarkers = places.map(p => {
+    const liveMarkers = [];
+    const clusterMarkers = [];
+
+    const nextMarkers = places.map((p) => {
+      const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
+      const shouldCluster = Boolean(clustererRef.current) && !isLive;
+
       const marker = createMarker({
-        map: clustererRef.current ? null : mapRef.current,
+        map: shouldCluster ? null : mapRef.current,
         place: p,
         isSelected: selectedPlace?.id === p.id,
+        isLive,
         savedColor: savedColorMap?.[p.id] || null,
         onClick: (cp) => {
           ignoreMapClickRef.current = true;
           setSelectedPlace(cp);
-          setTimeout(() => { ignoreMapClickRef.current = false; }, 200);
+          setTimeout(() => {
+            ignoreMapClickRef.current = false;
+          }, 200);
         },
       });
+
+      if (isLive) {
+        liveMarkers.push(marker);
+      } else {
+        clusterMarkers.push(marker);
+      }
+
       bounds.extend(new window.kakao.maps.LatLng(p.lat, p.lng));
       return marker;
     });
 
     markersRef.current = nextMarkers;
-    if (clustererRef.current) clustererRef.current.addMarkers(nextMarkers);
+    if (clustererRef.current) clustererRef.current.addMarkers(clusterMarkers);
 
     // [수정 포인트] 데이터(places)가 실제로 바뀌었을 때만 지도의 전체 범위를 다시 잡습니다.
     // selectedPlace가 변해서(카드 열기/닫기) 이 Effect가 돌 때는 지도를 움직이지 않습니다.
     const isPlacesChanged = JSON.stringify(prevPlacesRef.current) !== JSON.stringify(places);
     if (isPlacesChanged) {
-      if (places.length === 1) {
-        mapRef.current.setCenter(new window.kakao.maps.LatLng(places[0].lat, places[0].lng));
-        mapRef.current.setLevel(4);
-      } else {
-        mapRef.current.setBounds(bounds);
+      if (!userInteractedRef.current) {
+        ignoreViewportEventRef.current = true;
+        if (places.length === 1) {
+          mapRef.current.setCenter(
+            new window.kakao.maps.LatLng(places[0].lat, places[0].lng)
+          );
+          mapRef.current.setLevel(4);
+        } else {
+          mapRef.current.setBounds(bounds);
+        }
+        setTimeout(() => {
+          ignoreViewportEventRef.current = false;
+        }, 0);
       }
       prevPlacesRef.current = places;
     }
-  }, [places, selectedPlace, mapReady, savedColorMap]);
+  }, [places, selectedPlace, mapReady, savedColorMap, livePlaceIds]);
 
   // 3. 선택된 장소로 부드럽게 이동
   useEffect(() => {

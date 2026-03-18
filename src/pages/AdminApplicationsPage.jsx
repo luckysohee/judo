@@ -1,19 +1,66 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
 const COLOR_POOL = ["#2ECC71", "#FF5A5F", "#8E44AD", "#3498DB", "#A47148"];
 
 export default function AdminApplicationsPage() {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [processingId, setProcessingId] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    fetchApplications();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      setIsAdmin(false);
+      setLoading(false);
+      setApplications([]);
+      setErrorMessage("관리자 페이지입니다. 로그인이 필요합니다.");
+      return;
+    }
+
+    checkAdminAndLoad();
+  }, [authLoading, user]);
+
+  const checkAdminAndLoad = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage("");
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      const admin = data?.role === "admin";
+      setIsAdmin(admin);
+
+      if (!admin) {
+        setApplications([]);
+        setErrorMessage("권한이 없습니다.");
+        return;
+      }
+
+      await fetchApplications();
+    } catch (error) {
+      console.error("admin check error:", error);
+      setIsAdmin(false);
+      setApplications([]);
+      setErrorMessage(error?.message || "권한 확인 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchApplications = async () => {
     try {
@@ -44,50 +91,11 @@ export default function AdminApplicationsPage() {
       setProcessingId(application.id);
       setErrorMessage("");
 
-      const slug = makeSlug(application.name);
-      const subtitle = application.style?.trim() || "주도 큐레이터";
-      const bio = makeBio(application);
-      const color = pickColor(application.name);
+      const { error } = await supabase.rpc("approve_curator_application", {
+        application_id: application.id,
+      });
 
-      const { data: existingCurator, error: existingError } = await supabase
-        .from("curators")
-        .select("id, slug")
-        .eq("slug", slug)
-        .maybeSingle();
-
-      if (existingError) {
-        throw existingError;
-      }
-
-      if (!existingCurator) {
-        const { error: insertCuratorError } = await supabase.from("curators").insert([
-          {
-            slug,
-            name: slug,
-            display_name: application.name.trim(),
-            subtitle,
-            bio,
-            avatar_url: `https://placehold.co/240x240?text=${encodeURIComponent(
-              application.name.trim()
-            )}`,
-            color,
-            user_id: application.user_id || null,
-          },
-        ]);
-
-        if (insertCuratorError) {
-          throw insertCuratorError;
-        }
-      }
-
-      const { error: updateApplicationError } = await supabase
-        .from("curator_applications")
-        .update({ status: "approved" })
-        .eq("id", application.id);
-
-      if (updateApplicationError) {
-        throw updateApplicationError;
-      }
+      if (error) throw error;
 
       await fetchApplications();
     } catch (error) {
@@ -103,14 +111,11 @@ export default function AdminApplicationsPage() {
       setProcessingId(application.id);
       setErrorMessage("");
 
-      const { error } = await supabase
-        .from("curator_applications")
-        .update({ status: "rejected" })
-        .eq("id", application.id);
+      const { error } = await supabase.rpc("reject_curator_application", {
+        application_id: application.id,
+      });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       await fetchApplications();
     } catch (error) {
@@ -144,6 +149,10 @@ export default function AdminApplicationsPage() {
       </div>
 
       <div style={styles.content}>
+        {!loading && !isAdmin && errorMessage ? (
+          <div style={styles.errorText}>{errorMessage}</div>
+        ) : null}
+
         {loading ? (
           <div style={styles.emptyText}>불러오는 중...</div>
         ) : errorMessage ? (
