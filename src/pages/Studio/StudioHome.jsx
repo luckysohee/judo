@@ -8,6 +8,9 @@ import MapView from "../../components/Map/MapView";
 const NewPlaceSection = () => {
   const [step, setStep] = useState(1);
   const mapRef = useRef(null); // 지도 ref 추가
+  const [searchSuggestions, setSearchSuggestions] = useState([]); // 검색 제안
+  const [showSuggestions, setShowSuggestions] = useState(false); // 제안 표시 여부
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1); // 선택된 제안 인덱스
   const [basicInfo, setBasicInfo] = useState({
     name_address: "", // 가게 이름과 주소 합치기
     phone: "",
@@ -52,8 +55,8 @@ const NewPlaceSection = () => {
     const newPlace = {
       id: "temp",
       name: basicInfo.name_address || "새 장소",
-      latitude: lat,
-      longitude: lng,
+      lat: lat, // lat으로 변경
+      lng: lng, // lng으로 변경
       address: basicInfo.name_address || "",
     };
     setMapPlaces([newPlace]);
@@ -74,13 +77,19 @@ const NewPlaceSection = () => {
       name_address: value,
     });
     
+    // 연관 검색 제안 가져오기
+    fetchSearchSuggestions(value);
+    
+    // 선택된 인덱스 초기화
+    setSelectedSuggestionIndex(-1);
+    
     // 지도에 있는 마커도 업데이트
     if (basicInfo.latitude && basicInfo.longitude) {
       const updatedPlace = {
         id: "temp",
-        name: value || "새 장소",
-        latitude: basicInfo.latitude,
-        longitude: basicInfo.longitude,
+        name: value,
+        lat: basicInfo.latitude,
+        lng: basicInfo.longitude,
         address: value || "",
       };
       setMapPlaces([updatedPlace]);
@@ -89,35 +98,42 @@ const NewPlaceSection = () => {
 
   // 주소 검색 함수
   const searchAddress = async (query) => {
-    if (!query.trim()) return;
+    console.log("검색 시작:", query);
     
+    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+    console.log("API 키 확인:", apiKey ? "있음" : "없음");
+    
+    if (!apiKey) {
+      alert("카카오 REST API 키가 설정되지 않았습니다. 지도를 클릭하여 위치를 선택해주세요.");
+      return;
+    }
+
     try {
-      // 카카오 REST API 키 확인
-      const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-      if (!apiKey) {
-        alert("카카오 API 키가 설정되지 않았습니다. 지도를 클릭하여 위치를 선택해주세요.");
-        return;
-      }
-      
-      // 카카오 주소 검색 API 사용
-      const response = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}`, {
+      console.log("주소 검색 시도...");
+      // 주소 검색
+      const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=1`, {
         headers: {
           "Authorization": `KakaoAK ${apiKey}`
         }
       });
       
-      if (!response.ok) {
-        throw new Error(`API 요청 실패: ${response.status}`);
+      console.log("주소 검색 응답:", addressResponse.status);
+      
+      if (!addressResponse.ok) {
+        throw new Error(`주소 검색 실패: ${addressResponse.status}`);
       }
-      
-      const data = await response.json();
-      
-      if (data.documents && data.documents.length > 0) {
-        const firstResult = data.documents[0];
+
+      const addressData = await addressResponse.json();
+      console.log("주소 검색 결과:", addressData);
+
+      if (addressData.documents && addressData.documents.length > 0) {
+        const firstResult = addressData.documents[0];
         const lat = parseFloat(firstResult.y);
         const lng = parseFloat(firstResult.x);
         
-        // 좌표 업데이트
+        console.log("좌표 확보:", lat, lng);
+        
+        // 상태 업데이트
         setBasicInfo({
           ...basicInfo,
           latitude: lat,
@@ -128,52 +144,61 @@ const NewPlaceSection = () => {
         const newPlace = {
           id: "temp",
           name: query,
-          latitude: lat,
-          longitude: lng,
+          lat: lat, // lat으로 변경
+          lng: lng, // lng으로 변경
           address: firstResult.address_name || query,
         };
         setMapPlaces([newPlace]);
         
-        // 성공 메시지
-        alert(`"${firstResult.address_name}" 위치를 찾았습니다!`);
+        // 성공 메시지 제거
+        // alert(`"${firstResult.address_name}" 위치를 찾았습니다!`);
         
         // 지도 중심 이동
         moveMapToLocation(lat, lng);
       } else {
         // 키워드 검색 (장소명으로 검색)
+        console.log("키워드 검색 시도...");
         const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=1`, {
           headers: {
             "Authorization": `KakaoAK ${apiKey}`
           }
         });
         
+        console.log("키워드 검색 응답:", keywordResponse.status);
+        
         if (!keywordResponse.ok) {
           throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
         }
-        
+
         const keywordData = await keywordResponse.json();
-        
+        console.log("키워드 검색 결과:", keywordData);
+
         if (keywordData.documents && keywordData.documents.length > 0) {
           const firstResult = keywordData.documents[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
+          console.log("키워드 좌표 확보:", lat, lng);
+          
+          // 상태 업데이트
           setBasicInfo({
             ...basicInfo,
             latitude: lat,
             longitude: lng,
           });
           
+          // 지도에 마커 추가
           const newPlace = {
             id: "temp",
             name: firstResult.place_name || query,
-            latitude: lat,
-            longitude: lng,
+            lat: lat, // lat으로 변경
+            lng: lng, // lng으로 변경
             address: firstResult.address_name || firstResult.road_address_name || query,
           };
           setMapPlaces([newPlace]);
           
-          alert(`"${firstResult.place_name}" 위치를 찾았습니다!`);
+          // 성공 메시지 제거
+          // alert(`"${firstResult.place_name}" 위치를 찾았습니다!`);
           
           // 지도 중심 이동
           moveMapToLocation(lat, lng);
@@ -189,7 +214,127 @@ const NewPlaceSection = () => {
 
   // 검색 버튼 클릭 핸들러
   const handleSearch = () => {
-    searchAddress(basicInfo.name_address);
+    const query = basicInfo.name_address.trim();
+    if (!query) {
+      alert("검색어를 입력해주세요.");
+      return;
+    }
+    searchAddress(query);
+  };
+
+  // 화살표키 핸들러
+  const handleKeyDown = (e) => {
+    if (!showSuggestions || searchSuggestions.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        const nextIndex = selectedSuggestionIndex < searchSuggestions.length - 1 
+          ? selectedSuggestionIndex + 1 
+          : 0;
+        setSelectedSuggestionIndex(nextIndex);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        const prevIndex = selectedSuggestionIndex > 0 
+          ? selectedSuggestionIndex - 1 
+          : searchSuggestions.length - 1;
+        setSelectedSuggestionIndex(prevIndex);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (selectedSuggestionIndex >= 0) {
+          handleSuggestionClick(searchSuggestions[selectedSuggestionIndex]);
+        } else {
+          handleSearch();
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setShowSuggestions(false);
+        setSelectedSuggestionIndex(-1);
+        break;
+    }
+  };
+
+  // 엔터키 검색 핸들러
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSearch();
+    }
+  };
+
+  // 연관 검색 제안 함수
+  const fetchSearchSuggestions = async (query) => {
+    if (!query || query.length < 2) {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+    if (!apiKey) return;
+
+    try {
+      // 키워드 검색으로 연관 장소 찾기
+      const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=5`, {
+        headers: {
+          "Authorization": `KakaoAK ${apiKey}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const suggestions = data.documents.map(doc => ({
+          place_name: doc.place_name,
+          address_name: doc.address_name || doc.road_address_name,
+          lat: parseFloat(doc.y),
+          lng: parseFloat(doc.x)
+        }));
+        setSearchSuggestions(suggestions);
+        setShowSuggestions(true);
+      }
+    } catch (error) {
+      console.error("검색 제안 오류:", error);
+    }
+  };
+
+  // 검색어 초기화 핸들러
+  const handleClearSearch = () => {
+    setBasicInfo({
+      ...basicInfo,
+      name_address: "",
+    });
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
+    setMapPlaces([]);
+    setBasicInfo(prev => ({
+      ...prev,
+      latitude: null,
+      longitude: null,
+    }));
+  };
+  // 검색 제안 선택 핸들러
+  const handleSuggestionClick = (suggestion) => {
+    setBasicInfo({
+      ...basicInfo,
+      name_address: suggestion.place_name,
+      latitude: suggestion.lat,
+      longitude: suggestion.lng,
+    });
+    
+    const newPlace = {
+      id: "temp",
+      name: suggestion.place_name,
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      address: suggestion.address_name,
+    };
+    setMapPlaces([newPlace]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIndex(-1);
+    moveMapToLocation(suggestion.lat, suggestion.lng);
   };
 
   return (
@@ -211,28 +356,116 @@ const NewPlaceSection = () => {
           <h2 style={sectionStyles.stepTitle}>1단계: 기본 정보</h2>
           <div style={sectionStyles.form}>
             <div style={sectionStyles.formGroup}>
-              <div style={sectionStyles.searchWrapper}>
-                <input
-                  type="text"
-                  value={basicInfo.name_address}
-                  onChange={(e) => handleNameAddressChange(e.target.value)}
-                  placeholder="장소 또는 주소를 입력하세요"
-                  style={sectionStyles.searchInput}
-                />
-                <button
-                  type="button"
-                  onClick={handleSearch}
-                  style={sectionStyles.searchButton}
-                >
-                  🔍 검색
-                </button>
+              <div style={{position: 'relative', zIndex: 6}}>
+                <div style={sectionStyles.searchWrapper}>
+                  <input
+                    type="text"
+                    value={basicInfo.name_address}
+                    onChange={(e) => handleNameAddressChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="장소 또는 주소를 입력하세요"
+                    style={sectionStyles.searchInput}
+                    tabIndex={1}
+                  />
+                  {basicInfo.name_address && (
+                    <button
+                      type="button"
+                      onClick={handleClearSearch}
+                      style={{
+                        position: 'absolute',
+                        right: '100px', // 더 많이 이동
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        color: '#666666',
+                        padding: '2px',
+                        borderRadius: '50%',
+                        width: '18px',
+                        height: '18px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        zIndex: 2
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#f0f0f0';
+                        e.target.style.color = '#333333';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = 'transparent';
+                        e.target.style.color = '#666666';
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSearch}
+                    style={sectionStyles.searchButton}
+                    tabIndex={2}
+                  >
+                    🔍 검색
+                  </button>
+                </div>
+                
+                {/* 연관 검색 제안 */}
+                {showSuggestions && searchSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #333333',
+                    borderTop: 'none',
+                    borderRadius: '0 0 8px 8px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 5, // z-index 낮추기
+                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                  }}>
+                    {searchSuggestions.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        onClick={() => handleSuggestionClick(suggestion)}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid #f0f0f0',
+                          transition: 'background-color 0.2s ease',
+                          backgroundColor: index === selectedSuggestionIndex ? '#f0f0f0' : '#ffffff',
+                          color: index === selectedSuggestionIndex ? '#333333' : 'inherit'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#f8f9fa';
+                          setSelectedSuggestionIndex(index);
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = index === selectedSuggestionIndex ? '#f0f0f0' : '#ffffff';
+                        }}
+                      >
+                        <div style={{fontWeight: 'bold', color: '#333333', marginBottom: '4px'}}>
+                          {suggestion.place_name}
+                        </div>
+                        <div style={{fontSize: '12px', color: '#666666'}}>
+                          {suggestion.address_name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             
             {/* 지도 */}
-            <div style={sectionStyles.mapContainer}>
+            <div style={{...sectionStyles.mapContainer, marginBottom: showSuggestions ? "300px" : "0"}}>
               <label style={sectionStyles.label}>위치 선택 (지도를 클릭하세요)</label>
-              <div style={sectionStyles.mapWrapper}>
+              <div style={{...sectionStyles.mapWrapper, marginTop: '20px'}}>
                 <MapView
                   ref={mapRef}
                   places={mapPlaces}
@@ -252,27 +485,21 @@ const NewPlaceSection = () => {
             </div>
             
             <div style={sectionStyles.formGroup}>
-              <label style={sectionStyles.label}>연락처</label>
-              <input
-                type="tel"
-                value={basicInfo.phone}
-                onChange={(e) => setBasicInfo({...basicInfo, phone: e.target.value})}
-                placeholder="전화번호를 입력하세요"
-                style={sectionStyles.input}
-              />
-            </div>
-            <div style={sectionStyles.formGroup}>
               <label style={sectionStyles.label}>카테고리 *</label>
               <select
                 value={basicInfo.category}
                 onChange={(e) => setBasicInfo({...basicInfo, category: e.target.value})}
                 style={sectionStyles.select}
+                tabIndex={3}
               >
                 <option value="">선택하세요</option>
-                <option value="bar">바</option>
-                <option value="pub">펍</option>
-                <option value="restaurant">레스토랑</option>
-                <option value="cafe">카페</option>
+                <option value="디저트">디저트</option>
+                <option value="양식">양식</option>
+                <option value="육류">육류</option>
+                <option value="일식">일식</option>
+                <option value="중식">중식</option>
+                <option value="해산물">해산물</option>
+                <option value="한식">한식</option>
               </select>
             </div>
             <div style={sectionStyles.formGroup}>
@@ -281,12 +508,15 @@ const NewPlaceSection = () => {
                 value={basicInfo.alcohol_type}
                 onChange={(e) => setBasicInfo({...basicInfo, alcohol_type: e.target.value})}
                 style={sectionStyles.select}
+                tabIndex={4}
               >
                 <option value="">선택하세요</option>
-                <option value="soju">소주</option>
-                <option value="beer">맥주</option>
-                <option value="wine">와인</option>
-                <option value="cocktail">칵테일</option>
+                <option value="소주">소주</option>
+                <option value="맥주">맥주</option>
+                <option value="막걸리">막걸리</option>
+                <option value="하이볼">하이볼</option>
+                <option value="와인">와인</option>
+                <option value="칵테일">칵테일</option>
               </select>
             </div>
             <div style={sectionStyles.formGroup}>
@@ -295,6 +525,7 @@ const NewPlaceSection = () => {
                 value={basicInfo.atmosphere}
                 onChange={(e) => setBasicInfo({...basicInfo, atmosphere: e.target.value})}
                 style={sectionStyles.select}
+                tabIndex={5}
               >
                 <option value="">선택하세요</option>
                 <option value="quiet">조용한</option>
@@ -311,6 +542,7 @@ const NewPlaceSection = () => {
                 onChange={(e) => setBasicInfo({...basicInfo, recommended_menu: e.target.value})}
                 placeholder="추천하는 메뉴를 입력하세요"
                 style={sectionStyles.input}
+                tabIndex={6}
               />
             </div>
             <div style={sectionStyles.formGroup}>
@@ -318,9 +550,10 @@ const NewPlaceSection = () => {
               <textarea
                 value={basicInfo.menu_reason}
                 onChange={(e) => setBasicInfo({...basicInfo, menu_reason: e.target.value})}
-                placeholder="이 메뉴를 추천하는 이유를 설명해주세요"
+                placeholder="이 가게 추천하는 이유를 설명해주세요"
                 style={sectionStyles.textarea}
                 rows={3}
+                tabIndex={7}
               />
             </div>
             <div style={sectionStyles.formGroup}>
@@ -331,6 +564,7 @@ const NewPlaceSection = () => {
                 onChange={(e) => setBasicInfo({...basicInfo, tags: e.target.value.split(",").map(tag => tag.trim()).filter(tag => tag)})}
                 placeholder="#태그1 #태그2 #태그3 (쉼표로 구분)"
                 style={sectionStyles.input}
+                tabIndex={8}
               />
             </div>
           </div>
@@ -759,7 +993,8 @@ const sectionStyles = {
   mapContainer: {
     display: "flex",
     flexDirection: "column",
-    gap: "8px",
+    gap: "16px", // 간격 증가
+    marginTop: "16px", // 위쪽 마진 증가
   },
   mapWrapper: {
     width: "100%",
@@ -782,16 +1017,19 @@ const sectionStyles = {
   searchWrapper: {
     display: "flex",
     gap: "8px",
+    position: "relative",
+    alignItems: "center",
   },
   searchInput: {
     flex: 1,
+    padding: "12px 45px 12px 16px", // 오른쪽 패딩 45px로 증가
     border: "1px solid #333333",
     borderRadius: "8px",
-    padding: "12px 16px",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    fontSize: "16px",
+    fontSize: "14px",
+    backgroundColor: "#ffffff",
+    color: "#333333",
     outline: "none",
+    transition: "all 0.2s ease",
   },
   searchButton: {
     border: "1px solid #2ECC71",
@@ -852,7 +1090,7 @@ export default function StudioHome() {
         .select("*")
         .eq("curator_id", curatorData.id)
         .eq("is_public", true)
-        .order("created_at", { ascending: false })
+        .order("createdAt", { ascending: false })
         .limit(10);
 
       setMyPlaces(placesData || []);
@@ -863,7 +1101,7 @@ export default function StudioHome() {
         .select("*")
         .eq("curator_id", curatorData.id)
         .eq("is_public", false)
-        .order("updated_at", { ascending: false })
+        .order("updatedAt", { ascending: false })
         .limit(5);
 
       setDrafts(draftsData || []);
@@ -871,7 +1109,7 @@ export default function StudioHome() {
       // 성과/반응 데이터
       const { data: statsData } = await supabase
         .from("places")
-        .select("saved_count, view_count")
+        .select("savedCount, viewCount")
         .eq("curator_id", curatorData.id);
 
       // 팔로워 수
@@ -881,8 +1119,8 @@ export default function StudioHome() {
         .eq("curator_id", curatorData.id);
 
       // 통계 계산
-      const totalSaved = (statsData || []).reduce((sum, place) => sum + (place.saved_count || 0), 0);
-      const totalViews = (statsData || []).reduce((sum, place) => sum + (place.view_count || 0), 0);
+      const totalSaved = (statsData || []).reduce((sum, place) => sum + (place.savedCount || 0), 0);
+      const totalViews = (statsData || []).reduce((sum, place) => sum + (place.viewCount || 0), 0);
       
       setStats({
         totalPlaces: (placesData || []).length,
