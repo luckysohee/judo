@@ -41,6 +41,7 @@ export default function Home() {
   const devAdminUserId = import.meta.env.VITE_ADMIN_USER_ID;
 
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isCurator, setIsCurator] = useState(false);
 
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -216,7 +217,31 @@ export default function Home() {
       setIsAdmin(data?.role === "admin");
     };
 
+    const checkCurator = async () => {
+      if (authLoading) return;
+      if (!user?.id) {
+        setIsCurator(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("curators")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        console.error("curator check error:", error);
+        setIsCurator(false);
+        return;
+      }
+
+      setIsCurator(!!data);
+    };
+
     checkAdmin();
+    checkCurator();
 
     return () => {
       cancelled = true;
@@ -458,10 +483,21 @@ export default function Home() {
                 신청내역
               </button>
             ) : null}
+            
+            {/* 큐레이터용 스튜디오 버튼 */}
+            {user && isCurator && (
+              <button
+                type="button"
+                onClick={() => navigate("/studio")}
+                style={styles.studioChip}
+              >
+                스튜디오
+              </button>
+            )}
           </div>
 
           {/* 일반 유저용 큐레이터 신청 버튼 */}
-          {user && !isAdmin && (
+          {user && !isAdmin && !isCurator && (
             <button
               type="button"
               onClick={() => navigate("/curator-apply")}
@@ -1287,6 +1323,30 @@ const styles = {
     color: "#111",
     borderRadius: "999px",
     padding: "8px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+
+  aiSheetCloseBtadminChip: {
+    border: "1px solid rgba(0,0,0,0.10)",
+    backgroundColor: "rgba(255,255,255,0.86)",
+    color: "#111",
+    borderRadius: "999px",
+    padding: "4px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+
+  studioChip: {
+    border: "1px solid rgba(255,107,107,0.30)",
+    backgroundColor: "rgba(255,107,107,0.15)",
+    color: "#FF6B6B",
+    borderRadius: "999px",
+    padding: "4px 12px",
     fontSize: "12px",
     fontWeight: 700,
     cursor: "pointer",
