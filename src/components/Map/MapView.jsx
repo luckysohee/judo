@@ -53,7 +53,6 @@ const MapView = forwardRef(({
   const userInteractedRef = useRef(false);
   const ignoreViewportEventRef = useRef(false);
 
-  // 이전 places 상태를 기억하여 데이터가 실제로 바뀔 때만 범위를 잡기 위함
   const prevPlacesRef = useRef([]);
 
   const [mapReady, setMapReady] = useState(false);
@@ -62,20 +61,26 @@ const MapView = forwardRef(({
   useImperativeHandle(ref, () => ({
     moveToSeoulCenter: () => {
       if (!mapRef.current) return;
-      mapRef.current.panTo(new window.kakao.maps.LatLng(SEOUL_CENTER.lat, SEOUL_CENTER.lng));
-      mapRef.current.setLevel(6);
+      const moveLatLon = new window.kakao.maps.LatLng(
+        SEOUL_CENTER.lat,
+        SEOUL_CENTER.lng
+      );
+      mapRef.current.setCenter(moveLatLon);
     },
-    moveToCurrentLocation: () => {
-      if (!navigator.geolocation) {
-        alert("현재 위치를 지원하지 않는 브라우저입니다.");
-        return;
+    moveToLocation: (lat, lng) => {
+      if (!mapRef.current) return;
+      const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
+      mapRef.current.setCenter(moveLatLon);
+    },
+    getCurrentLocation: () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          const target = new window.kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+          mapRef.current.panTo(target);
+          if (onCurrentLocationChange) onCurrentLocationChange({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }, () => alert("위치 정보를 가져올 수 없습니다."));
       }
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const target = new window.kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
-        mapRef.current.panTo(target);
-        if (onCurrentLocationChange) onCurrentLocationChange({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      }, () => alert("위치 정보를 가져올 수 없습니다."));
-    }
+    },
   }));
 
   // 1. 지도 초기화
@@ -96,6 +101,7 @@ const MapView = forwardRef(({
 
           window.kakao.maps.load(() => {
             try {
+              console.log("지도 초기화 시작...");
               const map = new window.kakao.maps.Map(mapContainerRef.current, {
                 center: new window.kakao.maps.LatLng(
                   SEOUL_CENTER.lat,
@@ -104,6 +110,19 @@ const MapView = forwardRef(({
                 level: 6,
               });
               mapRef.current = map;
+              console.log("지도 생성 완료:", map);
+
+              // 지도 스타일 설정
+              mapContainerRef.current.style.backgroundColor = "#ffffff";
+              console.log("지도 스타일 설정 완료");
+
+              // 지도 강제 리사이즈
+              setTimeout(() => {
+                if (mapRef.current) {
+                  mapRef.current.relayout();
+                  console.log("지도 리사이즈 완료");
+                }
+              }, 100);
 
               const markUserInteracted = () => {
                 if (ignoreViewportEventRef.current) return;
@@ -269,11 +288,18 @@ const styles = {
     height: "100%", 
     borderRadius: "0px", 
     overflow: "hidden", 
-    backgroundColor: "#1a1a1a" 
+    backgroundColor: "#f0f0f0", 
+    position: "relative",
+    zIndex: 1
   },
   mapInner: { 
     width: "100%", 
-    height: "100%" 
+    height: "100%",
+    backgroundColor: "#f0f0f0", 
+    position: "absolute",
+    top: 0,
+    left: 0,
+    zIndex: 2
   },
   errorBox: { 
     width: "100%", 
@@ -281,7 +307,8 @@ const styles = {
     display: "flex", 
     alignItems: "center", 
     justifyContent: "center", 
-    color: "#fff" 
+    color: "#333",
+    zIndex: 3
   },
 };
 
