@@ -213,9 +213,12 @@ const MapView = forwardRef(({
     // selectedPlace가 변해서(카드 열기/닫기) 이 Effect가 돌 때는 지도를 움직이지 않습니다.
     const isPlacesChanged = JSON.stringify(prevPlacesRef.current) !== JSON.stringify(places);
     if (isPlacesChanged) {
-      if (!userInteractedRef.current) {
+      // 스튜디오 페이지에서는 무조건 중심 이동 (사용자 상호작용 무시)
+      const isStudioPage = window.location.pathname.includes('/studio');
+      if (!userInteractedRef.current || isStudioPage) {
         ignoreViewportEventRef.current = true;
         if (places.length === 1) {
+          console.log("단일 마커 중심 이동:", places[0].lat, places[0].lng); // 디버깅
           mapRef.current.setCenter(
             new window.kakao.maps.LatLng(places[0].lat, places[0].lng)
           );

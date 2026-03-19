@@ -3,13 +3,69 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 
+// 임시저장 키
+const DRAFT_KEY = "newPlace_draft";
+
 export default function NewPlace() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const initialStep = parseInt(searchParams.get('step')) || 1;
-  const [step, setStep] = useState(initialStep);
   const [submitting, setSubmitting] = useState(false);
+
+  // 임시저장 데이터 불러오기
+  const loadDraft = () => {
+    try {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        const parsedDraft = JSON.parse(draft);
+        return parsedDraft;
+      }
+    } catch (error) {
+      console.error("임시저장 데이터 로드 실패:", error);
+    }
+    return null;
+  };
+
+  // 임시저장 데이터 저장
+  const saveDraft = (data) => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    } catch (error) {
+      console.error("임시저장 데이터 저장 실패:", error);
+    }
+  };
+
+  // 임시저장 데이터 삭제
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch (error) {
+      console.error("임시저장 데이터 삭제 실패:", error);
+    }
+  };
+
+  // 초기화 시 임시저장 데이터 복원
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft) {
+      // 임시저장된 데이터로 상태 복원
+      if (draft.basicInfo) setBasicInfo(draft.basicInfo);
+      if (draft.curationInfo) setCurationInfo(draft.curationInfo);
+      if (draft.publishInfo) setPublishInfo(draft.publishInfo);
+      
+      console.log("임시저장 데이터 복원 완료:", draft);
+    }
+  }, []);
+
+  // 데이터 변경 시 자동 임시저장
+  useEffect(() => {
+    const draftData = {
+      basicInfo,
+      curationInfo,
+      publishInfo,
+      savedAt: new Date().toISOString()
+    };
+    saveDraft(draftData);
+  }, [basicInfo, curationInfo, publishInfo]);
 
   // 1단계: 기본 정보
   const [basicInfo, setBasicInfo] = useState({
@@ -111,6 +167,9 @@ export default function NewPlace() {
       });
 
       if (error) throw error;
+      
+      // 성공 시 임시저장 데이터 삭제
+      clearDraft();
       
       alert("장소가 추가되었습니다!");
       navigate("/studio");
@@ -366,61 +425,133 @@ export default function NewPlace() {
     </div>
   );
 
+  // 임시저장 상태 확인
+  const hasDraft = () => {
+    const draft = loadDraft();
+    return draft && draft.savedAt;
+  };
+
+  // 임시저장 시간 포맷
+  const formatSavedTime = (savedAt) => {
+    const date = new Date(savedAt);
+    const now = new Date();
+    const diffMinutes = Math.floor((now - date) / 60000);
+    
+    if (diffMinutes < 1) return "방금 전";
+    if (diffMinutes < 60) return `${diffMinutes}분 전`;
+    if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}시간 전`;
+    return `${Math.floor(diffMinutes / 1440)}일 전`;
+  };
+
+  // 수동 임시저장 함수
+  const handleManualSaveDraft = () => {
+    const draftData = {
+      basicInfo,
+      curationInfo,
+      publishInfo,
+      savedAt: new Date().toISOString()
+    };
+    saveDraft(draftData);
+    alert("임시저장되었습니다!");
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.title}>새 장소 추가</h1>
-        {renderStepIndicator()}
+        
+        {/* 임시저장 상태 표시 */}
+        {hasDraft() && (
+          <div style={{
+            position: "absolute",
+            top: "10px",
+            right: "10px",
+            background: "rgba(46, 204, 113, 0.1)",
+            color: "#2ECC71",
+            padding: "8px 12px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px"
+          }}>
+            <span>💾</span>
+            <span>임시저장됨 ({formatSavedTime(loadDraft().savedAt)})</span>
+            <button 
+              onClick={() => {
+                if (confirm("임시저장된 데이터를 삭제하시겠습니까?")) {
+                  clearDraft();
+                  window.location.reload();
+                }
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#E74C3C",
+                cursor: "pointer",
+                fontSize: "16px",
+                padding: "0",
+                lineHeight: "1"
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={styles.content}>
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
-
-        <div style={styles.actions}>
-          {step > 1 && (
-            <button
-              type="button"
-              onClick={handlePrev}
-              style={styles.secondaryButton}
-              disabled={submitting}
-            >
-              이전
-            </button>
-          )}
-
-          {step < 3 && (
-            <button
-              type="button"
-              onClick={handleNext}
-              style={styles.primaryButton}
-              disabled={submitting}
-            >
-              다음
-            </button>
-          )}
-
-          {step === 3 && (
-            <>
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                style={styles.secondaryButton}
-                disabled={submitting}
-              >
-                임시저장
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                style={styles.primaryButton}
-                disabled={submitting}
-              >
-                완료
-              </button>
-            </>
-          )}
+        {/* 한 장에 모든 폼 표시 */}
+        <div style={styles.step}>
+          <h2 style={styles.stepTitle}>기본 정보</h2>
+          {renderStep1()}
+        </div>
+        
+        <div style={styles.step}>
+          <h2 style={styles.stepTitle}>큐레이션 정보</h2>
+          {renderStep2()}
+        </div>
+        
+        <div style={styles.step}>
+          <h2 style={styles.stepTitle}>발행 설정</h2>
+          {renderStep3()}
+        </div>
+        
+        {/* 임시저장 버튼 */}
+        <div style={{ marginTop: "30px", textAlign: "center" }}>
+          <button
+            onClick={handleManualSaveDraft}
+            style={{
+              background: "#2ECC71",
+              color: "white",
+              border: "none",
+              padding: "12px 24px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "bold",
+              marginRight: "10px"
+            }}
+          >
+            💾 임시저장
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            style={{
+              background: "#3498DB",
+              color: "white",
+              border: "none",
+              padding: "12px 24px",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "bold"
+            }}
+            disabled={submitting}
+          >
+            {submitting ? "제출 중..." : "장소 추가하기"}
+          </button>
         </div>
       </div>
     </div>

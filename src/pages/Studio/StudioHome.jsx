@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import MapView from "../../components/Map/MapView";
 
 // 섹션 컴포넌트들
-const NewPlaceSection = () => {
+const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
   const [step, setStep] = useState(1);
   const mapRef = useRef(null); // 지도 ref 추가
   const [searchSuggestions, setSearchSuggestions] = useState([]); // 검색 제안
@@ -15,7 +15,6 @@ const NewPlaceSection = () => {
     name_address: "", // 가게 이름과 주소 합치기
     phone: "",
     category: "",
-    alcohol_type: "",
     atmosphere: "",
     recommended_menu: "",
     menu_reason: "",
@@ -39,8 +38,97 @@ const NewPlaceSection = () => {
     alert("임시저장 기능은 곧 구현됩니다!");
   };
 
-  const handleSubmit = () => {
-    alert("완료 기능은 곧 구현됩니다!");
+  const handleSubmit = async () => {
+    try {
+      // 필수 필드 확인
+      if (!basicInfo.name_address || !basicInfo.latitude || !basicInfo.longitude) {
+        alert("장소 이름과 위치를 선택해주세요.");
+        return;
+      }
+
+      // curator 확인
+      if (!curator || !curator.id) {
+        alert("큐레이터 정보가 없습니다. 다시 로그인해주세요.");
+        return;
+      }
+
+      console.log("curator 정보:", curator); // 디버깅용 로그
+
+      // 새 장소 데이터 생성
+      const newPlace = {
+        curator: curator.id, // curator_id -> curator로 변경
+        name: basicInfo.name_address,
+        address: basicInfo.name_address,
+        phone: basicInfo.phone || null,
+        category: basicInfo.category || null,
+        atmosphere: basicInfo.atmosphere || null,
+        recommended_menu: basicInfo.recommended_menu || null,
+        menu_reason: basicInfo.menu_reason || null,
+        tags: basicInfo.tags || [],
+        latitude: basicInfo.latitude,
+        longitude: basicInfo.longitude,
+        one_line_review: curationInfo.one_line_review || null,
+        visit_situations: curationInfo.visit_situations || [],
+        price_range: curationInfo.price_range || null,
+        visit_tips: curationInfo.visit_tips || null,
+        is_public: publishInfo.is_public,
+        is_featured: publishInfo.is_featured || false,
+        created_at: new Date().toISOString(),
+      };
+
+      console.log("저장할 데이터:", newPlace); // 디버깅용 로그
+
+      // Supabase에 장소 저장
+      const { data, error } = await supabase
+        .from("places")
+        .insert([newPlace])
+        .select();
+
+      if (error) {
+        console.error("장소 저장 오류:", error);
+        alert(`장소 저장에 실패했습니다.\n오류: ${error.message}\n코드: ${error.code || '알 수 없음'}`);
+        return;
+      }
+
+      // 성공적으로 저장된 경우
+      if (data && data.length > 0) {
+        // myPlaces에 새 장소 추가
+        setMyPlaces(prev => [data[0], ...prev]);
+        
+        // 폼 초기화
+        setBasicInfo({
+          name_address: "",
+          phone: "",
+          category: "",
+          atmosphere: "",
+          recommended_menu: "",
+          menu_reason: "",
+          tags: [],
+          latitude: null,
+          longitude: null,
+        });
+        setCurationInfo({
+          one_line_review: "",
+          visit_situations: [],
+          price_range: "",
+          visit_tips: "",
+        });
+        setPublishInfo({
+          is_public: true,
+          is_featured: false,
+        });
+        setMapPlaces([]);
+        
+        // 성공 메시지
+        alert("장소가 성공적으로 추가되었습니다!");
+        
+        // '내 장소 리스트' 섹션으로 이동
+        setActiveSection("places");
+      }
+    } catch (error) {
+      console.error("장소 추가 중 오류:", error);
+      alert("장소 추가에 실패했습니다.");
+    }
   };
 
   // 지도 클릭 핸들러
@@ -503,29 +591,12 @@ const NewPlaceSection = () => {
               </select>
             </div>
             <div style={sectionStyles.formGroup}>
-              <label style={sectionStyles.label}>술 종류</label>
-              <select
-                value={basicInfo.alcohol_type}
-                onChange={(e) => setBasicInfo({...basicInfo, alcohol_type: e.target.value})}
-                style={sectionStyles.select}
-                tabIndex={4}
-              >
-                <option value="">선택하세요</option>
-                <option value="소주">소주</option>
-                <option value="맥주">맥주</option>
-                <option value="막걸리">막걸리</option>
-                <option value="하이볼">하이볼</option>
-                <option value="와인">와인</option>
-                <option value="칵테일">칵테일</option>
-              </select>
-            </div>
-            <div style={sectionStyles.formGroup}>
               <label style={sectionStyles.label}>분위기</label>
               <select
                 value={basicInfo.atmosphere}
                 onChange={(e) => setBasicInfo({...basicInfo, atmosphere: e.target.value})}
                 style={sectionStyles.select}
-                tabIndex={5}
+                tabIndex={4}
               >
                 <option value="">선택하세요</option>
                 <option value="quiet">조용한</option>
@@ -542,7 +613,7 @@ const NewPlaceSection = () => {
                 onChange={(e) => setBasicInfo({...basicInfo, recommended_menu: e.target.value})}
                 placeholder="추천하는 메뉴를 입력하세요"
                 style={sectionStyles.input}
-                tabIndex={6}
+                tabIndex={5}
               />
             </div>
             <div style={sectionStyles.formGroup}>
@@ -553,7 +624,7 @@ const NewPlaceSection = () => {
                 placeholder="이 가게 추천하는 이유를 설명해주세요"
                 style={sectionStyles.textarea}
                 rows={3}
-                tabIndex={7}
+                tabIndex={6}
               />
             </div>
             <div style={sectionStyles.formGroup}>
@@ -564,7 +635,7 @@ const NewPlaceSection = () => {
                 onChange={(e) => setBasicInfo({...basicInfo, tags: e.target.value.split(",").map(tag => tag.trim()).filter(tag => tag)})}
                 placeholder="#태그1 #태그2 #태그3 (쉼표로 구분)"
                 style={sectionStyles.input}
-                tabIndex={8}
+                tabIndex={7}
               />
             </div>
           </div>
@@ -1045,94 +1116,147 @@ const sectionStyles = {
 };
 
 export default function StudioHome() {
+  console.log("StudioHome component rendering"); // 디버깅용
+  
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [curator, setCurator] = useState(null);
+  
+  // 상태 관리
+  const [activeSection, setActiveSection] = useState("list"); // list, add, archive
   const [myPlaces, setMyPlaces] = useState([]);
   const [drafts, setDrafts] = useState([]);
-  const [stats, setStats] = useState({
-    totalPlaces: 0,
-    totalDrafts: 0,
-    totalSaved: 0,
-    totalViews: 0,
-    followerCount: 0,
-  });
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState(null); // 현재 활성화된 섹션
+
+  // 잔 올리기 폼 상태
+  const [formData, setFormData] = useState({
+    name_address: "",
+    category: "",
+    alcohol_type: "",
+    atmosphere: "",
+    recommended_menu: "",
+    menu_reason: "",
+    tags: [],
+    latitude: null,
+    longitude: null,
+    is_public: true
+  });
+
+  // 잔 리스트 상태
+  const [filterType, setFilterType] = useState("all"); // all, public, private
+  const [places, setPlaces] = useState([
+    { id: 1, name: "테스트 장소 1", category: "한식", is_public: true, created_at: "2024-01-01" },
+    { id: 2, name: "테스트 장소 2", category: "일식", is_public: false, created_at: "2024-01-02" },
+    { id: 3, name: "테스트 장소 3", category: "중식", is_public: true, created_at: "2024-01-03" },
+  ]);
+
+  // 잔 아카이브 상태
+  const [stats, setStats] = useState({
+    followerCount: 0,
+    savedByFollowers: 0,
+    totalPlaces: 0,
+    overlappingPlaces: 0,
+    isLive: false,
+    notificationSent: false
+  });
+
+  // 큐레이터 프로필 상태
+  const [curatorProfile, setCuratorProfile] = useState({
+    name: "테스트 큐레이터",
+    image: null, // 실제로는 이미지 URL
+    bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다. 다양한 술집과 맛집을 소개해드릴게요.",
+    instagram: "@curator_example"
+  });
 
   useEffect(() => {
-    if (!user) {
-      navigate("/");
-      return;
-    }
-    checkCuratorAndLoadData();
-  }, [user]);
+    loadStudioData();
+  }, []);
 
-  const checkCuratorAndLoadData = async () => {
+  const loadStudioData = async () => {
     try {
-      // 큐레이터 정보 확인
-      const { data: curatorData, error: curatorError } = await supabase
-        .from("curators")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
+      // 실제 데이터 로딩 로직은 나중에 구현
+      setLoading(false);
+    } catch (error) {
+      console.error("Studio data loading error:", error);
+      setLoading(false);
+    }
+  };
 
-      if (curatorError) {
-        navigate("/");
+  const handleAddPlace = async (isDraft = false) => {
+    try {
+      // 중복 확인
+      const duplicateCheck = checkDuplicatePlace(formData.name_address);
+      if (duplicateCheck) {
+        alert("이미 저장된 장소입니다.");
         return;
       }
 
-      setCurator(curatorData);
-
-      // 내 장소 리스트
-      const { data: placesData } = await supabase
-        .from("places")
-        .select("*")
-        .eq("curator_id", curatorData.id)
-        .eq("is_public", true)
-        .order("createdAt", { ascending: false })
-        .limit(10);
-
-      setMyPlaces(placesData || []);
-
-      // 임시저장된 초안
-      const { data: draftsData } = await supabase
-        .from("places")
-        .select("*")
-        .eq("curator_id", curatorData.id)
-        .eq("is_public", false)
-        .order("updatedAt", { ascending: false })
-        .limit(5);
-
-      setDrafts(draftsData || []);
-
-      // 성과/반응 데이터
-      const { data: statsData } = await supabase
-        .from("places")
-        .select("savedCount, viewCount")
-        .eq("curator_id", curatorData.id);
-
-      // 팔로워 수
-      const { count: followerCount } = await supabase
-        .from("follows")
-        .select("*", { count: "exact", head: true })
-        .eq("curator_id", curatorData.id);
-
-      // 통계 계산
-      const totalSaved = (statsData || []).reduce((sum, place) => sum + (place.savedCount || 0), 0);
-      const totalViews = (statsData || []).reduce((sum, place) => sum + (place.viewCount || 0), 0);
+      // 장소 저장 로직
+      console.log("Saving place:", { ...formData, isDraft });
+      alert(isDraft ? "임시저장되었습니다." : "저장되었습니다.");
       
-      setStats({
-        totalPlaces: (placesData || []).length,
-        totalDrafts: (draftsData || []).length,
-        totalSaved,
-        totalViews,
-        followerCount: followerCount || 0,
+      // 폼 초기화
+      setFormData({
+        name_address: "",
+        category: "",
+        alcohol_type: "",
+        atmosphere: "",
+        recommended_menu: "",
+        menu_reason: "",
+        tags: [],
+        latitude: null,
+        longitude: null,
+        is_public: true
       });
+      
     } catch (error) {
-      console.error("Studio data loading error:", error);
-    } finally {
-      setLoading(false);
+      console.error("Place saving error:", error);
+      alert("저장에 실패했습니다.");
+    }
+  };
+
+  const checkDuplicatePlace = (placeName) => {
+    // 중복 확인 로직
+    return false; // 임시로 false 반환
+  };
+
+  const handleTogglePublic = (placeId) => {
+    // 실제 상태 변경 로직
+    console.log("Toggle public:", placeId);
+    setPlaces(prevPlaces => 
+      prevPlaces.map(place => 
+        place.id === placeId 
+          ? { ...place, is_public: !place.is_public }
+          : place
+      )
+    );
+  };
+
+  const handleDeletePlace = (placeId) => {
+    // 삭제 로직
+    console.log("Delete place:", placeId);
+  };
+
+  const handleEditPlace = (place) => {
+    // 수정 로직
+    console.log("Edit place:", place);
+  };
+
+  const handleInstagramConnect = () => {
+    // 인스타그램 연동 로직 (추후 구현)
+    console.log("인스타그램 연동 시도");
+    alert("인스타그램 연동 기능은 추후 구현될 예정입니다.");
+  };
+
+  const toggleLiveStatus = () => {
+    setStats(prev => ({ ...prev, isLive: !prev.isLive, notificationSent: false }));
+    if (!stats.isLive) {
+      // 팔로워들에게 알림 발송 선택 옵션
+      const choice = confirm("알림 발송하기: 확인(OK)\n알림 없이 라이브 시작: 취소(Cancel)");
+      if (choice) {
+        // 알림 발송 로직 (추후 구현)
+        console.log("알림 발송됨");
+        setStats(prev => ({ ...prev, notificationSent: true }));
+      }
     }
   };
 
@@ -1145,88 +1269,513 @@ export default function StudioHome() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>큐레이터 스튜디오</h1>
-        <p style={styles.subtitle}>{curator?.display_name}님의 작업 공간</p>
-        
-        {/* 맨 위 버튼 */}
-        <div style={styles.topBar}>
-          <button
-            type="button"
-            onClick={() => setActiveSection("new-place")}
-            style={{
-              ...styles.topBarButton,
-              backgroundColor: activeSection === "new-place" ? "#2ECC71" : "rgba(255,255,255,0.08)",
-              color: activeSection === "new-place" ? "#111111" : "#ffffff",
-              borderColor: activeSection === "new-place" ? "#2ECC71" : "rgba(255,255,255,0.1)",
-              transform: activeSection === "new-place" ? "translateY(-2px)" : "translateY(0)",
-              boxShadow: activeSection === "new-place" ? "0 8px 25px rgba(46, 204, 113, 0.3)" : "none",
-            }}
-          >
-            ⚡ 빠른 추가
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSection("places")}
-            style={{
-              ...styles.topBarButton,
-              backgroundColor: activeSection === "places" ? "#2ECC71" : "rgba(255,255,255,0.08)",
-              color: activeSection === "places" ? "#111111" : "#ffffff",
-              borderColor: activeSection === "places" ? "#2ECC71" : "rgba(255,255,255,0.1)",
-              transform: activeSection === "places" ? "translateY(-2px)" : "translateY(0)",
-              boxShadow: activeSection === "places" ? "0 8px 25px rgba(46, 204, 113, 0.3)" : "none",
-            }}
-          >
-            📍 내 장소 리스트
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSection("drafts")}
-            style={{
-              ...styles.topBarButton,
-              backgroundColor: activeSection === "drafts" ? "#2ECC71" : "rgba(255,255,255,0.08)",
-              color: activeSection === "drafts" ? "#111111" : "#ffffff",
-              borderColor: activeSection === "drafts" ? "#2ECC71" : "rgba(255,255,255,0.1)",
-              transform: activeSection === "drafts" ? "translateY(-2px)" : "translateY(0)",
-              boxShadow: activeSection === "drafts" ? "0 8px 25px rgba(46, 204, 113, 0.3)" : "none",
-            }}
-          >
-            📝 임시저장
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSection("stats")}
-            style={{
-              ...styles.topBarButton,
-              backgroundColor: activeSection === "stats" ? "#2ECC71" : "rgba(255,255,255,0.08)",
-              color: activeSection === "stats" ? "#111111" : "#ffffff",
-              borderColor: activeSection === "stats" ? "#2ECC71" : "rgba(255,255,255,0.1)",
-              transform: activeSection === "stats" ? "translateY(-2px)" : "translateY(0)",
-              boxShadow: activeSection === "stats" ? "0 8px 25px rgba(46, 204, 113, 0.3)" : "none",
-            }}
-          >
-            📊 성과 및 반응
-          </button>
-        </div>
+    <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
+      {/* 좌측 상단 홈 버튼 */}
+      <div style={{ position: "absolute", top: "20px", left: "20px" }}>
+        <button 
+          onClick={() => navigate("/")}
+          style={{ 
+            padding: "8px 16px", 
+            backgroundColor: "#2ECC71", 
+            color: "white", 
+            border: "none", 
+            borderRadius: "8px",
+            cursor: "pointer",
+            fontSize: "14px",
+            fontWeight: "600"
+          }}
+        >
+          홈
+        </button>
+      </div>
+      
+      <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "20px" }}>
+        {user?.user_metadata?.display_name || user?.email?.split("@")[0] || "사용자"}님의 스튜디오
+      </h1>
+      
+      {/* 섹션 선택 버튼 */}
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginBottom: "30px" }}>
+        <button
+          onClick={() => setActiveSection("add")}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: activeSection === "add" ? "#2ECC71" : "#333",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer"
+          }}
+        >
+          잔 올리기
+        </button>
+        <button
+          onClick={() => setActiveSection("list")}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: activeSection === "list" ? "#2ECC71" : "#333",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer"
+          }}
+        >
+          잔 리스트
+        </button>
+        <button
+          onClick={() => setActiveSection("archive")}
+          style={{
+            padding: "10px 20px",
+            backgroundColor: activeSection === "archive" ? "#2ECC71" : "#333",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer"
+          }}
+        >
+          잔 아카이브
+        </button>
       </div>
 
-      <div style={styles.content}>
-        {/* 활성화된 섹션에 따라 내용 표시 */}
-        {activeSection === "new-place" && <NewPlaceSection />}
-        {activeSection === "places" && <PlacesSection places={myPlaces} />}
-        {activeSection === "drafts" && <DraftsSection drafts={drafts} />}
-        {activeSection === "stats" && <StatsSection stats={stats} />}
-        
-        {/* 아무것도 선택되지 않았을 때 기본 화면 */}
-        {!activeSection && (
-          <div style={styles.welcomeSection}>
-            <div style={styles.welcomeIcon}>👋</div>
-            <h2 style={styles.welcomeTitle}>어떤 작업을 하시겠어요?</h2>
-            <p style={styles.welcomeText}>위 버튼을 클릭하여 작업을 시작하세요</p>
+      {/* 잔 올리기 섹션 */}
+      {activeSection === "add" && (
+        <div style={{ textAlign: "left", maxWidth: "600px", margin: "0 auto" }}>
+          {/* 장소/주소 검색 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>장소 또는 주소 검색</label>
+            <input
+              type="text"
+              value={formData.name_address}
+              onChange={(e) => setFormData(prev => ({ ...prev, name_address: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px"
+              }}
+              placeholder="장소 이름 또는 주소를 입력하세요"
+            />
           </div>
-        )}
-      </div>
+
+          {/* 지도 (임시로 간단한 표시) */}
+          <div style={{
+            height: "200px",
+            backgroundColor: "#333",
+            borderRadius: "8px",
+            marginBottom: "20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#666"
+          }}>
+            지도 영역 (마커 표시)
+          </div>
+
+          {/* 카테고리 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>카테고리</label>
+            <select
+              value={formData.category}
+              onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px"
+              }}
+            >
+              <option value="">선택하세요</option>
+              <option value="한식">한식</option>
+              <option value="중식">중식</option>
+              <option value="일식">일식</option>
+              <option value="양식">양식</option>
+              <option value="육류">육류</option>
+              <option value="해산물">해산물</option>
+              <option value="디저트">디저트</option>
+            </select>
+          </div>
+
+          {/* 술종류 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>술종류</label>
+            <select
+              value={formData.alcohol_type}
+              onChange={(e) => setFormData(prev => ({ ...prev, alcohol_type: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px"
+              }}
+            >
+              <option value="">선택하세요</option>
+              <option value="소주">소주</option>
+              <option value="맥주">맥주</option>
+              <option value="막걸리">막걸리</option>
+              <option value="하이볼">하이볼</option>
+              <option value="위스키">위스키</option>
+              <option value="칵테일">칵테일</option>
+            </select>
+          </div>
+
+          {/* 분위기 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>분위기</label>
+            <textarea
+              value={formData.atmosphere}
+              onChange={(e) => setFormData(prev => ({ ...prev, atmosphere: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px",
+                minHeight: "80px",
+                resize: "vertical"
+              }}
+              placeholder="분위기를 설명해주세요"
+            />
+          </div>
+
+          {/* 추천이유 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>추천이유</label>
+            <textarea
+              value={formData.menu_reason}
+              onChange={(e) => setFormData(prev => ({ ...prev, menu_reason: e.target.value }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px",
+                minHeight: "80px",
+                resize: "vertical"
+              }}
+              placeholder="추천하는 이유를 알려주세요"
+            />
+          </div>
+
+          {/* 해시태그 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>해시태그</label>
+            <input
+              type="text"
+              value={formData.tags.join(", ")}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                tags: e.target.value.split(",").map(tag => tag.trim()).filter(tag => tag)
+              }))}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "16px"
+              }}
+              placeholder="해시태그를 쉼표로 구분하여 입력하세요"
+            />
+          </div>
+
+          {/* 버튼들 */}
+          <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+            <button
+              onClick={() => handleAddPlace(true)}
+              style={{
+                padding: "12px 24px",
+                backgroundColor: "#666",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontSize: "16px"
+              }}
+            >
+              임시저장
+            </button>
+            <button
+              onClick={() => handleAddPlace(false)}
+              style={{
+                padding: "12px 24px",
+                backgroundColor: "#2ECC71",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontSize: "16px"
+              }}
+            >
+              저장
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 잔 리스트 섹션 */}
+      {activeSection === "list" && (
+        <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
+          {/* 장소 리스트 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+            {/* 임시로 예시 데이터 */}
+            {places.map(place => (
+                <div key={place.id} style={{
+                  backgroundColor: "#222",
+                  padding: "20px",
+                  borderRadius: "8px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: "0 0 5px 0", fontSize: "18px", fontWeight: "bold" }}>
+                      {place.name}
+                    </h3>
+                    <p style={{ margin: "0 0 5px 0", color: "#666", fontSize: "14px" }}>
+                      {place.category} • {place.created_at}
+                    </p>
+                  </div>
+                  
+                  <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+                    {/* 수정 버튼 */}
+                    <button
+                      onClick={() => handleEditPlace(place)}
+                      style={{
+                        padding: "6px 12px",
+                        backgroundColor: "#3498DB",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "12px"
+                      }}
+                    >
+                      수정
+                    </button>
+                    
+                    {/* 삭제 버튼 */}
+                    <button
+                      onClick={() => handleDeletePlace(place.id)}
+                      style={{
+                        padding: "6px 12px",
+                        backgroundColor: "#E74C3C",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "12px"
+                      }}
+                    >
+                      삭제
+                    </button>
+                    
+                    {/* 공개/비공개 토글 버튼 - 맨 오른쪽 */}
+                    <button
+                      onClick={() => handleTogglePublic(place.id)}
+                      style={{
+                        padding: "6px 12px",
+                        backgroundColor: place.is_public ? "#2ECC71" : "#E74C3C",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        minWidth: "50px"
+                      }}
+                    >
+                      {place.is_public ? "공개" : "비공개"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            
+            {/* 실제 데이터가 없을 때 */}
+            {false && (
+              <div style={{
+                textAlign: "center",
+                padding: "40px",
+                backgroundColor: "#222",
+                borderRadius: "8px",
+                color: "#666"
+              }}>
+                저장된 장소가 없습니다.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 잔 아카이브 섹션 */}
+      {activeSection === "archive" && (
+        <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
+          {/* 큐레이터 프로필 */}
+          <div style={{
+            backgroundColor: "#222",
+            padding: "30px",
+            borderRadius: "12px",
+            marginBottom: "30px",
+            display: "flex",
+            gap: "20px",
+            alignItems: "flex-start"
+          }}>
+            {/* 큐레이터 사진 */}
+            <div style={{
+              width: "80px",
+              height: "80px",
+              borderRadius: "50%",
+              backgroundColor: "#333",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#666",
+              fontSize: "14px",
+              flexShrink: 0
+            }}>
+              {curatorProfile.image ? (
+                <img 
+                  src={curatorProfile.image} 
+                  alt={curatorProfile.name}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: "50%",
+                    objectFit: "cover"
+                  }}
+                />
+              ) : (
+                "사진"
+              )}
+            </div>
+            
+            {/* 프로필 정보 */}
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: "0 0 10px 0", fontSize: "20px", fontWeight: "bold" }}>
+                {curatorProfile.name}
+              </h3>
+              <p style={{ margin: "0 0 15px 0", color: "#ccc", lineHeight: "1.5" }}>
+                {curatorProfile.bio}
+              </p>
+              
+              {/* 인스타그램 연동 */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <span style={{ color: "#E4405F", fontSize: "18px" }}>📷</span>
+                <span style={{ color: "#ccc", fontSize: "14px" }}>
+                  {curatorProfile.instagram}
+                </span>
+                <button
+                  onClick={handleInstagramConnect}
+                  style={{
+                    padding: "4px 12px",
+                    backgroundColor: "#E4405F",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontWeight: "600"
+                  }}
+                >
+                  연동하기
+                </button>
+                
+                {/* 라이브 시작 버튼 */}
+                <button
+                  onClick={toggleLiveStatus}
+                  style={{
+                    padding: "4px 12px",
+                    backgroundColor: stats.isLive ? "#E74C3C" : "#2ECC71",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontWeight: "600"
+                  }}
+                >
+                  {stats.isLive ? "라이브 중지" : "라이브 시작"}
+                </button>
+              </div>
+              
+              {/* 라이브 상태 메시지 */}
+              {stats.isLive && (
+                <div style={{ marginTop: "10px", padding: "8px 12px", backgroundColor: "#2ECC71", borderRadius: "4px" }}>
+                  <p style={{ margin: 0, color: "white", fontSize: "12px" }}>
+                    🔴 라이브 중
+                    {stats.notificationSent ? " • 팔로워들에게 알림 발송됨" : " • 알림 미발송"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* 활동지표 */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: "15px",
+            marginBottom: "30px"
+          }}>
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "8px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
+                {stats.followerCount}
+              </div>
+              <div style={{ fontSize: "14px", color: "#666" }}>팔로워 수</div>
+            </div>
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "8px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
+                {stats.savedByFollowers}
+              </div>
+              <div style={{ fontSize: "14px", color: "#666" }}>팔로워가 저장한 장소</div>
+            </div>
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "8px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
+                {stats.totalPlaces}
+              </div>
+              <div style={{ fontSize: "14px", color: "#666" }}>올린 장소 수</div>
+            </div>
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "8px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
+                {stats.overlappingPlaces}
+              </div>
+              <div style={{ fontSize: "14px", color: "#666" }}>겹친 장소 수</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

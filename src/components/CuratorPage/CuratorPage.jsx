@@ -1,4 +1,5 @@
 import MapView from "../Map/MapView";
+import { useNavigate } from "react-router-dom";
 
 export default function CuratorPage({
   open,
@@ -15,12 +16,22 @@ export default function CuratorPage({
   onToggleFollow,
   onToggleLive,
 }) {
+  const navigate = useNavigate();
+  
   if (!open || !curator) return null;
 
   return (
     <div style={styles.overlay}>
       <div style={styles.sheet}>
         <div style={styles.headerRow}>
+          <button 
+            type="button" 
+            onClick={() => navigate("/")} 
+            style={styles.homeButton}
+          >
+            🏠 홈
+          </button>
+          
           <div style={styles.headerLeft}>
             <img src={curator.avatar} alt={curator.name} style={styles.avatar} />
 
@@ -342,5 +353,17 @@ const styles = {
     fontSize: "13px",
     color: "#f0f0f0",
     lineHeight: 1.5,
+  },
+  homeButton: {
+    padding: "8px 16px",
+    backgroundColor: "#2ECC71",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    marginRight: "12px",
   },
 };

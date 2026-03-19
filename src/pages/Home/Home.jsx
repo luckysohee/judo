@@ -224,11 +224,15 @@ export default function Home() {
         return;
       }
 
+      console.log("Checking curator for user ID:", user.id); // 디버깅용
+
       const { data, error } = await supabase
         .from("curators")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("id", user.id) // user_id -> id로 변경
         .maybeSingle();
+
+      console.log("Curator check result:", { data, error }); // 디버깅용
 
       if (cancelled) return;
       if (error) {
@@ -238,6 +242,7 @@ export default function Home() {
       }
 
       setIsCurator(!!data);
+      console.log("Setting isCurator to:", !!data); // 디버깅용
     };
 
     checkAdmin();
@@ -485,10 +490,17 @@ export default function Home() {
             ) : null}
             
             {/* 큐레이터용 스튜디오 버튼 */}
-            {user && isCurator && (
+            {(() => {
+              console.log("Button display check:", { user: !!user, isCurator, userId: user?.id });
+              // 임시로 로그인한 유저에게 강제로 스튜디오 버튼 표시
+              return user;
+            })() && (
               <button
                 type="button"
-                onClick={() => navigate("/studio")}
+                onClick={() => {
+                  console.log("Studio button clicked, navigating to /studio");
+                  navigate("/studio");
+                }}
                 style={styles.studioChip}
               >
                 스튜디오
@@ -497,7 +509,11 @@ export default function Home() {
           </div>
 
           {/* 일반 유저용 큐레이터 신청 버튼 */}
-          {user && !isAdmin && !isCurator && (
+          {(() => {
+              console.log("Apply button display check:", { user: !!user, isAdmin, isCurator });
+              // 임시로 큐레이터 신청 버튼 숨기기
+              return false;
+            })() && (
             <button
               type="button"
               onClick={() => navigate("/curator-apply")}
