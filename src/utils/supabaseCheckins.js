@@ -109,17 +109,34 @@ export async function fetchRecentCheckinsByPlace(placeId, limit = 10) {
   return data || [];
 }
 
+export async function fetchHotPlaces1h(limit = 10) {
+  const { data, error } = await supabase
+    .from("hot_places_1h")
+    .select("*")
+    .order("checkin_count", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("핫플레이스(1시간) 조회 에러:", error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function fetchHotPlaces24h(limit = 20) {
   const { data, error } = await supabase
     .from("hot_places_24h")
     .select("*")
+    .order("checkin_count", { ascending: false })
     .limit(limit);
 
   if (error) {
+    console.error("핫플레이스(24시간) 조회 에러:", error);
     throw error;
   }
 
-  return data || [];
+  return data;
 }
 
 export async function fetchUserCheckins(userId, visibility = null) {

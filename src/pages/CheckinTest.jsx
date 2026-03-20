@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createCheckin, deleteCheckin, fetchUserCheckins, fetchHotPlaces24h } from "../utils/supabaseCheckins";
+import { createCheckin, deleteCheckin, fetchUserCheckins, fetchHotPlaces1h } from "../utils/supabaseCheckins";
 import { useAuth } from "../context/AuthContext";
 
 export default function CheckinTest() {
@@ -52,7 +52,7 @@ export default function CheckinTest() {
 
   const loadHotPlaces = async () => {
     try {
-      const data = await fetchHotPlaces24h(5);
+      const data = await fetchHotPlaces1h(5);
       setHotPlaces(data || []);
     } catch (error) {
       console.error("핫플레이스 로딩 에러:", error);
@@ -90,9 +90,9 @@ export default function CheckinTest() {
       </div>
 
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>핫플레이스</h2>
+        <h2 style={styles.sectionTitle}>🔥 실시간 핫플레이스 (1시간)</h2>
         <button onClick={loadHotPlaces} style={styles.button}>
-          🔥 핫플레이스 로드
+          🔥 1시간 핫플레이스 로드
         </button>
         
         {hotPlaces.length > 0 && (
@@ -100,9 +100,15 @@ export default function CheckinTest() {
             {hotPlaces.map((place, index) => (
               <div key={place.id} style={styles.item}>
                 <span>{index + 1}. {place.name}</span>
-                <span>🎯 {place.checkin_count}회</span>
+                <span>🎯 {place.checkin_count}회 (1시간)</span>
               </div>
             ))}
+          </div>
+        )}
+        
+        {hotPlaces.length === 0 && (
+          <div style={styles.info}>
+            <p>1시간 이내 체크인이 없습니다.</p>
           </div>
         )}
       </div>

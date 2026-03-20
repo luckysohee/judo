@@ -153,21 +153,55 @@ JOIN profiles pr ON c.user_id = pr.id
 WHERE c.visibility = 'public'
 ORDER BY c.created_at DESC;
 
--- Hot places (most checkins in last 24 hours)
-CREATE OR REPLACE VIEW hot_places_24h AS
+-- 1시간 이내 핫플레이스 뷰
+CREATE OR REPLACE VIEW hot_places_1h AS
 SELECT 
-  p.id,
-  p.name,
-  p.address,
-  COUNT(c.id) as checkin_count,
-  COUNT(DISTINCT c.user_id) as unique_visitors
+    p.id,
+    p.name,
+    p.address,
+    p.region,
+    p.lat,
+    p.lng,
+    p.image,
+    p.comment,
+    p.tags,
+    p.curators,
+    p.saved_count,
+    COUNT(c.id) as checkin_count,
+    COUNT(DISTINCT c.user_id) as unique_visitors,
+    MAX(c.created_at) as last_checkin_time
 FROM places p
 LEFT JOIN checkins c ON p.id = c.place_id 
-  AND c.created_at >= NOW() - INTERVAL '24 hours'
-  AND c.visibility = 'public'
-GROUP BY p.id, p.name, p.address
+    AND c.created_at >= NOW() - INTERVAL '1 hour'
+    AND c.visibility = 'public'
+GROUP BY p.id, p.name, p.address, p.region, p.lat, p.lng, p.image, p.comment, p.tags, p.curators, p.saved_count
 HAVING COUNT(c.id) > 0
-ORDER BY checkin_count DESC, unique_visitors DESC;
+ORDER BY checkin_count DESC, last_checkin_time DESC;
+
+-- 24시간 이내 핫플레이스 뷰 (기존)
+CREATE OR REPLACE VIEW hot_places_24h AS
+SELECT 
+    p.id,
+    p.name,
+    p.address,
+    p.region,
+    p.lat,
+    p.lng,
+    p.image,
+    p.comment,
+    p.tags,
+    p.curators,
+    p.saved_count,
+    COUNT(c.id) as checkin_count,
+    COUNT(DISTINCT c.user_id) as unique_visitors,
+    MAX(c.created_at) as last_checkin_time
+FROM places p
+LEFT JOIN checkins c ON p.id = c.place_id 
+    AND c.created_at >= NOW() - INTERVAL '24 hour'
+    AND c.visibility = 'public'
+GROUP BY p.id, p.name, p.address, p.region, p.lat, p.lng, p.image, p.comment, p.tags, p.curators, p.saved_count
+HAVING COUNT(c.id) > 0
+ORDER BY checkin_count DESC, last_checkin_time DESC;
 
 -- ==========================================
 -- 7. VERIFICATION QUERIES
