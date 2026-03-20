@@ -1190,65 +1190,66 @@ export default function StudioHome() {
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
 
-  // 자동완성 데이터
-  const placeSuggestions = [
-    "강남역",
-    "역삼역", 
-    "교대역",
-    "서초역",
-    "잠실역",
-    "신도림역",
-    "홍대입구역",
-    "명동역",
-    "종로3가역",
-    "을지로3가역",
-    "여의도역",
-    "합정역",
-    "상수역",
-    "공덕역",
-    "충정로역",
-    "시청역",
-    "을지로입구역",
-    "동대문역",
-    "동대문역사문화공원역",
-    "장한평역",
-    "왕십리역",
-    "청량리역",
-    "신설동역",
-    "도봉산역",
-    "회현역",
-    "서울역",
-    "숙대입구역",
-    "삼각지역",
-    "봉천역",
-    "신림역",
-    "대방역",
-    "노량진역",
-    "양평역",
-    "영등포역",
-    "신도림역",
-    "구로역",
-    "가산디지털단지역",
-    "부천역",
-    "인천역",
-    "부평역",
-    "주안역",
-    "간석역",
-    "석천역",
-    "부개역",
-    "동인천역",
-    "제물포역",
-    "도화역",
-    "주안역",
-    "간석역",
-    "석천역",
-    "부개역",
-    "동인천역",
-    "제물포역",
-    "도화역"
-  ];
+  // 자동완성 검색 함수
+  const fetchSuggestions = async (query) => {
+    if (!query.trim() || query.length < 2) {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
 
+    setIsSearchingSuggestions(true);
+    
+    try {
+      const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+      
+      if (!apiKey) {
+        console.error("❌ 카카오 REST API 키가 없습니다.");
+        setSearchSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+      
+      // 카카오 장소 검색 API (자동완성용)
+      const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=5`, {
+        headers: {
+          "Authorization": `KakaoAK ${apiKey}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`검색 실패: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.documents && data.documents.length > 0) {
+        const suggestions = data.documents.map(doc => ({
+          place_name: doc.place_name,
+          address_name: doc.address_name || doc.road_address_name,
+          category_name: doc.category_name,
+          lat: parseFloat(doc.y),
+          lng: parseFloat(doc.x)
+        }));
+        
+        setSearchSuggestions(suggestions);
+        setShowSuggestions(true);
+        setSelectedSuggestionIndex(-1);
+      } else {
+        setSearchSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } catch (error) {
+      console.error("자동완성 검색 오류:", error);
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+    } finally {
+      setIsSearchingSuggestions(false);
+    }
+  };
+  
   // 해시태그 처리 함수
   const handleTagsChange = (value) => {
     console.log("=== 태그 처리 시작 ==="); // 디버깅용
@@ -1330,36 +1331,31 @@ export default function StudioHome() {
   // 해시태그 입력값 관리
   const [tagInputValue, setTagInputValue] = useState("");
 
-  // 자동완성 필터링
-  const getFilteredSuggestions = (input) => {
-    if (!input.trim()) return [];
-    return placeSuggestions.filter(place => 
-      place.toLowerCase().includes(input.toLowerCase())
-    ).slice(0, 8); // 최대 8개까지 표시
-  };
-
+  
   // 자동완성 핸들러
   const handleInputChange = (value) => {
     setFormData(prev => ({ ...prev, name_address: value }));
     
-    if (value.trim()) {
-      const suggestions = getFilteredSuggestions(value);
-      setSearchSuggestions(suggestions);
-      setShowSuggestions(suggestions.length > 0);
-      setSelectedSuggestionIndex(-1);
-    } else {
-      setSearchSuggestions([]);
-      setShowSuggestions(false);
-      setSelectedSuggestionIndex(-1);
-    }
+    // API를 통해 자동완성 제안 가져오기
+    fetchSuggestions(value);
   };
 
   // 자동완성 선택
   const handleSuggestionClick = (suggestion) => {
-    setFormData(prev => ({ ...prev, name_address: suggestion }));
+    setFormData(prev => ({ 
+      ...prev, 
+      name_address: suggestion.place_name || suggestion,
+      latitude: suggestion.lat || null,
+      longitude: suggestion.lng || null
+    }));
     setSearchSuggestions([]);
     setShowSuggestions(false);
     setSelectedSuggestionIndex(-1);
+    
+    // 지도 중심 이동 (좌표가 있는 경우)
+    if (suggestion.lat && suggestion.lng) {
+      setMapCenter({ lat: suggestion.lat, lng: suggestion.lng });
+    }
   };
 
   // 키보드 핸들러
@@ -2149,9 +2145,7 @@ export default function StudioHome() {
                     onKeyDown={handleKeyDown}
                     onFocus={() => {
                       if (formData.name_address.trim()) {
-                        const suggestions = getFilteredSuggestions(formData.name_address);
-                        setSearchSuggestions(suggestions);
-                        setShowSuggestions(suggestions.length > 0);
+                        fetchSuggestions(formData.name_address);
                       }
                     }}
                     onBlur={() => {
@@ -2239,7 +2233,7 @@ export default function StudioHome() {
                 }}>
                   {searchSuggestions.map((suggestion, index) => (
                     <div
-                      key={suggestion}
+                      key={index}
                       onClick={() => handleSuggestionClick(suggestion)}
                       style={{
                         padding: "8px 10px",
@@ -2252,7 +2246,14 @@ export default function StudioHome() {
                       onMouseEnter={() => setSelectedSuggestionIndex(index)}
                       onMouseLeave={() => setSelectedSuggestionIndex(-1)}
                     >
-                      🔍 {suggestion}
+                      <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+                        🔍 {suggestion.place_name}
+                      </div>
+                      {suggestion.address_name && (
+                        <div style={{ fontSize: "11px", color: "#999" }}>
+                          {suggestion.address_name}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
