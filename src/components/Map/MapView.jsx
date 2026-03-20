@@ -43,6 +43,7 @@ const MapView = forwardRef(({
   savedColorMap,
   livePlaceIds,
   onCurrentLocationChange,
+  center, // center prop 추가
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -119,7 +120,7 @@ const MapView = forwardRef(({
               // 지도 강제 리사이즈
               setTimeout(() => {
                 if (mapRef.current) {
-                  mapRef.current.relayout();
+                  mapRef.current.relayout(); // relayout()이 맞습니다
                   console.log("지도 리사이즈 완료");
                 }
               }, 100);
@@ -171,6 +172,10 @@ const MapView = forwardRef(({
     // 마커 다시 그리기
     markersRef.current.forEach(m => m.setMap(null));
     if (clustererRef.current) clustererRef.current.clear();
+    
+    console.log("🗺️ MapView places 데이터:", places);
+    console.log("🗺️ places.length:", places?.length);
+    
     if (!places?.length) return;
 
     const bounds = new window.kakao.maps.LatLngBounds();
@@ -178,12 +183,18 @@ const MapView = forwardRef(({
     const clusterMarkers = [];
 
     const nextMarkers = places.map((p) => {
+      // lat/lng 필드가 없으면 latitude/longitude 사용
+      const lat = p.lat || p.latitude;
+      const lng = p.lng || p.longitude;
+      
+      console.log("📍 마커 데이터:", { id: p.id, name: p.name, lat, lng });
+      
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
       const shouldCluster = Boolean(clustererRef.current) && !isLive;
 
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
-        place: p,
+        place: { ...p, lat, lng }, // lat/lng 필드 추가
         isSelected: selectedPlace?.id === p.id,
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
@@ -202,7 +213,7 @@ const MapView = forwardRef(({
         clusterMarkers.push(marker);
       }
 
-      bounds.extend(new window.kakao.maps.LatLng(p.lat, p.lng));
+      bounds.extend(new window.kakao.maps.LatLng(lat, lng));
       return marker;
     });
 
@@ -218,11 +229,17 @@ const MapView = forwardRef(({
       if (!userInteractedRef.current || isStudioPage) {
         ignoreViewportEventRef.current = true;
         if (places.length === 1) {
-          console.log("단일 마커 중심 이동:", places[0].lat, places[0].lng); // 디버깅
-          mapRef.current.setCenter(
-            new window.kakao.maps.LatLng(places[0].lat, places[0].lng)
-          );
-          mapRef.current.setLevel(4);
+          const place = places[0];
+          const lat = place.lat || place.latitude;
+          const lng = place.lng || place.longitude;
+          
+          console.log("단일 마커 중심 이동:", lat, lng); // 디버깅
+          if (lat && lng) {
+            mapRef.current.setCenter(
+              new window.kakao.maps.LatLng(lat, lng)
+            );
+            mapRef.current.setLevel(4);
+          }
         } else {
           mapRef.current.setBounds(bounds);
         }
@@ -271,6 +288,15 @@ const MapView = forwardRef(({
       }
     }
   }, [selectedPlace, mapReady]);
+
+  // center prop이 변경될 때 지도 중심 이동
+  useEffect(() => {
+    if (mapReady && mapRef.current && center) {
+      console.log("🗺️ 지도 중심 이동:", center);
+      mapRef.current.setCenter(new window.kakao.maps.LatLng(center.lat, center.lng));
+      mapRef.current.setLevel(4);
+    }
+  }, [center, mapReady]);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>

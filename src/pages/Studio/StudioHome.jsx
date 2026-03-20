@@ -185,18 +185,20 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
 
   // 주소 검색 함수
   const searchAddress = async (query) => {
-    console.log("검색 시작:", query);
+    console.log("🔍 검색 시작:", query);
     
     const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    console.log("API 키 확인:", apiKey ? "있음" : "없음");
-    
+    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
+    console.log("🔑 API 키 길이:", apiKey?.length || 0);
+
     if (!apiKey) {
-      alert("카카오 REST API 키가 설정되지 않았습니다. 지도를 클릭하여 위치를 선택해주세요.");
+      console.error("❌ 카카오 REST API 키가 없습니다.");
+      alert("카카오 API 키가 설정되지 않았습니다.");
       return;
     }
 
     try {
-      console.log("주소 검색 시도...");
+      console.log("📍 주소 검색 시도...");
       // 주소 검색
       const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=1`, {
         headers: {
@@ -204,21 +206,22 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         }
       });
       
-      console.log("주소 검색 응답:", addressResponse.status);
+      console.log("📋 주소 검색 응답 상태:", addressResponse.status);
       
       if (!addressResponse.ok) {
+        console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
         throw new Error(`주소 검색 실패: ${addressResponse.status}`);
       }
 
       const addressData = await addressResponse.json();
-      console.log("주소 검색 결과:", addressData);
+      console.log("📋 주소 검색 결과:", addressData);
 
       if (addressData.documents && addressData.documents.length > 0) {
         const firstResult = addressData.documents[0];
         const lat = parseFloat(firstResult.y);
         const lng = parseFloat(firstResult.x);
         
-        console.log("좌표 확보:", lat, lng);
+        console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
         
         // 상태 업데이트
         setBasicInfo({
@@ -227,45 +230,33 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
           longitude: lng,
         });
         
-        // 지도에 마커 추가
-        const newPlace = {
-          id: "temp",
-          name: query,
-          lat: lat, // lat으로 변경
-          lng: lng, // lng으로 변경
-          address: firstResult.address_name || query,
-        };
-        setMapPlaces([newPlace]);
-        
-        // 성공 메시지 제거
-        // alert(`"${firstResult.address_name}" 위치를 찾았습니다!`);
-        
         // 지도 중심 이동
         moveMapToLocation(lat, lng);
       } else {
         // 키워드 검색 (장소명으로 검색)
-        console.log("키워드 검색 시도...");
+        console.log("🔍 키워드 검색 시도...");
         const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=1`, {
           headers: {
             "Authorization": `KakaoAK ${apiKey}`
           }
         });
         
-        console.log("키워드 검색 응답:", keywordResponse.status);
+        console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
         
         if (!keywordResponse.ok) {
+          console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
           throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
         }
 
         const keywordData = await keywordResponse.json();
-        console.log("키워드 검색 결과:", keywordData);
+        console.log("📋 키워드 검색 결과:", keywordData);
 
         if (keywordData.documents && keywordData.documents.length > 0) {
           const firstResult = keywordData.documents[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
-          console.log("키워드 좌표 확보:", lat, lng);
+          console.log("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
           
           // 상태 업데이트
           setBasicInfo({
@@ -274,17 +265,6 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
             longitude: lng,
           });
           
-          // 지도에 마커 추가
-          const newPlace = {
-            id: "temp",
-            name: firstResult.place_name || query,
-            lat: lat, // lat으로 변경
-            lng: lng, // lng으로 변경
-            address: firstResult.address_name || firstResult.road_address_name || query,
-          };
-          setMapPlaces([newPlace]);
-          
-          // 성공 메시지 제거
           // alert(`"${firstResult.place_name}" 위치를 찾았습니다!`);
           
           // 지도 중심 이동
@@ -1115,8 +1095,6 @@ const sectionStyles = {
 };
 
 export default function StudioHome() {
-  console.log("StudioHome component rendering"); // 디버깅용
-  
   const navigate = useNavigate();
   // const { user } = useAuth(); // 임시로 제거
   const mapRef = useRef(null); // 지도 ref 다시 추가
@@ -1129,17 +1107,22 @@ export default function StudioHome() {
   // 지도 크기 새로고침
   useEffect(() => {
     if (mapRef.current && activeSection === "add") {
-      setTimeout(() => {
-        if (mapRef.current && typeof mapRef.current.resize === 'function') {
-          mapRef.current.resize();
-        }
-        // 카카오맵이 로드된 경우 강제로 리사이즈
-        if (window.kakao && window.kakao.maps && mapRef.current) {
-          window.kakao.maps.event.trigger(mapRef.current, 'resize');
+      const timer = setTimeout(() => {
+        if (mapRef.current) {
+          // 카카오맵이 로드된 경우 강제로 리사이즈
+          if (window.kakao && window.kakao.maps) {
+            try {
+              window.kakao.maps.event.trigger(mapRef.current, 'resize');
+            } catch (error) {
+              console.log("지도 리사이즈 실패:", error);
+            }
+          }
         }
       }, 100);
+      
+      return () => clearTimeout(timer);
     }
-  }, [activeSection]); // formData.tags는 제거
+  }, [activeSection]); // activeSection이 변경될 때만 실행
 
   // 잔 올리기 폼 상태
   const [formData, setFormData] = useState({
@@ -1681,44 +1664,123 @@ export default function StudioHome() {
     setDrafts(prev => prev.filter(draft => draft.id !== draftId));
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!formData.name_address.trim()) {
       alert("검색어를 입력해주세요.");
       return;
     }
     
-    // 카카오맵 장소 검색 API 호출 (추후 실제 구현)
-    console.log("검색어:", formData.name_address);
+    console.log("🔍 StudioHome 검색 시작:", formData.name_address);
     
-    // 임시로 검색 결과 처리 - 지도에만 마커 표시
-    // 실제로는 카카오맵 API를 통해 장소 정보를 가져와야 함
-    const searchResults = [
-      {
-        place_name: "검색된 장소 1",
-        address_name: "서울시 강남구 테헤란로",
-        x: "127.029402",
-        y: "37.492402"
-      },
-      {
-        place_name: "검색된 장소 2", 
-        address_name: "서울시 서초구 서초대로",
-        x: "127.003896",
-        y: "37.504006"
+    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
+
+    if (!apiKey) {
+      console.error("❌ 카카오 REST API 키가 없습니다.");
+      alert("카카오 API 키가 설정되지 않았습니다.");
+      return;
+    }
+
+    try {
+      console.log("📍 주소 검색 시도...");
+      // 주소 검색
+      const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
+        headers: {
+          "Authorization": `KakaoAK ${apiKey}`
+        }
+      });
+      
+      console.log("📋 주소 검색 응답 상태:", addressResponse.status);
+      
+      if (!addressResponse.ok) {
+        console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
+        throw new Error(`주소 검색 실패: ${addressResponse.status}`);
       }
-    ];
-    
-    // 첫 번째 결과를 자동으로 선택
-    const firstResult = searchResults[0];
-    setFormData(prev => ({
-      ...prev,
-      name_address: firstResult.place_name,
-      latitude: parseFloat(firstResult.y),
-      longitude: parseFloat(firstResult.x)
-    }));
-    setMapCenter({ lat: parseFloat(firstResult.y), lng: parseFloat(firstResult.x) });
-    
-    // 검색 결과는 지도에만 표시하고 리스트는 표시하지 않음
-    setSearchedPlaces(searchResults);
+
+      const addressData = await addressResponse.json();
+      console.log("📋 주소 검색 결과:", addressData);
+
+      if (addressData.documents && addressData.documents.length > 0) {
+        const firstResult = addressData.documents[0];
+        const lat = parseFloat(firstResult.y);
+        const lng = parseFloat(firstResult.x);
+        
+        console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
+        
+        // 상태 업데이트
+        setFormData(prev => ({
+          ...prev,
+          name_address: firstResult.address_name || formData.name_address,
+          latitude: lat,
+          longitude: lng
+        }));
+        
+        setMapCenter({ lat, lng });
+        
+        // 검색 결과를 places에 추가
+        setSearchedPlaces([{
+          place_name: firstResult.address_name || formData.name_address,
+          address_name: firstResult.address_name,
+          y: lat.toString(),
+          x: lng.toString()
+        }]);
+        
+      } else {
+        // 키워드 검색 (장소명으로 검색)
+        console.log("🔍 키워드 검색 시도...");
+        const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
+          headers: {
+            "Authorization": `KakaoAK ${apiKey}`
+          }
+        });
+        
+        console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
+        
+        if (!keywordResponse.ok) {
+          console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
+          throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
+        }
+
+        const keywordData = await keywordResponse.json();
+        console.log("📋 키워드 검색 결과:", keywordData);
+
+        if (keywordData.documents && keywordData.documents.length > 0) {
+          const firstResult = keywordData.documents[0];
+          const lat = parseFloat(firstResult.y);
+          const lng = parseFloat(firstResult.x);
+          
+          console.log("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
+          
+          // 상태 업데이트
+          setFormData(prev => ({
+            ...prev,
+            name_address: firstResult.place_name,
+            latitude: lat,
+            longitude: lng
+          }));
+          
+          setMapCenter({ lat, lng });
+          
+          // 검색 결과를 places에 추가
+          const searchResult = [{
+            place_name: firstResult.place_name,
+            address_name: firstResult.address_name,
+            y: lat.toString(),
+            x: lng.toString()
+          }];
+          
+          console.log("🔍 검색 결과 데이터:", searchResult);
+          setSearchedPlaces(searchResult);
+          
+        } else {
+          console.warn("⚠️ 검색 결과 없음");
+          alert("검색 결과를 찾을 수 없습니다. 지도를 클릭하여 위치를 선택해주세요.");
+        }
+      }
+    } catch (error) {
+      console.error("❌ StudioHome 검색 오류:", error);
+      alert("검색 중 오류가 발생했습니다: " + error.message);
+    }
   };
 
   const handleSelectPlace = (place) => {

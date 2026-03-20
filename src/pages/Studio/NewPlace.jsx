@@ -110,6 +110,8 @@ export default function NewPlace() {
     const file = e.target.files[0];
     if (!file) return;
 
+    console.log('📸 이미지 업로드 시작:', file.name);
+
     // 파일 크기 확인 (10MB 제한)
     if (file.size > 10 * 1024 * 1024) {
       alert("파일 크기는 10MB를 초과할 수 없습니다.");
@@ -128,6 +130,8 @@ export default function NewPlace() {
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `place-images/${user.id}/${fileName}`;
 
+      console.log('📤 업로드 경로:', filePath);
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('place-images')
         .upload(filePath, file, {
@@ -136,20 +140,25 @@ export default function NewPlace() {
         });
 
       if (uploadError) {
+        console.error('❌ 업로드 에러:', uploadError);
         throw uploadError;
       }
+
+      console.log('✅ 업로드 성공:', uploadData);
 
       // 공개 URL 생성
       const { data: { publicUrl } } = supabase.storage
         .from('place-images')
         .getPublicUrl(filePath);
 
+      console.log('🔗 공개 URL:', publicUrl);
+
       // 상태 업데이트
       setBasicInfo({...basicInfo, image: publicUrl});
       
     } catch (error) {
-      console.error('이미지 업로드 에러:', error);
-      alert("이미지 업로드에 실패했습니다. 다시 시도해주세요.");
+      console.error('❌ 이미지 업로드 전체 에러:', error);
+      alert("이미지 업로드에 실패했습니다: " + error.message);
     }
   };
 
@@ -249,18 +258,38 @@ export default function NewPlace() {
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>장소 이미지</label>
+          <label style={styles.label} htmlFor="image-upload">장소 이미지</label>
           <input
             type="file"
             accept="image/*"
             onChange={handleImageUpload}
             style={styles.input}
+            id="image-upload"
           />
           {basicInfo.image && (
             <div style={{ marginTop: "8px" }}>
               <img src={basicInfo.image} alt="미리보기" style={{ maxWidth: "200px", maxHeight: "200px" }} />
+              <div style={{ marginTop: "4px", fontSize: "12px", color: "#888" }}>
+                {basicInfo.image}
+              </div>
             </div>
           )}
+          
+          {/* 테스트 버튼 */}
+          <button
+            type="button"
+            onClick={() => console.log('🔍 현재 상태:', { basicInfo, user })}
+            style={{ 
+              marginTop: "8px", 
+              padding: "8px 16px", 
+              backgroundColor: "#007AFF", 
+              color: "white", 
+              border: "none", 
+              borderRadius: "4px" 
+            }}
+          >
+            디버그 정보 확인
+          </button>
         </div>
 
         <div style={styles.formGroup}>
