@@ -6,6 +6,7 @@ import CuratorProfilePage from "./pages/CuratorProfilePage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import AdminApplicationsPage from "./pages/AdminApplicationsPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
+import CheckinTest from "./pages/CheckinTest";
 // 스튜디오 관련 import
 import StudioHome from "./pages/Studio/StudioHome";
 import NewPlace from "./pages/Studio/NewPlace";
@@ -21,6 +22,7 @@ function App() {
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin/applications" element={<AdminApplicationsPage />} />
       <Route path="/curator-apply" element={<CuratorApplyForm />} />
+      <Route path="/test-checkin" element={<CheckinTest />} />
       {/* 스튜디오 라우트 */}
       <Route path="/studio" element={<StudioHome />} />
       <Route path="/studio/new-place" element={<NewPlace />} />

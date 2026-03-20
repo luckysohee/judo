@@ -1,3 +1,5 @@
+import CheckinButton from "../CheckinButton/CheckinButton";
+
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -69,6 +71,11 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.actionRow}>
+            <CheckinButton 
+              placeId={place.id} 
+              placeName={place.name}
+            />
+
             <button
               type="button"
               onClick={() => onSave(place)}
@@ -214,6 +221,7 @@ const styles = {
     marginTop: "14px",
     display: "flex",
     gap: "8px",
+    alignItems: "center",
   },
   saveButton: {
     flex: 1,

@@ -1,3 +1,6 @@
+import { useAuth } from "../../context/AuthContext";
+// import CheckinButton from "../CheckinButton/CheckinButton";
+
 export default function PlaceDetail({
   place,
   isSaved,
@@ -7,8 +10,15 @@ export default function PlaceDetail({
 }) {
   if (!place) return null;
 
+  const { user } = useAuth();
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
+
+  // 임시 체크인 버튼
+  const handleTempCheckin = () => {
+    console.log('🎯 체크인 테스트:', place.id, place.name);
+    alert(`체크인: ${place.name}`);
+  };
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -95,6 +105,25 @@ export default function PlaceDetail({
             </section>
 
             <div style={styles.bottomActionRow}>
+              <button
+                type="button"
+                onClick={handleTempCheckin}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  border: "none",
+                  background: "#007AFF",
+                  color: "#fff",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  cursor: "pointer",
+                  minWidth: "100px",
+                  flexShrink: 0,
+                }}
+              >
+                🎯 체크인
+              </button>
+
               <button
                 type="button"
                 onClick={() => onSave(place)}
