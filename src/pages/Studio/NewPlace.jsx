@@ -71,8 +71,8 @@ export default function NewPlace() {
   const [basicInfo, setBasicInfo] = useState({
     name: "",
     address: "",
-    latitude: null,
-    longitude: null,
+    latitude: "",
+    longitude: "",
     phone: "",
     category: "",
     alcohol_type: "",
@@ -80,6 +80,7 @@ export default function NewPlace() {
     recommended_menu: "",
     menu_reason: "",
     tags: [],
+    image: "", // 이미지 필드 추가
   });
 
   // 2단계: 큐레이션 정보
@@ -104,6 +105,54 @@ export default function NewPlace() {
     if (step > 1) setStep(step - 1);
   };
 
+  // 이미지 업로드 핸들러
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 파일 크기 확인 (10MB 제한)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("파일 크기는 10MB를 초과할 수 없습니다.");
+      return;
+    }
+
+    // 파일 타입 확인
+    if (!file.type.startsWith('image/')) {
+      alert("이미지 파일만 업로드할 수 있습니다.");
+      return;
+    }
+
+    try {
+      // Supabase Storage에 업로드
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `place-images/${user.id}/${fileName}`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('place-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // 공개 URL 생성
+      const { data: { publicUrl } } = supabase.storage
+        .from('place-images')
+        .getPublicUrl(filePath);
+
+      // 상태 업데이트
+      setBasicInfo({...basicInfo, image: publicUrl});
+      
+    } catch (error) {
+      console.error('이미지 업로드 에러:', error);
+      alert("이미지 업로드에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
   const handleSaveDraft = async () => {
     try {
       setSubmitting(true);
@@ -121,6 +170,7 @@ export default function NewPlace() {
         p_recommended_menu: basicInfo.recommended_menu,
         p_menu_reason: basicInfo.menu_reason,
         p_tags: basicInfo.tags,
+        p_image: basicInfo.image, // 이미지 추가
         p_one_line_review: curationInfo.one_line_review,
         p_visit_situations: curationInfo.visit_situations,
         p_price_range: curationInfo.price_range,
@@ -158,6 +208,7 @@ export default function NewPlace() {
         p_recommended_menu: basicInfo.recommended_menu,
         p_menu_reason: basicInfo.menu_reason,
         p_tags: basicInfo.tags,
+        p_image: basicInfo.image, // 이미지 추가
         p_one_line_review: curationInfo.one_line_review,
         p_visit_situations: curationInfo.visit_situations,
         p_price_range: curationInfo.price_range,
@@ -195,6 +246,21 @@ export default function NewPlace() {
             placeholder="가게 이름을 입력하세요"
             style={styles.input}
           />
+        </div>
+
+        <div style={styles.formGroup}>
+          <label style={styles.label}>장소 이미지</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            style={styles.input}
+          />
+          {basicInfo.image && (
+            <div style={{ marginTop: "8px" }}>
+              <img src={basicInfo.image} alt="미리보기" style={{ maxWidth: "200px", maxHeight: "200px" }} />
+            </div>
+          )}
         </div>
 
         <div style={styles.formGroup}>
@@ -652,6 +718,71 @@ const styles = {
     fontSize: "16px",
     outline: "none",
     resize: "vertical",
+  },
+  // 이미지 업로드 스타일
+  imageUploadContainer: {
+    position: "relative",
+  },
+  fileInput: {
+    display: "none",
+  },
+  fileInputLabel: {
+    display: "block",
+    border: "2px dashed #333333",
+    borderRadius: "8px",
+    padding: "24px",
+    textAlign: "center",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    backgroundColor: "#1a1a1a",
+  },
+  imagePreview: {
+    position: "relative",
+  },
+  previewImage: {
+    width: "100%",
+    maxHeight: "200px",
+    objectFit: "cover",
+    borderRadius: "6px",
+  },
+  changeImageText: {
+    position: "absolute",
+    bottom: "8px",
+    right: "8px",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    color: "#ffffff",
+    padding: "4px 8px",
+    borderRadius: "4px",
+    fontSize: "12px",
+  },
+  imagePlaceholder: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "8px",
+  },
+  uploadIcon: {
+    fontSize: "48px",
+    opacity: 0.5,
+  },
+  uploadText: {
+    fontSize: "16px",
+    color: "#ffffff",
+    fontWeight: "500",
+  },
+  uploadSubtext: {
+    fontSize: "14px",
+    color: "#888888",
+  },
+  removeImageButton: {
+    marginTop: "8px",
+    padding: "8px 16px",
+    backgroundColor: "#dc3545",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "14px",
+    cursor: "pointer",
   },
   checkboxGroup: {
     display: "flex",

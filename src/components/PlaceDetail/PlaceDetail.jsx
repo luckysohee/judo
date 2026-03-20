@@ -1,18 +1,88 @@
+import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 // import CheckinButton from "../CheckinButton/CheckinButton";
 
-export default function PlaceDetail({
-  place,
-  isSaved,
-  liveCuratorNameSet,
-  onClose,
-  onSave,
-}) {
+// 기본 이미지 폴백 시스템
+const getPlaceImage = (place) => {
+  // 실제 이미지가 있으면 사용
+  if (place.image && place.image !== '' && !place.image.includes('placehold.co')) {
+    return place.image;
+  }
+  
+  // 이미지가 없으면 태그 기반 기본 이미지 반환
+  const tag = place.tags?.[0] || 'default';
+  const imageMap = {
+    '노포': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&crop=entropy',
+    '소주': 'https://images.unsplash.com/photo-1572126662658-73807ffb52d5?w=800&h=500&fit=crop&crop=entropy',
+    '맥주': 'https://images.unsplash.com/photo-1569529465848-d229c42a7f60?w=800&h=500&fit=crop&crop=entropy',
+    '카페': 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&h=500&fit=crop&crop=entropy',
+    '안주맛집': 'https://images.unsplash.com/photo-1565299624946-b28f40a0fe38?w=800&h=500&fit=crop&crop=entropy',
+    '1차': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&crop=entropy',
+    '2차': 'https://images.unsplash.com/photo-1572126662658-73807ffb52d5?w=800&h=500&fit=crop&crop=entropy',
+    '심야': 'https://images.unsplash.com/photo-1514933651103-005eec79c694?w=800&h=500&fit=crop&crop=entropy',
+    'default': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&crop=entropy'
+  };
+  
+  return imageMap[tag] || imageMap.default;
+};
+
+// 이미지 에러 핸들러
+const handleImageError = (e) => {
+  e.target.src = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&crop=entropy';
+};
+// 여러 코멘트를 지원하는 구조 (임시)
+const getPlaceComments = (place) => {
+  // 실제로는 API를 통해 여러 코멘트를 가져와야 함
+  // 지금은 임시로 여러 코멘트를 시뮬레이션
+  const comments = [
+    {
+      id: 1,
+      curator: place.primaryCurator || "soju_anju",
+      text: place.comment || "코멘트 정보가 없습니다.",
+      createdAt: "2026-03-20"
+    },
+    // 다른 큐레이터들의 코멘트 (예시)
+    ...(place.curators || []).slice(0, 2).map((curator, index) => ({
+      id: index + 2,
+      curator: curator,
+      text: `${curator}의 추천 이유: 이 장소는 분위기가 정말 좋아요!`,
+      createdAt: "2026-03-19"
+    }))
+  ];
+  
+  return comments;
+};
+
+export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: isLiveProp, liveCuratorNameSet }) {
   if (!place) return null;
 
   const { user } = useAuth();
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
-  const isLive = (place.curators || []).some((name) => liveSet.has(name));
+  const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
+  
+  // 이미지 로딩 상태
+  const [imageLoaded, setImageLoaded] = useState(true);
+  const [imageError, setImageError] = useState(false);
+
+  // 이미지 에러 핸들러
+  const handleImageError = (e) => {
+    setImageError(true);
+    setImageLoaded(false);
+  };
+
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+    setImageError(false);
+  };
+  
+  // 여러 코멘트 데이터 가져오기
+  const [comments, setComments] = useState([]);
+  const [showAllComments, setShowAllComments] = useState(false);
+  
+  useEffect(() => {
+    const placeComments = getPlaceComments(place);
+    setComments(placeComments);
+  }, [place]);
 
   // 임시 체크인 버튼
   const handleTempCheckin = () => {
@@ -42,11 +112,25 @@ export default function PlaceDetail({
         </div>
 
         <div style={styles.content}>
-          <img
-            src={place.image}
-            alt={place.name}
-            style={styles.image}
-          />
+          {/* 이미지 영역 */}
+          <div style={styles.imageContainer}>
+            {imageError ? (
+              // 이미지 없을 때의 UI
+              <div style={styles.noImageContainer}>
+                <div style={styles.noImageIcon}>📷</div>
+                <div style={styles.noImageText}>사진 준비 중입니다</div>
+              </div>
+            ) : (
+              // 실제 이미지
+              <img
+                src={getPlaceImage(place)}
+                alt={place.name}
+                style={styles.image}
+                onLoad={handleImageLoad}
+                onError={handleImageError}
+              />
+            )}
+          </div>
 
           <div style={styles.body}>
             <div style={styles.titleRow}>
@@ -58,13 +142,32 @@ export default function PlaceDetail({
             </div>
 
             <div style={styles.meta}>
-              {place.region} · 저장 {place.savedCount}
+              {place.region} · <strong>저장 {place.savedCount}</strong>
             </div>
 
             <section style={styles.section}>
-              <div style={styles.sectionTitle}>한줄 코멘트</div>
-              <div style={styles.text}>
-                {place.comment || "코멘트 정보가 없습니다."}
+              <div style={styles.sectionTitle}>큐레이터 코멘트</div>
+              <div style={styles.commentList}>
+                {(showAllComments ? comments : comments.slice(0, 2)).map((comment) => (
+                  <div key={comment.id} style={styles.commentItem}>
+                    <div style={styles.commentHeader}>
+                      <span style={styles.commentCurator}>{comment.curator}</span>
+                      <span style={styles.commentDate}>{comment.createdAt}</span>
+                    </div>
+                    <div style={styles.commentText}>
+                      <strong>{comment.text}</strong>
+                    </div>
+                  </div>
+                ))}
+                {comments.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllComments(!showAllComments)}
+                    style={styles.moreButton}
+                  >
+                    {showAllComments ? '접기' : `더보기 (${comments.length - 2}개)`}
+                  </button>
+                )}
               </div>
             </section>
 
@@ -80,7 +183,7 @@ export default function PlaceDetail({
               <div style={styles.chipRow}>
                 {(place.curators || []).map((curator) => (
                   <span key={curator} style={styles.curatorChip}>
-                    {curator}
+                    <strong>{curator}</strong>
                   </span>
                 ))}
               </div>
@@ -103,43 +206,6 @@ export default function PlaceDetail({
                 위도 {place.lat} / 경도 {place.lng}
               </div>
             </section>
-
-            <div style={styles.bottomActionRow}>
-              <button
-                type="button"
-                onClick={handleTempCheckin}
-                style={{
-                  padding: "12px 16px",
-                  borderRadius: "12px",
-                  border: "none",
-                  background: "#007AFF",
-                  color: "#fff",
-                  fontSize: "13px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  minWidth: "100px",
-                  flexShrink: 0,
-                }}
-              >
-                🎯 체크인
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onSave(place)}
-                style={styles.secondaryButton}
-              >
-                {isSaved ? "저장 폴더 열기" : "저장하기"}
-              </button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                style={styles.primaryButton}
-              >
-                지도에서 보기
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -208,11 +274,42 @@ const styles = {
     height: "calc(92vh - 56px)",
     overflowY: "auto",
   },
+  imageContainer: {
+    width: "100%",
+    height: "200px",
+    borderRadius: "12px",
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   image: {
     width: "100%",
-    height: "270px",
+    height: "200px",
     objectFit: "cover",
-    backgroundColor: "#222222",
+    borderRadius: "12px",
+  },
+  noImageContainer: {
+    width: "100%",
+    height: "200px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1a1a1a",
+    borderRadius: "12px",
+    border: "2px dashed #333333",
+  },
+  noImageIcon: {
+    fontSize: "48px",
+    marginBottom: "8px",
+    opacity: 0.5,
+  },
+  noImageText: {
+    fontSize: "14px",
+    color: "#888888",
+    fontWeight: "500",
   },
   body: {
     padding: "16px",
@@ -273,6 +370,47 @@ const styles = {
     fontSize: "14px",
     color: "#e8e8e8",
     lineHeight: 1.6,
+  },
+  commentList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  commentItem: {
+    padding: "12px",
+    backgroundColor: "#1a1a1a",
+    borderRadius: "8px",
+    border: "1px solid #333333",
+  },
+  commentHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "6px",
+  },
+  commentDate: {
+    fontSize: "11px",
+    color: "#888888",
+  },
+  commentText: {
+    fontSize: "14px",
+    color: "#e8e8e8",
+    lineHeight: 1.5,
+  },
+  commentCurator: {
+    color: "#ffffff", // 큐레이터 이름을 흰색으로
+    fontWeight: "700",
+  },
+  moreButton: {
+    background: "none",
+    border: "none",
+    color: "#007AFF",
+    fontSize: "13px",
+    fontWeight: "600",
+    cursor: "pointer",
+    padding: "8px 0",
+    textAlign: "left",
+    width: "100%",
   },
   chipRow: {
     display: "flex",

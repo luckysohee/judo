@@ -7,23 +7,12 @@ export default function CheckinButton({ placeId, placeName }) {
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // 숫자 ID를 UUID로 변환 (실제 places 테이블 기반)
-  const getUuidFromId = (id) => {
-    const idToUuid = {
-      1: "d75385e9-fb76-4421-9cb5-49bca48160d0", // 을지로 골목집
-      2: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", // 연남동 맛집
-      3: "f1e2d3c4-b5a6-7890-1234-567890abcdef", // 성수동 카페
-      4: "b2c3d4e5-f6a7-8901-2345-6789abcdef12", // 합정동 술집
-      5: "c3d4e5f6-a7b8-9012-3456-789abcdef123", // 홍대입구 맛집
-    };
-    return idToUuid[id] || null; // 없는 ID는 null 반환
-  };
-
-  const uuidPlaceId = getUuidFromId(placeId);
+  // placeId를 그대로 사용 (UUID 형식)
+  const uuidPlaceId = placeId;
 
   // 체크인 상태 확인
   useEffect(() => {
-    if (!user?.id || !placeId) return;
+    if (!user?.id || !placeId) return; // placeId만 확인
 
     const checkUserCheckin = async () => {
       try {
@@ -31,7 +20,7 @@ export default function CheckinButton({ placeId, placeName }) {
         
         // 1시간 이내 체크인만 유효한 것으로 간주
         const recentCheckin = userCheckins.find(checkin => {
-          if (checkin.place_id !== uuidPlaceId) return false;
+          if (checkin.place_id !== placeId) return false;
           
           const createdAt = new Date(checkin.created_at);
           const now = new Date();
@@ -51,7 +40,7 @@ export default function CheckinButton({ placeId, placeName }) {
     const interval = setInterval(checkUserCheckin, 5 * 60 * 1000);
     
     return () => clearInterval(interval);
-  }, [user?.id, uuidPlaceId]);
+  }, [user?.id, placeId]); // placeId만 사용
 
   // 체크인 처리
   const handleCheckin = async () => {
@@ -65,17 +54,11 @@ export default function CheckinButton({ placeId, placeName }) {
       return;
     }
 
-    // UUID 변환 확인
-    if (!uuidPlaceId) {
-      console.error('❌ 유효하지 않은 placeId:', placeId);
+    // UUID 형식 검사
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(placeId)) {
+      console.error('❌ 유효하지 않은 UUID 형식:', placeId);
       alert(`이 장소는 아직 체크인을 지원하지 않습니다: ${placeName}`);
-      return;
-    }
-
-    // placeId가 유효한 UUID인지 확인
-    if (typeof uuidPlaceId !== 'string' || uuidPlaceId.length < 10) {
-      console.error('❌ 유효하지 않은 UUID:', uuidPlaceId);
-      alert(`장소 ID 오류: ${uuidPlaceId}`);
       return;
     }
 
@@ -85,7 +68,7 @@ export default function CheckinButton({ placeId, placeName }) {
       if (isCheckedIn) {
         // 체크인 취소
         const userCheckins = await fetchUserCheckins(user.id, 'public');
-        const existingCheckin = userCheckins.find(checkin => checkin.place_id === uuidPlaceId);
+        const existingCheckin = userCheckins.find(checkin => checkin.place_id === placeId);
         
         if (existingCheckin) {
           await deleteCheckin({ userId: user.id, checkinId: existingCheckin.id });
@@ -96,7 +79,7 @@ export default function CheckinButton({ placeId, placeName }) {
         // 체크인 생성
         await createCheckin({
           userId: user.id,
-          placeId: uuidPlaceId,
+          placeId: placeId, // placeId를 그대로 사용
           visibility: 'public'
         });
         setIsCheckedIn(true);
