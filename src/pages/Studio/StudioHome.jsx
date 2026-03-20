@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 // import { useAuth } from "../context/AuthContext";
+import { supabase } from "../../lib/supabase";
 import MapView from "../../components/Map/MapView";
 
 // 섹션 컴포넌트들
@@ -1436,53 +1437,89 @@ export default function StudioHome() {
 
   const handleAddPlace = async (isDraft = false) => {
     try {
-      // 중복 확인
-      const duplicateCheck = checkDuplicatePlace(formData.name_address);
-      if (duplicateCheck) {
-        console.log("이미 저장된 장소입니다.");
+      // 필수 필드 확인
+      if (!formData.name_address || !formData.latitude || !formData.longitude) {
+        alert("장소 이름과 위치를 선택해주세요.");
         return;
       }
 
-      // 장소 저장 로직
-      console.log("Saving place:", { ...formData, isDraft });
+      console.log("🔍 StudioHome 저장 시작:", { ...formData, isDraft });
       
       if (!isDraft) {
-        // 실제 저장인 경우 myPlaces에 추가
-        const newPlace = {
-          id: Date.now().toString(),
+        // 실제 저장인 경우 Supabase에 저장
+        // 임시 큐레이터 ID (실제로는 인증된 사용자 ID 사용)
+        const curatorId = "temp-curator-id";
+        
+        // 임시로 직접 INSERT 사용
+        const newPlaceData = {
+          id: crypto.randomUUID(), // UUID 생성
           name: formData.name_address,
           address: formData.name_address,
-          latitude: formData.latitude,
-          longitude: formData.longitude,
-          category: formData.category,
-          alcohol_type: formData.alcohol_type,
-          atmosphere: formData.atmosphere,
-          recommended_menu: formData.recommended_menu,
-          menu_reason: formData.menu_reason,
-          tags: formData.tags,
-          is_public: formData.is_public,
-          created_at: new Date().toISOString().split('T')[0]
+          lat: formData.latitude,
+          lng: formData.longitude,
+          // 일단 기본 컬럼만 사용
+          created_at: new Date().toISOString()
         };
         
-        setMyPlaces(prev => [...prev, newPlace]);
-        console.log("장소 저장 완료:", newPlace);
+        console.log("📝 저장할 데이터:", newPlaceData);
         
-        // 폼 초기화
-        setFormData({
-          name_address: "",
-          category: "",
-          alcohol_type: "",
-          atmosphere: "",
-          recommended_menu: "",
-          menu_reason: "",
-          tags: [],
-          latitude: null,
-          longitude: null,
-          is_public: true
-        });
+        const { data, error } = await supabase
+          .from("places")
+          .insert([newPlaceData])
+          .select();
+
+        if (error) {
+          console.error("❌ 장소 저장 오류:", error);
+          alert(`장소 저장에 실패했습니다: ${error.message}`);
+          return;
+        }
+
+        console.log("✅ 장소 저장 성공:", data);
         
-        // "잔 리스트" 탭으로 자동 이동
-        setActiveSection("list");
+        // 성공적으로 저장된 경우
+        if (data && data.length > 0) {
+          // myPlaces에 새 장소 추가
+          const savedPlace = {
+            id: data[0].id,
+            name: formData.name_address,
+            address: formData.name_address,
+            latitude: formData.latitude,
+            longitude: formData.longitude,
+            category: formData.category,
+            alcohol_type: formData.alcohol_type,
+            atmosphere: formData.atmosphere,
+            recommended_menu: formData.recommended_menu,
+            menu_reason: formData.menu_reason,
+            tags: formData.tags,
+            is_public: formData.is_public,
+            created_at: new Date().toISOString().split('T')[0]
+          };
+          
+          setMyPlaces(prev => [savedPlace, ...prev]);
+          console.log("✅ 장소 리스트에 추가 완료:", savedPlace);
+          
+          // 폼 초기화
+          setFormData({
+            name_address: "",
+            category: "",
+            alcohol_type: "",
+            atmosphere: "",
+            recommended_menu: "",
+            menu_reason: "",
+            tags: [],
+            latitude: null,
+            longitude: null,
+            is_public: true
+          });
+          
+          setSearchedPlaces([]);
+          setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
+          
+          alert("장소가 성공적으로 저장되었습니다!");
+          
+          // "잔 리스트" 탭으로 자동 이동
+          setActiveSection("list");
+        }
       } else {
         // 임시저장인 경우
         const draftData = {
@@ -1499,15 +1536,17 @@ export default function StudioHome() {
             longitude: formData.longitude,
             is_public: formData.is_public
           },
-          created_at: new Date().toISOString()
+          createdAt: new Date().toLocaleString('ko-KR')
         };
         
         setDrafts(prev => [...prev, draftData]);
-        console.log("임시저장 완료:", draftData);
+        console.log("✅ 임시저장 완료:", draftData);
+        alert("초안이 임시저장되었습니다.");
       }
       
     } catch (error) {
-      console.error("Place saving error:", error);
+      console.error("❌ 저장 오류:", error);
+      alert("저장 중 오류가 발생했습니다: " + error.message);
     }
   };
 
@@ -2278,8 +2317,19 @@ export default function StudioHome() {
         <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
           {/* 장소 리스트 */}
           <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-            {/* 임시로 예시 데이터 */}
-            {places.map(place => (
+            {/* myPlaces 데이터 표시 */}
+            {myPlaces.length === 0 ? (
+              <div style={{
+                backgroundColor: "#222",
+                padding: "40px",
+                borderRadius: "8px",
+                textAlign: "center",
+                color: "#666"
+              }}>
+                저장된 장소가 없습니다.
+              </div>
+            ) : (
+              myPlaces.map(place => (
                 <div key={place.id} style={{
                   backgroundColor: "#222",
                   padding: "20px",
@@ -2349,19 +2399,7 @@ export default function StudioHome() {
                     </button>
                   </div>
                 </div>
-              ))}
-            
-            {/* 실제 데이터가 없을 때 */}
-            {false && (
-              <div style={{
-                textAlign: "center",
-                padding: "40px",
-                backgroundColor: "#222",
-                borderRadius: "8px",
-                color: "#666"
-              }}>
-                저장된 장소가 없습니다.
-              </div>
+              ))
             )}
           </div>
         </div>
