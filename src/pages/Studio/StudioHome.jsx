@@ -1139,6 +1139,9 @@ export default function StudioHome() {
     is_public: true
   });
 
+  // 수정 모드 상태
+  const [editingPlaceId, setEditingPlaceId] = useState(null);
+
   // 잔 리스트 상태
   const [filterType, setFilterType] = useState("all"); // all, public, private
   const [places, setPlaces] = useState([
@@ -1427,10 +1430,43 @@ export default function StudioHome() {
 
   const loadStudioData = async () => {
     try {
-      // 실제 데이터 로딩 로직은 나중에 구현
+      console.log("📂 스튜디오 데이터 로딩 시작...");
+      
+      // Supabase에서 저장된 장소 불러오기
+      const { data: placesData, error: placesError } = await supabase
+        .from("places")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (placesError) {
+        console.error("❌ 장소 로딩 오류:", placesError);
+      } else {
+        console.log("✅ 불러온 장소 데이터:", placesData);
+        
+        // DB 데이터를 myPlaces 형식으로 변환
+        const formattedPlaces = placesData.map(place => ({
+          id: place.id,
+          name: place.name,
+          address: place.address,
+          latitude: place.lat,
+          longitude: place.lng,
+          category: place.category || "미분류",
+          alcohol_type: place.alcohol_type || "",
+          atmosphere: place.atmosphere || "",
+          recommended_menu: place.recommended_menu || "",
+          menu_reason: place.menu_reason || "",
+          tags: place.tags || [],
+          is_public: place.is_public || true,
+          created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+        }));
+        
+        setMyPlaces(formattedPlaces);
+        console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
+      }
+      
       setLoading(false);
     } catch (error) {
-      console.error("Studio data loading error:", error);
+      console.error("❌ Studio data loading error:", error);
       setLoading(false);
     }
   };
@@ -1443,41 +1479,103 @@ export default function StudioHome() {
         return;
       }
 
+      // 중복 확인 (로컬 상태)
+      const duplicateCheck = checkDuplicatePlace(formData.name_address);
+      if (duplicateCheck) {
+        return;
+      }
+
       console.log("🔍 StudioHome 저장 시작:", { ...formData, isDraft });
       
       if (!isDraft) {
+        // 수정 모드인 경우 DB 중복 확인 건너뛰기
+        if (!editingPlaceId) {
+          // DB에서도 중복 확인
+          const { data: existingPlaces, error: checkError } = await supabase
+            .from("places")
+            .select("id, name")
+            .ilike("name", `%${formData.name_address.trim()}%`);
+
+          if (checkError) {
+            console.error("❌ 중복 확인 오류:", checkError);
+          } else if (existingPlaces && existingPlaces.length > 0) {
+            console.log("⚠️ DB에 이미 존재하는 장소:", existingPlaces);
+            alert("이미 저장된 장소입니다.");
+            return;
+          }
+        }
         // 실제 저장인 경우 Supabase에 저장
         // 임시 큐레이터 ID (실제로는 인증된 사용자 ID 사용)
         const curatorId = "temp-curator-id";
         
-        // 임시로 직접 INSERT 사용
-        const newPlaceData = {
-          id: crypto.randomUUID(), // UUID 생성
-          name: formData.name_address,
-          address: formData.name_address,
-          lat: formData.latitude,
-          lng: formData.longitude,
-          // 일단 기본 컬럼만 사용
-          created_at: new Date().toISOString()
-        };
-        
-        console.log("📝 저장할 데이터:", newPlaceData);
-        
-        const { data, error } = await supabase
-          .from("places")
-          .insert([newPlaceData])
-          .select();
+        if (editingPlaceId) {
+          // 수정 모드: UPDATE 사용
+          const updateData = {
+            name: formData.name_address,
+            address: formData.name_address,
+            lat: formData.latitude,
+            lng: formData.longitude
+          };
+          
+          console.log("📝 수정할 데이터:", updateData);
+          
+          const { data, error } = await supabase
+            .from("places")
+            .update(updateData)
+            .eq("id", editingPlaceId)
+            .select();
 
-        if (error) {
-          console.error("❌ 장소 저장 오류:", error);
-          alert(`장소 저장에 실패했습니다: ${error.message}`);
-          return;
-        }
+          if (error) {
+            console.error("❌ 장소 수정 오류:", error);
+            console.error("❌ 에러 상세:", error.message, error.code, error.details);
+            alert(`장소 수정에 실패했습니다: ${error.message}`);
+            return;
+          }
 
-        console.log("✅ 장소 저장 성공:", data);
+          console.log("✅ 장소 수정 성공:", data);
+          
+          // 로컬 상태 업데이트
+          setMyPlaces(prev => prev.map(place => 
+            place.id === editingPlaceId 
+              ? { ...place, ...updateData, address: updateData.address, latitude: updateData.lat, longitude: updateData.lng }
+              : place
+          ));
+          
+          alert("장소가 성공적으로 수정되었습니다!");
+          
+          // 수정 모드 종료
+          setEditingPlaceId(null);
+          
+        } else {
+          // 새로 추가 모드: INSERT 사용
+          const newPlaceData = {
+            id: crypto.randomUUID(), // UUID 생성
+            name: formData.name_address,
+            address: formData.name_address,
+            lat: formData.latitude,
+            lng: formData.longitude,
+            comment: formData.one_line_review || null,
+            tags: formData.tags || [],
+            created_at: new Date().toISOString()
+          };
+          
+          console.log("📝 저장할 데이터:", newPlaceData);
+          
+          const { data, error } = await supabase
+            .from("places")
+            .insert([newPlaceData])
+            .select();
+
+          if (error) {
+            console.error("❌ 장소 저장 오류:", error);
+            alert(`장소 저장에 실패했습니다: ${error.message}`);
+            return;
+          }
+
+          console.log("✅ 장소 저장 성공:", data);
         
-        // 성공적으로 저장된 경우
-        if (data && data.length > 0) {
+        // 성공적으로 저장된 경우 (새로 추가만 해당)
+        if (!editingPlaceId && data && data.length > 0) {
           // myPlaces에 새 장소 추가
           const savedPlace = {
             id: data[0].id,
@@ -1514,11 +1612,13 @@ export default function StudioHome() {
           
           setSearchedPlaces([]);
           setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
+          setEditingPlaceId(null); // 수정 모드 종료
           
           alert("장소가 성공적으로 저장되었습니다!");
           
           // "잔 리스트" 탭으로 자동 이동
           setActiveSection("list");
+        }
         }
       } else {
         // 임시저장인 경우
@@ -1542,6 +1642,9 @@ export default function StudioHome() {
         setDrafts(prev => [...prev, draftData]);
         console.log("✅ 임시저장 완료:", draftData);
         alert("초안이 임시저장되었습니다.");
+        
+        // '잔 채우기' 탭으로 자동 이동
+        setActiveSection("drafts");
       }
       
     } catch (error) {
@@ -1551,30 +1654,131 @@ export default function StudioHome() {
   };
 
   const checkDuplicatePlace = (placeName) => {
-    // 중복 확인 로직
-    return false; // 임시로 false 반환
-  };
-
-  const handleTogglePublic = (placeId) => {
-    // 실제 상태 변경 로직
-    console.log("Toggle public:", placeId);
-    setPlaces(prevPlaces => 
-      prevPlaces.map(place => 
-        place.id === placeId 
-          ? { ...place, is_public: !place.is_public }
-          : place
-      )
+    // 수정 모드인 경우 중복 확인 건너뛰기
+    if (editingPlaceId) {
+      console.log("✏️ 수정 모드: 중복 확인 건너뛰기");
+      return false;
+    }
+    
+    // myPlaces에서 중복 확인
+    const duplicate = myPlaces.find(place => 
+      place.name.toLowerCase().trim() === placeName.toLowerCase().trim()
     );
+    
+    if (duplicate) {
+      console.log("⚠️ 중복된 장소:", duplicate.name);
+      alert("이미 저장된 장소입니다.");
+      return true;
+    }
+    
+    return false;
   };
 
-  const handleDeletePlace = (placeId) => {
-    // 삭제 로직
-    console.log("Delete place:", placeId);
+  const handleTogglePublic = async (placeId) => {
+    try {
+      console.log("🔄 공개/비공개 토글:", placeId);
+      
+      // 1. 로컬 상태 업데이트
+      setMyPlaces(prevPlaces => 
+        prevPlaces.map(place => 
+          place.id === placeId 
+            ? { ...place, is_public: !place.is_public }
+            : place
+        )
+      );
+      
+      // 2. DB에도 업데이트 (선택 사항)
+      const place = myPlaces.find(p => p.id === placeId);
+      if (place) {
+        const { error } = await supabase
+          .from("places")
+          .update({ is_public: !place.is_public })
+          .eq("id", placeId);
+          
+        if (error) {
+          console.error("❌ 공개 상태 업데이트 오류:", error);
+          // 실패 시 로컬 상태 롤백
+          setMyPlaces(prevPlaces => 
+            prevPlaces.map(p => 
+              p.id === placeId 
+                ? { ...p, is_public: place.is_public }
+                : p
+            )
+          );
+        } else {
+          console.log("✅ 공개 상태 업데이트 성공");
+        }
+      }
+    } catch (error) {
+      console.error("❌ 토글 오류:", error);
+    }
+  };
+
+  const handleDeletePlace = async (placeId) => {
+    try {
+      // 확인 대화상자
+      const confirmed = window.confirm("정말로 이 장소를 삭제하시겠습니까?");
+      if (!confirmed) return;
+      
+      console.log("🗑️ 장소 삭제:", placeId);
+      
+      // 1. DB에서 삭제
+      const { error } = await supabase
+        .from("places")
+        .delete()
+        .eq("id", placeId);
+        
+      if (error) {
+        console.error("❌ 장소 삭제 오류:", error);
+        alert("장소 삭제에 실패했습니다: " + error.message);
+        return;
+      }
+      
+      // 2. 로컬 상태에서 삭제
+      setMyPlaces(prevPlaces => prevPlaces.filter(place => place.id !== placeId));
+      
+      console.log("✅ 장소 삭제 성공");
+      alert("장소가 삭제되었습니다.");
+      
+    } catch (error) {
+      console.error("❌ 삭제 오류:", error);
+      alert("삭제 중 오류가 발생했습니다: " + error.message);
+    }
   };
 
   const handleEditPlace = (place) => {
-    // 수정 로직
-    console.log("Edit place:", place);
+    try {
+      console.log("✏️ 장소 수정:", place);
+      
+      // 수정 모드 설정
+      setEditingPlaceId(place.id);
+      
+      // 수정할 장소 데이터를 폼에 로드
+      setFormData({
+        name_address: place.name,
+        category: place.category || "",
+        alcohol_type: place.alcohol_type || "",
+        atmosphere: place.atmosphere || "",
+        recommended_menu: place.recommended_menu || "",
+        menu_reason: place.menu_reason || "",
+        tags: place.tags || [],
+        latitude: place.latitude,
+        longitude: place.longitude,
+        is_public: place.is_public
+      });
+      
+      // 지도 중심을 해당 장소로 이동
+      setMapCenter({ lat: place.latitude, lng: place.longitude });
+      
+      // '잔 올리기' 탭으로 이동
+      setActiveSection("add");
+      
+      alert("장소 정보를 수정할 수 있습니다. 수정 후 다시 저장해주세요.");
+      
+    } catch (error) {
+      console.error("❌ 수정 로딩 오류:", error);
+      alert("수정 로딩에 실패했습니다: " + error.message);
+    }
   };
 
   const handleEditProfile = () => {
@@ -2428,7 +2632,7 @@ export default function StudioHome() {
                     {draft.basicInfo.category} • {draft.createdAt}
                   </p>
                   <p style={{ margin: "0 0 5px 0", color: "#ccc", fontSize: "14px", fontStyle: "italic" }}>
-                    "{draft.curationInfo.one_line_review}"
+                    {draft.curationInfo?.one_line_review ? `"${draft.curationInfo.one_line_review}"` : "한 줄 평가 없음"}
                   </p>
                   <span style={{
                     display: "inline-block",
