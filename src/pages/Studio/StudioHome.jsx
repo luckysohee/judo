@@ -2086,7 +2086,13 @@ export default function StudioHome() {
       </h1>
       
       {/* 섹션 선택 버튼 */}
-      <div style={styles.topBar}>
+      <div style={{
+        ...styles.topBar,
+        margin: "20px",
+        marginBottom: "40px",
+        width: "calc(100% - 40px)",
+        boxSizing: "border-box"
+      }}>
         <button
           onClick={() => setActiveSection("add")}
           style={{
@@ -2131,7 +2137,11 @@ export default function StudioHome() {
 
       {/* 잔 올리기 섹션 */}
       {activeSection === "add" && (
-        <div style={{ textAlign: "left", maxWidth: "600px", margin: "0 auto" }}>
+        <div style={{ 
+          textAlign: "left", 
+          margin: "0 20px",
+          width: "calc(100% - 40px)"
+        }}>
           {/* 장소/주소 검색 */}
           <div style={{ marginBottom: "20px" }}>
             <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>장소 또는 주소 검색</label>
@@ -2519,7 +2529,11 @@ export default function StudioHome() {
 
       {/* 잔 리스트 섹션 */}
       {activeSection === "list" && (
-        <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
+        <div style={{ 
+          textAlign: "left", 
+          margin: "0 20px",
+          width: "calc(100% - 40px)"
+        }}>
           {/* 장소 리스트 */}
           <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
             {/* myPlaces 데이터 표시 */}
@@ -2612,7 +2626,11 @@ export default function StudioHome() {
 
       {/* 잔 채우기 (임시저장) 섹션 */}
       {activeSection === "drafts" && (
-        <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
+        <div style={{ 
+          textAlign: "left", 
+          margin: "0 20px",
+          width: "calc(100% - 40px)"
+        }}>
           {/* 초안 리스트 */}
           <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
             {/* 임시로 예시 데이터 */}
@@ -2702,7 +2720,11 @@ export default function StudioHome() {
 
       {/* 잔 아카이브 섹션 */}
       {activeSection === "archive" && (
-        <div style={{ textAlign: "left", maxWidth: "800px", margin: "0 auto" }}>
+        <div style={{ 
+          textAlign: "left", 
+          margin: "0 20px",
+          width: "calc(100% - 40px)"
+        }}>
           {/* 큐레이터 프로필 */}
           <div style={{
             backgroundColor: "#222",
@@ -3089,8 +3111,7 @@ const styles = {
     gap: "8px",
     padding: "16px 24px",
     backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: "20px",
-    marginTop: "20px",
+    borderRadius: "8px",
     overflowX: "auto",
     scrollbarWidth: "none",
     msOverflowStyle: "none",
@@ -3100,12 +3121,14 @@ const styles = {
     WebkitBackdropFilter: "blur(20px)",
     border: "1px solid rgba(255,255,255,0.1)",
     boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+    minHeight: "60px",
+    alignItems: "center",
   },
   topBarButton: {
     border: "1px solid rgba(255,255,255,0.15)",
     backgroundColor: "rgba(255,255,255,0.08)",
     color: "rgba(255,255,255,0.9)",
-    borderRadius: "16px",
+    borderRadius: "8px",
     padding: "12px 24px",
     fontSize: "14px",
     fontWeight: 600,
