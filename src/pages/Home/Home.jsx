@@ -631,100 +631,6 @@ export default function Home() {
                 신청내역
               </button>
             ) : null}
-            
-            {/* 큐레이터 전용 스튜디오 버튼 */}
-          {(() => {
-              console.log("Button display check: {user: true, isCurator: true, userId: '2fba03a4-5a6d-43e2-a7d8-7c78fa8df752'}");
-              // 큐레이터나 관리자에게만 스튜디오 버튼 표시
-              return (isCurator || isAdmin);
-            })() && (
-              <button
-                type="button"
-                onClick={() => {
-                  console.log("Studio button clicked, navigating to /studio");
-                  navigate("/studio");
-                }}
-                style={styles.studioChip}
-              >
-                스튜디오
-              </button>
-            )}
-          </div>
-
-          {/* 일반 유저용 큐레이터 신청 버튼 */}
-          {(() => {
-              console.log("Apply button display check:", { user: !!user, isAdmin, isCurator });
-              // 로그인했지만 큐레이터가 아닌 일반 유저에게만 표시
-              return user && !isCurator && !isAdmin;
-            })() && (
-            <button
-              type="button"
-              onClick={() => navigate("/curator-apply")}
-              style={{
-                position: "fixed",
-                bottom: 100,
-                right: 20,
-                backgroundColor: "#2ECC71",
-                color: "#111",
-                border: "none",
-                borderRadius: "999px",
-                padding: "12px 20px",
-                fontSize: "14px",
-                fontWeight: 800,
-                boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-                zIndex: 1000,
-              }}
-            >
-              큐레이터 신청
-            </button>
-          )}
-
-          {/* 임시 테스트 버튼 */}
-          <div style={{ position: 'fixed', top: 100, right: 20, zIndex: 9999 }}>
-            <button 
-              onClick={() => {
-                const isCurrentlySelected = selectedCurators.includes('nopokiller');
-                console.log("🧪 테스트: 현재 선택 상태:", isCurrentlySelected);
-                
-                if (isCurrentlySelected) {
-                  // 선택되어 있으면 해제
-                  console.log("🧪 테스트: 선택 해제");
-                  setShowAll(true);
-                  setSelectedCurators([]);
-                } else {
-                  // 선택되어 있지 않으면 선택
-                  console.log("🧪 테스트: 선택");
-                  setShowAll(false);
-                  setSelectedCurators(['nopokiller']);
-                }
-              }}
-              style={{ 
-                backgroundColor: selectedCurators.includes('nopokiller') ? '#ff6b6b' : '#4ecdc4', 
-                color: 'white', 
-                padding: '10px', 
-                marginBottom: '10px',
-                border: 'none',
-                borderRadius: '5px'
-              }}
-            >
-              {selectedCurators.includes('nopokiller') ? '선택 해제 (내 장소만)' : '선택 (내 장소만)'}
-            </button>
-            <button 
-              onClick={() => {
-                console.log("🧪 테스트: showAll true로 설정");
-                setShowAll(true);
-                setSelectedCurators([]);
-              }}
-              style={{ 
-                backgroundColor: '#4ecdc4', 
-                color: 'white', 
-                padding: '10px',
-                border: 'none',
-                borderRadius: '5px'
-              }}
-            >
-              전체 보기
-            </button>
           </div>
 
           <div style={styles.filterWrapper}>
@@ -832,6 +738,22 @@ export default function Home() {
             >
               <span style={styles.curatorFloatingText}>
                 @{curatorProfile.username}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* 일반 유저용 큐레이터 신청 버튼 */}
+        {!isCurator && user && (
+          <div style={styles.curatorFloatingWrap}>
+            <button
+              style={styles.curatorApplyBtn}
+              onClick={() => navigate("/curator-apply")}
+              aria-label="큐레이터 신청"
+              type="button"
+            >
+              <span style={styles.curatorFloatingText}>
+                큐레이터 신청
               </span>
             </button>
           </div>
@@ -1334,6 +1256,27 @@ const styles = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     fontSize: "11px",
+  },
+
+  curatorApplyBtn: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "20px",
+    border: glassBorder,
+    background: "rgba(46, 204, 113, 0.9)", // 초록색
+    color: "white",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: floatingShadow,
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+    fontSize: "12px",
+    fontWeight: "600",
+    padding: "0 12px",
+    transition: "all 0.2s ease",
   },
 
   locationBtn: {
