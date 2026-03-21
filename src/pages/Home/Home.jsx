@@ -700,65 +700,6 @@ export default function Home() {
           />
         </div>
 
-        <div style={styles.locationFloatingWrap}>
-          <button
-            style={styles.locationFloatingBtn}
-            onClick={() => mapRef.current?.moveToCurrentLocation?.()}
-            aria-label="현재 위치로 이동"
-            type="button"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <line x1="12" y1="2" x2="12" y2="6" />
-              <line x1="12" y1="18" x2="12" y2="22" />
-              <line x1="2" y1="12" x2="6" y2="12" />
-              <line x1="18" y1="12" x2="22" y2="12" />
-              <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-            </svg>
-          </button>
-        </div>
-
-        {/* 큐레이터 플로팅 버튼 */}
-        {isCurator && curatorProfile && (
-          <div style={styles.curatorFloatingWrap}>
-            <button
-              style={styles.curatorFloatingBtn}
-              onClick={() => navigate("/studio")}
-              aria-label="스튜디오로 이동"
-              type="button"
-            >
-              <span style={styles.curatorFloatingText}>
-                @{curatorProfile.username}
-              </span>
-            </button>
-          </div>
-        )}
-
-        {/* 일반 유저용 큐레이터 신청 버튼 */}
-        {!isCurator && user && (
-          <div style={styles.curatorFloatingWrap}>
-            <button
-              style={styles.curatorApplyBtn}
-              onClick={() => navigate("/curator-apply")}
-              aria-label="큐레이터 신청"
-              type="button"
-            >
-              <span style={styles.curatorFloatingText}>
-                큐레이터 신청
-              </span>
-            </button>
-          </div>
-        )}
-
         {!selectedPlace && !detailPlace ? (
           <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
@@ -772,6 +713,26 @@ export default function Home() {
                 isLoading={isAiSearching}
                 rightActions={
                   <div style={styles.authRowInline}>
+                    {/* 큐레이터 관련 버튼 */}
+                    {isCurator && curatorProfile && (
+                      <button
+                        style={styles.curatorInlineButton}
+                        onClick={() => navigate("/studio")}
+                        type="button"
+                      >
+                        @{curatorProfile.username}
+                      </button>
+                    )}
+                    {!isCurator && user && (
+                      <button
+                        style={styles.curatorInlineButton}
+                        onClick={() => navigate("/curator-apply")}
+                        type="button"
+                      >
+                        큐레이터 신청
+                      </button>
+                    )}
+                    
                     {authLoading ? null : user ? (
                       <button
                         type="button"
@@ -1200,33 +1161,10 @@ const styles = {
     lineHeight: 1,
   },
 
-  locationFloatingWrap: {
-    position: "absolute",
-    right: "16px",
-    bottom: "92px",
-    zIndex: 10050,
-  },
-
-  locationFloatingBtn: {
-    width: "38px",
-    height: "38px",
-    borderRadius: "999px",
-    border: glassBorder,
-    background: glassWhiteStrong,
-    color: "#111",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: floatingShadow,
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
-  },
-
   curatorFloatingWrap: {
     position: "absolute",
     right: "16px",
-    bottom: "140px", // 위치 버튼보다 위에
+    bottom: "200px", // 내 위치 아이콘보다 아래
     zIndex: 10050,
   },
 
@@ -1294,6 +1232,41 @@ const styles = {
     boxShadow: floatingShadow,
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
+  },
+
+  authIconButton: {
+    width: "38px",
+    height: "38px",
+    borderRadius: "999px",
+    border: glassBorder,
+    background: glassWhiteStrong,
+    color: "#111",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: floatingShadow,
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+  },
+
+  curatorInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(46, 204, 113, 0.3)",
+    background: "rgba(46, 204, 113, 0.15)",
+    color: "#2ECC71",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
   },
 
   sideFabContainer: {
