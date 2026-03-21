@@ -132,6 +132,45 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
     }
   };
 
+  // 섹션 변경 시 변경사항 확인
+  const handleSectionChange = (newSection) => {
+    console.log("섹션 변경 시도:", { 
+      currentSection: activeSection, 
+      newSection, 
+      hasUnsavedChanges 
+    });
+    
+    // 잔 리스트에서 공개/비공개 변경 감지
+    if (activeSection === "list" && hasUnsavedChanges) {
+      const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
+      
+      if (shouldSave) {
+        console.log("저장 선택");
+        setHasUnsavedChanges(false);
+        setActiveSection(newSection);
+      } else {
+        console.log("저장 안 함 선택");
+        setHasUnsavedChanges(false);
+        setActiveSection(newSection);
+      }
+    } else if (hasUnsavedChanges) {
+      const shouldSave = window.confirm("변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
+      
+      if (shouldSave) {
+        console.log("저장 선택");
+        setHasUnsavedChanges(false);
+        setActiveSection(newSection);
+      } else {
+        console.log("저장 안 함 선택");
+        setHasUnsavedChanges(false);
+        setActiveSection(newSection);
+      }
+    } else {
+      console.log("변경사항 없음 - 바로 이동");
+      setActiveSection(newSection);
+    }
+  };
+
   // 지도 클릭 핸들러
   const handleMapClick = (lat, lng) => {
     setBasicInfo({
@@ -1106,6 +1145,68 @@ export default function StudioHome() {
   const [myPlaces, setMyPlaces] = useState([]);
   const [loading, setLoading] = useState(true);
   
+  // 변경사항 감지 상태
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [previousSection, setPreviousSection] = useState("archive");
+  const [originalPlaceBeforeChange, setOriginalPlaceBeforeChange] = useState(null); // 변경 전 원본 데이터 저장
+  
+  // DB 저장 함수
+  const saveToDatabase = async (updatedPlace) => {
+    try {
+      const { error } = await supabase
+        .from("places")
+        .update({ is_public: updatedPlace.is_public })
+        .eq("id", updatedPlace.id);
+      
+      if (error) {
+        console.error("❌ DB 저장 오류:", error);
+        alert("저장에 실패했습니다: " + error.message);
+      } else {
+        console.log("✅ DB 저장 성공:", updatedPlace);
+        alert("공개/비공개 상태가 저장되었습니다!");
+      }
+    } catch (error) {
+      console.error("❌ 저장 중 오류:", error);
+      alert("저장 중 오류가 발생했습니다: " + error.message);
+    }
+  };
+  
+  // 섹션 변경 감지 및 저장 확인
+  useEffect(() => {
+    if (activeSection !== previousSection && hasUnsavedChanges) {
+      const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
+      
+      if (shouldSave) {
+        console.log("✅ 저장 선택 - DB 저장 시작");
+        // 실제 DB 저장 로직
+        if (originalPlaceBeforeChange) {
+          const updatedPlace = myPlaces.find(p => p.id === originalPlaceBeforeChange.id);
+          if (updatedPlace) {
+            saveToDatabase(updatedPlace);
+          }
+        }
+      } else {
+        console.log("❌ 저장 안 함 선택 - 원상복구");
+        // 변경사항 취소하고 원래 상태로 복원
+        if (originalPlaceBeforeChange) {
+          setMyPlaces(prevPlaces => 
+            prevPlaces.map(place => 
+              place.id === originalPlaceBeforeChange.id 
+                ? { ...place, is_public: originalPlaceBeforeChange.is_public }
+                : place
+            )
+          );
+          console.log("🔄 원상복구 완료:", originalPlaceBeforeChange);
+        }
+      }
+      
+      setHasUnsavedChanges(false);
+      setOriginalPlaceBeforeChange(null);
+    }
+    
+    setPreviousSection(activeSection);
+  }, [activeSection, hasUnsavedChanges, previousSection, originalPlaceBeforeChange]);
+  
   // 지도 크기 새로고침
   useEffect(() => {
     if (mapRef.current && activeSection === "add") {
@@ -1169,6 +1270,7 @@ export default function StudioHome() {
 
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
+  const [originalEditingPlace, setOriginalEditingPlace] = useState(null); // 원본 데이터 저장
 
   // 잔 리스트 상태
   const [filterType, setFilterType] = useState("all"); // all, public, private
@@ -1502,7 +1604,8 @@ export default function StudioHome() {
       const { data: placesData, error: placesError } = await supabase
         .from("places")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(1000); // 캐시 방지를 위한 limit 추가
 
       if (placesError) {
         console.error("❌ 장소 로딩 오류:", placesError);
@@ -1510,21 +1613,25 @@ export default function StudioHome() {
         console.log("✅ 불러온 장소 데이터:", placesData);
         
         // DB 데이터를 myPlaces 형식으로 변환
-        const formattedPlaces = placesData.map(place => ({
-          id: place.id,
-          name: place.name,
-          address: place.address,
-          latitude: place.lat,
-          longitude: place.lng,
-          category: place.category || "미분류",
-          alcohol_type: place.alcohol_type || "",
-          atmosphere: place.atmosphere || "",
-          recommended_menu: place.recommended_menu || "",
-          menu_reason: place.menu_reason || "",
-          tags: place.tags || [], // tags가 없으면 빈 배열
-          is_public: place.is_public || true,
-          created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-        }));
+        const formattedPlaces = placesData.map(place => {
+          console.log("🔍 DB 장소 데이터:", { id: place.id, name: place.name, is_public: place.is_public });
+          
+          return {
+            id: place.id,
+            name: place.name,
+            address: place.address || place.name,
+            latitude: place.lat,
+            longitude: place.lng,
+            category: place.category || "미분류",
+            alcohol_type: place.alcohol_type || "",
+            atmosphere: place.atmosphere || "",
+            recommended_menu: place.recommended_menu || "",
+            menu_reason: place.menu_reason || "",
+            tags: place.tags || [],
+            is_public: place.is_public, // DB에서 가져온 is_public 값
+            created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+          };
+        });
         
         setMyPlaces(formattedPlaces);
         console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
@@ -1769,6 +1876,13 @@ export default function StudioHome() {
     try {
       console.log("🔄 공개/비공개 토글:", placeId);
       
+      // 변경 전 원본 데이터 저장
+      const originalPlace = myPlaces.find(p => p.id === placeId);
+      if (originalPlace) {
+        setOriginalPlaceBeforeChange(JSON.parse(JSON.stringify(originalPlace)));
+        console.log("💾 변경 전 원본 데이터 저장:", originalPlace);
+      }
+      
       // 1. 로컬 상태 업데이트
       setMyPlaces(prevPlaces => 
         prevPlaces.map(place => 
@@ -1778,7 +1892,11 @@ export default function StudioHome() {
         )
       );
       
-      // 2. DB 업데이트는 임시로 제외 (is_public 필드가 DB에 없음)
+      // 2. 변경사항 상태 설정
+      setHasUnsavedChanges(true);
+      console.log("⚠️ 공개/비공개 상태 변경 - hasUnsavedChanges 설정");
+      
+      // 3. DB 업데이트는 임시로 제외 (is_public 필드가 DB에 없음)
       // TODO: 나중에 is_public 필드를 DB에 추가하거나 별도 테이블로 관리
       console.log("✅ 공개/비공개 상태가 로컬에서 변경되었습니다.");
       

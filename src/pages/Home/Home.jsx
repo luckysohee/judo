@@ -304,7 +304,7 @@ export default function Home() {
       try {
         const { data, error } = await supabase
           .from("places")
-          .select("id, name, lat, lng, category") // curators 제외
+          .select("id, name, lat, lng, category, is_public, curators, user_id, created_at")
           .order("created_at", { ascending: false });
           
         if (error) {
@@ -320,7 +320,12 @@ export default function Home() {
           lat: place.lat,
           lng: place.lng,
           category: place.category || "미분류",
-          curators: [] // 임시로 빈 배열
+          is_public: place.is_public, // 공개/비공개 상태
+          curators: place.curators || [], // 큐레이터 정보
+          user_id: place.user_id, // 작성자 정보
+          comment: "",
+          savedCount: 0,
+          tags: [],
         }));
         
         setDbPlaces(formattedPlaces);
@@ -426,7 +431,15 @@ export default function Home() {
     setCustomPlaces([]); // 빈 배열로 설정
   };
 
-  const allPlaces = useMemo(() => [...customPlaces, ...dbPlaces], [customPlaces, dbPlaces]);
+  const allPlaces = useMemo(() => {
+  const result = [...customPlaces, ...dbPlaces];
+  console.log("📦 allPlaces 상태:", { 
+    customPlacesLength: customPlaces.length, 
+    dbPlacesLength: dbPlaces.length, 
+    totalLength: result.length 
+  });
+  return result;
+}, [customPlaces, dbPlaces]);
 
   const savedPlacesByFolder = useMemo(() => {
     const result = {};
@@ -456,7 +469,25 @@ export default function Home() {
   }, [allPlaces, folders]);
 
   const filteredByCuratorPlaces = useMemo(() => {
-    if (showAll) return [...allPlaces];
+    // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
+    if (showSavedOnly) {
+      console.log("⭐ showSavedOnly 상태 - 모든 장소 표시 (큐레이터용):", dbPlaces.length);
+      return [...dbPlaces]; // dbPlaces 직접 반환 - 모든 장소
+    }
+    
+    if (showAll) {
+      // 일반 모드에서는 비공개 필터링 적용
+      const filtered = allPlaces.filter(place => {
+        // 큐레이터는 자신의 장소와 공개 장소만 볼 수 있음
+        if (isCurator) {
+          return place.is_public !== false; // false가 아닌 것만 (공개 + undefined)
+        }
+        // 일반 사용자는 공개 장소만 볼 수 있음
+        return place.is_public !== false;
+      });
+      console.log("🌍 일반 모드 - 비공개 필터링 적용:", filtered.length);
+      return filtered;
+    }
     
     // 큐레이터가 선택되지 않았으면 빈 배열
     if (selectedCurators.length === 0) return [];
@@ -476,7 +507,7 @@ export default function Home() {
     // return allPlaces.filter((p) =>
     //   (p.curators || []).some((c) => selectedCurators.includes(c))
     // );
-  }, [allPlaces, selectedCurators, showAll]);
+  }, [allPlaces, selectedCurators, showAll, showSavedOnly, dbPlaces]);
 
   const displayedPlaces = useMemo(() => {
     if (!query.trim()) return filteredByCuratorPlaces;
@@ -497,6 +528,13 @@ export default function Home() {
   const mapDisplayedPlaces = useMemo(() => {
     if (!showSavedOnly) return displayedPlaces;
 
+    // 별표 버튼을 누르면 모든 장소 표시 (큐레이터 기능)
+    if (isCurator) {
+      console.log("⭐ 큐레이터 저장 장소 모두 표시");
+      return displayedPlaces.length > 0 ? displayedPlaces : allPlaces;
+    }
+
+    // 일반 유저: localStorage 저장 장소만 표시
     const savedSet = new Set(
       Object.entries(savedMap)
         .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
@@ -505,9 +543,26 @@ export default function Home() {
 
     const base = displayedPlaces.length > 0 ? displayedPlaces : allPlaces;
     return base.filter((p) => savedSet.has(String(p.id)));
-  }, [displayedPlaces, savedMap, showSavedOnly]);
+  }, [displayedPlaces, savedMap, showSavedOnly, isCurator, allPlaces]);
 
   const mapDisplayedPlacesWithLegend = useMemo(() => {
+    // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
+    if (showSavedOnly) {
+      console.log("⭐ mapDisplayedPlacesWithLegend - 모든 장소 표시 (큐레이터용):", displayedPlaces.length);
+      return [...displayedPlaces]; // 모든 장소 표시
+    }
+    
+    // 일반 모드에서는 비공개 필터링 적용
+    const filtered = displayedPlaces.filter(place => {
+      // 큐레이터는 자신의 장소와 공개 장소만 볼 수 있음
+      if (isCurator) {
+        return place.is_public !== false; // false가 아닌 것만 (공개 + undefined)
+      }
+      // 일반 사용자는 공개 장소만 볼 수 있음
+      return place.is_public !== false;
+    });
+    console.log("🗺️ 일반 모드 - 지도에 표시될 장소 (비공개 필터링):", filtered.length);
+    
     const savedSet = new Set(
       Object.entries(savedMap)
         .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
@@ -536,7 +591,7 @@ export default function Home() {
       ? (baseBeforeLegend.length > 0 ? baseBeforeLegend : allPlaces).filter((p) =>
           savedSet.has(String(p.id))
         )
-      : baseBeforeLegend;
+      : filtered; // 일반 모드에서는 비공개 필터링된 데이터 사용
 
     if (!legendCategory) return afterSavedOnly;
 
