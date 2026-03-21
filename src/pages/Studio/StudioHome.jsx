@@ -1271,6 +1271,8 @@ export default function StudioHome() {
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
   const [originalEditingPlace, setOriginalEditingPlace] = useState(null); // 원본 데이터 저장
+  const [editingDraftId, setEditingDraftId] = useState(null); // 수정 중인 임시저장 ID
+  const formRef = useRef(null); // 폼 참조
 
   // 잔 리스트 상태
   const [filterType, setFilterType] = useState("all"); // all, public, private
@@ -1808,16 +1810,16 @@ export default function StudioHome() {
           id: Date.now().toString(),
           basicInfo: {
             name_address: formData.name_address,
-            category: formData.category,
-            alcohol_type: formData.alcohol_type,
-            atmosphere: formData.atmosphere,
-            recommended_menu: formData.recommended_menu,
-            menu_reason: formData.menu_reason,
-            tags: formData.tags,
-            latitude: formData.latitude,
-            longitude: formData.longitude,
-            is_public: formData.is_public
+            category: formData.category
           },
+          // 모든 formData 데이터 저장
+          alcohol_type: formData.alcohol_type,
+          atmosphere: formData.atmosphere,
+          recommended_menu: formData.recommended_menu,
+          menu_reason: formData.menu_reason,
+          tags: formData.tags,
+          latitude: formData.latitude,
+          longitude: formData.longitude,
           publishInfo: {
             is_public: formData.is_public,
             is_featured: false,
@@ -1827,7 +1829,21 @@ export default function StudioHome() {
         
         // localStorage에 저장
         const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
-        const updatedDrafts = [...existingDrafts, draftData];
+        let updatedDrafts;
+        
+        if (editingDraftId) {
+          // 수정 모드: 기존 임시저장 업데이트
+          updatedDrafts = existingDrafts.map(draft => 
+            draft.id === editingDraftId ? draftData : draft
+          );
+          console.log("📝 임시저장 업데이트:", editingDraftId);
+          setEditingDraftId(null); // 수정 모드 종료
+        } else {
+          // 새로운 임시저장 추가
+          updatedDrafts = [...existingDrafts, draftData];
+          console.log("📝 새 임시저장 추가:", draftData.id);
+        }
+        
         localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
         
         setDrafts(prev => [...prev, draftData]);
@@ -2127,9 +2143,59 @@ export default function StudioHome() {
   const handleEditDraft = (draft) => {
     // 초안 수정 로직
     console.log("Edit draft:", draft);
-    // 잔 올리기 섹션으로 이동하면서 초안 데이터 로드
+    console.log("🔍 임시저장된 데이터 상세:", {
+      name_address: draft.basicInfo?.name_address,
+      category: draft.basicInfo?.category,
+      alcohol_type: draft.alcohol_type,
+      atmosphere: draft.atmosphere,
+      latitude: draft.latitude,
+      longitude: draft.longitude,
+      is_public: draft.publishInfo?.is_public
+    });
+    
+    // 지도 중심 설정
+    if (draft.latitude && draft.longitude) {
+      setMapCenter({ lat: draft.latitude, lng: draft.longitude });
+      console.log("🗺️ 지도 중심 설정:", { lat: draft.latitude, lng: draft.longitude });
+    }
+    
+    // 잔 올리기 섹션으로 이동
     setActiveSection("add");
-    // 초안 데이터를 폼에 로드하는 로직 (추후 구현)
+    
+    // 수정 중인 임시저장 ID 설정
+    setEditingDraftId(draft.id);
+    
+    // 섹션 이동 후 직접 폼 필드에 값 설정
+    setTimeout(() => {
+      // 직접 폼 필드에 값 설정
+      const nameInput = document.querySelector('input[type="text"]');
+      const categorySelect = document.querySelector('select');
+      const alcoholSelect = document.querySelectorAll('select')[1];
+      const atmosphereSelect = document.querySelectorAll('select')[2];
+      const reasonTextarea = document.querySelector('textarea');
+      
+      if (nameInput) nameInput.value = draft.basicInfo?.name_address || "";
+      if (categorySelect) categorySelect.value = draft.basicInfo?.category || "";
+      if (alcoholSelect) alcoholSelect.value = draft.alcohol_type || "";
+      if (atmosphereSelect) atmosphereSelect.value = draft.atmosphere || "";
+      if (reasonTextarea) reasonTextarea.value = draft.menu_reason || "";
+      
+      // React 상태도 업데이트
+      setFormData({
+        name_address: draft.basicInfo?.name_address || "",
+        category: draft.basicInfo?.category || "",
+        alcohol_type: draft.alcohol_type || "",
+        atmosphere: draft.atmosphere || "",
+        recommended_menu: draft.recommended_menu || "",
+        menu_reason: draft.menu_reason || "",
+        tags: draft.tags || [],
+        latitude: draft.latitude || null,
+        longitude: draft.longitude || null,
+        is_public: draft.publishInfo?.is_public || true
+      });
+      
+      console.log("✅ 직접 폼 필드에 값 설정 완료");
+    }, 200);
   };
 
   const handleDeleteDraft = (draftId) => {
