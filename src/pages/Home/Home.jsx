@@ -618,19 +618,6 @@ export default function Home() {
         <div style={styles.headerOverlay}>
           <div style={styles.logoStack}>
             <h1 style={styles.logo}>JUDO</h1>
-            {isAdmin ||
-            (import.meta.env.DEV &&
-              devAdminUserId &&
-              user?.id &&
-              String(user.id) === String(devAdminUserId)) ? (
-              <button
-                type="button"
-                onClick={() => navigate("/admin/applications")}
-                style={styles.adminChip}
-              >
-                신청내역
-              </button>
-            ) : null}
           </div>
 
           <div style={styles.filterWrapper}>
@@ -713,23 +700,35 @@ export default function Home() {
                 isLoading={isAiSearching}
                 rightActions={
                   <div style={styles.authRowInline}>
-                    {/* 큐레이터 관련 버튼 */}
-                    {isCurator && curatorProfile && (
+                    {/* 큐레이터 신청/신청내역 버튼 */}
+                    {isAdmin ? (
+                      <button
+                        style={styles.adminInlineButton}
+                        onClick={() => navigate("/admin/applications")}
+                        type="button"
+                      >
+                        신청내역
+                      </button>
+                    ) : (
+                      !isCurator && user && (
+                        <button
+                          style={styles.curatorInlineButton}
+                          onClick={() => navigate("/curator-apply")}
+                          type="button"
+                        >
+                          큐레이터 신청
+                        </button>
+                      )
+                    )}
+                    
+                    {/* 큐레이터 전용 @아이디 버튼 */}
+                    {!isAdmin && isCurator && curatorProfile && (
                       <button
                         style={styles.curatorInlineButton}
                         onClick={() => navigate("/studio")}
                         type="button"
                       >
                         @{curatorProfile.username}
-                      </button>
-                    )}
-                    {!isCurator && user && (
-                      <button
-                        style={styles.curatorInlineButton}
-                        onClick={() => navigate("/curator-apply")}
-                        type="button"
-                      >
-                        큐레이터 신청
                       </button>
                     )}
                     
@@ -1052,22 +1051,6 @@ const styles = {
     flexShrink: 0,
   },
 
-  adminChip: {
-    border: "1px solid rgba(0,0,0,0.10)",
-    backgroundColor: "rgba(255,255,255,0.86)",
-    color: "#111",
-    borderRadius: "999px",
-    height: "26px",
-    padding: "0 10px",
-    fontSize: "12px",
-    fontWeight: 900,
-    letterSpacing: "-0.2px",
-    cursor: "pointer",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-  },
-
   filterWrapper: {
     flex: 1,
     display: "flex",
@@ -1234,22 +1217,6 @@ const styles = {
     WebkitBackdropFilter: "blur(18px)",
   },
 
-  authIconButton: {
-    width: "38px",
-    height: "38px",
-    borderRadius: "999px",
-    border: glassBorder,
-    background: glassWhiteStrong,
-    color: "#111",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: floatingShadow,
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
-  },
-
   curatorInlineButton: {
     minWidth: "80px",
     maxWidth: "120px",
@@ -1258,6 +1225,25 @@ const styles = {
     border: "1px solid rgba(46, 204, 113, 0.3)",
     background: "rgba(46, 204, 113, 0.15)",
     color: "#2ECC71",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+
+  adminInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(255, 107, 107, 0.3)",
+    background: "rgba(255, 107, 107, 0.15)",
+    color: "#FF6B6B",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
