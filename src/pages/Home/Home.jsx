@@ -338,6 +338,43 @@ export default function Home() {
     };
   }, [authLoading, user?.id]);
 
+  // 큐레이터 프로필 로드
+  useEffect(() => {
+    if (user && isCurator) {
+      // 큐레이터 프로필 로드 (Supabase DB에서 직접)
+      const loadCuratorProfile = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('curators')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+          
+          if (error) {
+            console.error("큐레이터 프로필 조회 실패:", error);
+            return;
+          }
+          
+          if (data) {
+            const profile = {
+              username: data.username,
+              displayName: data.display_name,
+              bio: data.bio,
+              image: data.avatar
+            };
+            
+            setCuratorProfile(profile);
+            console.log("🎭 큐레이터 프로필 로드:", profile);
+          }
+        } catch (error) {
+          console.error("큐레이터 프로필 로드 실패:", error);
+        }
+      };
+      
+      loadCuratorProfile();
+    }
+  }, [user, isCurator]);
+
   // 초기 로드 시 localStorage 정리
   useEffect(() => {
     localStorage.removeItem("judo_custom_places");
