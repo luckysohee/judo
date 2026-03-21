@@ -1443,33 +1443,58 @@ export default function StudioHome() {
     try {
       setLoading(true);
       
-      // DB에서 프로필 데이터 가져오기
-      const { data: profileData, error: profileError } = await supabase
-        .from("curators")
-        .select("*")
-        .eq("username", "nopokiller") // 저장된 username으로 수정
-        .single();
+      // 현재 인증된 사용자 정보 가져오기
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        console.log("인증된 사용자 없음, 기본 프로필 사용");
+        // 인증되지 않은 경우 기본값 사용
+        const defaultUser = {
+          username: "nopokiller",
+          display_name: "노포킬러",
+          bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
+          image: null
+        };
         
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+        setCuratorProfile(prev => ({
+          ...prev,
+          username: defaultUser.username,
+          displayName: defaultUser.display_name,
+          bio: defaultUser.bio,
+          image: defaultUser.image
+        }));
+      } else {
+        console.log("✅ 인증된 사용자:", user.id);
+        
+        // 인증된 사용자의 프로필 가져오기
+        const { data: profileData, error: profileError } = await supabase
+          .from("curators")
+          .select("*")
+          .eq("user_id", user.id) // user_id로 연결
+          .single();
+          
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+        }
+        
+        const currentUser = profileData || {
+          user_id: user.id, // 인증된 사용자 ID 연결
+          username: user.user_metadata?.username || user.email?.split('@')[0],
+          display_name: user.user_metadata?.display_name || "큐레이터",
+          bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
+          image: null
+        };
+        
+        console.log("📂 프로필 데이터 로드:", currentUser);
+        
+        setCuratorProfile(prev => ({
+          ...prev,
+          username: currentUser.username,
+          displayName: currentUser.display_name,
+          bio: currentUser.bio,
+          image: currentUser.image
+        }));
       }
-      
-      const currentUser = profileData || {
-        username: "nopokiller",
-        display_name: "노포킬러",
-        bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
-        image: null
-      };
-      
-      console.log("📂 프로필 데이터 로드:", currentUser);
-      
-      setCuratorProfile(prev => ({
-        ...prev,
-        username: currentUser.username,
-        displayName: currentUser.displayName,
-        bio: currentUser.bio,
-        image: currentUser.image
-      }));
       
       console.log("📂 스튜디오 데이터 로딩 시작...");
       
@@ -1846,14 +1871,23 @@ export default function StudioHome() {
 
   const handleSaveProfile = async () => {
     try {
+      // 현재 인증된 사용자 정보 가져오기
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        alert("로그인이 필요합니다.");
+        return;
+      }
+      
       // username 중복 확인
       if (editProfile.username !== curatorProfile.username) {
         // 실제로는 서버 API 호출로 중복 확인
         console.log("username 중복 확인 필요:", editProfile.username);
       }
       
-      // Supabase에 프로필 저장
+      // Supabase에 프로필 저장 (인증된 사용자와 연결)
       const profileData = {
+        user_id: user.id, // 인증된 사용자 ID 연결
         username: editProfile.username,
         slug: editProfile.username, // slug 필드 추가
         name: editProfile.displayName || editProfile.username, // name 필드 추가 (displayName 우선)
@@ -1867,7 +1901,7 @@ export default function StudioHome() {
       
       const { data, error } = await supabase
         .from("curators")
-        .upsert([profileData], { onConflict: 'slug' })
+        .upsert([profileData], { onConflict: 'user_id' }) // user_id 기준으로 upsert
         .select();
         
       if (error) {
