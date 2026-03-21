@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 // import { useAuth } from "../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
 
 // 섹션 컴포넌트들
@@ -1426,9 +1427,9 @@ export default function StudioHome() {
 
   // 큐레이터 프로필 상태
   const [curatorProfile, setCuratorProfile] = useState({
-    name: "테스트 큐레이터", // 검색용 표시 이름
-    username: "test_curator", // @고유이름 (개인 주소)
-    displayName: "테스트 큐레이터", // 홈에서 표시될 이름
+    name: "노포킬러", // 검색용 표시 이름
+    username: "nopokiller", // @고유이름 (개인 주소)
+    displayName: "노포킬러", // 홈에서 표시될 이름
     image: null, // 실제로는 이미지 URL
     bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다. 다양한 술집과 맛집을 소개해드릴게요.",
     instagram: "@curator_example"
@@ -1440,6 +1441,36 @@ export default function StudioHome() {
 
   const loadStudioData = async () => {
     try {
+      setLoading(true);
+      
+      // DB에서 프로필 데이터 가져오기
+      const { data: profileData, error: profileError } = await supabase
+        .from("curators")
+        .select("*")
+        .eq("username", "nopokiller") // 저장된 username으로 수정
+        .single();
+        
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+      }
+      
+      const currentUser = profileData || {
+        username: "nopokiller",
+        display_name: "노포킬러",
+        bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
+        image: null
+      };
+      
+      console.log("📂 프로필 데이터 로드:", currentUser);
+      
+      setCuratorProfile(prev => ({
+        ...prev,
+        username: currentUser.username,
+        displayName: currentUser.displayName,
+        bio: currentUser.bio,
+        image: currentUser.image
+      }));
+      
       console.log("📂 스튜디오 데이터 로딩 시작...");
       
       // Supabase에서 저장된 장소 불러오기
@@ -1813,24 +1844,59 @@ export default function StudioHome() {
     setUsernameError("");
   };
 
-  const handleSaveProfile = () => {
-    // username 중복 확인
-    if (editProfile.username !== curatorProfile.username) {
-      // 실제로는 서버 API 호출로 중복 확인
-      console.log("username 중복 확인 필요:", editProfile.username);
+  const handleSaveProfile = async () => {
+    try {
+      // username 중복 확인
+      if (editProfile.username !== curatorProfile.username) {
+        // 실제로는 서버 API 호출로 중복 확인
+        console.log("username 중복 확인 필요:", editProfile.username);
+      }
+      
+      // Supabase에 프로필 저장
+      const profileData = {
+        username: editProfile.username,
+        slug: editProfile.username, // slug 필드 추가
+        name: editProfile.displayName || editProfile.username, // name 필드 추가 (displayName 우선)
+        display_name: editProfile.displayName,
+        bio: editProfile.bio,
+        image: editProfile.image || null,
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log("📝 프로필 DB 저장:", profileData);
+      
+      const { data, error } = await supabase
+        .from("curators")
+        .upsert([profileData], { onConflict: 'slug' })
+        .select();
+        
+      if (error) {
+        console.error("❌ 프로필 저장 오류:", error);
+        alert("프로필 저장에 실패했습니다: " + error.message);
+        return;
+      }
+      
+      console.log("✅ 프로필 DB 저장 성공:", data);
+      
+      // 로컬 상태 업데이트
+      setCuratorProfile(prev => ({
+        ...prev,
+        name: editProfile.name,
+        username: editProfile.username,
+        displayName: editProfile.displayName,
+        bio: editProfile.bio,
+        image: editProfile.image
+      }));
+      
+      setIsEditingProfile(false);
+      setUsernameError("");
+      console.log("프로필 업데이트 완료:", editProfile);
+      alert("프로필이 성공적으로 저장되었습니다!");
+      
+    } catch (error) {
+      console.error("❌ 프로필 저장 오류:", error);
+      alert("프로필 저장에 실패했습니다: " + error.message);
     }
-    
-    setCuratorProfile(prev => ({
-      ...prev,
-      name: editProfile.name,
-      username: editProfile.username,
-      displayName: editProfile.displayName,
-      bio: editProfile.bio,
-      image: editProfile.image
-    }));
-    setIsEditingProfile(false);
-    setUsernameError("");
-    console.log("프로필 업데이트 완료:", editProfile);
   };
 
   const handleCancelEdit = () => {
@@ -2558,21 +2624,109 @@ export default function StudioHome() {
           margin: "0 20px",
           width: "calc(100% - 40px)"
         }}>
+          {/* 필터 버튼 */}
+          <div style={{ 
+            display: "flex", 
+            gap: "10px", 
+            marginBottom: "20px",
+            flexWrap: "wrap"
+          }}>
+            <button
+              onClick={() => setFilterType("all")}
+              style={{
+                padding: "8px 16px",
+                backgroundColor: filterType === "all" ? "#2ECC71" : "#444",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px"
+              }}
+            >
+              전체
+            </button>
+            <button
+              onClick={() => setFilterType("public")}
+              style={{
+                padding: "8px 16px",
+                backgroundColor: filterType === "public" ? "#2ECC71" : "#444",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px"
+              }}
+            >
+              공개
+            </button>
+            <button
+              onClick={() => setFilterType("private")}
+              style={{
+                padding: "8px 16px",
+                backgroundColor: filterType === "private" ? "#2ECC71" : "#444",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px"
+              }}
+            >
+              비공개
+            </button>
+            
+            {/* 큐레이터 필터 */}
+            {curatorProfile && curatorProfile.username && (
+              <button
+                onClick={() => setFilterType("curator")}
+                style={{
+                  padding: "8px 16px",
+                  backgroundColor: filterType === "curator" ? "#F39C12" : "#444",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "14px"
+                }}
+              >
+                @{curatorProfile.username}
+              </button>
+            )}
+          </div>
+          
           {/* 장소 리스트 */}
           <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-            {/* myPlaces 데이터 표시 */}
-            {myPlaces.length === 0 ? (
-              <div style={{
-                backgroundColor: "#222",
-                padding: "40px",
-                borderRadius: "8px",
-                textAlign: "center",
-                color: "#666"
-              }}>
-                저장된 장소가 없습니다.
-              </div>
-            ) : (
-              myPlaces.map(place => (
+            {/* 필터링된 myPlaces 데이터 표시 */}
+            {(() => {
+              let filteredPlaces = myPlaces;
+              
+              if (filterType === "public") {
+                filteredPlaces = myPlaces.filter(place => place.is_public);
+              } else if (filterType === "private") {
+                filteredPlaces = myPlaces.filter(place => !place.is_public);
+              } else if (filterType === "curator") {
+                // 큐레이터 필터 - 현재 큐레이터의 장소만 표시
+                filteredPlaces = myPlaces; // 현재는 모든 장소가 큐레이터의 장소라고 가정
+              }
+              
+              return filteredPlaces.length === 0 ? (
+                <div style={{
+                  backgroundColor: "#222",
+                  padding: "40px",
+                  borderRadius: "8px",
+                  textAlign: "center",
+                  color: "#666"
+                }}>
+                  {filterType === "curator" 
+                    ? "큐레이터의 장소가 없습니다."
+                    : filterType === "public" 
+                    ? "공개 장소가 없습니다."
+                    : filterType === "private"
+                    ? "비공개 장소가 없습니다."
+                    : "저장된 장소가 없습니다."
+                  }
+                </div>
+              ) : (
+                filteredPlaces.map(place => (
                 <div key={place.id} style={{
                   backgroundColor: "#222",
                   padding: "20px",
@@ -2643,7 +2797,7 @@ export default function StudioHome() {
                   </div>
                 </div>
               ))
-            )}
+            )})()}
           </div>
         </div>
       )}
