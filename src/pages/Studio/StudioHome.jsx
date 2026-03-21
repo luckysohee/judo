@@ -1125,6 +1125,33 @@ export default function StudioHome() {
     }
   }, [activeSection]); // activeSection이 변경될 때만 실행
 
+  // 탭 변경 시 폼 초기화
+  useEffect(() => {
+    if (activeSection === "add") {
+      // 잔 올리기 탭으로 이동 시 폼 초기화
+      setFormData({
+        name_address: "",
+        category: "",
+        alcohol_type: "",
+        atmosphere: "",
+        recommended_menu: "",
+        menu_reason: "",
+        tags: [],
+        latitude: null,
+        longitude: null,
+        is_public: true
+      });
+      
+      // 검색 관련 상태도 초기화
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      setSelectedSuggestionIndex(-1);
+      setSearchedPlaces([]);
+      setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
+      setEditingPlaceId(null);
+    }
+  }, [activeSection]); // activeSection이 변경될 때마다 실행
+
   // 잔 올리기 폼 상태
   const [formData, setFormData] = useState({
     name_address: "",
@@ -1150,21 +1177,8 @@ export default function StudioHome() {
     { id: 3, name: "테스트 장소 3", category: "중식", is_public: true, created_at: "2024-01-03" },
   ]);
 
-  // 잔 채우기 (임시저장) 상태
-  const [drafts, setDrafts] = useState([
-    { 
-      id: 1, 
-      basicInfo: { name_address: "초안 장소 1", category: "양식" }, 
-      curationInfo: { one_line_review: "좋은 곳입니다" },
-      createdAt: "2024-01-01 15:30"
-    },
-    { 
-      id: 2, 
-      basicInfo: { name_address: "초안 장소 2", category: "디저트" }, 
-      curationInfo: { one_line_review: "분위기 좋아요" },
-      createdAt: "2024-01-01 14:20"
-    },
-  ]);
+  // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
+  const [drafts, setDrafts] = useState([]);
 
   // 검색 결과 상태
   const [searchedPlaces, setSearchedPlaces] = useState([]);
@@ -1451,13 +1465,24 @@ export default function StudioHome() {
           atmosphere: place.atmosphere || "",
           recommended_menu: place.recommended_menu || "",
           menu_reason: place.menu_reason || "",
-          tags: place.tags || [],
+          tags: place.tags || [], // tags가 없으면 빈 배열
           is_public: place.is_public || true,
           created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
         }));
         
         setMyPlaces(formattedPlaces);
         console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
+        
+        // myPlaces 업데이트 후 drafts 동기화
+        setDrafts(formattedPlaces.map(place => ({
+          id: place.id,
+          basicInfo: {
+            name_address: place.name,
+            category: place.category
+          },
+          createdAt: place.created_at
+        })));
+        console.log("✅ drafts 동기화 완료:", formattedPlaces.length, "개 장소");
       }
       
       setLoading(false);
@@ -1502,7 +1527,7 @@ export default function StudioHome() {
         }
         // 실제 저장인 경우 Supabase에 저장
         // 임시 큐레이터 ID (실제로는 인증된 사용자 ID 사용)
-        const curatorId = "temp-curator-id";
+        const curatorId = "00000000-0000-0000-0000-000000000000";
         
         if (editingPlaceId) {
           // 수정 모드: UPDATE 사용
@@ -1510,7 +1535,8 @@ export default function StudioHome() {
             name: formData.name_address,
             address: formData.name_address,
             lat: formData.latitude,
-            lng: formData.longitude
+            lng: formData.longitude,
+            comment: formData.menu_reason || null
           };
           
           console.log("📝 수정할 데이터:", updateData);
@@ -1533,7 +1559,7 @@ export default function StudioHome() {
           // 로컬 상태 업데이트
           setMyPlaces(prev => prev.map(place => 
             place.id === editingPlaceId 
-              ? { ...place, ...updateData, address: updateData.address, latitude: updateData.lat, longitude: updateData.lng }
+              ? { ...place, ...updateData, latitude: updateData.lat, longitude: updateData.lng }
               : place
           ));
           
@@ -1545,14 +1571,14 @@ export default function StudioHome() {
         } else {
           // 새로 추가 모드: INSERT 사용
           const newPlaceData = {
-            id: crypto.randomUUID(), // UUID 생성
             name: formData.name_address,
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
-            comment: formData.one_line_review || null,
+            comment: formData.menu_reason || null,
             tags: formData.tags || [],
-            created_at: new Date().toISOString()
+            region: "지정안됨",
+            saved_count: 0
           };
           
           console.log("📝 저장할 데이터:", newPlaceData);
@@ -1575,22 +1601,35 @@ export default function StudioHome() {
           // myPlaces에 새 장소 추가
           const savedPlace = {
             id: data[0].id,
-            name: formData.name_address,
-            address: formData.name_address,
-            latitude: formData.latitude,
-            longitude: formData.longitude,
+            name: data[0].name,
+            address: data[0].address,
+            latitude: data[0].lat,
+            longitude: data[0].lng,
             category: formData.category,
             alcohol_type: formData.alcohol_type,
             atmosphere: formData.atmosphere,
             recommended_menu: formData.recommended_menu,
             menu_reason: formData.menu_reason,
-            tags: formData.tags,
+            tags: formData.tags || [], // 폼의 태그 데이터 사용
             is_public: formData.is_public,
-            created_at: new Date().toISOString().split('T')[0]
+            created_at: data[0].created_at ? new Date(data[0].created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
           };
           
           setMyPlaces(prev => [savedPlace, ...prev]);
           console.log("✅ 장소 리스트에 추가 완료:", savedPlace);
+          
+          // 잔 채우기 목록 동기화
+          setDrafts(prev => {
+            const newDrafts = [savedPlace, ...myPlaces].map(place => ({
+              id: place.id,
+              basicInfo: {
+                name_address: place.name,
+                category: place.category
+              },
+              createdAt: place.created_at
+            }));
+            return newDrafts;
+          });
           
           // 폼 초기화
           setFormData({
@@ -1683,28 +1722,10 @@ export default function StudioHome() {
         )
       );
       
-      // 2. DB에도 업데이트 (선택 사항)
-      const place = myPlaces.find(p => p.id === placeId);
-      if (place) {
-        const { error } = await supabase
-          .from("places")
-          .update({ is_public: !place.is_public })
-          .eq("id", placeId);
-          
-        if (error) {
-          console.error("❌ 공개 상태 업데이트 오류:", error);
-          // 실패 시 로컬 상태 롤백
-          setMyPlaces(prevPlaces => 
-            prevPlaces.map(p => 
-              p.id === placeId 
-                ? { ...p, is_public: place.is_public }
-                : p
-            )
-          );
-        } else {
-          console.log("✅ 공개 상태 업데이트 성공");
-        }
-      }
+      // 2. DB 업데이트는 임시로 제외 (is_public 필드가 DB에 없음)
+      // TODO: 나중에 is_public 필드를 DB에 추가하거나 별도 테이블로 관리
+      console.log("✅ 공개/비공개 상태가 로컬에서 변경되었습니다.");
+      
     } catch (error) {
       console.error("❌ 토글 오류:", error);
     }
@@ -1732,6 +1753,9 @@ export default function StudioHome() {
       
       // 2. 로컬 상태에서 삭제
       setMyPlaces(prevPlaces => prevPlaces.filter(place => place.id !== placeId));
+      
+      // 잔 채우기 목록에서도 삭제
+      setDrafts(prevDrafts => prevDrafts.filter(draft => draft.id !== placeId));
       
       console.log("✅ 장소 삭제 성공");
       alert("장소가 삭제되었습니다.");
@@ -2649,9 +2673,6 @@ export default function StudioHome() {
                   </h3>
                   <p style={{ margin: "0 0 5px 0", color: "#666", fontSize: "14px" }}>
                     {draft.basicInfo.category} • {draft.createdAt}
-                  </p>
-                  <p style={{ margin: "0 0 5px 0", color: "#ccc", fontSize: "14px", fontStyle: "italic" }}>
-                    {draft.curationInfo?.one_line_review ? `"${draft.curationInfo.one_line_review}"` : "한 줄 평가 없음"}
                   </p>
                   <span style={{
                     display: "inline-block",
