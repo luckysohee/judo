@@ -1638,6 +1638,11 @@ export default function StudioHome() {
         
         // drafts는 별도로 관리 (myPlaces와 동기화하지 않음)
         // 임시저장된 데이터만 drafts에 표시됨
+        
+        // localStorage에서 임시저장된 데이터 불러오기
+        const savedDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        setDrafts(savedDrafts);
+        console.log("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
       }
       
       setLoading(false);
@@ -1813,11 +1818,20 @@ export default function StudioHome() {
             longitude: formData.longitude,
             is_public: formData.is_public
           },
-          createdAt: new Date().toLocaleString('ko-KR')
+          publishInfo: {
+            is_public: formData.is_public,
+            is_featured: false,
+          },
+          createdAt: new Date().toISOString().split('T')[0]
         };
         
+        // localStorage에 저장
+        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const updatedDrafts = [...existingDrafts, draftData];
+        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        
         setDrafts(prev => [...prev, draftData]);
-        console.log("✅ 임시저장 완료:", draftData);
+        console.log("✅ 임시저장 완료 (localStorage):", draftData);
         alert("초안이 임시저장되었습니다.");
         
         // '잔 채우기' 탭으로 자동 이동
@@ -2121,7 +2135,15 @@ export default function StudioHome() {
   const handleDeleteDraft = (draftId) => {
     // 초안 삭제 로직
     console.log("Delete draft:", draftId);
+    
+    // localStorage에서 삭제
+    const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+    const updatedDrafts = existingDrafts.filter(draft => draft.id !== draftId);
+    localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+    
+    // state에서도 삭제
     setDrafts(prev => prev.filter(draft => draft.id !== draftId));
+    console.log("🗑️ 임시저장 삭제 완료 (localStorage):", draftId);
   };
 
   const handleSearch = async () => {
