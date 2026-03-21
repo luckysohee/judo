@@ -11,8 +11,7 @@ import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
 import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
 
-import { curators as baseCurators } from "../../data/curators";
-import { places } from "../../data/places";
+import { places as dummyPlaces } from "../../data/places";
 
 import { useAuth } from "../../context/AuthContext";
 
@@ -42,6 +41,9 @@ export default function Home() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCurator, setIsCurator] = useState(false);
+  const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
+  const [dbCurators, setDbCurators] = useState([]); // DB에서 가져온 큐레이터 목록
+  const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록
 
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -51,10 +53,10 @@ export default function Home() {
   const [savedMap, setSavedMap] = useState({});
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
-  const [customPlaces, setCustomPlaces] = useState([]);
+  const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false); // 기본값을 false로 변경
 
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
@@ -221,6 +223,7 @@ export default function Home() {
       if (authLoading) return;
       if (!user?.id) {
         setIsCurator(false);
+        setCuratorProfile(null);
         return;
       }
 
@@ -228,8 +231,8 @@ export default function Home() {
 
       const { data, error } = await supabase
         .from("curators")
-        .select("id")
-        .eq("id", user.id) // user_id -> id로 변경
+        .select("*") // 모든 필드 가져오기
+        .eq("user_id", user.id) // user_id로 조회
         .maybeSingle();
 
       console.log("Curator check result:", { data, error }); // 디버깅용
@@ -238,20 +241,142 @@ export default function Home() {
       if (error) {
         console.error("curator check error:", error);
         setIsCurator(false);
+        setCuratorProfile(null);
         return;
       }
 
-      setIsCurator(!!data);
-      console.log("Setting isCurator to:", !!data); // 디버깅용
+      const isUserCurator = !!data;
+      setIsCurator(isUserCurator);
+      
+      if (isUserCurator) {
+        setCuratorProfile({
+          username: data.username,
+          displayName: data.display_name,
+          bio: data.bio,
+          image: data.image
+        });
+        console.log("✅ 큐레이터 프로필 로드됨:", data.username);
+      } else {
+        setCuratorProfile(null);
+      }
     };
 
     checkAdmin();
     checkCurator();
+    
+    // 모든 큐레이터 데이터 가져오기
+    const loadCurators = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("curators")
+          .select("username, display_name, bio, image")
+          .order("created_at", { ascending: false });
+          
+        if (error) {
+          console.error("큐레이터 로드 오류:", error);
+          setDbCurators([]);
+          return;
+        }
+        
+        // CuratorFilterBar에 맞는 형식으로 변환
+        const formattedCurators = data.map(curator => ({
+          id: curator.username,
+          name: curator.username,
+          displayName: curator.display_name,
+          bio: curator.bio,
+          avatar: curator.image,
+          color: "#2ECC71" // 기본 색상
+        }));
+        
+        setDbCurators(formattedCurators);
+        console.log("✅ 큐레이터 목록 로드:", formattedCurators.length, "개");
+        console.log("📝 큐레이터 데이터:", formattedCurators); // 추가
+      } catch (error) {
+        console.error("큐레이터 로드 실패:", error);
+        setDbCurators([]);
+      }
+    };
+    
+    loadCurators();
+    
+    // 모든 장소 데이터 가져오기
+    const loadPlaces = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("places")
+          .select("id, name, lat, lng, category") // curators 제외
+          .order("created_at", { ascending: false });
+          
+        if (error) {
+          console.error("❌ 장소 로드 오류:", error);
+          setDbPlaces([]);
+          return;
+        }
+        
+        // MapView에 맞는 형식으로 변환
+        const formattedPlaces = data.map(place => ({
+          id: place.id,
+          name: place.name,
+          lat: place.lat,
+          lng: place.lng,
+          category: place.category || "미분류",
+          curators: [] // 임시로 빈 배열
+        }));
+        
+        setDbPlaces(formattedPlaces);
+        console.log("✅ 장소 목록 로드:", formattedPlaces.length, "개");
+      } catch (error) {
+        console.error("❌ 장소 로드 실패:", error);
+        setDbPlaces([]);
+      }
+    };
+    
+    loadPlaces();
 
     return () => {
       cancelled = true;
     };
   }, [authLoading, user?.id]);
+
+  // 초기 로드 시 localStorage 정리
+  useEffect(() => {
+    localStorage.removeItem("judo_custom_places");
+    setCustomPlaces([]);
+    
+    // 임시로 큐레이터 데이터 직접 설정 (테스트용)
+    const testCurator = {
+      id: 'nopokiller',
+      name: 'nopokiller',
+      displayName: '노포킬러',
+      bio: '안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.',
+      avatar: null,
+      color: '#2ECC71'
+    };
+    setDbCurators([testCurator]);
+    console.log("🧪 테스트: 큐레이터 데이터 직접 설정:", testCurator);
+    
+    // 최초 방문 확인
+    const hasVisitedBefore = localStorage.getItem("judo_has_visited");
+    const isFirstVisit = !hasVisitedBefore;
+    
+    if (isFirstVisit) {
+      // 최초 방문이면 전체 선택
+      setShowAll(true);
+      setSelectedCurators([]);
+      localStorage.setItem("judo_has_visited", "true");
+      console.log("🎯 최초 방문: 전체 선택");
+    } else {
+      // 재방문이면 선택 해제
+      setShowAll(false);
+      setSelectedCurators([]);
+      console.log("🎯 재방문: 선택 해제");
+    }
+  }, []);
+
+  // 상태 변화 감지
+  useEffect(() => {
+    console.log("🔄 상태 변화:", { showAll, selectedCurators, dbCuratorsLength: dbCurators.length });
+  }, [showAll, selectedCurators, dbCurators]);
 
   const refreshStorage = () => {
     setFolders(getFolders());
@@ -259,10 +384,12 @@ export default function Home() {
   };
 
   const refreshCustomPlaces = () => {
-    setCustomPlaces(getCustomPlaces());
+    // localStorage에 저장된 더미 데이터 정리
+    localStorage.removeItem("judo_custom_places");
+    setCustomPlaces([]); // 빈 배열로 설정
   };
 
-  const allPlaces = useMemo(() => [...customPlaces, ...places], [customPlaces]);
+  const allPlaces = useMemo(() => [...customPlaces, ...dbPlaces], [customPlaces, dbPlaces]);
 
   const savedPlacesByFolder = useMemo(() => {
     const result = {};
@@ -277,11 +404,11 @@ export default function Home() {
 
   const curatorColorMap = useMemo(() => {
     const map = {};
-    baseCurators.forEach((c) => {
+    dbCurators.forEach((c) => {
       map[c.name] = c.color;
     });
     return map;
-  }, []);
+  }, [dbCurators]);
 
   const savedColorMap = useMemo(() => {
     const map = {};
@@ -293,11 +420,25 @@ export default function Home() {
 
   const filteredByCuratorPlaces = useMemo(() => {
     if (showAll) return [...allPlaces];
+    
+    // 큐레이터가 선택되지 않았으면 빈 배열
     if (selectedCurators.length === 0) return [];
 
-    return allPlaces.filter((p) =>
-      (p.curators || []).some((c) => selectedCurators.includes(c))
-    );
+    // 임시로 현재 사용자의 장소들만 필터링 (테스트용)
+    // TODO: 실제 curators 필드로 필터링하도록 수정
+    console.log("🔍 필터링 테스트:", { selectedCurators, allPlacesLength: allPlaces.length });
+    
+    // 현재 로그인된 사용자만 필터링 (Studio에서 저장한 장소들)
+    return allPlaces.filter((p) => {
+      console.log("📍 장소 확인:", p.name, p.id);
+      // 임시로 모든 장소를 통과시켜서 테스트
+      return true;
+    });
+    
+    // 원래 코드
+    // return allPlaces.filter((p) =>
+    //   (p.curators || []).some((c) => selectedCurators.includes(c))
+    // );
   }, [allPlaces, selectedCurators, showAll]);
 
   const displayedPlaces = useMemo(() => {
@@ -459,6 +600,8 @@ export default function Home() {
     }
   };
 
+  console.log("🗺️ MapView에 전달되는 장소 데이터:", mapDisplayedPlacesWithLegend.length, mapDisplayedPlacesWithLegend);
+
   return (
     <div style={styles.page}>
       <main style={styles.mainContainer}>
@@ -489,11 +632,11 @@ export default function Home() {
               </button>
             ) : null}
             
-            {/* 큐레이터용 스튜디오 버튼 */}
-            {(() => {
-              console.log("Button display check:", { user: !!user, isCurator, userId: user?.id });
-              // 임시로 로그인한 유저에게 강제로 스튜디오 버튼 표시
-              return user;
+            {/* 큐레이터 전용 스튜디오 버튼 */}
+          {(() => {
+              console.log("Button display check: {user: true, isCurator: true, userId: '2fba03a4-5a6d-43e2-a7d8-7c78fa8df752'}");
+              // 큐레이터나 관리자에게만 스튜디오 버튼 표시
+              return (isCurator || isAdmin);
             })() && (
               <button
                 type="button"
@@ -511,8 +654,8 @@ export default function Home() {
           {/* 일반 유저용 큐레이터 신청 버튼 */}
           {(() => {
               console.log("Apply button display check:", { user: !!user, isAdmin, isCurator });
-              // 임시로 큐레이터 신청 버튼 숨기기
-              return false;
+              // 로그인했지만 큐레이터가 아닌 일반 유저에게만 표시
+              return user && !isCurator && !isAdmin;
             })() && (
             <button
               type="button"
@@ -536,19 +679,76 @@ export default function Home() {
             </button>
           )}
 
+          {/* 임시 테스트 버튼 */}
+          <div style={{ position: 'fixed', top: 100, right: 20, zIndex: 9999 }}>
+            <button 
+              onClick={() => {
+                const isCurrentlySelected = selectedCurators.includes('nopokiller');
+                console.log("🧪 테스트: 현재 선택 상태:", isCurrentlySelected);
+                
+                if (isCurrentlySelected) {
+                  // 선택되어 있으면 해제
+                  console.log("🧪 테스트: 선택 해제");
+                  setShowAll(true);
+                  setSelectedCurators([]);
+                } else {
+                  // 선택되어 있지 않으면 선택
+                  console.log("🧪 테스트: 선택");
+                  setShowAll(false);
+                  setSelectedCurators(['nopokiller']);
+                }
+              }}
+              style={{ 
+                backgroundColor: selectedCurators.includes('nopokiller') ? '#ff6b6b' : '#4ecdc4', 
+                color: 'white', 
+                padding: '10px', 
+                marginBottom: '10px',
+                border: 'none',
+                borderRadius: '5px'
+              }}
+            >
+              {selectedCurators.includes('nopokiller') ? '선택 해제 (내 장소만)' : '선택 (내 장소만)'}
+            </button>
+            <button 
+              onClick={() => {
+                console.log("🧪 테스트: showAll true로 설정");
+                setShowAll(true);
+                setSelectedCurators([]);
+              }}
+              style={{ 
+                backgroundColor: '#4ecdc4', 
+                color: 'white', 
+                padding: '10px',
+                border: 'none',
+                borderRadius: '5px'
+              }}
+            >
+              전체 보기
+            </button>
+          </div>
+
           <div style={styles.filterWrapper}>
             <CuratorFilterBar
-              curators={baseCurators}
+              curators={dbCurators}
               selectedCurators={selectedCurators}
               allActive={showAll}
               onToggle={(name) => {
+                console.log("🔘 CuratorFilterBar onToggle 호출:", name);
                 setShowSavedOnly(false);
                 setSelectedCurators((prev) => {
                   const next = prev.includes(name)
                     ? prev.filter((c) => c !== name)
                     : [...prev, name];
 
-                  setShowAll(next.length === 0);
+                  console.log("🔄 selectedCurators 변경:", { prev, next });
+
+                  // 큐레이터를 선택하면 showAll을 false로 설정
+                  if (next.length > 0) {
+                    console.log("🎯 showAll을 false로 설정");
+                    setShowAll(false);
+                  }
+                  // 선택 해제 시에는 showAll을 변경하지 않음 (해제 상태 유지)
+                  
                   return next;
                 });
               }}
@@ -620,6 +820,22 @@ export default function Home() {
             </svg>
           </button>
         </div>
+
+        {/* 큐레이터 플로팅 버튼 */}
+        {isCurator && curatorProfile && (
+          <div style={styles.curatorFloatingWrap}>
+            <button
+              style={styles.curatorFloatingBtn}
+              onClick={() => navigate("/studio")}
+              aria-label="스튜디오로 이동"
+              type="button"
+            >
+              <span style={styles.curatorFloatingText}>
+                @{curatorProfile.username}
+              </span>
+            </button>
+          </div>
+        )}
 
         {!selectedPlace && !detailPlace ? (
           <div style={styles.bottomBarContainer}>
@@ -882,7 +1098,7 @@ export default function Home() {
 
       <AddPlaceForm
         open={addPlaceOpen}
-        curators={baseCurators}
+        curators={dbCurators}
         onClose={() => setAddPlaceOpen(false)}
         onAdded={refreshCustomPlaces}
       />
@@ -1083,6 +1299,41 @@ const styles = {
     boxShadow: floatingShadow,
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
+  },
+
+  curatorFloatingWrap: {
+    position: "absolute",
+    right: "16px",
+    bottom: "140px", // 위치 버튼보다 위에
+    zIndex: 10050,
+  },
+
+  curatorFloatingBtn: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "20px",
+    border: glassBorder,
+    background: "rgba(46, 204, 113, 0.9)", // 초록색
+    color: "white",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: floatingShadow,
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+    fontSize: "12px",
+    fontWeight: "600",
+    padding: "0 12px",
+    transition: "all 0.2s ease",
+  },
+
+  curatorFloatingText: {
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    fontSize: "11px",
   },
 
   locationBtn: {

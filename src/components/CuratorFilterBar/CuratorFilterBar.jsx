@@ -31,6 +31,8 @@ export default function CuratorFilterBar({
               onClick={() => onToggle?.(curator.name)}
               style={{
                 ...styles.chip,
+                borderWidth: active ? "2px" : "1px",
+                borderStyle: "solid",
                 borderColor: active
                   ? curator.color || "#2ECC71"
                   : "rgba(255,255,255,0.08)",
