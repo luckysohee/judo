@@ -1636,16 +1636,8 @@ export default function StudioHome() {
         setMyPlaces(formattedPlaces);
         console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
         
-        // myPlaces 업데이트 후 drafts 동기화
-        setDrafts(formattedPlaces.map(place => ({
-          id: place.id,
-          basicInfo: {
-            name_address: place.name,
-            category: place.category
-          },
-          createdAt: place.created_at
-        })));
-        console.log("✅ drafts 동기화 완료:", formattedPlaces.length, "개 장소");
+        // drafts는 별도로 관리 (myPlaces와 동기화하지 않음)
+        // 임시저장된 데이터만 drafts에 표시됨
       }
       
       setLoading(false);
@@ -1780,19 +1772,6 @@ export default function StudioHome() {
           
           setMyPlaces(prev => [savedPlace, ...prev]);
           console.log("✅ 장소 리스트에 추가 완료:", savedPlace);
-          
-          // 잔 채우기 목록 동기화
-          setDrafts(prev => {
-            const newDrafts = [savedPlace, ...myPlaces].map(place => ({
-              id: place.id,
-              basicInfo: {
-                name_address: place.name,
-                category: place.category
-              },
-              createdAt: place.created_at
-            }));
-            return newDrafts;
-          });
           
           // 폼 초기화
           setFormData({
