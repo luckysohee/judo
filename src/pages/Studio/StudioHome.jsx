@@ -4,6 +4,14 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
+import { 
+  calculateRecommendationScore, 
+  analyzeUserPreferences, 
+  generateRecommendations,
+  findSimilarCurators,
+  findCoSavedPlaces,
+  calculateCuratorLevel
+} from "../../utils/recommendationEngine";
 
 // 섹션 컴포넌트들
 const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
@@ -1447,10 +1455,53 @@ export default function StudioHome() {
     }));
   };
 
-  // 해시태그 입력값 관리
+  // 태그 관련 상태
   const [tagInputValue, setTagInputValue] = useState("");
+  const [showAllTags, setShowAllTags] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState([]); // 자동완성 제안
 
-  
+  // 자주 쓰는 태그 (핵심 10개)
+  const frequentTags = [
+    "혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", 
+    "야장", "가성비", "안주맛집"
+  ];
+
+  // 전체 태그 목록 (분위기성 태그 제외)
+  const allTags = {
+    "🍺 상황": ["혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임"],
+    "🔥 특징": ["야장", "바테이블", "늦게까지", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
+    "🎭 감성": ["노포감성", "로컬맛집", "감성술집", "숨은맛집"], // 분위기성 태그 제거
+    "🍽 안주": ["국물안주", "해산물강함", "고기안주", "가벼운안주", "안주다양"],
+    "🧭 공간": ["단체가능", "테이블넓음", "예약필수", "웨이팅짧음", "2차추천"]
+  };
+
+  // 모든 태그를 평탄화한 리스트 (자동완성용)
+  const allTagsList = Object.values(allTags).flat();
+
+  // 태그 자동완성
+  const handleTagInputChange = (value) => {
+    setTagInputValue(value);
+    
+    if (value.trim().length > 0) {
+      // 입력한 텍스트와 일치하는 태그 찾기
+      const matches = allTagsList.filter(tag => 
+        tag.toLowerCase().includes(value.toLowerCase().trim())
+      );
+      setTagSuggestions(matches.slice(0, 5)); // 최대 5개까지 제안
+    } else {
+      setTagSuggestions([]);
+    }
+  };
+
+  // 태그 자동완성 선택
+  const handleTagSuggestionClick = (tag) => {
+    if (!formData.tags.includes(tag)) {
+      setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+    }
+    setTagInputValue("");
+    setTagSuggestions([]);
+  };
+
   // 자동완성 핸들러
   const handleInputChange = (value) => {
     setFormData(prev => ({ ...prev, name_address: value }));
@@ -1534,10 +1585,35 @@ export default function StudioHome() {
     name: "노포킬러", // 검색용 표시 이름
     username: "nopokiller", // @고유이름 (개인 주소)
     displayName: "노포킬러", // 홈에서 표시될 이름
-    image: null, // 실제로는 이미지 URL
-    bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다. 다양한 술집과 맛집을 소개해드릴게요.",
-    instagram: "@curator_example"
+    bio: "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요.",
+    instagram: "@nopokiller", // 인스타그램 아이디
+    image: null // 프로필 이미지 URL
   });
+
+  // 큐레이터 통계 상태
+  const [curatorStats, setCuratorStats] = useState({
+    level: 1,
+    saveCount: 0,
+    followerCount: 0,
+    overlappingCurators: 0
+  });
+
+  // 큐레이터 등급 계산
+  useEffect(() => {
+    const stats = {
+      placeCount: myPlaces.length,
+      saveCount: Math.floor(Math.random() * 500), // 임시 데이터 - 실제로는 DB에서 가져와야 함
+      followerCount: Math.floor(Math.random() * 200), // 임시 데이터
+      overlappingCurators: Math.floor(Math.random() * 50) // 임시 데이터
+    };
+    
+    const levelInfo = calculateCuratorLevel(stats);
+    setCuratorStats(prev => ({
+      ...prev,
+      level: levelInfo.level,
+      ...stats
+    }));
+  }, [myPlaces.length]);
 
   useEffect(() => {
     loadStudioData();
@@ -2737,26 +2813,175 @@ export default function StudioHome() {
           {/* 해시태그 */}
           <div style={{ marginBottom: "20px" }}>
             <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>해시태그</label>
-            <input
-              type="text"
-              value={tagInputValue}
-              onInput={handleTagInput}
-              onKeyDown={handleTagKeyDown}
-              style={{
-                width: "100%",
-                padding: "12px",
-                border: "1px solid #333",
-                borderRadius: "8px",
-                backgroundColor: "#222",
-                color: "white",
-                fontSize: "16px",
-                outline: "none",
-                boxSizing: "border-box"
-              }}
-              placeholder="단어를 입력하고 스페이스나 엔터를 누르세요 (#자동 추가)"
-              tabIndex={7}
-            />
-            {/* 태그 목록 */}
+            
+            {/* 자주 쓰는 태그 */}
+            <div style={{ marginBottom: "15px" }}>
+              <div style={{ fontSize: "12px", color: "#999", marginBottom: "8px" }}>⭐ 자주 쓰는 태그</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                {frequentTags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (!formData.tags.includes(tag)) {
+                        setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+                      }
+                    }}
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: "12px",
+                      backgroundColor: formData.tags.includes(tag) ? "#3498DB" : "#444",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* 전체 태그 보기 */}
+            {!showAllTags ? (
+              <button
+                onClick={() => setShowAllTags(true)}
+                style={{
+                  padding: "6px 12px",
+                  backgroundColor: "#666",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  marginBottom: "15px"
+                }}
+              >
+                📂 전체 태그 보기
+              </button>
+            ) : (
+              <div style={{ marginBottom: "15px" }}>
+                {Object.entries(allTags).map(([category, tags]) => (
+                  <div key={category} style={{ marginBottom: "10px" }}>
+                    <div style={{ fontSize: "12px", color: "#999", marginBottom: "8px" }}>{category}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                      {tags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={() => {
+                            if (!formData.tags.includes(tag)) {
+                              setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+                            }
+                          }}
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: "12px",
+                            backgroundColor: formData.tags.includes(tag) ? "#3498DB" : "#444",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setShowAllTags(false)}
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: "#666",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    marginTop: "5px"
+                  }}
+                >
+                  ▼ 접기
+                </button>
+              </div>
+            )}
+            
+            {/* 직접 입력 (자동완성) */}
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                value={tagInputValue}
+                onChange={(e) => handleTagInputChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    const trimmedValue = tagInputValue.trim();
+                    if (trimmedValue && !formData.tags.includes(trimmedValue)) {
+                      // 기존 태그가 있으면 그걸 사용, 없으면 새로 추가
+                      const existingTag = allTagsList.find(tag => 
+                        tag.toLowerCase() === trimmedValue.toLowerCase()
+                      );
+                      const tagToAdd = existingTag || trimmedValue;
+                      
+                      setFormData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
+                      setTagInputValue("");
+                      setTagSuggestions([]);
+                    }
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  border: "1px solid #333",
+                  borderRadius: "8px",
+                  backgroundColor: "#222",
+                  color: "white",
+                  fontSize: "16px",
+                  outline: "none",
+                  boxSizing: "border-box"
+                }}
+                placeholder="태그 검색 또는 직접 입력 (엔터로 추가)"
+                tabIndex={7}
+              />
+              
+              {/* 자동완성 제안 */}
+              {tagSuggestions.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  backgroundColor: "#333",
+                  border: "1px solid #444",
+                  borderTop: "none",
+                  borderRadius: "0 0 8px 8px",
+                  maxHeight: "150px",
+                  overflowY: "auto",
+                  zIndex: 10
+                }}>
+                  {tagSuggestions.map((tag, index) => (
+                    <div
+                      key={index}
+                      onClick={() => handleTagSuggestionClick(tag)}
+                      style={{
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        borderBottom: "1px solid #444",
+                        fontSize: "14px",
+                        color: "#ccc"
+                      }}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = "#444"}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = "#333"}
+                    >
+                      {tag}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* 선택된 태그 목록 */}
             {formData.tags.length > 0 && (
               <div style={{ 
                 marginTop: "10px", 
@@ -3359,6 +3584,55 @@ export default function StudioHome() {
                     {curatorProfile.bio}
                   </p>
                   
+                  {/* 큐레이터 등급 시스템 */}
+                  <div style={{
+                    backgroundColor: "#333",
+                    padding: "12px",
+                    borderRadius: "8px",
+                    marginBottom: "15px"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                      <span style={{ 
+                        fontSize: "18px",
+                        filter: "grayscale(0%) brightness(1.2)"
+                      }}>
+                        {curatorStats.level >= 4 ? "👑" : curatorStats.level >= 3 ? "🏆" : curatorStats.level >= 2 ? "⭐" : "🌱"}
+                      </span>
+                      <div>
+                        <div style={{ 
+                          color: "#fff", 
+                          fontSize: "14px", 
+                          fontWeight: "bold",
+                          marginBottom: "2px"
+                        }}>
+                          {curatorStats.level >= 4 ? "Top Curator" : 
+                           curatorStats.level >= 3 ? "Trusted Curator" : 
+                           curatorStats.level >= 2 ? "Local Curator" : "New Drinker"}
+                        </div>
+                        <div style={{ color: "#999", fontSize: "12px" }}>
+                          {curatorStats.level >= 4 ? "최상위 큐레이터" : 
+                           curatorStats.level >= 3 ? "신뢰할 수 있는 큐레이터" : 
+                           curatorStats.level >= 2 ? "지역 전문 큐레이터" : "새로운 큐레이터"}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ 
+                      fontSize: "11px", 
+                      color: "#666",
+                      marginBottom: "8px"
+                    }}>
+                      {curatorStats.level >= 4 ? "잔 50개+, 저장 1000+, 팔로워 100+" : 
+                       curatorStats.level >= 3 ? "잔 20개+, 저장 100+" : 
+                       curatorStats.level >= 2 ? "잔 10개+" : "시작 단계"}
+                    </div>
+                    <div style={{ display: "flex", gap: "15px", fontSize: "12px", color: "#ccc" }}>
+                      <span>🍺 잔 {myPlaces.length}</span>
+                      <span>❤️ 저장 {curatorStats.saveCount || 0}</span>
+                      <span>👥 팔로워 {curatorStats.followerCount || 0}</span>
+                      <span>🔄 겹침 {curatorStats.overlappingCurators || 0}</span>
+                    </div>
+                  </div>
+                  
                   {/* 인스타그램 연동 */}
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                     <span style={{ color: "#E4405F", fontSize: "18px" }}>📷</span>
@@ -3435,59 +3709,44 @@ export default function StudioHome() {
             </div>
           </div>
           
-          {/* 활동지표 */}
+          {/* 통계 카드들 - 중복 제거 */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
             gap: "15px",
             marginBottom: "30px"
           }}>
+            {/* 팔로워가 저장한 장소 수 */}
             <div style={{
               backgroundColor: "#222",
               padding: "20px",
-              borderRadius: "8px",
+              borderRadius: "12px",
               textAlign: "center"
             }}>
-              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
-                {stats.followerCount}
+              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
+                {Math.floor(Math.random() * 100) + 50}
               </div>
-              <div style={{ fontSize: "14px", color: "#666" }}>팔로워 수</div>
+              <div style={{ fontSize: "14px", color: "#ccc" }}>
+                팔로워가 저장한 장소
+              </div>
             </div>
+            
+            {/* 겹친 큐레이터 수 */}
             <div style={{
               backgroundColor: "#222",
               padding: "20px",
-              borderRadius: "8px",
+              borderRadius: "12px",
               textAlign: "center"
             }}>
-              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
-                {stats.savedByFollowers}
+              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
+                {curatorStats.overlappingCurators}
               </div>
-              <div style={{ fontSize: "14px", color: "#666" }}>팔로워가 저장한 장소</div>
-            </div>
-            <div style={{
-              backgroundColor: "#222",
-              padding: "20px",
-              borderRadius: "8px",
-              textAlign: "center"
-            }}>
-              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
-                {stats.totalPlaces}
+              <div style={{ fontSize: "14px", color: "#ccc" }}>
+                겹친 큐레이터
               </div>
-              <div style={{ fontSize: "14px", color: "#666" }}>올린 장소 수</div>
-            </div>
-            <div style={{
-              backgroundColor: "#222",
-              padding: "20px",
-              borderRadius: "8px",
-              textAlign: "center"
-            }}>
-              <div style={{ fontSize: "24px", fontWeight: "bold", color: "#2ECC71" }}>
-                {stats.overlappingPlaces}
-              </div>
-              <div style={{ fontSize: "14px", color: "#666" }}>겹친 장소 수</div>
             </div>
           </div>
-        </div>
+          </div>
       )}
     </div>
   );
