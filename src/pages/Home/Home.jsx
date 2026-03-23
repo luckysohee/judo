@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import MarkerLegend from "../../components/Map/MarkerLegend";
 import SearchBar from "../../components/SearchBar/SearchBar";
 import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
+import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -70,6 +71,7 @@ export default function Home() {
   const [legendCategory, setLegendCategory] = useState(null);
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
+const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
 
   const livePlaceIdsText = useMemo(() => {
     try {
@@ -1018,7 +1020,15 @@ export default function Home() {
                             ? styles.curatorInlineButton 
                             : styles.userInlineButton
                         }
-                        onClick={() => navigate("/studio")}
+                        onClick={() => {
+                          if (isCurator) {
+                            // 큐레이터는 스튜디오 페이지로 이동
+                            navigate("/studio");
+                          } else {
+                            // 일반 사용자는 UserCard 표시
+                            setShowUserCard(true);
+                          }
+                        }}
                         type="button"
                       >
                         @{curatorProfile?.username || user.user_metadata?.username || "user"}
@@ -1291,6 +1301,13 @@ export default function Home() {
           savePlaceToFolder(pId, fId);
           refreshStorage();
         }}
+      />
+
+      {/* UserCard - 일반 사용자용 */}
+      <UserCard
+        user={user}
+        isVisible={showUserCard}
+        onClose={() => setShowUserCard(false)}
       />
 
     </div>
