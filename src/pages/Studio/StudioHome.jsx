@@ -2031,20 +2031,7 @@ export default function StudioHome() {
       
       // 수정 모드 설정
       setEditingPlaceId(place.id);
-      
-      // 수정할 장소 데이터를 폼에 로드
-      setFormData({
-        name_address: place.name,
-        category: place.category || "",
-        alcohol_type: place.alcohol_type || "",
-        atmosphere: place.atmosphere || "",
-        recommended_menu: place.recommended_menu || "",
-        menu_reason: place.menu_reason || "",
-        tags: place.tags || [],
-        latitude: place.latitude,
-        longitude: place.longitude,
-        is_public: place.is_public
-      });
+      localStorage.setItem('editing_place_id', place.id);
       
       // 지도 중심을 해당 장소로 이동
       setMapCenter({ lat: place.latitude, lng: place.longitude });
@@ -2052,11 +2039,33 @@ export default function StudioHome() {
       // '잔 올리기' 탭으로 이동
       setActiveSection("add");
       
+      // 폼 데이터 설정 (탭 이동 후 약간의 지연을 줌)
+      setTimeout(() => {
+        setFormData({
+          name_address: place.name,
+          category: place.category || "",
+          alcohol_type: place.alcohol_type || "",
+          atmosphere: place.atmosphere || "",
+          recommended_menu: place.recommended_menu || "",
+          menu_reason: place.menu_reason || "",
+          tags: place.tags || [],
+          latitude: place.latitude,
+          longitude: place.longitude,
+          is_public: place.is_public
+        });
+        
+        console.log("📝 폼 데이터 설정 완료:", {
+          name: place.name,
+          category: place.category,
+          tags: place.tags
+        });
+      }, 300);
+      
       alert("장소 정보를 수정할 수 있습니다. 수정 후 다시 저장해주세요.");
       
     } catch (error) {
-      console.error("❌ 수정 로딩 오류:", error);
-      alert("수정 로딩에 실패했습니다: " + error.message);
+      console.error("❌ 장소 수정 오류:", error);
+      alert("장소 수정에 실패했습니다: " + error.message);
     }
   };
 
@@ -3610,9 +3619,7 @@ export default function StudioHome() {
                            curatorStats.level >= 2 ? "Local Curator" : "New Drinker"}
                         </div>
                         <div style={{ color: "#999", fontSize: "12px" }}>
-                          {curatorStats.level >= 4 ? "최상위 큐레이터" : 
-                           curatorStats.level >= 3 ? "신뢰할 수 있는 큐레이터" : 
-                           curatorStats.level >= 2 ? "지역 전문 큐레이터" : "새로운 큐레이터"}
+                          다음 등급까지 {Math.max(0, 10 - myPlaces.length)}개 남음
                         </div>
                       </div>
                     </div>
@@ -3627,9 +3634,17 @@ export default function StudioHome() {
                     </div>
                     <div style={{ display: "flex", gap: "15px", fontSize: "12px", color: "#ccc" }}>
                       <span>🍺 잔 {myPlaces.length}</span>
-                      <span>❤️ 저장 {curatorStats.saveCount || 0}</span>
+                      <span>🔥 저장 {curatorStats.saveCount || 0} (인기)</span>
                       <span>👥 팔로워 {curatorStats.followerCount || 0}</span>
                       <span>🔄 겹침 {curatorStats.overlappingCurators || 0}</span>
+                    </div>
+                    <div style={{ 
+                      fontSize: "11px", 
+                      color: "#2ECC71", 
+                      marginTop: "5px",
+                      fontWeight: "bold"
+                    }}>
+                      💥 당신의 추천이 {curatorStats.saveCount || 0}번 저장됐어요
                     </div>
                   </div>
                   
@@ -3726,8 +3741,15 @@ export default function StudioHome() {
               <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
                 {Math.floor(Math.random() * 100) + 50}
               </div>
-              <div style={{ fontSize: "14px", color: "#ccc" }}>
+              <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "8px" }}>
                 팔로워가 저장한 장소
+              </div>
+              <div style={{ 
+                fontSize: "12px", 
+                color: "#E74C3C", 
+                fontWeight: "bold" 
+              }}>
+                🔥 당신의 추천이 다른 사람에게 74번 저장됨
               </div>
             </div>
             
@@ -3741,10 +3763,87 @@ export default function StudioHome() {
               <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
                 {curatorStats.overlappingCurators}
               </div>
-              <div style={{ fontSize: "14px", color: "#ccc" }}>
+              <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "8px" }}>
                 겹친 큐레이터
               </div>
+              <div style={{ 
+                fontSize: "12px", 
+                color: "#3498DB", 
+                fontWeight: "bold" 
+              }}>
+                🤝 {curatorStats.overlappingCurators}명의 큐레이터와 취향이 겹침
+              </div>
             </div>
+          </div>
+          
+          {/* 📈 이번 주 성장 피드백 */}
+          <div style={{
+            backgroundColor: "#2ECC71",
+            padding: "15px",
+            borderRadius: "12px",
+            marginBottom: "30px",
+            border: "1px solid #27AE60"
+          }}>
+            <div style={{ 
+              color: "white", 
+              fontSize: "14px", 
+              fontWeight: "bold",
+              marginBottom: "10px"
+            }}>
+              📈 이번 주 활동
+            </div>
+            <div style={{ display: "flex", gap: "20px", fontSize: "13px", color: "white" }}>
+              <span>잔 +3</span>
+              <span>저장 +28</span>
+              <span>팔로워 +4</span>
+            </div>
+          </div>
+          
+          {/* 🔥 행동 유도 버튼 (하단 고정) */}
+          <div 
+            style={{
+              position: "sticky",
+              bottom: "20px",
+              backgroundColor: "#E74C3C",
+              padding: "20px",
+              borderRadius: "12px",
+              textAlign: "center",
+              marginBottom: "30px",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              transform: "scale(1)"
+            }}
+            onMouseOver={(e) => {
+              e.target.style.backgroundColor = "#C0392B";
+              e.target.style.transform = "scale(1.02)";
+            }}
+            onMouseOut={(e) => {
+              e.target.style.backgroundColor = "#E74C3C";
+              e.target.style.transform = "scale(1)";
+            }}
+            onClick={() => setActiveSection("add")}
+          >
+            <span style={{ 
+              color: "white", 
+              fontSize: "16px", 
+              fontWeight: "bold",
+              marginBottom: "5px",
+              display: "block",
+              pointerEvents: "none",
+              userSelect: "none"
+            }}>
+              🍺 새로운 잔 올리기
+            </span>
+            <span style={{ 
+              color: "white", 
+              fontSize: "12px", 
+              opacity: "0.9",
+              display: "block",
+              pointerEvents: "none",
+              userSelect: "none"
+            }}>
+              오늘 한 잔 추천해보세요
+            </span>
           </div>
           </div>
       )}
