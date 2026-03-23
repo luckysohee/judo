@@ -48,6 +48,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [detailPlace, setDetailPlace] = useState(null);
+  const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
   const [folders, setFolders] = useState([]);
   const [savedMap, setSavedMap] = useState({});
@@ -342,6 +343,37 @@ export default function Home() {
       cancelled = true;
     };
   }, [authLoading, user?.id]);
+
+  // 롱프레스 타이머
+  const pressTimerRef = useRef(null);
+
+  // 롱프레스 핸들러
+  const handleCuratorMouseDown = () => {
+    pressTimerRef.current = setTimeout(() => {
+      setShowFollowModal(true);
+      navigator.vibrate && navigator.vibrate(50); // 진동 피드백
+    }, 800); // 0.8초
+  };
+
+  const handleCuratorMouseUp = () => {
+    clearTimeout(pressTimerRef.current);
+  };
+
+  const handleCuratorMouseLeave = () => {
+    clearTimeout(pressTimerRef.current);
+  };
+
+  // 터치 이벤트 핸들러 (모바일)
+  const handleCuratorTouchStart = () => {
+    pressTimerRef.current = setTimeout(() => {
+      setShowFollowModal(true);
+      navigator.vibrate && navigator.vibrate(50);
+    }, 800);
+  };
+
+  const handleCuratorTouchEnd = () => {
+    clearTimeout(pressTimerRef.current);
+  };
 
   // 큐레이터 프로필 로드
   useEffect(() => {
@@ -694,8 +726,200 @@ export default function Home() {
 
   console.log("🗺️ MapView에 전달되는 장소 데이터:", mapDisplayedPlacesWithLegend.length, mapDisplayedPlacesWithLegend);
 
+  // 팔로우 모달 핸들러
+  const handleFollow = (curatorName) => {
+    // 자기 자신은 팔로우할 수 없음 (큐레이터인 경우만)
+    const myUsername = curatorProfile?.username;
+    if (myUsername && curatorName === myUsername) {
+      alert("자기 자신은 팔로우할 수 없습니다.");
+      return;
+    }
+    
+    // TODO: 팔로우 기능 구현
+    alert(`@${curatorName} 큐레이터를 팔로우했습니다!`);
+    setShowFollowModal(false);
+  };
+
+  // 팔로우 모달에 표시할 큐레이터 정보
+  const getModalCurator = () => {
+    // 일반 사용자인 경우: 첫번째 큐레이터 표시
+    if (!curatorProfile && dbCurators.length > 0) {
+      const firstCurator = dbCurators[0];
+      return {
+        username: firstCurator.name,
+        displayName: firstCurator.displayName || firstCurator.name,
+        level: 2, // Local Curator
+        saveCount: 60,
+        placeCount: 9,
+        followerCount: 123,
+        bio: "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요."
+      };
+    }
+    
+    // 큐레이터인 경우: 자기 자신 표시 (팔로우 불가)
+    return {
+      username: curatorProfile?.username || "nopokiller",
+      displayName: curatorProfile?.displayName || "노포킬러",
+      level: 2, // Local Curator
+      saveCount: 60,
+      placeCount: 9,
+      followerCount: 123,
+      bio: curatorProfile?.bio || "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요."
+    };
+  };
+
+  const testCurator = getModalCurator();
+
   return (
-    <div style={styles.page}>
+    <>
+      {/* 팔로우 모달 */}
+      {showFollowModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setShowFollowModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              padding: "25px",
+              minWidth: "300px",
+              textAlign: "center",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 큐레이터 프로필 정보 */}
+            <div style={{ marginBottom: "20px" }}>
+              <h3 style={{ margin: "0 0 8px 0", fontSize: "16px", color: "#333" }}>
+                🎯 큐레이터 프로필
+              </h3>
+              
+              {/* @큐레이터 이름 */}
+              <div style={{ 
+                fontSize: "18px", 
+                fontWeight: "bold", 
+                color: "#2ECC71",
+                marginBottom: "8px"
+              }}>
+                @{testCurator.username}
+              </div>
+              
+              {/* 큐레이터 등급 */}
+              <div style={{ 
+                fontSize: "14px", 
+                color: "#666",
+                marginBottom: "8px"
+              }}>
+                {testCurator.level >= 4 ? "👑 Top Curator" : 
+                 testCurator.level >= 3 ? "🏆 Trusted Curator" : 
+                 testCurator.level >= 2 ? "⭐ Local Curator" : "🌱 New Drinker"}
+              </div>
+              
+              {/* 자기 소개글 */}
+              <div style={{ 
+                fontSize: "13px", 
+                color: "#555",
+                lineHeight: "1.4",
+                marginBottom: "15px",
+                padding: "10px",
+                backgroundColor: "#f8f9fa",
+                borderRadius: "6px",
+                fontStyle: "italic"
+              }}>
+                "{testCurator.bio}"
+              </div>
+              
+              {/* 통계 정보 */}
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(3, 1fr)", 
+                gap: "15px",
+                marginBottom: "20px"
+              }}>
+                <div>
+                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#E74C3C" }}>
+                    {testCurator.saveCount}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#999" }}>
+                    저장수
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#F39C12" }}>
+                    {testCurator.placeCount}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#999" }}>
+                    잔 개수
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#9B59B6" }}>
+                    {testCurator.followerCount}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#999" }}>
+                    팔로워
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* 팔로우 버튼 */}
+            <div>
+              {testCurator.username === curatorProfile?.username ? (
+                <div
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    backgroundColor: "#e9ecef",
+                    color: "#6c757d",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    cursor: "not-allowed"
+                  }}
+                >
+                  자기 자신은 팔로우할 수 없습니다
+                </div>
+              ) : (
+                <button
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    backgroundColor: "#2ECC71",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    transition: "background-color 0.2s ease"
+                  }}
+                  onMouseOver={(e) => e.target.style.backgroundColor = "#27AE60"}
+                  onMouseOut={(e) => e.target.style.backgroundColor = "#2ECC71"}
+                  onClick={() => handleFollow(testCurator.username)}
+                >
+                  ⭐ 팔로우하기
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.page}>
       <main style={styles.mainContainer}>
         <MapView
           ref={mapRef}
@@ -724,7 +948,6 @@ export default function Home() {
                   const next = prev.includes(name)
                     ? prev.filter((c) => c !== name)
                     : [...prev, name];
-
                   console.log("🔄 selectedCurators 변경:", { prev, next });
 
                   // 큐레이터를 선택하면 showAll을 false로 설정
@@ -732,24 +955,19 @@ export default function Home() {
                     console.log("🎯 showAll을 false로 설정");
                     setShowAll(false);
                   }
-                  // 선택 해제 시에는 showAll을 변경하지 않음 (해제 상태 유지)
-                  
                   return next;
                 });
               }}
               onSelectAll={() => {
-                setShowAll((prev) => {
-                  const next = !prev;
-                  if (next) {
-                    setSelectedCurators([]);
-                    setShowSavedOnly(false);
-                  } else {
-                    setSelectedCurators([]);
-                    setShowSavedOnly(false);
-                  }
-                  return next;
-                });
+                setShowSavedOnly(false);
+                setSelectedCurators([]);
+                setShowAll(true);
               }}
+              onMouseDown={handleCuratorMouseDown}
+              onMouseUp={handleCuratorMouseUp}
+              onMouseLeave={handleCuratorMouseLeave}
+              onTouchStart={handleCuratorTouchStart}
+              onTouchEnd={handleCuratorTouchEnd}
             />
           </div>
         </div>
@@ -792,35 +1010,18 @@ export default function Home() {
                 isLoading={isAiSearching}
                 rightActions={
                   <div style={styles.authRowInline}>
-                    {/* 큐레이터 신청/신청내역 버튼 */}
-                    {isAdmin ? (
+                    {/* 모든 사용자 @아이디 버튼 */}
+                    {!authLoading && user && (
                       <button
-                        style={styles.adminInlineButton}
-                        onClick={() => navigate("/admin/applications")}
-                        type="button"
-                      >
-                        신청내역
-                      </button>
-                    ) : (
-                      !isCurator && user && (
-                        <button
-                          style={styles.curatorInlineButton}
-                          onClick={() => navigate("/curator-apply")}
-                          type="button"
-                        >
-                          큐레이터 신청
-                        </button>
-                      )
-                    )}
-                    
-                    {/* 큐레이터 전용 @아이디 버튼 */}
-                    {!isAdmin && isCurator && curatorProfile && (
-                      <button
-                        style={styles.curatorInlineButton}
+                        style={
+                          isCurator 
+                            ? styles.curatorInlineButton 
+                            : styles.userInlineButton
+                        }
                         onClick={() => navigate("/studio")}
                         type="button"
                       >
-                        @{curatorProfile.username}
+                        @{curatorProfile?.username || user.user_metadata?.username || "user"}
                       </button>
                     )}
                     
@@ -1093,6 +1294,7 @@ export default function Home() {
       />
 
     </div>
+      </>
   );
 }
 
@@ -1317,6 +1519,25 @@ const styles = {
     border: "1px solid rgba(46, 204, 113, 0.3)",
     background: "rgba(46, 204, 113, 0.15)",
     color: "#2ECC71",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+
+  userInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(52, 152, 219, 0.3)",
+    background: "rgba(52, 152, 219, 0.15)",
+    color: "#3498DB",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

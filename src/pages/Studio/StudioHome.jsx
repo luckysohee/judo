@@ -1152,6 +1152,7 @@ export default function StudioHome() {
   const [activeSection, setActiveSection] = useState("archive"); // archive, add, list, drafts
   const [myPlaces, setMyPlaces] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
   
   // 변경사항 감지 상태
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1569,14 +1570,24 @@ export default function StudioHome() {
     notificationSent: false
   });
 
-  // 프로필 수정 상태
+  // 프로필 수정 상태 (일반 사용자용)
+  const [isEditingUserProfile, setIsEditingUserProfile] = useState(false);
+  const [editUserProfile, setEditUserProfile] = useState({
+    displayName: "",
+    username: "",
+    bio: "",
+    image: null
+  });
+  
+  // 큐레이터 프로필 수정 상태
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editProfile, setEditProfile] = useState({
     name: "",
     username: "",
     displayName: "",
     bio: "",
-    image: ""
+    instagram: "",
+    image: null
   });
   const [usernameError, setUsernameError] = useState("");
 
@@ -1608,7 +1619,59 @@ export default function StudioHome() {
     }
   });
 
-  // 큐레이터 등급 계산
+  // 일반 사용자 프로필 수정 함수
+  const handleEditUserProfile = () => {
+    setIsEditingUserProfile(true);
+    setEditUserProfile({
+      displayName: curatorProfile.displayName || "",
+      username: curatorProfile.username || "",
+      bio: curatorProfile.bio || "",
+      image: curatorProfile.image || null
+    });
+  };
+
+  const handleSaveUserProfile = async () => {
+    try {
+      // 현재 인증된 사용자 정보 가져오기
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        alert("로그인이 필요합니다.");
+        return;
+      }
+
+      // 사용자 메타데이터 업데이트
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          display_name: editUserProfile.displayName,
+          username: editUserProfile.username,
+          bio: editUserProfile.bio
+        }
+      });
+
+      if (updateError) {
+        console.error("❌ 사용자 정보 업데이트 오류:", updateError);
+        alert("프로필 저장에 실패했습니다: " + updateError.message);
+        return;
+      }
+
+      // 로컬 상태 업데이트
+      setCuratorProfile(prev => ({
+        ...prev,
+        displayName: editUserProfile.displayName,
+        username: editUserProfile.username,
+        bio: editUserProfile.bio,
+        image: editUserProfile.image
+      }));
+      
+      setIsEditingUserProfile(false);
+      alert("프로필이 성공적으로 저장되었습니다!");
+      
+    } catch (error) {
+      console.error("❌ 프로필 저장 오류:", error);
+      alert("프로필 저장에 실패했습니다: " + error.message);
+    }
+  };
   useEffect(() => {
     const totalSaves = Math.floor(Math.random() * 500) + 100; // 통일된 저장수
     const stats = {
@@ -1677,6 +1740,11 @@ export default function StudioHome() {
         if (profileError && profileError.code !== 'PGRST116') {
           console.log("프로필 데이터 없음, 기본값 사용:", profileError);
         }
+        
+        // 큐레이터 여부 확인
+        const isUserCurator = profileData && !profileError;
+        setIsCurator(isUserCurator);
+        console.log("🎭 큐레이터 여부:", isUserCurator);
         
         const currentUser = profileData || {
           user_id: user.id, // 인증된 사용자 ID 연결
@@ -2233,8 +2301,7 @@ export default function StudioHome() {
     console.log("자동 username 생성:", newUsername);
   };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
+  const handleImageUpload = (file, userType = 'curator') => {
     if (file) {
       // 파일 크기 확인 (5MB 제한)
       if (file.size > 5 * 1024 * 1024) {
@@ -2252,8 +2319,16 @@ export default function StudioHome() {
       const reader = new FileReader();
       reader.onload = (event) => {
         const imageUrl = event.target.result;
-        setEditProfile(prev => ({ ...prev, image: imageUrl }));
-        console.log("이미지 업로드 완료:", file.name);
+        
+        if (userType === 'user') {
+          // 일반 사용자 프로필 이미지
+          setEditUserProfile(prev => ({ ...prev, image: imageUrl }));
+        } else {
+          // 큐레이터 프로필 이미지
+          setEditProfile(prev => ({ ...prev, image: imageUrl }));
+        }
+        
+        console.log("이미지 업로드 완료:", file.name, userType);
       };
       reader.readAsDataURL(file);
     }
@@ -2484,6 +2559,728 @@ export default function StudioHome() {
     return (
       <div style={{ padding: "20px", textAlign: "center" }}>
         로딩 중...
+      </div>
+    );
+  }
+
+  // 일반 사용자 UI
+  if (!isCurator) {
+    return (
+      <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
+        {/* 좌측 상단 홈 버튼 */}
+        <div style={{ position: "absolute", top: "20px", left: "20px" }}>
+          <button 
+            onClick={() => navigate("/")}
+            style={{ 
+              padding: "8px 16px", 
+              backgroundColor: "#3498DB", 
+              color: "white", 
+              border: "none", 
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "600"
+            }}
+          >
+            홈
+          </button>
+        </div>
+        
+        <div style={{ maxWidth: "1200px", margin: "0 auto", paddingTop: "80px" }}>
+          {/* 상단 제목 */}
+          <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "40px", color: "#3498DB" }}>
+            @{curatorProfile.username}님의 스튜디오
+          </h1>
+          
+          {/* 👤 사용자 프로필 박스 */}
+          <div style={{
+            backgroundColor: "#222",
+            padding: "30px",
+            borderRadius: "16px",
+            marginBottom: "40px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+              {/* 프로필 이미지 */}
+              <div style={{ position: "relative", width: "80px", height: "80px", flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: "80px",
+                    height: "80px",
+                    borderRadius: "50%",
+                    backgroundColor: "#3498DB",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "32px",
+                    color: "white",
+                    cursor: "pointer",
+                    overflow: "hidden",
+                    position: "relative"
+                  }}
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.onchange = (e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        handleImageUpload(file, 'user');
+                      }
+                    };
+                    input.click();
+                  }}
+                >
+                  {curatorProfile.image ? (
+                    <img 
+                      src={curatorProfile.image} 
+                      alt="프로필" 
+                      style={{ 
+                        width: "100%", 
+                        height: "100%", 
+                        objectFit: "cover" 
+                      }} 
+                    />
+                  ) : (
+                    <span>👤</span>
+                  )}
+                </div>
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "0",
+                    right: "0",
+                    width: "24px",
+                    height: "24px",
+                    borderRadius: "50%",
+                    backgroundColor: "#3498DB",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "12px",
+                    color: "white",
+                    cursor: "pointer",
+                    zIndex: 2
+                  }}
+                  title="클릭하여 프로필 이미지 업로드"
+                >
+                  📷
+                </div>
+              </div>
+              
+              {/* 프로필 정보 */}
+              <div style={{ flex: 1 }}>
+                {isEditingUserProfile ? (
+                  // 수정 모드
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <div>
+                      <label style={{ color: "#999", fontSize: "12px", marginBottom: "4px", display: "block" }}>
+                        별명
+                      </label>
+                      <input
+                        type="text"
+                        value={editUserProfile.displayName}
+                        onChange={(e) => setEditUserProfile(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="별명을 입력하세요"
+                        style={{
+                          backgroundColor: "#333",
+                          border: "1px solid #444",
+                          borderRadius: "8px",
+                          padding: "8px 12px",
+                          color: "white",
+                          fontSize: "16px",
+                          width: "100%"
+                        }}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label style={{ color: "#999", fontSize: "12px", marginBottom: "4px", display: "block" }}>
+                        @아이디
+                      </label>
+                      <input
+                        type="text"
+                        value={editUserProfile.username}
+                        onChange={(e) => setEditUserProfile(prev => ({ ...prev, username: e.target.value }))}
+                        placeholder="아이디를 입력하세요"
+                        style={{
+                          backgroundColor: "#333",
+                          border: "1px solid #444",
+                          borderRadius: "8px",
+                          padding: "8px 12px",
+                          color: "white",
+                          fontSize: "16px",
+                          width: "100%"
+                        }}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label style={{ color: "#999", fontSize: "12px", marginBottom: "4px", display: "block" }}>
+                        자기소개
+                      </label>
+                      <textarea
+                        value={editUserProfile.bio}
+                        onChange={(e) => setEditUserProfile(prev => ({ ...prev, bio: e.target.value }))}
+                        placeholder="자기소개를 입력하세요"
+                        rows={2}
+                        style={{
+                          backgroundColor: "#333",
+                          border: "1px solid #444",
+                          borderRadius: "8px",
+                          padding: "8px 12px",
+                          color: "white",
+                          fontSize: "14px",
+                          width: "100%",
+                          resize: "vertical"
+                        }}
+                      />
+                    </div>
+                    
+                    <div style={{ 
+                      fontSize: "12px", 
+                      color: "#666", 
+                      marginBottom: "10px" 
+                    }}>
+                      💡 프로필 이미지는 왼쪽 동그라미를 클릭하여 파일을 업로드하세요 (최대 5MB)
+                    </div>
+                    
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        onClick={() => handleSaveUserProfile()}
+                        style={{
+                          backgroundColor: "#3498DB",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "10px 20px",
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        저장
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEditingUserProfile(false);
+                          setEditUserProfile({
+                            displayName: curatorProfile.displayName || "",
+                            username: curatorProfile.username || "",
+                            bio: curatorProfile.bio || "",
+                            image: null
+                          });
+                        }}
+                        style={{
+                          backgroundColor: "#666",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "10px 20px",
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // 보기 모드
+                  <div>
+                    <div style={{ fontSize: "20px", fontWeight: "bold", color: "#fff", marginBottom: "8px" }}>
+                      {curatorProfile.displayName || "사용자"}
+                    </div>
+                    <div style={{ fontSize: "16px", color: "#3498DB", marginBottom: "8px" }}>
+                      @{curatorProfile.username || "username"}
+                    </div>
+                    {curatorProfile.bio && (
+                      <div style={{ 
+                        fontSize: "14px", 
+                        color: "#ccc", 
+                        lineHeight: "1.4",
+                        marginBottom: "12px"
+                      }}>
+                        {curatorProfile.bio}
+                      </div>
+                    )}
+                    
+                    {/* 프로필 수정 버튼 */}
+                    <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+                      <button
+                        onClick={handleEditUserProfile}
+                        style={{
+                          backgroundColor: "#3498DB",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "8px 16px",
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          cursor: "pointer",
+                          transition: "background-color 0.2s ease"
+                        }}
+                        onMouseOver={(e) => e.target.style.backgroundColor = "#2980B9"}
+                        onMouseOut={(e) => e.target.style.backgroundColor = "#3498DB"}
+                      >
+                        📝 프로필 수정
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* ❤️ 1. 내 저장 (메인) */}
+          <div style={{ marginBottom: "60px" }}>
+            <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "20px", color: "#fff", textAlign: "left" }}>
+              ❤️ 내 저장
+            </h2>
+            
+            {/* 보기 전환 버튼 */}
+            <div style={{ display: "flex", gap: "10px", marginBottom: "20px", justifyContent: "center" }}>
+              <button
+                style={{
+                  padding: "10px 20px",
+                  backgroundColor: "#3498DB",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  cursor: "pointer"
+                }}
+              >
+                지도 보기
+              </button>
+              <button
+                style={{
+                  padding: "10px 20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  color: "#3498DB",
+                  border: "1px solid #3498DB",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  cursor: "pointer"
+                }}
+              >
+                리스트 보기
+              </button>
+            </div>
+            
+            {/* 최근 저장한 장소 */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: "20px"
+            }}>
+              {/* 테스트 데이터 */}
+              <div style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
+                padding: "20px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  을지로 ○○포차
+                </h3>
+                <p style={{ fontSize: "14px", color: "#999", marginBottom: "12px" }}>
+                  을지로3가 · 소주 · 혼술하기 좋은
+                </p>
+                <div style={{ fontSize: "12px", color: "#3498DB" }}>
+                  ❤️ 128 저장 · @노포킬러
+                </div>
+              </div>
+              
+              <div style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
+                padding: "20px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  성수 △△술집
+                </h3>
+                <p style={{ fontSize: "14px", color: "#999", marginBottom: "12px" }}>
+                  성수동 · 맥주 · 데이트하기 좋은
+                </p>
+                <div style={{ fontSize: "12px", color: "#3498DB" }}>
+                  ❤️ 89 저장 · @술맛집
+                </div>
+              </div>
+              
+              <div style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
+                padding: "20px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  신사 □□바
+                </h3>
+                <p style={{ fontSize: "14px", color: "#999", marginBottom: "12px" }}>
+                  신사동 · 칵테일 · 2차로 좋은
+                </p>
+                <div style={{ fontSize: "12px", color: "#3498DB" }}>
+                  ❤️ 67 저장 · @칵테일마스터
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* 🍺 2. 빠른 선택 (핵심 UX) */}
+          <div style={{ marginBottom: "60px" }}>
+            <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "20px", color: "#fff", textAlign: "left" }}>
+              🍺 오늘 술 뭐 마실까?
+            </h2>
+            
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: "15px",
+              maxWidth: "600px",
+              margin: "0 auto"
+            }}>
+              <button
+                style={{
+                  padding: "20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  border: "1px solid #3498DB",
+                  borderRadius: "12px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#3498DB",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.backgroundColor = "#3498DB";
+                  e.target.style.color = "white";
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.backgroundColor = "rgba(52, 152, 219, 0.2)";
+                  e.target.style.color = "#3498DB";
+                }}
+              >
+                🍶 소주
+              </button>
+              
+              <button
+                style={{
+                  padding: "20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  border: "1px solid #3498DB",
+                  borderRadius: "12px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#3498DB",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.backgroundColor = "#3498DB";
+                  e.target.style.color = "white";
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.backgroundColor = "rgba(52, 152, 219, 0.2)";
+                  e.target.style.color = "#3498DB";
+                }}
+              >
+                🍺 맥주
+              </button>
+              
+              <button
+                style={{
+                  padding: "20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  border: "1px solid #3498DB",
+                  borderRadius: "12px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#3498DB",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.backgroundColor = "#3498DB";
+                  e.target.style.color = "white";
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.backgroundColor = "rgba(52, 152, 219, 0.2)";
+                  e.target.style.color = "#3498DB";
+                }}
+              >
+                🔥 2차
+              </button>
+              
+              <button
+                style={{
+                  padding: "20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  border: "1px solid #3498DB",
+                  borderRadius: "12px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#3498DB",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.backgroundColor = "#3498DB";
+                  e.target.style.color = "white";
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.backgroundColor = "rgba(52, 152, 219, 0.2)";
+                  e.target.style.color = "#3498DB";
+                }}
+              >
+                💘 데이트
+              </button>
+              
+              <button
+                style={{
+                  padding: "20px",
+                  backgroundColor: "rgba(52, 152, 219, 0.2)",
+                  border: "1px solid #3498DB",
+                  borderRadius: "12px",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#3498DB",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseOver={(e) => {
+                  e.target.style.backgroundColor = "#3498DB";
+                  e.target.style.color = "white";
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.backgroundColor = "rgba(52, 152, 219, 0.2)";
+                  e.target.style.color = "#3498DB";
+                }}
+              >
+                🥶 해장
+              </button>
+            </div>
+          </div>
+          
+          {/* 🔥 3. 추천 섹션 */}
+          <div style={{ marginBottom: "60px" }}>
+            <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "20px", color: "#fff", textAlign: "left" }}>
+              🔥 당신이 좋아할 술집
+            </h2>
+            
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: "20px"
+            }}>
+              <div style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
+                padding: "20px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  홍대 ◇◇포차
+                </h3>
+                <p style={{ fontSize: "14px", color: "#999", marginBottom: "12px" }}>
+                  홍대입구역 · 소주 · 친구와 함께
+                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: "12px", color: "#3498DB" }}>
+                    ❤️ 234 저장 · @홍대마스터
+                  </div>
+                  <button
+                    style={{
+                      padding: "6px 12px",
+                      backgroundColor: "#3498DB",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      alert("저장 기능은 곧 구현됩니다!");
+                    }}
+                  >
+                    저장
+                  </button>
+                </div>
+              </div>
+              
+              <div style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "12px",
+                padding: "20px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <h3 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  강남 ☆☆바
+                </h3>
+                <p style={{ fontSize: "14px", color: "#999", marginBottom: "12px" }}>
+                  강남역 · 칵테일 · 비즈니스 모임
+                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: "12px", color: "#3498DB" }}>
+                    ❤️ 189 저장 · @칵테일전문가
+                  </div>
+                  <button
+                    style={{
+                      padding: "6px 12px",
+                      backgroundColor: "#3498DB",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      alert("저장 기능은 곧 구현됩니다!");
+                    }}
+                  >
+                    저장
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* 🤝 4. 취향 큐레이터 (선택) */}
+          <div style={{ marginBottom: "60px" }}>
+            <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "20px", color: "#fff", textAlign: "left" }}>
+              🤝 당신과 취향 비슷한 큐레이터
+            </h2>
+            
+            <div style={{
+              display: "flex",
+              gap: "20px",
+              justifyContent: "center",
+              flexWrap: "wrap"
+            }}>
+              <div style={{
+                backgroundColor: "rgba(52, 152, 219, 0.1)",
+                border: "1px solid rgba(52, 152, 219, 0.3)",
+                borderRadius: "12px",
+                padding: "20px",
+                textAlign: "center",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <div style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  @술맛집
+                </div>
+                <div style={{ fontSize: "12px", color: "#999", marginBottom: "12px" }}>
+                  소주 전문 · 456 저장
+                </div>
+                <button
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: "#3498DB",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer"
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    alert("팔로우 기능은 곧 구현됩니다!");
+                  }}
+                >
+                  팔로우
+                </button>
+              </div>
+              
+              <div style={{
+                backgroundColor: "rgba(52, 152, 219, 0.1)",
+                border: "1px solid rgba(52, 152, 219, 0.3)",
+                borderRadius: "12px",
+                padding: "20px",
+                textAlign: "center",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <div style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  @칵테일마스터
+                </div>
+                <div style={{ fontSize: "12px", color: "#999", marginBottom: "12px" }}>
+                  칵테일 전문 · 234 저장
+                </div>
+                <button
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: "#3498DB",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer"
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    alert("팔로우 기능은 곧 구현됩니다!");
+                  }}
+                >
+                  팔로우
+                </button>
+              </div>
+              
+              <div style={{
+                backgroundColor: "rgba(52, 152, 219, 0.1)",
+                border: "1px solid rgba(52, 152, 219, 0.3)",
+                borderRadius: "12px",
+                padding: "20px",
+                textAlign: "center",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}>
+                <div style={{ fontSize: "16px", fontWeight: "600", marginBottom: "8px", color: "#fff" }}>
+                  @맛집탐험가
+                </div>
+                <div style={{ fontSize: "12px", color: "#999", marginBottom: "12px" }}>
+                  다양한 장소 · 789 저장
+                </div>
+                <button
+                  style={{
+                    padding: "6px 12px",
+                    backgroundColor: "#3498DB",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer"
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    alert("팔로우 기능은 곧 구현됩니다!");
+                  }}
+                >
+                  팔로우
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

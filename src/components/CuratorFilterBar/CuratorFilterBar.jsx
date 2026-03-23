@@ -4,11 +4,23 @@ export default function CuratorFilterBar({
   allActive = false,
   onToggle,
   onSelectAll,
+  onMouseDown,
+  onMouseUp,
+  onMouseLeave,
+  onTouchStart,
+  onTouchEnd,
 }) {
   const safeCurators = Array.isArray(curators) ? curators : [];
 
   return (
-    <div style={styles.wrap}>
+    <div 
+      style={styles.wrap}
+      onMouseDown={onMouseDown}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseLeave}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       <div style={styles.scrollRow}>
         <button
           type="button"
