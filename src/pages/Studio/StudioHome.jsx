@@ -1595,16 +1595,37 @@ export default function StudioHome() {
     level: 1,
     saveCount: 0,
     followerCount: 0,
-    overlappingCurators: 0
+    overlappingCurators: 0,
+    weeklyStats: {
+      newPlaces: 0,
+      newSaves: 0,
+      newFollowers: 0
+    },
+    lastWeekStats: {
+      newPlaces: 0,
+      newSaves: 0,
+      newFollowers: 0
+    }
   });
 
   // 큐레이터 등급 계산
   useEffect(() => {
+    const totalSaves = Math.floor(Math.random() * 500) + 100; // 통일된 저장수
     const stats = {
       placeCount: myPlaces.length,
-      saveCount: Math.floor(Math.random() * 500), // 임시 데이터 - 실제로는 DB에서 가져와야 함
+      saveCount: totalSaves,
       followerCount: Math.floor(Math.random() * 200), // 임시 데이터
-      overlappingCurators: Math.floor(Math.random() * 50) // 임시 데이터
+      overlappingCurators: Math.floor(Math.random() * 50), // 임시 데이터
+      weeklyStats: {
+        newPlaces: Math.floor(Math.random() * 5) + 1, // 이번 주 새 장소
+        newSaves: Math.floor(Math.random() * 30) + 10, // 이번 주 새 저장
+        newFollowers: Math.floor(Math.random() * 8) + 1 // 이번 주 새 팔로워
+      },
+      lastWeekStats: {
+        newPlaces: Math.floor(Math.random() * 4) + 1, // 지난주 새 장소
+        newSaves: Math.floor(Math.random() * 25) + 5, // 지난주 새 저장
+        newFollowers: Math.floor(Math.random() * 6) + 1 // 지난주 새 팔로워
+      }
     };
     
     const levelInfo = calculateCuratorLevel(stats);
@@ -1924,6 +1945,18 @@ export default function StudioHome() {
         
         setDrafts(prev => [...prev, draftData]);
         console.log("✅ 임시저장 완료 (localStorage):", draftData);
+        
+        // 수정 모드였다면 원본 장소를 잔 리스트에서 제거
+        const currentEditingId = editingPlaceId || localStorage.getItem('editing_place_id');
+        if (currentEditingId) {
+          console.log("🗑️ 수정 후 임시저장: 원본 장소 제거", currentEditingId);
+          setMyPlaces(prev => prev.filter(place => place.id !== currentEditingId));
+          
+          // 수정 모드 종료
+          setEditingPlaceId(null);
+          localStorage.removeItem('editing_place_id');
+        }
+        
         alert("초안이 임시저장되었습니다.");
         
         // '잔 채우기' 탭으로 자동 이동
@@ -1938,8 +1971,9 @@ export default function StudioHome() {
 
   const checkDuplicatePlace = (placeName) => {
     // 수정 모드인 경우 중복 확인 건너뛰기
-    if (editingPlaceId) {
-      console.log("✏️ 수정 모드: 중복 확인 건너뛰기");
+    const currentEditingId = editingPlaceId || localStorage.getItem('editing_place_id');
+    if (currentEditingId) {
+      console.log("✏️ 수정 모드: 중복 확인 건너뛰기", { editingPlaceId, localStorageId: localStorage.getItem('editing_place_id') });
       return false;
     }
     
@@ -3619,7 +3653,9 @@ export default function StudioHome() {
                            curatorStats.level >= 2 ? "Local Curator" : "New Drinker"}
                         </div>
                         <div style={{ color: "#999", fontSize: "12px" }}>
-                          다음 등급까지 {Math.max(0, 10 - myPlaces.length)}개 남음
+                          {Math.max(0, 10 - myPlaces.length) === 0 ? 
+                            "🏆 거의 다음 등급입니다" : 
+                            `🔥 다음 등급까지 ${Math.max(0, 10 - myPlaces.length)}잔 남음`}
                         </div>
                       </div>
                     </div>
@@ -3631,20 +3667,6 @@ export default function StudioHome() {
                       {curatorStats.level >= 4 ? "잔 50개+, 저장 1000+, 팔로워 100+" : 
                        curatorStats.level >= 3 ? "잔 20개+, 저장 100+" : 
                        curatorStats.level >= 2 ? "잔 10개+" : "시작 단계"}
-                    </div>
-                    <div style={{ display: "flex", gap: "15px", fontSize: "12px", color: "#ccc" }}>
-                      <span>🍺 잔 {myPlaces.length}</span>
-                      <span>🔥 저장 {curatorStats.saveCount || 0} (인기)</span>
-                      <span>👥 팔로워 {curatorStats.followerCount || 0}</span>
-                      <span>🔄 겹침 {curatorStats.overlappingCurators || 0}</span>
-                    </div>
-                    <div style={{ 
-                      fontSize: "11px", 
-                      color: "#2ECC71", 
-                      marginTop: "5px",
-                      fontWeight: "bold"
-                    }}>
-                      💥 당신의 추천이 {curatorStats.saveCount || 0}번 저장됐어요
                     </div>
                   </div>
                   
@@ -3724,7 +3746,7 @@ export default function StudioHome() {
             </div>
           </div>
           
-          {/* 통계 카드들 - 중복 제거 */}
+          {/* 통계 카드들 - 재배치 */}
           <div style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
@@ -3739,17 +3761,17 @@ export default function StudioHome() {
               textAlign: "center"
             }}>
               <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
-                {Math.floor(Math.random() * 100) + 50}
+                {curatorStats.saveCount || 0}
               </div>
               <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "8px" }}>
-                팔로워가 저장한 장소
+                당신의 추천 장소가 저장된 수
               </div>
               <div style={{ 
                 fontSize: "12px", 
                 color: "#E74C3C", 
                 fontWeight: "bold" 
               }}>
-                🔥 당신의 추천이 다른 사람에게 74번 저장됨
+                🔥 당신의 추천이 다른 사람에게 {curatorStats.saveCount}번 저장됨
               </div>
             </div>
             
@@ -3771,31 +3793,395 @@ export default function StudioHome() {
                 color: "#3498DB", 
                 fontWeight: "bold" 
               }}>
-                🤝 {curatorStats.overlappingCurators}명의 큐레이터와 취향이 겹침
+                🤝 상위 큐레이터와 취향이 겹칩니다
+              </div>
+            </div>
+            
+            {/* 잔 개수 (전체 공개) */}
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "12px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
+                {myPlaces.length}
+              </div>
+              <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "8px" }}>
+                잔 개수
+              </div>
+              <div style={{ 
+                fontSize: "12px", 
+                color: "#2ECC71", 
+                fontWeight: "bold" 
+              }}>
+                🍺 내가 공개한 장소 수
+              </div>
+            </div>
+            
+            {/* 팔로워 수 */}
+            <div style={{
+              backgroundColor: "#222",
+              padding: "20px",
+              borderRadius: "12px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "5px" }}>
+                {curatorStats.followerCount || 0}
+              </div>
+              <div style={{ fontSize: "14px", color: "#ccc", marginBottom: "8px" }}>
+                팔로워
+              </div>
+              <div style={{ 
+                fontSize: "12px", 
+                color: "#9B59B6", 
+                fontWeight: "bold" 
+              }}>
+                ⭐ 나를 별표한 사람들
               </div>
             </div>
           </div>
           
           {/* 📈 이번 주 성장 피드백 */}
           <div style={{
-            backgroundColor: "#2ECC71",
-            padding: "15px",
+            backgroundColor: "#34495E",
+            padding: "20px",
             borderRadius: "12px",
             marginBottom: "30px",
-            border: "1px solid #27AE60"
+            border: "1px solid #2C3E50"
           }}>
             <div style={{ 
               color: "white", 
               fontSize: "14px", 
               fontWeight: "bold",
-              marginBottom: "10px"
+              marginBottom: "15px"
             }}>
-              📈 이번 주 활동
+              📈 성장 추이 (지난주 대비)
             </div>
-            <div style={{ display: "flex", gap: "20px", fontSize: "13px", color: "white" }}>
-              <span>잔 +3</span>
-              <span>저장 +28</span>
-              <span>팔로워 +4</span>
+            
+            {/* 그래프 영역 */}
+            <div style={{ 
+              backgroundColor: "rgba(255,255,255,0.1)", 
+              borderRadius: "8px", 
+              padding: "15px", 
+              marginBottom: "15px"
+            }}>
+              {/* 시간 라벨 */}
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px", fontSize: "11px", color: "rgba(255,255,255,0.7)" }}>
+                <span>지난주</span>
+                <span>이번주</span>
+              </div>
+              
+              {/* 점 그래프 */}
+              <div style={{ display: "flex", gap: "20px" }}>
+                {/* 잔 그래프 */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔</div>
+                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                    {/* 선 그래프 */}
+                    <svg style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      zIndex: 1
+                    }}>
+                      <line
+                        x1="20%"
+                        y1={`${100 - ((curatorStats.lastWeekStats?.newPlaces || 0) / 8) * 100}%`}
+                        x2="80%"
+                        y2={`${100 - ((curatorStats.weeklyStats?.newPlaces || 0) / 8) * 100}%`}
+                        stroke="#E74C3C"
+                        strokeWidth="2"
+                        strokeDasharray="300"
+                        strokeDashoffset="300"
+                        style={{
+                          animation: "lineDraw 1s ease-out 0.1s forwards"
+                        }}
+                      />
+                    </svg>
+                    
+                    {/* 지난주 점 */}
+                    <div style={{
+                      width: "12px",
+                      height: "12px",
+                      backgroundColor: "rgba(231, 76, 60, 0.5)",
+                      borderRadius: "50%",
+                      border: "2px solid #E74C3C",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.lastWeekStats?.newPlaces || 0) / 8) * 60}px`,
+                      animation: "bounce 0.6s ease-out"
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.8)",
+                        whiteSpace: "nowrap"
+                      }}>
+                        {curatorStats.lastWeekStats?.newPlaces || 0}
+                      </div>
+                    </div>
+                    
+                    {/* 이번주 점 */}
+                    <div style={{
+                      width: "16px",
+                      height: "16px",
+                      backgroundColor: "#E74C3C",
+                      borderRadius: "50%",
+                      border: "3px solid rgba(255,255,255,0.3)",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.weeklyStats?.newPlaces || 0) / 8) * 60}px`,
+                      boxShadow: "0 0 10px rgba(231, 76, 60, 0.5)",
+                      animation: "bounce 0.6s ease-out 0.2s both"
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "#E74C3C",
+                        fontWeight: "bold",
+                        whiteSpace: "nowrap",
+                        animation: "fadeInUp 0.4s ease-out 0.5s both"
+                      }}>
+                        {curatorStats.weeklyStats?.newPlaces > curatorStats.lastWeekStats?.newPlaces ? "▲" : 
+                         curatorStats.weeklyStats?.newPlaces < curatorStats.lastWeekStats?.newPlaces ? "▼" : "─"}
+                        {curatorStats.weeklyStats?.newPlaces || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 저장 그래프 */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>저장</div>
+                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                    {/* 선 그래프 */}
+                    <svg style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      zIndex: 1
+                    }}>
+                      <line
+                        x1="20%"
+                        y1={`${100 - ((curatorStats.lastWeekStats?.newSaves || 0) / 40) * 100}%`}
+                        x2="80%"
+                        y2={`${100 - ((curatorStats.weeklyStats?.newSaves || 0) / 40) * 100}%`}
+                        stroke="#F39C12"
+                        strokeWidth="2"
+                        strokeDasharray="300"
+                        strokeDashoffset="300"
+                        style={{
+                          animation: "lineDraw 1s ease-out 0.3s forwards"
+                        }}
+                      />
+                    </svg>
+                    
+                    {/* 지난주 점 */}
+                    <div style={{
+                      width: "12px",
+                      height: "12px",
+                      backgroundColor: "rgba(243, 156, 18, 0.5)",
+                      borderRadius: "50%",
+                      border: "2px solid #F39C12",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.lastWeekStats?.newSaves || 0) / 40) * 60}px`
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.8)",
+                        whiteSpace: "nowrap"
+                      }}>
+                        {curatorStats.lastWeekStats?.newSaves || 0}
+                      </div>
+                    </div>
+                    
+                    {/* 이번주 점 */}
+                    <div style={{
+                      width: "16px",
+                      height: "16px",
+                      backgroundColor: "#F39C12",
+                      borderRadius: "50%",
+                      border: "3px solid rgba(255,255,255,0.3)",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.weeklyStats?.newSaves || 0) / 40) * 60}px`,
+                      boxShadow: "0 0 10px rgba(243, 156, 18, 0.5)",
+                      animation: "bounce 0.6s ease-out 0.4s both"
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "#F39C12",
+                        fontWeight: "bold",
+                        whiteSpace: "nowrap",
+                        animation: "fadeInUp 0.4s ease-out 0.7s both"
+                      }}>
+                        {curatorStats.weeklyStats?.newSaves > curatorStats.lastWeekStats?.newSaves ? "▲" : 
+                         curatorStats.weeklyStats?.newSaves < curatorStats.lastWeekStats?.newSaves ? "▼" : "─"}
+                        {curatorStats.weeklyStats?.newSaves || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 팔로워 그래프 */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>팔로워</div>
+                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                    {/* 선 그래프 */}
+                    <svg style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      zIndex: 1
+                    }}>
+                      <line
+                        x1="20%"
+                        y1={`${100 - ((curatorStats.lastWeekStats?.newFollowers || 0) / 10) * 100}%`}
+                        x2="80%"
+                        y2={`${100 - ((curatorStats.weeklyStats?.newFollowers || 0) / 10) * 100}%`}
+                        stroke="#9B59B6"
+                        strokeWidth="2"
+                        strokeDasharray="300"
+                        strokeDashoffset="300"
+                        style={{
+                          animation: "lineDraw 1s ease-out 0.5s forwards"
+                        }}
+                      />
+                    </svg>
+                    
+                    {/* 지난주 점 */}
+                    <div style={{
+                      width: "12px",
+                      height: "12px",
+                      backgroundColor: "rgba(155, 89, 182, 0.5)",
+                      borderRadius: "50%",
+                      border: "2px solid #9B59B6",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.lastWeekStats?.newFollowers || 0) / 10) * 60}px`
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.8)",
+                        whiteSpace: "nowrap"
+                      }}>
+                        {curatorStats.lastWeekStats?.newFollowers || 0}
+                      </div>
+                    </div>
+                    
+                    {/* 이번주 점 */}
+                    <div style={{
+                      width: "16px",
+                      height: "16px",
+                      backgroundColor: "#9B59B6",
+                      borderRadius: "50%",
+                      border: "3px solid rgba(255,255,255,0.3)",
+                      position: "relative",
+                      zIndex: 2,
+                      bottom: `${((curatorStats.weeklyStats?.newFollowers || 0) / 10) * 60}px`,
+                      boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
+                      animation: "bounce 0.6s ease-out 0.6s both"
+                    }}>
+                      <div style={{
+                        position: "absolute",
+                        bottom: "20px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        fontSize: "10px",
+                        color: "#9B59B6",
+                        fontWeight: "bold",
+                        whiteSpace: "nowrap",
+                        animation: "fadeInUp 0.4s ease-out 0.9s both"
+                      }}>
+                        {curatorStats.weeklyStats?.newFollowers > curatorStats.lastWeekStats?.newFollowers ? "▲" : 
+                         curatorStats.weeklyStats?.newFollowers < curatorStats.lastWeekStats?.newFollowers ? "▼" : "─"}
+                        {curatorStats.weeklyStats?.newFollowers || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* CSS 애니메이션 스타일 */}
+              <style jsx>{`
+                @keyframes bounce {
+                  0% {
+                    transform: translateY(20px) scale(0.8);
+                    opacity: 0;
+                  }
+                  50% {
+                    transform: translateY(-5px) scale(1.1);
+                  }
+                  100% {
+                    transform: translateY(0) scale(1);
+                    opacity: 1;
+                  }
+                }
+                
+                @keyframes fadeInUp {
+                  0% {
+                    transform: translateX(-50%) translateY(10px);
+                    opacity: 0;
+                  }
+                  100% {
+                    transform: translateX(-50%) translateY(0);
+                    opacity: 1;
+                  }
+                }
+                
+                @keyframes lineDraw {
+                  0% {
+                    stroke-dashoffset: 300;
+                    opacity: 0;
+                  }
+                  50% {
+                    opacity: 0.5;
+                  }
+                  100% {
+                    stroke-dashoffset: 0;
+                    opacity: 1;
+                  }
+                }
+              `}</style>
+            </div>
+            
+            <div style={{ 
+              fontSize: "12px", 
+              color: "white", 
+              fontWeight: "bold",
+              paddingTop: "10px",
+              borderTop: "1px solid rgba(255,255,255,0.2)"
+            }}>
+              🔥 이번 주 최고 반응 잔
+              <div style={{ fontSize: "11px", fontWeight: "normal", marginTop: "3px" }}>
+                → 홍대 숨은 포차 (저장 {curatorStats.weeklyStats?.newSaves || 0})
+              </div>
             </div>
           </div>
           
@@ -3804,7 +4190,7 @@ export default function StudioHome() {
             style={{
               position: "sticky",
               bottom: "20px",
-              backgroundColor: "#E74C3C",
+              backgroundColor: "#2ECC71",
               padding: "20px",
               borderRadius: "12px",
               textAlign: "center",
@@ -3814,11 +4200,11 @@ export default function StudioHome() {
               transform: "scale(1)"
             }}
             onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#C0392B";
+              e.target.style.backgroundColor = "#27AE60";
               e.target.style.transform = "scale(1.02)";
             }}
             onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#E74C3C";
+              e.target.style.backgroundColor = "#2ECC71";
               e.target.style.transform = "scale(1)";
             }}
             onClick={() => setActiveSection("add")}
@@ -3832,7 +4218,7 @@ export default function StudioHome() {
               pointerEvents: "none",
               userSelect: "none"
             }}>
-              🍺 새로운 잔 올리기
+              🍶 오늘 한 잔 더 올릴까요?
             </span>
             <span style={{ 
               color: "white", 
@@ -3842,7 +4228,7 @@ export default function StudioHome() {
               pointerEvents: "none",
               userSelect: "none"
             }}>
-              오늘 한 잔 추천해보세요
+              지금 바로 추천해보세요
             </span>
           </div>
           </div>
