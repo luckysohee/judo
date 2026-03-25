@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import MarkerLegend from "../../components/Map/MarkerLegend";
 import SearchBar from "../../components/SearchBar/SearchBar";
 import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
+import CuratorApplicationButton from "../../components/CuratorApplicationButton/CuratorApplicationButton";
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
@@ -1072,33 +1073,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                     
                     {/* 일반 유저에게만 큐레이터 신청 버튼 표시 */}
                     {!authLoading && user && getUserRole() === "user" && (
-                      <button
-                        type="button"
-                        style={{
-                          border: "1px solid rgba(46, 204, 113, 0.3)",
-                          backgroundColor: "rgba(46, 204, 113, 0.15)",
-                          backdropFilter: "blur(8px)",
-                          color: "#2ECC71",
-                          borderRadius: "999px",
-                          height: "34px",
-                          padding: "0 10px",
-                          fontSize: "12px",
-                          fontWeight: "800",
-                          cursor: "pointer",
-                          transition: "all 0.2s ease"
-                        }}
-                        onMouseOver={(e) => {
-                          e.target.style.backgroundColor = "rgba(46, 204, 113, 0.25)";
-                          e.target.style.borderColor = "rgba(46, 204, 113, 0.4)";
-                        }}
-                        onMouseOut={(e) => {
-                          e.target.style.backgroundColor = "rgba(46, 204, 113, 0.15)";
-                          e.target.style.borderColor = "rgba(46, 204, 113, 0.3)";
-                        }}
-                        onClick={() => navigate("/curator-apply")}
-                      >
-                        큐레이터 신청
-                      </button>
+                      <CuratorApplicationButton />
                     )}
                     
                     {authLoading ? null : user ? (

@@ -131,11 +131,29 @@ export default function AdminApplicationsPage() {
       setProcessingId(application.id);
       setErrorMessage("");
 
-      const { error } = await supabase.rpc("delete_curator_application", {
+      // 1. 신청서 삭제
+      const { error: deleteError } = await supabase.rpc("delete_curator_application", {
         application_id: application.id,
       });
 
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      // 2. 큐레이터 자격 박탈 (이미 큐레이터인 경우)
+      if (application.status === "approved" && application.user_id) {
+        const { error: revokeError } = await supabase
+          .from("profiles")
+          .update({ role: "user" })
+          .eq("id", application.user_id);
+
+        if (revokeError) {
+          console.error("큐레이터 자격 박탈 오류:", revokeError);
+          setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + revokeError.message);
+          return;
+        }
+
+        // 성공적으로 자격 박탈 알림
+        alert(`✅ 큐레이터 자격이 박탈되었습니다.\n\n사용자: ${application.name}\n상태: 일반 유저로 변경됨`);
+      }
 
       await fetchApplications();
     } catch (error) {

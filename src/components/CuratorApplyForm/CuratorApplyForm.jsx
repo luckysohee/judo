@@ -47,6 +47,29 @@ export default function CuratorApplyForm() {
     try {
       setSubmitting(true);
 
+      // 기존 신청 내역 확인
+      const { data: existingApplication, error: checkError } = await supabase
+        .from("curator_applications")
+        .select("id, status")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("기존 신청 확인 오류:", checkError);
+      }
+
+      // 이미 신청한 경우
+      if (existingApplication) {
+        if (existingApplication.status === "pending") {
+          setErrorMessage("이미 신청서가 제출되어 검토 중입니다. 잠시 기다려주세요.");
+        } else if (existingApplication.status === "approved") {
+          setErrorMessage("이미 큐레이터로 승인되었습니다. 추가 신청이 필요 없습니다.");
+        } else if (existingApplication.status === "rejected") {
+          setErrorMessage("이전 신청이 반려되었습니다. 관리자에게 문의하세요.");
+        }
+        return;
+      }
+
       const { data, error } = await supabase
         .from("curator_applications")
         .insert([
