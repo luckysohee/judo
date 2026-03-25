@@ -15,8 +15,6 @@ export default function CuratorApplyForm() {
   const [errorMessage, setErrorMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  if (!open) return null;
-
   const resetForm = () => {
     setName("");
     setContact("");
@@ -66,13 +64,16 @@ export default function CuratorApplyForm() {
 
       if (error) throw error;
 
-      setMessage("큐레이터 신청이 정상적으로 접수되었습니다.");
+      setMessage("✅ 큐레이터 신청이 성공적으로 제출되었습니다!\n검토 후 결과를 알려드립니다.");
       resetForm();
+
+      // 성공 알림
+      alert("✅ 큐레이터 신청이 완료되었습니다!\n\n신청 내용이 성공적으로 저장되었으며,\n관리자 검토 후 결과를 알려드립니다.");
 
       setTimeout(() => {
         navigate("/");
         setMessage("");
-      }, 1500);
+      }, 2000);
     } catch (error) {
       console.error("submit error:", error);
       setErrorMessage(
