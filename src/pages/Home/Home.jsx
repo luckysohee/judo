@@ -43,6 +43,7 @@ export default function Home() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCurator, setIsCurator] = useState(false);
+  const curatorWelcomeRef = useRef(false); // 큐레이터 상태 변화 감지용 ref
   const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
   const [dbCurators, setDbCurators] = useState([]); // DB에서 가져온 큐레이터 목록
   const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록
@@ -258,9 +259,25 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       }
 
       const isUserCurator = !!data;
+      const wasCuratorBefore = curatorWelcomeRef.current;
+
       setIsCurator(isUserCurator);
-      
-      if (isUserCurator) {
+      curatorWelcomeRef.current = isUserCurator;
+
+      if (isUserCurator && !wasCuratorBefore) {
+        console.log("🎉 새로운 큐레이터 환영 메시지 표시");
+
+        const welcomeKey = `curator_welcome_${user.id}`;
+        const hasShownWelcome = localStorage.getItem(welcomeKey);
+
+        if (!hasShownWelcome) {
+          setTimeout(() => {
+            const emailPrefix = user?.email ? user.email.split('@')[0] : 'user';
+            alert(`🎉 큐레이터가 되신 것을 환영합니다!\n\n이제 스튜디오에서 장소를 등록하고\n팔로워들과 멋진 장소를 공유할 수 있어요!\n\n스튜디오 입장 → @${emailPrefix} 버튼을 눌러서 입장하세요!`);
+            localStorage.setItem(welcomeKey, 'shown');
+          }, 1000);
+        }
+
         setCuratorProfile({
           username: data.username,
           displayName: data.display_name,

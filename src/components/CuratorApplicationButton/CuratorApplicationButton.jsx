@@ -47,13 +47,19 @@ export default function CuratorApplicationButton() {
     }
 
     if (applicationStatus === "rejected") {
-      alert("❌ 반려된 신청입니다\n\n이전 신청이 반려되었습니다.\n관리자에게 문의해주세요.");
+      alert("❌ 반려되었습니다\n\n이전 신청이 반려되었습니다.\n다시 신청할 수 있습니다.");
+      navigate("/curator-apply");
       return;
     }
 
     // 신청 가능한 경우
     navigate("/curator-apply");
   };
+
+  // 승인된 큐레이터는 버튼 표시 안함
+  if (applicationStatus === "approved") {
+    return null;
+  }
 
   if (loading) {
     return (
@@ -110,9 +116,10 @@ export default function CuratorApplicationButton() {
       case "rejected":
         return {
           ...baseStyle,
-          border: "1px solid rgba(220, 53, 69, 0.3)",
-          backgroundColor: "rgba(220, 53, 69, 0.15)",
-          color: "#DC3545",
+          border: "1px solid rgba(46, 204, 113, 0.3)",
+          backgroundColor: "rgba(46, 204, 113, 0.15)",
+          backdropFilter: "blur(8px)",
+          color: "#2ECC71",
           cursor: "pointer"
         };
       default:
@@ -132,9 +139,9 @@ export default function CuratorApplicationButton() {
       case "pending":
         return "심사중";
       case "approved":
-        return "큐레이터";
+        return null; // 승인된 큐레이터는 버튼 표시 안함
       case "rejected":
-        return "반려됨";
+        return "큐레이터 신청";
       default:
         return "큐레이터 신청";
     }
@@ -147,10 +154,8 @@ export default function CuratorApplicationButton() {
     } else if (applicationStatus === "approved") {
       e.target.style.backgroundColor = "rgba(40, 167, 69, 0.25)";
       e.target.style.borderColor = "rgba(40, 167, 69, 0.4)";
-    } else if (applicationStatus === "rejected") {
-      e.target.style.backgroundColor = "rgba(220, 53, 69, 0.25)";
-      e.target.style.borderColor = "rgba(220, 53, 69, 0.4)";
     } else {
+      // rejected와 default 모두 동일한 효과
       e.target.style.backgroundColor = "rgba(46, 204, 113, 0.25)";
       e.target.style.borderColor = "rgba(46, 204, 113, 0.4)";
     }
@@ -163,10 +168,8 @@ export default function CuratorApplicationButton() {
     } else if (applicationStatus === "approved") {
       e.target.style.backgroundColor = "rgba(40, 167, 69, 0.15)";
       e.target.style.borderColor = "rgba(40, 167, 69, 0.3)";
-    } else if (applicationStatus === "rejected") {
-      e.target.style.backgroundColor = "rgba(220, 53, 69, 0.15)";
-      e.target.style.borderColor = "rgba(220, 53, 69, 0.3)";
     } else {
+      // rejected와 default 모두 동일한 효과
       e.target.style.backgroundColor = "rgba(46, 204, 113, 0.15)";
       e.target.style.borderColor = "rgba(46, 204, 113, 0.3)";
     }

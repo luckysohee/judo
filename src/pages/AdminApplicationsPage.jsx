@@ -140,19 +140,48 @@ export default function AdminApplicationsPage() {
 
       // 2. 큐레이터 자격 박탈 (이미 큐레이터인 경우)
       if (application.status === "approved" && application.user_id) {
+        // profiles 테이블 업데이트 시도
         const { error: revokeError } = await supabase
           .from("profiles")
           .update({ role: "user" })
           .eq("id", application.user_id);
 
         if (revokeError) {
-          console.error("큐레이터 자격 박탈 오류:", revokeError);
-          setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + revokeError.message);
-          return;
+          console.error("🔍 삭제 시 자격 박탈 오류:", revokeError);
+          
+          // RLS 권한 오류 시 curators 테이블에서 직접 삭제 시도
+          if (revokeError.code === "42501" || revokeError.message?.includes("permission denied")) {
+            console.log("🔄 삭제 시 자격 박탈 RLS 권한 오류 - curators 테이블 직접 삭제 시도");
+            
+            const { error: deleteError } = await supabase
+              .from("curators")
+              .delete()
+              .eq("user_id", application.user_id);
+            
+            if (deleteError) {
+              console.error("🔍 삭제 시 curators 테이블 삭제 오류:", deleteError);
+              setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + deleteError.message);
+              return;
+            } else {
+              console.log("✅ 삭제 시 curators 테이블에서 직접 삭제 성공");
+            }
+          } else {
+            setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + revokeError.message);
+            return;
+          }
+        } else {
+          console.log("✅ 삭제 시 직접 업데이트로 자격 박탈 성공");
         }
 
         // 성공적으로 자격 박탈 알림
         alert(`✅ 큐레이터 자격이 박탈되었습니다.\n\n사용자: ${application.name}\n상태: 일반 유저로 변경됨`);
+        
+        // 환영 메시지 localStorage 삭제 (재승인 시 다시 표시되도록)
+        if (application.user_id) {
+          const welcomeKey = `curator_welcome_${application.user_id}`;
+          localStorage.removeItem(welcomeKey);
+          console.log("🗑️ 큐레이터 환영 메시지 localStorage 삭제:", welcomeKey);
+        }
       }
 
       await fetchApplications();
@@ -169,11 +198,77 @@ export default function AdminApplicationsPage() {
       setProcessingId(application.id);
       setErrorMessage("");
 
-      const { error } = await supabase.rpc("revoke_curator_application", {
-        application_id: application.id,
-      });
+      // 큐레이터 자격 박탈 (직접 업데이트 시도)
+      const { error: revokeError } = await supabase
+        .from("profiles")
+        .update({ role: "user" })
+        .eq("id", application.user_id);
 
-      if (error) throw error;
+      if (revokeError) {
+        console.error("🔍 자격 박탈 직접 변경 오류:", revokeError);
+        
+        // RLS 권한 오류 시 기존 RPC 함수 사용 시도
+        if (revokeError.code === "42501" || revokeError.message?.includes("permission denied")) {
+          console.log("🔄 자격 박탈 RLS 권한 오류 - RPC 함수 없음, 직접 삭제 시도");
+          
+          // curators 테이블에서 직접 삭제 시도
+          const { error: deleteError } = await supabase
+            .from("curators")
+            .delete()
+            .eq("user_id", application.user_id);
+          
+          if (deleteError) {
+            console.error("🔍 curators 테이블 삭제 오류:", deleteError);
+            setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + deleteError.message);
+            return;
+          } else {
+            console.log("✅ curators 테이블에서 직접 삭제 성공");
+          }
+        } else {
+          setErrorMessage("큐레이터 자격 박탈에 실패했습니다: " + revokeError.message);
+          return;
+        }
+      } else {
+        console.log("✅ 직접 업데이트로 자격 박탈 성공");
+      }
+
+      // 신청서 상태도 "pending"으로 되돌리기 (직접 업데이트 시도)
+      const { error: statusError } = await supabase
+        .from("curator_applications")
+        .update({ status: "pending" })
+        .eq("id", application.id);
+      
+      if (statusError) {
+        console.error("🔍 신청서 상태 직접 변경 오류:", statusError);
+        
+        // RLS 권한 오류 시 기존 RPC 함수 사용 시도
+        if (statusError.code === "42501" || statusError.message?.includes("permission denied")) {
+          console.log("🔄 신청서 상태 변경 RLS 권한 오류 - 기존 RPC 함수로 시도");
+          
+          // reject_curator_application을 사용하여 상태를 pending으로 변경
+          const { error: rejectRpcError } = await supabase.rpc("reject_curator_application", {
+            application_id: application.id
+          });
+          
+          if (rejectRpcError) {
+            console.error("🔍 reject RPC 변경 오류:", rejectRpcError);
+            // 상태 변경 실패해도 자격 박탈은 성공했으므로 계속 진행
+          } else {
+            console.log("✅ 신청서 상태도 reject RPC 함수로 변경됨 (rejected 상태)");
+          }
+        } else {
+          console.error("신청서 상태 변경 일반 오류:", statusError);
+        }
+      } else {
+        console.log("✅ 신청서 상태도 직접 업데이트로 'pending'으로 변경됨");
+      }
+
+      // 환영 메시지 localStorage 삭제 (재승인 시 다시 표시되도록)
+      if (application.user_id) {
+        const welcomeKey = `curator_welcome_${application.user_id}`;
+        localStorage.removeItem(welcomeKey);
+        console.log("🗑️ 되돌리기 시 큐레이터 환영 메시지 localStorage 삭제:", welcomeKey);
+      }
 
       await fetchApplications();
     } catch (error) {
