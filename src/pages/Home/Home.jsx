@@ -206,6 +206,13 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         return;
       }
 
+      // 개발 환경에서는 VITE_ADMIN_USER_ID로 바로 admin 인식
+      if (import.meta.env.DEV && import.meta.env.VITE_ADMIN_USER_ID === user.id) {
+        console.log("🔧 개발 환경: Admin 계정 자동 인식");
+        setIsAdmin(true);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("profiles")
         .select("role")
@@ -220,6 +227,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       }
 
       setIsAdmin(data?.role === "admin");
+      console.log("👑 Admin check 결과:", { userId: user.id, isAdmin: data?.role === "admin" });
     };
 
     const checkCurator = async () => {
@@ -414,7 +422,22 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     }
   }, [user, isCurator]);
 
-  // 초기 로드 시 localStorage 정리
+  // Admin/큐레이터/일반 사용자에 따른 표시 로직
+  const getDisplayUsername = () => {
+    if (isAdmin) {
+      return "admin"; // Admin은 항상 admin으로 표시
+    }
+    if (isCurator && curatorProfile?.username) {
+      return curatorProfile.username; // 큐레이터는 큐레이터 이름으로 표시
+    }
+    return user?.user_metadata?.username || "user"; // 일반 사용자는 user metadata로 표시
+  };
+
+  const getUserRole = () => {
+    if (isAdmin) return "admin";
+    if (isCurator) return "curator";
+    return "user";
+  };
   useEffect(() => {
     localStorage.removeItem("judo_custom_places");
     setCustomPlaces([]);
@@ -1020,12 +1043,20 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                     {!authLoading && user && (
                       <button
                         style={
-                          isCurator 
-                            ? styles.curatorInlineButton 
-                            : styles.userInlineButton
+                          getUserRole() === "admin" 
+                            ? styles.adminInlineButton 
+                            : getUserRole() === "curator"
+                              ? styles.curatorInlineButton 
+                              : styles.userInlineButton
                         }
                         onClick={() => {
-                          if (isCurator) {
+                          const userRole = getUserRole();
+                          console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
+                          
+                          if (userRole === "admin") {
+                            // Admin은 큐레이터 신청내역 페이지로 이동
+                            navigate("/admin/applications");
+                          } else if (userRole === "curator") {
                             // 큐레이터는 스튜디오 페이지로 이동
                             navigate("/studio");
                           } else {
@@ -1035,7 +1066,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                         }}
                         type="button"
                       >
-                        @{curatorProfile?.username || user.user_metadata?.username || "user"}
+                        @{getDisplayUsername()}
                       </button>
                     )}
                     
@@ -1530,6 +1561,44 @@ const styles = {
     boxShadow: floatingShadow,
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
+  },
+
+  curatorInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(46, 204, 113, 0.3)",
+    background: "rgba(46, 204, 113, 0.15)",
+    color: "#2ECC71",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+
+  adminInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(231, 76, 60, 0.3)",
+    background: "rgba(231, 76, 60, 0.15)",
+    color: "#E74C3C",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
   },
 
   curatorInlineButton: {
