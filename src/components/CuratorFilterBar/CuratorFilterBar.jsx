@@ -49,7 +49,8 @@ export default function CuratorFilterBar({
                   onProfileClick?.(curator);
                 } else {
                   // 이름 영역 (나머지)
-                  onToggle?.(curator.name);
+                  const curatorName = curator.username || curator.name;
+                  onToggle?.(curatorName);
                 }
               }}
             >

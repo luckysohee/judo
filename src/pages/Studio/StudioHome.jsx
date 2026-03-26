@@ -1163,58 +1163,69 @@ export default function StudioHome() {
   // DB 저장 함수
   const saveToDatabase = async (updatedPlace) => {
     try {
+      console.log("💾 curator_places 테이블 업데이트 시도:", updatedPlace.id);
+      
+      // is_public을 is_archived로 변환 (true=공개=false=archived, false=비공개=true=archived)
+      const isArchived = !updatedPlace.is_public;
+      
+      // curator_places 테이블 업데이트
       const { error } = await supabase
-        .from("places")
-        .update({ is_public: updatedPlace.is_public })
-        .eq("id", updatedPlace.id);
+        .from("curator_places")
+        .update({ is_archived: isArchived })
+        .eq("place_id", updatedPlace.id);
       
       if (error) {
-        console.error("❌ DB 저장 오류:", error);
+        console.error("❌ curator_places 저장 오류:", error);
         alert("저장에 실패했습니다: " + error.message);
       } else {
-        console.log("✅ DB 저장 성공:", updatedPlace);
+        console.log("✅ curator_places 저장 성공:", { placeId: updatedPlace.id, is_archived: isArchived });
         alert("공개/비공개 상태가 저장되었습니다!");
       }
     } catch (error) {
       console.error("❌ 저장 중 오류:", error);
-      alert("저장 중 오류가 발생했습니다: " + error.message);
+      alert("저장에 실패했습니다: " + error.message);
     }
   };
   
   // 섹션 변경 감지 및 저장 확인
   useEffect(() => {
-    if (activeSection !== previousSection && hasUnsavedChanges) {
-      const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
-      
-      if (shouldSave) {
-        console.log("✅ 저장 선택 - DB 저장 시작");
-        // 실제 DB 저장 로직
-        if (originalPlaceBeforeChange) {
-          const updatedPlace = myPlaces.find(p => p.id === originalPlaceBeforeChange.id);
-          if (updatedPlace) {
-            saveToDatabase(updatedPlace);
+    const handleSectionChange = async () => {
+      if (activeSection !== previousSection && hasUnsavedChanges) {
+        const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
+        
+        if (shouldSave) {
+          console.log("✅ 저장 선택 - DB 저장 시작");
+          // 실제 DB 저장 로직
+          if (originalPlaceBeforeChange) {
+            const updatedPlace = myPlaces.find(p => p.id === originalPlaceBeforeChange.id);
+            if (updatedPlace) {
+              await saveToDatabase(updatedPlace);
+              console.log("✅ 저장 완료 - 상태 초기화");
+            }
+          }
+        } else {
+          console.log("❌ 저장 안 함 선택 - 원상복구");
+          // 변경사항 취소하고 원래 상태로 복원
+          if (originalPlaceBeforeChange) {
+            setMyPlaces(prevPlaces => 
+              prevPlaces.map(place => 
+                place.id === originalPlaceBeforeChange.id 
+                  ? { ...place, is_public: originalPlaceBeforeChange.is_public }
+                  : place
+              )
+            );
+            console.log("🔄 원상복구 완료:", originalPlaceBeforeChange);
           }
         }
-      } else {
-        console.log("❌ 저장 안 함 선택 - 원상복구");
-        // 변경사항 취소하고 원래 상태로 복원
-        if (originalPlaceBeforeChange) {
-          setMyPlaces(prevPlaces => 
-            prevPlaces.map(place => 
-              place.id === originalPlaceBeforeChange.id 
-                ? { ...place, is_public: originalPlaceBeforeChange.is_public }
-                : place
-            )
-          );
-          console.log("🔄 원상복구 완료:", originalPlaceBeforeChange);
-        }
+        
+        setHasUnsavedChanges(false);
+        setOriginalPlaceBeforeChange(null);
       }
       
-      setHasUnsavedChanges(false);
-      setOriginalPlaceBeforeChange(null);
-    }
+      setPreviousSection(activeSection);
+    };
     
-    setPreviousSection(activeSection);
+    handleSectionChange();
   }, [activeSection, hasUnsavedChanges, previousSection, originalPlaceBeforeChange]);
   
   // 지도 크기 새로고침
@@ -1886,8 +1897,9 @@ export default function StudioHome() {
         console.log("✅ 불러온 장소 데이터:", placesData);
         
         // DB 데이터를 myPlaces 형식으로 변환
-        const formattedPlaces = placesData.map(place => {
-          console.log("🔍 DB 장소 데이터:", { id: place.id, name: place.name, is_public: place.is_public });
+        const formattedPlaces = curatorPlacesData.map(curatorPlace => {
+          const place = curatorPlace.places;
+          console.log("🔍 DB 장소 데이터:", { id: place.id, name: place.name, is_archived: curatorPlace.is_archived });
           
           return {
             id: place.id,
@@ -1901,7 +1913,7 @@ export default function StudioHome() {
             recommended_menu: place.recommended_menu || "",
             menu_reason: place.menu_reason || "",
             tags: place.tags || [],
-            is_public: place.is_public, // DB에서 가져온 is_public 값
+            is_public: !curatorPlace.is_archived, // is_archived를 is_public으로 변환 (false=공개=true, true=비공개=false)
             created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
           };
         });

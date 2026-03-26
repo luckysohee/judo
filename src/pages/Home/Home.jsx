@@ -375,6 +375,8 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           `)
           .eq("is_archived", false) // 비공개 추천 제외
           .order("created_at", { ascending: false });
+        
+        console.log("📋 curator_places 데이터:", { data, error, length: data?.length });
           
         if (error) {
           console.error("❌ 추천 로드 오류:", error);
@@ -536,6 +538,18 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     }
   }, []);
 
+  // 페이지 로드 시 selectedCurators 초기화
+  useEffect(() => {
+    console.log("🔄 페이지 로드 - selectedCurators 초기화");
+    setSelectedCurators([]);
+    setShowAll(true);
+    
+    // 큐레이터 데이터 확인
+    setTimeout(() => {
+      console.log("🔍 dbCurators 데이터:", dbCurators.map(c => ({ id: c.id, name: c.name })));
+    }, 1000);
+  }, []);
+
   // 상태 변화 감지
   useEffect(() => {
     console.log("🔄 상태 변화:", { showAll, selectedCurators, dbCuratorsLength: dbCurators.length });
@@ -641,24 +655,38 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       // 해당 장소를 추천한 큐레이터 목록 확인
       const placeCurators = place.curators || [];
       
+      console.log("🔍 장소 필터링 확인:", { 
+        placeName: place.name, 
+        placeCurators, 
+        selectedCurators 
+      });
+      
       // 선택된 큐레이터 중 한 명이라도 해당 장소를 추천했으면 표시
       const hasSelectedCurator = selectedCurators.some(selectedCurator => {
         // placeCurators 배열의 각 curatorId를 확인
         return placeCurators.some(curatorId => {
-          // curatorId를 이름으로 매핑
-          let curatorName = null;
+          // curatorId를 username으로 매핑
+          let curatorUsername = null;
           
-          if (curatorId === '43b3eb72-a835-4b5b-b305-da4708b53b5c') {
-            curatorName = 'solodrinker';
+          // 기존 하드코딩 매핑 (user_id 기준)
+          if (curatorId === '8cd3b6dd-42de-4bce-9867-0a395ddfd390') {
+            curatorUsername = 'solodrinker';
           } else if (curatorId === '2fba03a4-5a6d-43e2-a7d8-7c78fa8df752') {
-            curatorName = 'humblefetish';
+            curatorUsername = 'humblefetish';
           } else {
-            // dbCurators에서 찾기 (fallback)
+            // dbCurators에서 username으로 찾기
             const curator = dbCurators.find(c => c.id === curatorId);
-            curatorName = curator ? curator.name : null;
+            curatorUsername = curator ? curator.username : null;
           }
           
-          return curatorName === selectedCurator;
+          console.log("🔍 큐레이터 매핑:", { 
+            curatorId, 
+            curatorUsername, 
+            selectedCurator,
+            match: curatorUsername === selectedCurator
+          });
+          
+          return curatorUsername === selectedCurator;
         });
       });
       
@@ -1115,12 +1143,17 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
               allActive={showAll}
               onToggle={(name) => {
                 console.log("🔘 CuratorFilterBar onToggle 호출:", name);
+                console.log("🔍 현재 selectedCurators:", selectedCurators);
+                console.log("🔍 prev.includes(name):", selectedCurators.includes(name));
+                
                 setShowSavedOnly(false);
                 setSelectedCurators((prev) => {
-                  const next = prev.includes(name)
-                    ? prev.filter((c) => c !== name)
-                    : [...prev, name];
-                  console.log("🔄 selectedCurators 변경:", { prev, next });
+                  // undefined 제거
+                  const cleanPrev = prev.filter(item => item !== undefined);
+                  const next = cleanPrev.includes(name)
+                    ? cleanPrev.filter((c) => c !== name)
+                    : [...cleanPrev, name];
+                  console.log("🔄 selectedCurators 변경:", { prev: cleanPrev, next });
 
                   // 큐레이터를 선택하면 showAll을 false로 설정
                   if (next.length > 0) {
