@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-// import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
@@ -1145,7 +1145,7 @@ const sectionStyles = {
 
 export default function StudioHome() {
   const navigate = useNavigate();
-  // const { user } = useAuth(); // 임시로 제거
+  const { user } = useAuth(); // 인증된 사용자 정보 가져오기
   const mapRef = useRef(null); // 지도 ref 다시 추가
   
   // 상태 관리
@@ -1153,6 +1153,7 @@ export default function StudioHome() {
   const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
+  const [filterType, setFilterType] = useState("all"); // 필터 타입: all, public, private, curator
   
   // 변경사항 감지 상태
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1616,22 +1617,25 @@ export default function StudioHome() {
     }
   });
 
-  // 실제 통계 데이터 로드 함수
+  // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
     try {
-      // 등록된 장소 수
-      const { data: placesData, error: placesError } = await supabase
-        .from("places")
-        .select("id, likes, created_at")
-        .eq("user_id", userId);
+      // 등록된 장소 수 (연결 테이블 통해 조회)
+      const { data: placeCuratorsData, error: placesError } = await supabase
+        .from("place_curators")
+        .select(`
+          place_id,
+          places (created_at)
+        `)
+        .eq("curator_id", userId);
 
       if (placesError) {
         console.error("places load error:", placesError);
         return;
       }
 
-      const totalPlaces = placesData?.length || 0;
-      const totalLikes = placesData?.reduce((sum, place) => sum + (place.likes || 0), 0) || 0;
+      const totalPlaces = placeCuratorsData?.length || 0;
+      const totalLikes = 0; // likes 필드가 없으므로 0으로 설정
 
       // 이번 주/지난 주 통계 (실제 데이터 기반)
       const now = new Date();
@@ -1639,13 +1643,13 @@ export default function StudioHome() {
       const lastWeekStart = new Date(thisWeekStart);
       lastWeekStart.setDate(lastWeekStart.getDate() - 7);
 
-      const thisWeekPlaces = placesData?.filter(place => 
-        new Date(place.created_at) >= thisWeekStart
+      const thisWeekPlaces = placeCuratorsData?.filter(pc => 
+        pc.places && new Date(pc.places.created_at) >= thisWeekStart
       ).length || 0;
 
-      const lastWeekPlaces = placesData?.filter(place => 
-        new Date(place.created_at) >= lastWeekStart && 
-        new Date(place.created_at) < thisWeekStart
+      const lastWeekPlaces = placeCuratorsData?.filter(pc => 
+        pc.places && new Date(pc.places.created_at) >= lastWeekStart && 
+        new Date(pc.places.created_at) < thisWeekStart
       ).length || 0;
 
       // 등급 계산 (실제 장소 수 기반)
@@ -1658,17 +1662,17 @@ export default function StudioHome() {
 
       const stats = {
         placeCount: totalPlaces,
-        saveCount: totalLikes, // 좋아요 수를 저장 수로 사용
+        saveCount: totalLikes, // likes 필드가 없으므로 0
         followerCount: 0, // TODO: 팔로워 기능 구현 시 실제 데이터
         overlappingCurators: 0, // TODO: 중복 큐레이터 기능 구현 시 실제 데이터
         weeklyStats: {
           newPlaces: thisWeekPlaces,
-          newSaves: Math.floor(totalLikes * 0.1), // 추정치
+          newSaves: 0, // likes 필드가 없으므로 0
           newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
         },
         lastWeekStats: {
           newPlaces: lastWeekPlaces,
-          newSaves: Math.floor(totalLikes * 0.05), // 추정치
+          newSaves: 0, // likes 필드가 없으므로 0
           newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
         }
       };
@@ -1679,17 +1683,17 @@ export default function StudioHome() {
         ...stats
       }));
 
-      console.log("✅ 실제 통계 데이터 로드:", stats);
+      console.log("✅ 실제 통계 데이터 로드 (다대다):", stats);
     } catch (error) {
       console.error("stats load error:", error);
     }
   };
 
   useEffect(() => {
-    if (curatorProfile?.username) {
-      loadCuratorStats(curatorProfile.username);
+    if (user?.id) {
+      loadCuratorStats(user.id); // 실제 사용자 ID 전달
     }
-  }, [curatorProfile?.username, myPlaces.length]);
+  }, [user?.id, myPlaces.length]);
 
   useEffect(() => {
     loadStudioData();
@@ -1697,35 +1701,36 @@ export default function StudioHome() {
 
   const loadCuratorActivity = async (userId) => {
     try {
-      // 등록된 장소 수
-      const { data: placesData, error: placesError } = await supabase
-        .from("places")
-        .select("id, likes")
-        .eq("user_id", userId);
+      // 등록된 장소 수 (연결 테이블 통해 조회)
+      const { data: placeCuratorsData, error: placesError } = await supabase
+        .from("place_curators")
+        .select("place_id")
+        .eq("curator_id", userId);
 
       if (placesError) {
         console.error("places load error:", placesError);
-      } else {
-        const totalPlaces = placesData?.length || 0;
-        const totalLikes = placesData?.reduce((sum, place) => sum + (place.likes || 0), 0) || 0;
-        
-        // 큐레이터 테이블 업데이트
-        await supabase
-          .from("curators")
-          .update({ 
-            total_places: totalPlaces,
-            total_likes: totalLikes,
-            last_activity_at: new Date().toISOString()
-          })
-          .eq("user_id", userId);
-        
-        // 로컬 상태 업데이트
-        setCuratorProfile(prev => ({
-          ...prev,
-          total_places: totalPlaces,
-          total_likes: totalLikes
-        }));
+        return;
       }
+      
+      const totalPlaces = placeCuratorsData?.length || 0;
+      const totalLikes = 0; // likes 필드가 없으므로 0
+      
+      // 큐레이터 테이블 업데이트
+      await supabase
+        .from("curators")
+        .update({ 
+          total_places: totalPlaces,
+          total_likes: totalLikes,
+          last_activity_at: new Date().toISOString()
+        })
+        .eq("user_id", userId);
+      
+      // 로컬 상태 업데이트
+      setCuratorProfile(prev => ({
+        ...prev,
+        total_places: totalPlaces,
+        total_likes: totalLikes
+      }));
     } catch (error) {
       console.error("activity load error:", error);
     }
@@ -1808,13 +1813,72 @@ export default function StudioHome() {
       }
       
       console.log("📂 스튜디오 데이터 로딩 시작...");
+      console.log("🔍 현재 사용자 ID:", user?.id);
       
-      // Supabase에서 저장된 장소 불러오기
-      const { data: placesData, error: placesError } = await supabase
-        .from("places")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1000); // 캐시 방지를 위한 limit 추가
+      // Supabase에서 저장된 장소 불러오기 (curator_places 기준)
+      const { data: curatorPlacesData, error: placesError } = await supabase
+        .from("curator_places")
+        .select(`
+          *,
+          places (*)
+        `)
+        .eq("curator_id", user.id) // 현재 사용자의 추천만 필터링
+        .eq("is_archived", false)
+        .order("created_at", { ascending: false });
+
+      // 장소 데이터 추출
+      const placesData = curatorPlacesData?.map(cp => cp.places).filter(Boolean) || [];
+
+      console.log("🔍 큐레이터 추천 쿼리 결과:", { data: curatorPlacesData, error: placesError });
+
+      // 만약 데이터가 없다면, 기존 방식으로도 확인
+      if (!placesData || placesData.length === 0) {
+        console.log("⚠️ 다대다 방식으로 장소 없음, 기존 방식으로 확인 중...");
+        
+        // 기존 방식으로도 확인 (user_id 필드가 아직 있는 경우)
+        const { data: oldWayData, error: oldWayError } = await supabase
+          .from("places")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+        
+        if (oldWayData && oldWayData.length > 0) {
+          console.log("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
+          
+          // 기존 방식으로 데이터 변환
+          const formattedPlaces = oldWayData.map(place => ({
+            id: place.id,
+            name: place.name,
+            address: place.address || place.name,
+            latitude: place.lat,
+            longitude: place.lng,
+            category: place.category || "미분류",
+            alcohol_type: place.alcohol_type || "",
+            atmosphere: place.atmosphere || "",
+            recommended_menu: place.recommended_menu || "",
+            menu_reason: place.menu_reason || "",
+            tags: place.tags || [],
+            is_public: place.is_public,
+            created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+          }));
+          
+          setMyPlaces(formattedPlaces);
+          console.log("✅ myPlaces 업데이트 완료 (기존 방식):", formattedPlaces);
+          setLoading(false);
+          return;
+        }
+        
+        // 완전히 없는 경우
+        console.log("🔍 모든 장소 확인 중...");
+        const { data: allPlaces, error: allPlacesError } = await supabase
+          .from("places")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(10);
+        
+        console.log("🔍 모든 장소 데이터:", allPlaces);
+        console.log("🔍 모든 장소 user_id:", allPlaces?.map(p => ({ id: p.id, name: p.name, user_id: p.user_id })));
+      }
 
       if (placesError) {
         console.error("❌ 장소 로딩 오류:", placesError);
@@ -1896,9 +1960,7 @@ export default function StudioHome() {
         }
         // 실제 저장인 경우 Supabase에 저장
         // 실제 인증된 사용자 ID 사용
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        
-        if (authError || !user) {
+        if (!user) {
           alert("로그인이 필요합니다.");
           return;
         }
@@ -1951,48 +2013,72 @@ export default function StudioHome() {
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
-            comment: formData.menu_reason || null,
-            tags: formData.tags || [],
-            region: "지정안됨",
-            saved_count: 0
+            category: "미분류"
           };
           
-          console.log("📝 저장할 데이터:", newPlaceData);
+          console.log("📝 저장할 장소 데이터:", newPlaceData);
           
-          const { data, error } = await supabase
+          // 1. 장소 마스터에 저장
+          const { data: placeData, error: placeError } = await supabase
             .from("places")
             .insert([newPlaceData])
             .select();
 
-          if (error) {
-            console.error("❌ 장소 저장 오류:", error);
-            alert(`장소 저장에 실패했습니다: ${error.message}`);
+          if (placeError) {
+            console.error("❌ 장소 저장 오류:", placeError);
+            alert(`장소 저장에 실패했습니다: ${placeError.message}`);
             return;
           }
 
-          console.log("✅ 장소 저장 성공:", data);
-        
-        // 성공적으로 저장된 경우 (새로 추가만 해당)
-        if (!editingPlaceId && data && data.length > 0) {
-          // myPlaces에 새 장소 추가
-          const savedPlace = {
-            id: data[0].id,
-            name: data[0].name,
-            address: data[0].address,
-            latitude: data[0].lat,
-            longitude: data[0].lng,
-            category: formData.category,
-            alcohol_type: formData.alcohol_type,
-            atmosphere: formData.atmosphere,
-            recommended_menu: formData.recommended_menu,
-            menu_reason: formData.menu_reason,
-            tags: formData.tags || [], // 폼의 태그 데이터 사용
-            is_public: formData.is_public,
-            created_at: data[0].created_at ? new Date(data[0].created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-          };
+          console.log("✅ 장소 마스터 저장 성공:", placeData);
           
-          setMyPlaces(prev => [savedPlace, ...prev]);
-          console.log("✅ 장소 리스트에 추가 완료:", savedPlace);
+          // 2. 큐레이터 추천에 저장
+          if (placeData && placeData[0]) {
+            const curatorPlaceData = {
+              curator_id: user.id,
+              place_id: placeData[0].id,
+              one_line_reason: formData.menu_reason || "",
+              tags: formData.tags || [],
+              alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
+              moods: formData.atmosphere ? [formData.atmosphere] : []
+            };
+            
+            const { data: curatorData, error: curatorError } = await supabase
+              .from("curator_places")
+              .insert([curatorPlaceData])
+              .select();
+              
+            if (curatorError) {
+              console.error("❌ 큐레이터 추천 저장 오류:", curatorError);
+              alert(`큐레이터 추천 저장에 실패했습니다: ${curatorError.message}`);
+              return; // 오류가 있으면 중단
+            } else {
+              console.log("✅ 큐레이터 추천 저장 성공:", curatorData);
+            }
+            
+            // 성공적으로 저장된 경우
+            if (!editingPlaceId && placeData && placeData.length > 0) {
+              // myPlaces에 새 장소 추가
+              const savedPlace = {
+                id: placeData[0].id,
+                name: placeData[0].name,
+                address: placeData[0].address,
+                latitude: placeData[0].lat,
+                longitude: placeData[0].lng,
+                category: placeData[0].category || "미분류",
+                alcohol_type: formData.alcohol_type || "",
+                atmosphere: formData.atmosphere || "",
+                recommended_menu: "",
+                menu_reason: formData.menu_reason || "",
+                tags: formData.tags || [],
+                is_public: true,
+                created_at: new Date().toISOString().split('T')[0]
+              };
+              
+              setMyPlaces(prev => [savedPlace, ...prev]);
+              console.log("✅ myPlaces에 새 장소 추가:", savedPlace);
+            }
+          }
           
           // 폼 초기화
           setFormData({
@@ -2016,7 +2102,6 @@ export default function StudioHome() {
           
           // "잔 리스트" 탭으로 자동 이동
           setActiveSection("list");
-        }
         }
       } else {
         // 임시저장인 경우
@@ -4331,47 +4416,7 @@ export default function StudioHome() {
                 </div>
               </div>
               
-              {/* CSS 애니메이션 스타일 */}
-              <style jsx>{`
-                @keyframes bounce {
-                  0% {
-                    transform: translateY(20px) scale(0.8);
-                    opacity: 0;
-                  }
-                  50% {
-                    transform: translateY(-5px) scale(1.1);
-                  }
-                  100% {
-                    transform: translateY(0) scale(1);
-                    opacity: 1;
-                  }
-                }
-                
-                @keyframes fadeInUp {
-                  0% {
-                    transform: translateX(-50%) translateY(10px);
-                    opacity: 0;
-                  }
-                  100% {
-                    transform: translateX(-50%) translateY(0);
-                    opacity: 1;
-                  }
-                }
-                
-                @keyframes lineDraw {
-                  0% {
-                    stroke-dashoffset: 300;
-                    opacity: 0;
-                  }
-                  50% {
-                    opacity: 0.5;
-                  }
-                  100% {
-                    stroke-dashoffset: 0;
-                    opacity: 1;
-                  }
-                }
-              `}</style>
+              {/* CSS 애니메이션 스타일 - 완전히 제거 */}
             </div>
             
             <div style={{ 
