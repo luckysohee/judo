@@ -52,6 +52,7 @@ export default function Home() {
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [detailPlace, setDetailPlace] = useState(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
+  const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
   const [folders, setFolders] = useState([]);
   const [savedMap, setSavedMap] = useState({});
@@ -60,7 +61,7 @@ export default function Home() {
   const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
-  const [showAll, setShowAll] = useState(false); // 기본값을 false로 변경
+  const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
 
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
@@ -444,37 +445,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     };
   }, [authLoading, user?.id]);
 
-  // 롱프레스 타이머
-  const pressTimerRef = useRef(null);
-
-  // 롱프레스 핸들러
-  const handleCuratorMouseDown = () => {
-    pressTimerRef.current = setTimeout(() => {
-      setShowFollowModal(true);
-      navigator.vibrate && navigator.vibrate(50); // 진동 피드백
-    }, 800); // 0.8초
-  };
-
-  const handleCuratorMouseUp = () => {
-    clearTimeout(pressTimerRef.current);
-  };
-
-  const handleCuratorMouseLeave = () => {
-    clearTimeout(pressTimerRef.current);
-  };
-
-  // 터치 이벤트 핸들러 (모바일)
-  const handleCuratorTouchStart = () => {
-    pressTimerRef.current = setTimeout(() => {
-      setShowFollowModal(true);
-      navigator.vibrate && navigator.vibrate(50);
-    }, 800);
-  };
-
-  const handleCuratorTouchEnd = () => {
-    clearTimeout(pressTimerRef.current);
-  };
-
   // 큐레이터 프로필 로드
   useEffect(() => {
     if (user && isCurator) {
@@ -559,16 +529,17 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       localStorage.setItem("judo_has_visited", "true");
       console.log("🎯 최초 방문: 전체 선택");
     } else {
-      // 재방문이면 선택 해제
-      setShowAll(false);
+      // 재방문이면 전체 선택 상태로 시작
+      setShowAll(true);
       setSelectedCurators([]);
-      console.log("🎯 재방문: 선택 해제");
+      console.log("🎯 재방문: 전체 선택 상태로 시작");
     }
   }, []);
 
   // 상태 변화 감지
   useEffect(() => {
     console.log("🔄 상태 변화:", { showAll, selectedCurators, dbCuratorsLength: dbCurators.length });
+    console.log("📋 dbCurators 상세:", dbCurators);
   }, [showAll, selectedCurators, dbCurators]);
 
   const refreshStorage = () => {
@@ -649,29 +620,46 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       return filtered;
     }
     
-    // 큐레이터가 선택되지 않았으면 빈 배열
+    // 큐레이터가 선택되지 않았으면
     if (selectedCurators.length === 0) {
-      console.log("🔍 선택된 큐레이터 없음 - 빈 배열 반환");
-      return [];
+      if (showAll) {
+        // showAll이 true일 때만 모든 장소 표시
+        console.log("🔍 선택된 큐레이터 없음 - showAll: true, 모든 장소 표시");
+        return dbPlaces.filter(place => {
+          // curatorCount가 1 이상인 장소만 표시 (적어도 한 명의 큐레이터가 추천)
+          return place.curatorCount && place.curatorCount > 0;
+        });
+      } else {
+        // showAll이 false이면 아무것도 표시 안함
+        console.log("🔍 선택된 큐레이터 없음 - showAll: false, 아무것도 표시 안함");
+        return [];
+      }
     }
     
     // 선택된 큐레이터에 따라 필터링
-    console.log("🔍 선택된 큐레이터 필터링:", { selectedCurators, dbPlacesLength: dbPlaces.length });
-    
     const filtered = dbPlaces.filter((place) => {
       // 해당 장소를 추천한 큐레이터 목록 확인
       const placeCurators = place.curators || [];
       
       // 선택된 큐레이터 중 한 명이라도 해당 장소를 추천했으면 표시
       const hasSelectedCurator = selectedCurators.some(selectedCurator => {
-        // selectedCurator는 큐레이터 ID 또는 이름
-        return placeCurators.includes(selectedCurator);
-      });
-      
-      console.log("📍 장소 확인:", place.name, { 
-        placeCurators, 
-        selectedCurators, 
-        hasSelectedCurator 
+        // placeCurators 배열의 각 curatorId를 확인
+        return placeCurators.some(curatorId => {
+          // curatorId를 이름으로 매핑
+          let curatorName = null;
+          
+          if (curatorId === '43b3eb72-a835-4b5b-b305-da4708b53b5c') {
+            curatorName = 'solodrinker';
+          } else if (curatorId === '2fba03a4-5a6d-43e2-a7d8-7c78fa8df752') {
+            curatorName = 'humblefetish';
+          } else {
+            // dbCurators에서 찾기 (fallback)
+            const curator = dbCurators.find(c => c.id === curatorId);
+            curatorName = curator ? curator.name : null;
+          }
+          
+          return curatorName === selectedCurator;
+        });
       });
       
       return hasSelectedCurator;
@@ -882,6 +870,20 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
 
   // 팔로우 모달에 표시할 큐레이터 정보
   const getModalCurator = () => {
+    if (selectedCurator) {
+      // 선택된 큐레이터 정보 사용
+      return {
+        username: selectedCurator.name,
+        displayName: selectedCurator.displayName || selectedCurator.name,
+        level: 2, // Local Curator (임시)
+        saveCount: 60, // 임시 데이터
+        placeCount: 9, // 임시 데이터
+        followerCount: 123, // 임시 데이터
+        bio: selectedCurator.bio || "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요.",
+        avatar: selectedCurator.avatar
+      };
+    }
+    
     // 일반 사용자인 경우: 첫번째 큐레이터 표시
     if (!curatorProfile && dbCurators.length > 0) {
       const firstCurator = dbCurators[0];
@@ -941,41 +943,62 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           >
             {/* 큐레이터 프로필 정보 */}
             <div style={{ marginBottom: "20px" }}>
-              <h3 style={{ margin: "0 0 8px 0", fontSize: "16px", color: "#333" }}>
-                🎯 큐레이터 프로필
-              </h3>
-              
-              {/* @큐레이터 이름 */}
-              <div style={{ 
-                fontSize: "18px", 
-                fontWeight: "bold", 
-                color: "#2ECC71",
-                marginBottom: "8px"
-              }}>
-                @{testCurator.username}
-              </div>
-              
-              {/* 큐레이터 등급 */}
-              <div style={{ 
-                fontSize: "14px", 
-                color: "#666",
-                marginBottom: "8px"
-              }}>
-                {testCurator.level >= 4 ? "👑 Top Curator" : 
-                 testCurator.level >= 3 ? "🏆 Trusted Curator" : 
-                 testCurator.level >= 2 ? "⭐ Local Curator" : "🌱 New Drinker"}
+              {/* 프로필 이미지와 이름 */}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                {testCurator.avatar ? (
+                  <img
+                    src={testCurator.avatar}
+                    alt={testCurator.displayName}
+                    style={{
+                      width: "48px",
+                      height: "48px",
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      border: "2px solid #2ECC71"
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "50%",
+                    backgroundColor: "#2ECC71",
+                    color: "white",
+                    fontSize: "18px",
+                    fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "2px solid #2ECC71"
+                  }}>
+                    {testCurator.displayName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", color: "#333", fontWeight: "bold" }}>
+                    @{testCurator.username}
+                  </h3>
+                  <div style={{ 
+                    fontSize: "14px", 
+                    color: "666",
+                    fontWeight: "500"
+                  }}>
+                    {testCurator.level >= 4 ? "👑 Top Curator" : 
+                     testCurator.level >= 3 ? "🏆 Trusted Curator" : 
+                     testCurator.level >= 2 ? "⭐ Local Curator" : "🌱 New Drinker"}
+                  </div>
+                </div>
               </div>
               
               {/* 자기 소개글 */}
               <div style={{ 
-                fontSize: "13px", 
+                fontSize: "14px", 
                 color: "#555",
-                lineHeight: "1.4",
-                marginBottom: "15px",
-                padding: "10px",
+                lineHeight: "1.5",
+                marginBottom: "16px",
+                padding: "12px",
                 backgroundColor: "#f8f9fa",
-                borderRadius: "6px",
-                fontStyle: "italic"
+                borderRadius: "8px"
               }}>
                 "{testCurator.bio}"
               </div>
@@ -984,10 +1007,10 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
               <div style={{ 
                 display: "grid", 
                 gridTemplateColumns: "repeat(3, 1fr)", 
-                gap: "15px",
+                gap: "12px",
                 marginBottom: "20px"
               }}>
-                <div>
+                <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: "20px", fontWeight: "bold", color: "#E74C3C" }}>
                     {testCurator.saveCount}
                   </div>
@@ -995,15 +1018,15 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                     저장수
                   </div>
                 </div>
-                <div>
+                <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: "20px", fontWeight: "bold", color: "#F39C12" }}>
                     {testCurator.placeCount}
                   </div>
                   <div style={{ fontSize: "11px", color: "#999" }}>
-                    잔 개수
+                    추천 장소
                   </div>
                 </div>
-                <div>
+                <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: "20px", fontWeight: "bold", color: "#9B59B6" }}>
                     {testCurator.followerCount}
                   </div>
@@ -1020,11 +1043,11 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 <div
                   style={{
                     width: "100%",
-                    padding: "14px",
+                    padding: "16px",
                     backgroundColor: "#e9ecef",
                     color: "#6c757d",
                     border: "none",
-                    borderRadius: "8px",
+                    borderRadius: "10px",
                     fontSize: "16px",
                     fontWeight: "bold",
                     textAlign: "center",
@@ -1037,18 +1060,27 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 <button
                   style={{
                     width: "100%",
-                    padding: "14px",
+                    padding: "16px",
                     backgroundColor: "#2ECC71",
                     color: "white",
                     border: "none",
-                    borderRadius: "8px",
+                    borderRadius: "10px",
                     fontSize: "16px",
                     fontWeight: "bold",
                     cursor: "pointer",
-                    transition: "background-color 0.2s ease"
+                    transition: "all 0.2s ease",
+                    boxShadow: "0 4px 12px rgba(46, 204, 113, 0.3)"
                   }}
-                  onMouseOver={(e) => e.target.style.backgroundColor = "#27AE60"}
-                  onMouseOut={(e) => e.target.style.backgroundColor = "#2ECC71"}
+                  onMouseOver={(e) => {
+                    e.target.style.backgroundColor = "#27AE60";
+                    e.target.style.transform = "translateY(-1px)";
+                    e.target.style.boxShadow = "0 6px 16px rgba(46, 204, 113, 0.4)";
+                  }}
+                  onMouseOut={(e) => {
+                    e.target.style.backgroundColor = "#2ECC71";
+                    e.target.style.transform = "translateY(0)";
+                    e.target.style.boxShadow = "0 4px 12px rgba(46, 204, 113, 0.3)";
+                  }}
                   onClick={() => handleFollow(testCurator.username)}
                 >
                   ⭐ 팔로우하기
@@ -1105,14 +1137,15 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
               onSelectAll={() => {
                 setShowSavedOnly(false);
                 setSelectedCurators([]);
-                setShowAll(prev => !prev); // 토글 기능으로 복원
+                setShowAll(prev => !prev); // 토글 기능
                 console.log("🌍 전체 선택 버튼 토글 - showAll:", !showAll);
               }}
-              onMouseDown={handleCuratorMouseDown}
-              onMouseUp={handleCuratorMouseUp}
-              onMouseLeave={handleCuratorMouseLeave}
-              onTouchStart={handleCuratorTouchStart}
-              onTouchEnd={handleCuratorTouchEnd}
+              onProfileClick={(curator) => {
+                console.log("👤 큐레이터 프로필 클릭:", curator);
+                // 선택된 큐레이터 정보 설정하고 모달 표시
+                setSelectedCurator(curator);
+                setShowFollowModal(true);
+              }}
             />
           </div>
         </div>
@@ -1682,63 +1715,6 @@ const styles = {
     boxShadow: floatingShadow,
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
-  },
-
-  curatorInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(46, 204, 113, 0.3)",
-    background: "rgba(46, 204, 113, 0.15)",
-    color: "#2ECC71",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-  },
-
-  adminInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(231, 76, 60, 0.3)",
-    background: "rgba(231, 76, 60, 0.15)",
-    color: "#E74C3C",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-  },
-
-  curatorInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(46, 204, 113, 0.3)",
-    background: "rgba(46, 204, 113, 0.15)",
-    color: "#2ECC71",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
   },
 
   userInlineButton: {
