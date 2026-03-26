@@ -1477,7 +1477,8 @@ export default function StudioHome() {
     "🔥 특징": ["야장", "바테이블", "늦게까지", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
     "🎭 감성": ["노포감성", "로컬맛집", "감성술집", "숨은맛집"], // 분위기성 태그 제거
     "🍽 안주": ["국물안주", "해산물강함", "고기안주", "가벼운안주", "안주다양"],
-    "🧭 공간": ["단체가능", "테이블넓음", "예약필수", "웨이팅짧음", "2차추천"]
+    "🧭 공간": ["단체가능", "테이블넓음", "예약필수", "웨이팅짧음", "2차추천", "바테이블(닷지)"],
+    "🚽 화장실": ["실내 화장실", "외부 화장실", "위생적인", "비위생적인"]
   };
 
   // 모든 태그를 평탄화한 리스트 (자동완성용)
@@ -1633,7 +1634,7 @@ export default function StudioHome() {
     try {
       // 등록된 장소 수 (연결 테이블 통해 조회)
       const { data: placeCuratorsData, error: placesError } = await supabase
-        .from("place_curators")
+        .from("curator_places")
         .select(`
           place_id,
           places (created_at)
@@ -1714,7 +1715,7 @@ export default function StudioHome() {
     try {
       // 등록된 장소 수 (연결 테이블 통해 조회)
       const { data: placeCuratorsData, error: placesError } = await supabase
-        .from("place_curators")
+        .from("curator_places")
         .select("place_id")
         .eq("curator_id", userId);
 
@@ -2030,8 +2031,9 @@ export default function StudioHome() {
           
           console.log("📝 저장할 장소 데이터:", newPlaceData);
           
-          // 1. 장소 마스터에 저장
-          const { data: placeData, error: placeError } = await supabase
+          // 1. 장소 마스터에 저장 (중복 확인 제거)
+          console.log("📝 새 장소 저장:", newPlaceData);
+          const { data: newPlace, error: placeError } = await supabase
             .from("places")
             .insert([newPlaceData])
             .select();
@@ -2041,19 +2043,23 @@ export default function StudioHome() {
             alert(`장소 저장에 실패했습니다: ${placeError.message}`);
             return;
           }
+          
+          const placeData = { data: newPlace };
 
           console.log("✅ 장소 마스터 저장 성공:", placeData);
           
           // 2. 큐레이터 추천에 저장
-          if (placeData && placeData[0]) {
+          if (placeData && placeData.data && placeData.data[0]) {
             const curatorPlaceData = {
               curator_id: user.id,
-              place_id: placeData[0].id,
+              place_id: placeData.data[0].id,
               one_line_reason: formData.menu_reason || "",
               tags: formData.tags || [],
               alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
               moods: formData.atmosphere ? [formData.atmosphere] : []
             };
+            
+            console.log("📝 저장할 curator_places 데이터:", curatorPlaceData);
             
             const { data: curatorData, error: curatorError } = await supabase
               .from("curator_places")
@@ -2061,35 +2067,40 @@ export default function StudioHome() {
               .select();
               
             if (curatorError) {
-              console.error("❌ 큐레이터 추천 저장 오류:", curatorError);
+              console.error("❌ curator_places 저장 오류:", curatorError);
               alert(`큐레이터 추천 저장에 실패했습니다: ${curatorError.message}`);
-              return; // 오류가 있으면 중단
-            } else {
-              console.log("✅ 큐레이터 추천 저장 성공:", curatorData);
+              return;
             }
             
-            // 성공적으로 저장된 경우
-            if (!editingPlaceId && placeData && placeData.length > 0) {
-              // myPlaces에 새 장소 추가
-              const savedPlace = {
-                id: placeData[0].id,
-                name: placeData[0].name,
-                address: placeData[0].address,
-                latitude: placeData[0].lat,
-                longitude: placeData[0].lng,
-                category: placeData[0].category || "미분류",
-                alcohol_type: formData.alcohol_type || "",
-                atmosphere: formData.atmosphere || "",
-                recommended_menu: "",
-                menu_reason: formData.menu_reason || "",
-                tags: formData.tags || [],
-                is_public: true,
-                created_at: new Date().toISOString().split('T')[0]
-              };
-              
-              setMyPlaces(prev => [savedPlace, ...prev]);
-              console.log("✅ myPlaces에 새 장소 추가:", savedPlace);
-            }
+            console.log("✅ curator_places 저장 성공:", curatorData);
+            alert("장소가 성공적으로 추가되었습니다!");
+            
+            // 3. myPlaces에 새 장소 추가 (curator_places 데이터 기준)
+            const newPlaceForList = {
+              id: curatorData[0].id,
+              place_id: placeData.data[0].id,
+              name: formData.name_address,
+              address: formData.name_address,
+              latitude: formData.latitude,
+              longitude: formData.longitude,
+              category: formData.category || "미분류",
+              alcohol_type: formData.alcohol_type || "",
+              atmosphere: formData.atmosphere || "",
+              recommended_menu: formData.recommended_menu || "",
+              menu_reason: formData.menu_reason || "",
+              tags: formData.tags || [],
+              is_public: true, // 기본 공개
+              is_archived: false, // curator_places 기준
+              created_at: new Date().toISOString().split('T')[0],
+              places: placeData[0] // places 테이블 데이터 포함
+            };
+            
+            console.log("📝 myPlaces에 추가할 데이터:", newPlaceForList);
+            setMyPlaces(prev => {
+              const updated = [newPlaceForList, ...prev];
+              console.log("✅ myPlaces 업데이트 완료:", updated.length, "개");
+              return updated;
+            });
           }
           
           // 폼 초기화
@@ -3068,6 +3079,7 @@ export default function StudioHome() {
               <option value="막걸리">막걸리</option>
               <option value="하이볼">하이볼</option>
               <option value="위스키">위스키</option>
+              <option value="사케">사케</option>
               <option value="칵테일">칵테일</option>
             </select>
           </div>
