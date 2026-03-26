@@ -1596,9 +1596,14 @@ export default function StudioHome() {
     name: "노포킬러", // 검색용 표시 이름
     username: "nopokiller", // @고유이름 (개인 주소)
     displayName: "노포킬러", // 홈에서 표시될 이름
-    bio: "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요.",
-    instagram: "@nopokiller", // 인스타그램 아이디
-    image: null // 프로필 이미지 URL
+    bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
+    instagram: "", // 인스타그램 연동
+    grade: "bronze", // 등급: bronze, silver, gold, platinum, diamond
+    status: "active", // 상태: active, warning, suspended, inactive
+    total_places: 0, // 등록 장소 수
+    total_likes: 0, // 총 좋아요 수
+    warning_count: 0, // 경고 횟수
+    created_at: new Date().toISOString() // 큐레이터 시작일
   });
 
   // 큐레이터 통계 상태
@@ -1703,6 +1708,42 @@ export default function StudioHome() {
     loadStudioData();
   }, []);
 
+  const loadCuratorActivity = async (userId) => {
+    try {
+      // 등록된 장소 수
+      const { data: placesData, error: placesError } = await supabase
+        .from("places")
+        .select("id, likes")
+        .eq("user_id", userId);
+
+      if (placesError) {
+        console.error("places load error:", placesError);
+      } else {
+        const totalPlaces = placesData?.length || 0;
+        const totalLikes = placesData?.reduce((sum, place) => sum + (place.likes || 0), 0) || 0;
+        
+        // 큐레이터 테이블 업데이트
+        await supabase
+          .from("curators")
+          .update({ 
+            total_places: totalPlaces,
+            total_likes: totalLikes,
+            last_activity_at: new Date().toISOString()
+          })
+          .eq("user_id", userId);
+        
+        // 로컬 상태 업데이트
+        setCuratorProfile(prev => ({
+          ...prev,
+          total_places: totalPlaces,
+          total_likes: totalLikes
+        }));
+      }
+    } catch (error) {
+      console.error("activity load error:", error);
+    }
+  };
+
   const loadStudioData = async () => {
     try {
       setLoading(true);
@@ -1751,7 +1792,12 @@ export default function StudioHome() {
           username: user.user_metadata?.username || user.email?.split('@')[0],
           display_name: user.user_metadata?.display_name || "큐레이터",
           bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
-          image: null
+          image: null,
+          grade: "bronze",
+          status: "active",
+          total_places: 0,
+          total_likes: 0,
+          warning_count: 0
         };
         
         console.log("📂 프로필 데이터 로드:", currentUser);
@@ -1761,8 +1807,17 @@ export default function StudioHome() {
           username: currentUser.username,
           displayName: currentUser.display_name,
           bio: currentUser.bio,
-          image: currentUser.image
+          image: currentUser.image,
+          grade: currentUser.grade || "bronze",
+          status: currentUser.status || "active",
+          total_places: currentUser.total_places || 0,
+          total_likes: currentUser.total_likes || 0,
+          warning_count: currentUser.warning_count || 0,
+          created_at: currentUser.created_at || prev.created_at
         }));
+
+        // 실제 활동 데이터 로드
+        await loadCuratorActivity(user.id);
       }
       
       console.log("📂 스튜디오 데이터 로딩 시작...");
@@ -3768,7 +3823,10 @@ export default function StudioHome() {
                         fontSize: "18px",
                         filter: "grayscale(0%) brightness(1.2)"
                       }}>
-                        {curatorStats.level >= 4 ? "👑" : curatorStats.level >= 3 ? "🏆" : curatorStats.level >= 2 ? "⭐" : "🌱"}
+                        {curatorProfile.grade === "diamond" ? "👑" : 
+                         curatorProfile.grade === "platinum" ? "🏆" : 
+                         curatorProfile.grade === "gold" ? "⭐" : 
+                         curatorProfile.grade === "silver" ? "🌟" : "🌱"}
                       </span>
                       <div>
                         <div style={{ 
@@ -3777,25 +3835,47 @@ export default function StudioHome() {
                           fontWeight: "bold",
                           marginBottom: "2px"
                         }}>
-                          {curatorStats.level >= 4 ? "Top Curator" : 
-                           curatorStats.level >= 3 ? "Trusted Curator" : 
-                           curatorStats.level >= 2 ? "Local Curator" : "New Drinker"}
+                          {curatorProfile.grade === "diamond" ? "다이아몬드" : 
+                           curatorProfile.grade === "platinum" ? "플래티넘" : 
+                           curatorProfile.grade === "gold" ? "골드" : 
+                           curatorProfile.grade === "silver" ? "실버" : "브론즈"} 큐레이터
                         </div>
                         <div style={{ color: "#999", fontSize: "12px" }}>
-                          {Math.max(0, 10 - myPlaces.length) === 0 ? 
-                            "🏆 거의 다음 등급입니다" : 
-                            `🔥 다음 등급까지 ${Math.max(0, 10 - myPlaces.length)}잔 남음`}
+                          등록 장소 {curatorProfile.total_places || 0}개 · 좋아요 {curatorProfile.total_likes || 0}개
                         </div>
                       </div>
                     </div>
+                    
+                    {/* 큐레이터 상태 */}
                     <div style={{ 
-                      fontSize: "11px", 
-                      color: "#666",
-                      marginBottom: "8px"
+                      display: "flex", 
+                      alignItems: "center", 
+                      gap: "8px",
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      backgroundColor: curatorProfile.status === "active" ? "#1a3d2a" :
+                                       curatorProfile.status === "warning" ? "#3d2a1a" :
+                                       curatorProfile.status === "suspended" ? "#3d1a1a" : "#2a2a2a"
                     }}>
-                      {curatorStats.level >= 4 ? "잔 50개+, 저장 1000+, 팔로워 100+" : 
-                       curatorStats.level >= 3 ? "잔 20개+, 저장 100+" : 
-                       curatorStats.level >= 2 ? "잔 10개+" : "시작 단계"}
+                      <span style={{
+                        fontSize: "12px",
+                        color: curatorProfile.status === "active" ? "#2ECC71" :
+                               curatorProfile.status === "warning" ? "#F39C12" :
+                               curatorProfile.status === "suspended" ? "#E74C3C" : "#95A5A6"
+                      }}>
+                        {curatorProfile.status === "active" ? "✅ 활동중" :
+                         curatorProfile.status === "warning" ? "⚠️ 경고" :
+                         curatorProfile.status === "suspended" ? "🚫 활동중지" : "💤 휴면"}
+                      </span>
+                      {curatorProfile.warning_count > 0 && (
+                        <span style={{ 
+                          color: "#F39C12", 
+                          fontSize: "11px",
+                          fontWeight: "bold"
+                        }}>
+                          경고 {curatorProfile.warning_count}회
+                        </span>
+                      )}
                     </div>
                   </div>
                   

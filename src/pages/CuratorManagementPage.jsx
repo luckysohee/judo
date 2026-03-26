@@ -105,7 +105,18 @@ export default function CuratorManagementPage() {
         return;
       }
 
-      setCuratorProfile(curatorData);
+      // 기본값 설정 (grade, status가 없는 경우)
+      const normalizedCuratorData = {
+        ...curatorData,
+        grade: curatorData.grade || 'bronze',
+        status: curatorData.status || 'active',
+        warning_count: curatorData.warning_count || 0,
+        total_places: curatorData.total_places || 0,
+        total_likes: curatorData.total_likes || 0,
+        last_activity_at: curatorData.last_activity_at || curatorData.created_at
+      };
+
+      setCuratorProfile(normalizedCuratorData);
 
       // 사용자 프로필 정보
       const { data: userData, error: userError } = await supabase
@@ -120,6 +131,9 @@ export default function CuratorManagementPage() {
 
       setCurator(userData);
 
+      // 실제 활동 데이터 로드
+      await loadCuratorActivity(userId);
+
       // 신청 정보 (location.state에서 가져오기)
       if (location.state?.application) {
         console.log("신청 정보:", location.state.application);
@@ -128,6 +142,49 @@ export default function CuratorManagementPage() {
     } catch (error) {
       console.error("curator load error:", error);
       setErrorMessage(error?.message || "큐레이터 정보를 불러오지 못했습니다.");
+    }
+  };
+
+  const loadCuratorActivity = async (userId) => {
+    try {
+      // 등록된 장소 수
+      const { data: placesData, error: placesError } = await supabase
+        .from("places")
+        .select("id, created_at")
+        .eq("user_id", userId);
+
+      if (placesError) {
+        console.error("places load error:", placesError);
+      } else {
+        const totalPlaces = placesData?.length || 0;
+        
+        // 큐레이터 테이블 업데이트 (total_places)
+        await supabase
+          .from("curators")
+          .update({ total_places: totalPlaces })
+          .eq("user_id", userId);
+      }
+
+      // 좋아요 수 (places 테이블에 likes 필드가 있다고 가정)
+      const { data: likesData, error: likesError } = await supabase
+        .from("places")
+        .select("likes")
+        .eq("user_id", userId);
+
+      if (likesError) {
+        console.error("likes load error:", likesError);
+      } else {
+        const totalLikes = likesData?.reduce((sum, place) => sum + (place.likes || 0), 0) || 0;
+        
+        // 큐레이터 테이블 업데이트 (total_likes)
+        await supabase
+          .from("curators")
+          .update({ total_likes: totalLikes })
+          .eq("user_id", userId);
+      }
+
+    } catch (error) {
+      console.error("activity load error:", error);
     }
   };
 
@@ -311,11 +368,21 @@ export default function CuratorManagementPage() {
                 </div>
                 <div style={styles.overviewItem}>
                   <div style={styles.overviewLabel}>등록 장소</div>
-                  <div style={styles.overviewValue}>-</div>
+                  <div style={styles.overviewValue}>{curatorProfile.total_places || 0}개</div>
                 </div>
                 <div style={styles.overviewItem}>
-                  <div style={styles.overviewLabel}>팔로워</div>
-                  <div style={styles.overviewValue}>-</div>
+                  <div style={styles.overviewLabel}>총 좋아요</div>
+                  <div style={styles.overviewValue}>{curatorProfile.total_likes || 0}개</div>
+                </div>
+                <div style={styles.overviewItem}>
+                  <div style={styles.overviewLabel}>경고 횟수</div>
+                  <div style={styles.overviewValue}>{curatorProfile.warning_count || 0}회</div>
+                </div>
+                <div style={styles.overviewItem}>
+                  <div style={styles.overviewLabel}>활동 기간</div>
+                  <div style={styles.overviewValue}>
+                    {Math.floor((Date.now() - new Date(curatorProfile.created_at)) / (1000 * 60 * 60 * 24))}일
+                  </div>
                 </div>
               </div>
             </div>
@@ -326,6 +393,31 @@ export default function CuratorManagementPage() {
           <div style={styles.tabContent}>
             <div style={styles.card}>
               <h3 style={styles.sectionTitle}>등급 관리</h3>
+              
+              {/* 등급 기준 정보 */}
+              <div style={{
+                backgroundColor: "#2a2a2a",
+                padding: "12px",
+                borderRadius: "8px",
+                marginBottom: "16px",
+                fontSize: "12px",
+                color: "#ccc"
+              }}>
+                <div style={{ marginBottom: "8px", fontWeight: "bold", color: "#fff" }}>
+                  🏆 등급 기준 (등록 장소 수)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}>
+                  <div>🌱 브론즈: 50-99개</div>
+                  <div>🌟 실버: 100-199개</div>
+                  <div>⭐ 골드: 200-499개</div>
+                  <div>🏆 플래티넘: 500-999개</div>
+                  <div>👑 다이아몬드: 1000+개</div>
+                </div>
+                <div style={{ marginTop: "8px", fontSize: "11px", color: "#999" }}>
+                  * Admin은 수동으로 등급을 조정할 수 있습니다
+                </div>
+              </div>
+              
               <div style={styles.gradeContainer}>
                 {gradeOptions.map((grade) => (
                   <button
@@ -385,15 +477,30 @@ export default function CuratorManagementPage() {
               <div style={styles.activityContainer}>
                 <div style={styles.activityItem}>
                   <div style={styles.activityLabel}>최근 로그인</div>
-                  <div style={styles.activityValue}>-</div>
+                  <div style={styles.activityValue}>
+                    {curatorProfile.last_activity_at ? 
+                      new Date(curatorProfile.last_activity_at).toLocaleDateString("ko-KR") : 
+                      "정보 없음"
+                    }
+                  </div>
                 </div>
                 <div style={styles.activityItem}>
                   <div style={styles.activityLabel}>등록 장소 수</div>
-                  <div style={styles.activityValue}>-</div>
+                  <div style={styles.activityValue}>{curatorProfile.total_places || 0}개</div>
                 </div>
                 <div style={styles.activityItem}>
                   <div style={styles.activityLabel}>총 좋아요</div>
-                  <div style={styles.activityValue}>-</div>
+                  <div style={styles.activityValue}>{curatorProfile.total_likes || 0}개</div>
+                </div>
+                <div style={styles.activityItem}>
+                  <div style={styles.activityLabel}>경고 횟수</div>
+                  <div style={styles.activityValue}>{curatorProfile.warning_count || 0}회</div>
+                </div>
+                <div style={styles.activityItem}>
+                  <div style={styles.activityLabel}>큐레이터 since</div>
+                  <div style={styles.activityValue}>
+                    {new Date(curatorProfile.created_at).toLocaleDateString("ko-KR")}
+                  </div>
                 </div>
               </div>
             </div>
