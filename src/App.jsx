@@ -1,13 +1,14 @@
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home/Home";
+import MapView from "./components/Map/MapView";
 import PlaceDetailPage from "./pages/PlaceDetailPage";
 import CuratorPageScreen from "./pages/CuratorPageScreen";
 import CuratorProfilePage from "./pages/CuratorProfilePage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import AdminApplicationsPage from "./pages/AdminApplicationsPage";
+import CuratorManagementPage from "./pages/CuratorManagementPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
-// 스튜디오 관련 import
 import StudioHome from "./pages/Studio/StudioHome";
 import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
@@ -16,11 +17,13 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
+      <Route path="/map" element={<MapView />} />
       <Route path="/place/:id" element={<PlaceDetailPage />} />
       <Route path="/curator/:name" element={<CuratorPageScreen />} />
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin/applications" element={<AdminApplicationsPage />} />
+      <Route path="/admin/curator/:userId" element={<CuratorManagementPage />} />
       <Route path="/curator-apply" element={<CuratorApplyForm />} />
       <Route path="/test-checkin" element={<CheckinTest />} />
       {/* 스튜디오 라우트 */}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
@@ -143,6 +143,15 @@ export default function AdminApplicationsPage() {
     } finally {
       setProcessingId("");
     }
+  };
+
+  const handleViewCurator = (application) => {
+    // 큐레이터 관리 페이지로 이동
+    navigate(`/admin/curator/${application.user_id}`, {
+      state: {
+        application: application
+      }
+    });
   };
 
   const handleDelete = async (application) => {
@@ -411,7 +420,17 @@ export default function AdminApplicationsPage() {
 
                     {isApproved && (
                       <>
-                        <span style={styles.statusText}>승인됨</span>
+                        <button
+                          type="button"
+                          onClick={() => handleViewCurator(item)}
+                          disabled={isProcessing}
+                          style={{
+                            ...styles.detailButton,
+                            opacity: isProcessing ? 0.5 : 1,
+                          }}
+                        >
+                          상세보기
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(item)}
@@ -628,6 +647,16 @@ const styles = {
     border: "1px solid #5a2a2a",
     backgroundColor: "#2a1515",
     color: "#FF6B6B",
+    borderRadius: "12px",
+    padding: "12px",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  detailButton: {
+    flex: 1,
+    border: "1px solid #2a5a2a",
+    backgroundColor: "#152a15",
+    color: "#2ECC71",
     borderRadius: "12px",
     padding: "12px",
     fontSize: "14px",
