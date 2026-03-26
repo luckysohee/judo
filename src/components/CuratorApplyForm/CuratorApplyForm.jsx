@@ -62,12 +62,47 @@ export default function CuratorApplyForm() {
       if (existingApplication) {
         if (existingApplication.status === "pending") {
           setErrorMessage("이미 신청서가 제출되어 검토 중입니다. 잠시 기다려주세요.");
+          return;
         } else if (existingApplication.status === "approved") {
           setErrorMessage("이미 큐레이터로 승인되었습니다. 추가 신청이 필요 없습니다.");
+          return;
         } else if (existingApplication.status === "rejected") {
-          setErrorMessage("이전 신청이 반려되었습니다. 관리자에게 문의하세요.");
+          // 반려된 경우 새로운 신청 생성 (기존 신청은 그대로 둠)
+          console.log("🔄 반려된 신청자 새로운 신청 생성 시도");
+          
+          // 새로운 신청 생성 (기존 반려된 신청은 유지)
+          const { data, error } = await supabase
+            .from("curator_applications")
+            .insert([
+              {
+                name: name.trim(),
+                contact: contact.trim(),
+                style: style.trim(),
+                regions: regions.trim(),
+                sample_places: samplePlaces.trim(),
+                user_id: user.id,
+                status: "pending",
+              },
+            ])
+            .select();
+
+          if (error) throw error;
+
+          console.log("✅ 새로운 신청 생성 성공:", data);
+
+          // 반려 알림 localStorage 삭제 (다시 반려될 때 알림 표시되도록)
+          const rejectKey = `curator_rejected_${user.id}_${existingApplication.id}`;
+          localStorage.removeItem(rejectKey);
+          console.log("🗑️ 재신청 시 반려 알림 localStorage 삭제:", rejectKey);
+
+          setMessage("큐레이터 신청서가 다시 제출되었습니다. 검토 후 결과를 알려드릴게요!");
+          setName("");
+          setContact("");
+          setStyle("");
+          setRegions("");
+          setSamplePlaces("");
+          return;
         }
-        return;
       }
 
       const { data, error } = await supabase

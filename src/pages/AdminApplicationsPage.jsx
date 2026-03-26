@@ -88,6 +88,12 @@ export default function AdminApplicationsPage() {
 
   const handleApprove = async (application) => {
     try {
+      // 승인 확인 알림
+      const confirmed = window.confirm(`${application.name}님의 큐레이터 신청을 승인하시겠습니까?\n\n승인 시 사용자는 큐레이터 자격을 얻게 됩니다.`);
+      if (!confirmed) {
+        return; // 사용자가 취소하면 함수 종료
+      }
+
       setProcessingId(application.id);
       setErrorMessage("");
 
@@ -108,6 +114,12 @@ export default function AdminApplicationsPage() {
 
   const handleReject = async (application) => {
     try {
+      // 반려 확인 알림
+      const confirmed = window.confirm(`${application.name}님의 큐레이터 신청을 반려하시겠습니까?\n\n반려 시 사용자는 다시 신청할 수 있습니다.`);
+      if (!confirmed) {
+        return; // 사용자가 취소하면 함수 종료
+      }
+
       setProcessingId(application.id);
       setErrorMessage("");
 
@@ -116,6 +128,13 @@ export default function AdminApplicationsPage() {
       });
 
       if (error) throw error;
+
+      // 반려된 신청에 대한 localStorage 삭제 (다음 로그인시 알림 표시)
+      if (application.user_id) {
+        const rejectKey = `curator_rejected_${application.user_id}_${application.id}`;
+        localStorage.removeItem(rejectKey);
+        console.log("🗑️ 반려 알림 localStorage 삭제:", rejectKey);
+      }
 
       await fetchApplications();
     } catch (error) {
@@ -395,17 +414,6 @@ export default function AdminApplicationsPage() {
                         <span style={styles.statusText}>승인됨</span>
                         <button
                           type="button"
-                          onClick={() => handleRevoke(item)}
-                          disabled={isProcessing}
-                          style={{
-                            ...styles.revokeButton,
-                            opacity: isProcessing ? 0.5 : 1,
-                          }}
-                        >
-                          되돌리기
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleDelete(item)}
                           disabled={isProcessing}
                           style={{
@@ -421,17 +429,6 @@ export default function AdminApplicationsPage() {
                     {isRejected && (
                       <>
                         <span style={styles.statusTextRejected}>반려됨</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRevoke(item)}
-                          disabled={isProcessing}
-                          style={{
-                            ...styles.revokeButton,
-                            opacity: isProcessing ? 0.5 : 1,
-                          }}
-                        >
-                          되돌리기
-                        </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(item)}

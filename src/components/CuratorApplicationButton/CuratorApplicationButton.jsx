@@ -18,6 +18,8 @@ export default function CuratorApplicationButton() {
           .from("curator_applications")
           .select("status")
           .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         if (error && error.code !== "PGRST116") {
@@ -47,7 +49,7 @@ export default function CuratorApplicationButton() {
     }
 
     if (applicationStatus === "rejected") {
-      alert("❌ 반려되었습니다\n\n이전 신청이 반려되었습니다.\n다시 신청할 수 있습니다.");
+      // 반려된 경우 바로 신청 페이지로 이동 (알림 없음)
       navigate("/curator-apply");
       return;
     }

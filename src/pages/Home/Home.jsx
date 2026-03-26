@@ -288,6 +288,41 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       } else {
         setCuratorProfile(null);
       }
+
+      // 반려된 신청 확인 로직
+      const checkRejectedApplication = async () => {
+        try {
+          const { data: rejectedApp, error } = await supabase
+            .from("curator_applications")
+            .select("*")
+            .eq("user_id", user.id)
+            .eq("status", "rejected")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (error) {
+            console.error("반려 신청 확인 오류:", error);
+            return;
+          }
+
+          if (rejectedApp) {
+            const rejectKey = `curator_rejected_${user.id}_${rejectedApp.id}`;
+            const hasShownRejectAlert = localStorage.getItem(rejectKey);
+
+            if (!hasShownRejectAlert) {
+              setTimeout(() => {
+                alert(`😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: 검토 후 부적합하다고 판단되었습니다.\n\n다시 신청하실 수 있습니다.`);
+                localStorage.setItem(rejectKey, 'shown');
+              }, 1500);
+            }
+          }
+        } catch (error) {
+          console.error("반려 확인 중 오류:", error);
+        }
+      };
+
+      checkRejectedApplication();
     };
 
     checkAdmin();
