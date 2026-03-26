@@ -1150,7 +1150,7 @@ export default function StudioHome() {
   
   // 상태 관리
   const [activeSection, setActiveSection] = useState("archive"); // archive, add, list, drafts
-  const [myPlaces, setMyPlaces] = useState([]);
+  const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
   
@@ -1282,14 +1282,6 @@ export default function StudioHome() {
   const [originalEditingPlace, setOriginalEditingPlace] = useState(null); // 원본 데이터 저장
   const [editingDraftId, setEditingDraftId] = useState(null); // 수정 중인 임시저장 ID
   const formRef = useRef(null); // 폼 참조
-
-  // 잔 리스트 상태
-  const [filterType, setFilterType] = useState("all"); // all, public, private
-  const [places, setPlaces] = useState([
-    { id: 1, name: "테스트 장소 1", category: "한식", is_public: true, created_at: "2024-01-01" },
-    { id: 2, name: "테스트 장소 2", category: "일식", is_public: false, created_at: "2024-01-02" },
-    { id: 3, name: "테스트 장소 3", category: "중식", is_public: true, created_at: "2024-01-03" },
-  ]);
 
   // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
   const [drafts, setDrafts] = useState([]);
@@ -1606,7 +1598,7 @@ export default function StudioHome() {
     created_at: new Date().toISOString() // 큐레이터 시작일
   });
 
-  // 큐레이터 통계 상태
+  // 큐레이터 통계 상태 - 실제 데이터 기반
   const [curatorStats, setCuratorStats] = useState({
     level: 1,
     saveCount: 0,
@@ -1624,85 +1616,80 @@ export default function StudioHome() {
     }
   });
 
-  // 일반 사용자 프로필 수정 함수
-  const handleEditUserProfile = () => {
-    setIsEditingUserProfile(true);
-    setEditUserProfile({
-      displayName: curatorProfile.displayName || "",
-      username: curatorProfile.username || "",
-      bio: curatorProfile.bio || "",
-      image: curatorProfile.image || null
-    });
-  };
-
-  const handleSaveUserProfile = async () => {
+  // 실제 통계 데이터 로드 함수
+  const loadCuratorStats = async (userId) => {
     try {
-      // 현재 인증된 사용자 정보 가져오기
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        alert("로그인이 필요합니다.");
+      // 등록된 장소 수
+      const { data: placesData, error: placesError } = await supabase
+        .from("places")
+        .select("id, likes, created_at")
+        .eq("user_id", userId);
+
+      if (placesError) {
+        console.error("places load error:", placesError);
         return;
       }
 
-      // 사용자 메타데이터 업데이트
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: {
-          display_name: editUserProfile.displayName,
-          username: editUserProfile.username,
-          bio: editUserProfile.bio
+      const totalPlaces = placesData?.length || 0;
+      const totalLikes = placesData?.reduce((sum, place) => sum + (place.likes || 0), 0) || 0;
+
+      // 이번 주/지난 주 통계 (실제 데이터 기반)
+      const now = new Date();
+      const thisWeekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+      const thisWeekPlaces = placesData?.filter(place => 
+        new Date(place.created_at) >= thisWeekStart
+      ).length || 0;
+
+      const lastWeekPlaces = placesData?.filter(place => 
+        new Date(place.created_at) >= lastWeekStart && 
+        new Date(place.created_at) < thisWeekStart
+      ).length || 0;
+
+      // 등급 계산 (실제 장소 수 기반)
+      let level = 1;
+      if (totalPlaces >= 1000) level = 5;      // 다이아몬드
+      else if (totalPlaces >= 500) level = 4;  // 플래티넘
+      else if (totalPlaces >= 200) level = 3;  // 골드
+      else if (totalPlaces >= 100) level = 2;  // 실버
+      else if (totalPlaces >= 50) level = 1;   // 브론즈
+
+      const stats = {
+        placeCount: totalPlaces,
+        saveCount: totalLikes, // 좋아요 수를 저장 수로 사용
+        followerCount: 0, // TODO: 팔로워 기능 구현 시 실제 데이터
+        overlappingCurators: 0, // TODO: 중복 큐레이터 기능 구현 시 실제 데이터
+        weeklyStats: {
+          newPlaces: thisWeekPlaces,
+          newSaves: Math.floor(totalLikes * 0.1), // 추정치
+          newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
+        },
+        lastWeekStats: {
+          newPlaces: lastWeekPlaces,
+          newSaves: Math.floor(totalLikes * 0.05), // 추정치
+          newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
         }
-      });
-
-      if (updateError) {
-        console.error("❌ 사용자 정보 업데이트 오류:", updateError);
-        alert("프로필 저장에 실패했습니다: " + updateError.message);
-        return;
-      }
-
-      // 로컬 상태 업데이트
-      setCuratorProfile(prev => ({
+      };
+      
+      setCuratorStats(prev => ({
         ...prev,
-        displayName: editUserProfile.displayName,
-        username: editUserProfile.username,
-        bio: editUserProfile.bio,
-        image: editUserProfile.image
+        level: level,
+        ...stats
       }));
-      
-      setIsEditingUserProfile(false);
-      alert("프로필이 성공적으로 저장되었습니다!");
-      
+
+      console.log("✅ 실제 통계 데이터 로드:", stats);
     } catch (error) {
-      console.error("❌ 프로필 저장 오류:", error);
-      alert("프로필 저장에 실패했습니다: " + error.message);
+      console.error("stats load error:", error);
     }
   };
+
   useEffect(() => {
-    const totalSaves = Math.floor(Math.random() * 500) + 100; // 통일된 저장수
-    const stats = {
-      placeCount: myPlaces.length,
-      saveCount: totalSaves,
-      followerCount: Math.floor(Math.random() * 200), // 임시 데이터
-      overlappingCurators: Math.floor(Math.random() * 50), // 임시 데이터
-      weeklyStats: {
-        newPlaces: Math.floor(Math.random() * 5) + 1, // 이번 주 새 장소
-        newSaves: Math.floor(Math.random() * 30) + 10, // 이번 주 새 저장
-        newFollowers: Math.floor(Math.random() * 8) + 1 // 이번 주 새 팔로워
-      },
-      lastWeekStats: {
-        newPlaces: Math.floor(Math.random() * 4) + 1, // 지난주 새 장소
-        newSaves: Math.floor(Math.random() * 25) + 5, // 지난주 새 저장
-        newFollowers: Math.floor(Math.random() * 6) + 1 // 지난주 새 팔로워
-      }
-    };
-    
-    const levelInfo = calculateCuratorLevel(stats);
-    setCuratorStats(prev => ({
-      ...prev,
-      level: levelInfo.level,
-      ...stats
-    }));
-  }, [myPlaces.length]);
+    if (curatorProfile?.username) {
+      loadCuratorStats(curatorProfile.username);
+    }
+  }, [curatorProfile?.username, myPlaces.length]);
 
   useEffect(() => {
     loadStudioData();
@@ -1817,7 +1804,7 @@ export default function StudioHome() {
         }));
 
         // 실제 활동 데이터 로드
-        await loadCuratorActivity(user.id);
+        await loadCuratorActivity(currentUser.id);
       }
       
       console.log("📂 스튜디오 데이터 로딩 시작...");
@@ -1908,8 +1895,15 @@ export default function StudioHome() {
           }
         }
         // 실제 저장인 경우 Supabase에 저장
-        // 임시 큐레이터 ID (실제로는 인증된 사용자 ID 사용)
-        const curatorId = "00000000-0000-0000-0000-000000000000";
+        // 실제 인증된 사용자 ID 사용
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !user) {
+          alert("로그인이 필요합니다.");
+          return;
+        }
+        
+        const curatorId = user.id;
         
         if (editingPlaceId) {
           // 수정 모드: UPDATE 사용
