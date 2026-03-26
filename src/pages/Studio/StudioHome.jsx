@@ -101,9 +101,6 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
 
       // 성공적으로 저장된 경우
       if (data && data.length > 0) {
-        // myPlaces에 새 장소 추가
-        setMyPlaces(prev => [data[0], ...prev]);
-        
         // 폼 초기화
         setBasicInfo({
           name_address: "",
@@ -127,9 +124,6 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
           is_featured: false,
         });
         setMapPlaces([]);
-        
-        // 성공 메시지
-        alert("장소가 성공적으로 추가되었습니다!");
         
         // '내 장소 리스트' 섹션으로 이동
         setActiveSection("places");
@@ -789,7 +783,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
+              onClick={() => handleAddPlace(false)}
               style={sectionStyles.primaryButton}
             >
               완료
@@ -2073,7 +2067,6 @@ export default function StudioHome() {
             }
             
             console.log("✅ curator_places 저장 성공:", curatorData);
-            alert("장소가 성공적으로 추가되었습니다!");
             
             // 3. myPlaces에 새 장소 추가 (curator_places 데이터 기준)
             const newPlaceForList = {
@@ -2120,8 +2113,6 @@ export default function StudioHome() {
           setSearchedPlaces([]);
           setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
           setEditingPlaceId(null); // 수정 모드 종료
-          
-          alert("장소가 성공적으로 저장되었습니다!");
           
           // "잔 리스트" 탭으로 자동 이동
           setActiveSection("list");
