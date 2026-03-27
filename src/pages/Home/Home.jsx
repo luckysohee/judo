@@ -415,6 +415,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
             const existing = placeMap.get(key);
             existing.curatorCount = (existing.curatorCount || 0) + 1;
             existing.curators.push(curatorPlace.curator_id);
+            existing.curatorPlaces.push(curatorPlace); // curatorPlaces에도 추가!
           } else {
             // 새 장소: 초기화
             placeMap.set(key, {
