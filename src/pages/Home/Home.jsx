@@ -1843,6 +1843,29 @@ const styles = {
     marginRight: "8px",
     cursor: "pointer",
     transition: "all 0.2s ease",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+  },
+
+  curatorInlineButton: {
+    minWidth: "80px",
+    maxWidth: "120px",
+    height: "38px",
+    borderRadius: "18px",
+    border: "1px solid rgba(46, 204, 113, 0.3)",
+    background: "rgba(46, 204, 113, 0.15)",
+    color: "#2ECC71",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+    padding: "0 12px",
+    marginRight: "8px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
   },
 
   adminInlineButton: {
@@ -1862,6 +1885,8 @@ const styles = {
     marginRight: "8px",
     cursor: "pointer",
     transition: "all 0.2s ease",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
   },
 
   sideFabContainer: {

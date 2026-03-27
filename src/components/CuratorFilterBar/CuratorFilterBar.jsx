@@ -30,14 +30,7 @@ export default function CuratorFilterBar({
               key={curator.id || curator.name}
               style={{
                 ...styles.curatorChip,
-                borderWidth: active ? "2px" : "1px",
-                borderStyle: "solid",
-                borderColor: active
-                  ? curator.color || "#2ECC71"
-                  : "rgba(255,255,255,0.08)",
-                backgroundColor: active
-                  ? curator.color || "#2ECC71"
-                  : "rgba(18,18,18,0.88)",
+                ...(active ? styles.curatorChipActive : null),
               }}
               onClick={(e) => {
                 // 클릭된 영역에 따라 다른 기능 실행
@@ -58,7 +51,7 @@ export default function CuratorFilterBar({
               <div
                 style={{
                   ...styles.nameButton,
-                  color: active ? "#111111" : "#ffffff",
+                  ...(active ? styles.nameButtonActive : null),
                   pointerEvents: "none", // 부모의 onClick만 사용
                 }}
               >
@@ -67,7 +60,10 @@ export default function CuratorFilterBar({
               
               {/* 프로필 이미지 영역 */}
               <div
-                style={styles.profileButton}
+                style={{
+                  ...styles.profileButton,
+                  ...(active ? styles.profileButtonActive : null),
+                }}
                 title={`@${curator.displayName || curator.name} 프로필 보기`}
                 onClick={(e) => {
                   e.stopPropagation(); // 부모 클릭 이벤트 방지
@@ -132,30 +128,32 @@ const styles = {
     height: "26px",
     borderRadius: "999px",
     padding: "2px",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    border: "1px solid rgba(255, 255, 255, 0.2)",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+    backgroundColor: "rgba(18, 18, 18, 0.88)",
+    border: "1px solid rgba(255, 255, 255, 0.08)",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12)",
     whiteSpace: "nowrap",
     cursor: "pointer",
+    transition: "all 0.2s ease",
   },
 
   profileButton: {
     width: "22px",
     height: "22px",
     borderRadius: "50%",
-    border: "none",
-    backgroundColor: "rgba(255,255,255,0.15)",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     cursor: "pointer",
     overflow: "hidden",
     flexShrink: 0,
-    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.15)",
+    transition: "all 0.2s ease",
   },
 
   avatarImage: {
@@ -168,7 +166,7 @@ const styles = {
     width: "100%",
     height: "100%",
     borderRadius: "50%",
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     color: "#ffffff",
     fontSize: "8px",
     fontWeight: "700",
@@ -181,19 +179,39 @@ const styles = {
     border: "none",
     background: "none",
     fontSize: "11px",
-    fontWeight: 600,
+    fontWeight: "600",
     cursor: "pointer",
     padding: "0 4px",
     borderRadius: "999px",
     whiteSpace: "nowrap",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     backgroundColor: "rgba(255, 255, 255, 0.05)",
+    color: "#ffffff",
+    textShadow: "0 1px 2px rgba(0, 0, 0, 0.3)",
   },
 
   chipActive: {
     backgroundColor: "#ffffff",
     color: "#111111",
     borderColor: "#ffffff",
+  },
+
+  curatorChipActive: {
+    backgroundColor: "rgba(46, 204, 113, 0.9)",
+    border: "2px solid rgba(46, 204, 113, 1)",
+    boxShadow: "0 8px 32px rgba(46, 204, 113, 0.3)",
+  },
+
+  profileButtonActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    border: "2px solid rgba(255, 255, 255, 0.6)",
+    boxShadow: "0 4px 16px rgba(46, 204, 113, 0.2)",
+  },
+
+  nameButtonActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    color: "#ffffff",
+    textShadow: "0 1px 2px rgba(46, 204, 113, 0.5)",
   },
 };
