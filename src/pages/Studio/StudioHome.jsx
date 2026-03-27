@@ -1666,10 +1666,21 @@ export default function StudioHome() {
       else if (totalPlaces >= 100) level = 2;  // 실버
       else if (totalPlaces >= 50) level = 1;   // 브론즈
 
+      // 팔로워 수 계산
+      console.log("🔍 큐레이터 프로필 ID:", curatorProfile?.id);
+      const { data: followersData, error: followersError } = await supabase
+        .from('user_follows')
+        .select('id')
+        .eq('curator_id', curatorProfile.id);
+      
+      console.log("🔍 팔로워 데이터:", { followersData, followersError });
+      const followerCount = followersError ? 0 : (followersData?.length || 0);
+      console.log("🔍 계산된 팔로워 수:", followerCount);
+
       const stats = {
         placeCount: totalPlaces,
         saveCount: totalLikes, // likes 필드가 없으므로 0
-        followerCount: 0, // TODO: 팔로워 기능 구현 시 실제 데이터
+        followerCount: followerCount, // 실제 팔로워 수
         overlappingCurators: 0, // TODO: 중복 큐레이터 기능 구현 시 실제 데이터
         weeklyStats: {
           newPlaces: thisWeekPlaces,
@@ -1802,6 +1813,7 @@ export default function StudioHome() {
         
         setCuratorProfile(prev => ({
           ...prev,
+          id: currentUser.id, // ID 필드 추가
           username: currentUser.username,
           displayName: currentUser.display_name,
           bio: currentUser.bio,
