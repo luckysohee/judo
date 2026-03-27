@@ -1,3 +1,23 @@
+// 등급별 설정 데이터 (색상, 문구, 레벨)
+const RANK_CONFIG = {
+  diamond:  { level: 5, label: "👑 Top Curator",     bg: "rgba(255, 255, 255, 0.9)", text: "#0d47a1", border: "rgba(144, 202, 249, 0.8)", glow: "rgba(144, 202, 249, 0.3)" },
+  platinum: { level: 4, label: "👑 Top Curator",     bg: "rgba(255, 255, 255, 0.9)", text: "#212121", border: "rgba(224, 224, 224, 0.8)", glow: "rgba(224, 224, 224, 0.3)" },
+  gold:     { level: 3, label: "🏆 Trusted Curator", bg: "rgba(255, 255, 255, 0.9)", text: "#f57f17", border: "rgba(255, 241, 118, 0.8)", glow: "rgba(255, 241, 118, 0.3)" },
+  silver:   { level: 3, label: "🏆 Trusted Curator", bg: "rgba(255, 255, 255, 0.9)", text: "#616161", border: "rgba(189, 189, 189, 0.8)", glow: "rgba(189, 189, 189, 0.3)" },
+  bronze:   { level: 2, label: "⭐ Local Curator",   bg: "rgba(255, 255, 255, 0.9)", text: "#5d4037", border: "rgba(215, 204, 200, 0.8)", glow: "rgba(215, 204, 200, 0.3)" },
+  default:  { level: 2, label: "⭐ Local Curator",   bg: "rgba(255, 255, 255, 0.9)", text: "#6c757d", border: "rgba(222, 226, 230, 0.8)", glow: "rgba(222, 226, 230, 0.3)" }
+};
+
+// 흰색 배경용 진한 텍스트
+const WHITE_BG_TEXT_COLORS = {
+  diamond: "#0d47a1",    // 진한 파란색
+  platinum: "#212121",   // 진한 회색  
+  gold: "#f57f17",       // 진한 노란색
+  silver: "#616161",     // 진한 회색
+  bronze: "#5d4037",     // 진한 갈색
+  default: "#343a40"     // 진한 회색
+};
+
 export default function CuratorFilterBar({
   curators = [],
   selectedCurators = [],
@@ -24,6 +44,8 @@ export default function CuratorFilterBar({
 
         {safeCurators.map((curator) => {
           const active = selectedCurators.includes(curator.name);
+          // 등급별 설정 가져오기
+          const rankConfig = RANK_CONFIG[curator.grade] || RANK_CONFIG.default;
 
           return (
             <div
@@ -31,14 +53,20 @@ export default function CuratorFilterBar({
               style={{
                 ...styles.curatorChip,
                 ...(active ? styles.curatorChipActive : null),
+                // 등급별 스타일 적용 (활성 상태가 아닐 때만)
+                ...(active ? {} : {
+                  backgroundColor: rankConfig.bg,
+                  border: `1px solid ${rankConfig.border}`,
+                  boxShadow: curator.grade === 'diamond' ? `0 0 12px ${rankConfig.glow}` : 'none'
+                })
               }}
               onClick={(e) => {
                 // 클릭된 영역에 따라 다른 기능 실행
                 const rect = e.currentTarget.getBoundingClientRect();
                 const clickX = e.clientX - rect.left;
                 
-                // 프로필 이미지 영역 (오른쪽 26px)
-                if (clickX > rect.width - 26) {
+                // 등급 뱃지 영역 (오른쪽 30px)
+                if (clickX > rect.width - 30) {
                   onProfileClick?.(curator);
                 } else {
                   // 이름 영역 (나머지)
@@ -52,35 +80,37 @@ export default function CuratorFilterBar({
                 style={{
                   ...styles.nameButton,
                   ...(active ? styles.nameButtonActive : null),
+                  // 등급별 텍스트 색상 적용 (활성 상태가 아닐 때만)
+                  ...(active ? {} : { color: rankConfig.text }),
                   pointerEvents: "none", // 부모의 onClick만 사용
                 }}
               >
                 {curator.displayName || curator.name}
               </div>
               
-              {/* 프로필 이미지 영역 */}
-              <div
+              {/* 등급 뱃지 */}
+              <div 
                 style={{
-                  ...styles.profileButton,
-                  ...(active ? styles.profileButtonActive : null),
+                  fontSize: "9px",
+                  fontWeight: "700",
+                  padding: "1px 4px",
+                  borderRadius: "8px",
+                  backgroundColor: rankConfig.bg,
+                  color: rankConfig.text,
+                  border: `1px solid ${rankConfig.border}`,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                  cursor: "pointer", // 클릭 가능하도록 변경
                 }}
-                title={`@${curator.displayName || curator.name} 프로필 보기`}
+                title={`${curator.displayName || curator.name} 프로필 보기 (등급: ${curator.grade || 'default'})`}
                 onClick={(e) => {
                   e.stopPropagation(); // 부모 클릭 이벤트 방지
                   onProfileClick?.(curator);
                 }}
               >
-                {curator.avatar ? (
-                  <img
-                    src={curator.avatar}
-                    alt={curator.displayName || curator.name}
-                    style={styles.avatarImage}
-                  />
-                ) : (
-                  <div style={styles.defaultAvatar}>
-                    {(curator.displayName || curator.name).charAt(0).toUpperCase()}
-                  </div>
-                )}
+                {rankConfig.label.split(' ')[0]} {/* 👑, 🏆, ⭐ 만 표시 */}
               </div>
             </div>
           );
