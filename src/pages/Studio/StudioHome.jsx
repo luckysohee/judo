@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { useToast } from "../../components/Toast/ToastProvider";
 import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
 import { 
@@ -1140,6 +1141,7 @@ const sectionStyles = {
 export default function StudioHome() {
   const navigate = useNavigate();
   const { user } = useAuth(); // 인증된 사용자 정보 가져오기
+  const { showToast } = useToast(); // Toast 훅 추가
   const mapRef = useRef(null); // 지도 ref 다시 추가
   
   // 상태 관리
@@ -1622,6 +1624,96 @@ export default function StudioHome() {
       newFollowers: 0
     }
   });
+
+  // 큐레이터 프로필 ID 확인 (테스트용)
+  useEffect(() => {
+    if (curatorProfile?.id) {
+      console.log('🔍 큐레이터 로그인:', curatorProfile.id);
+      console.log('🔍 전체 프로필:', curatorProfile);
+      console.log('🔍 현재 사용자:', user?.id);
+      
+      // 읽지 않은 팔로우 조회 및 Toast 알림
+      const fetchUnreadFollowers = async () => {
+        try {
+          const { data: unreadFollows, error: unreadError } = await supabase
+            .from('user_follows')
+            .select('user_id, created_at')
+            .eq('curator_id', curatorProfile.id)
+            .eq('is_read', false)
+            .order('created_at', { ascending: false });
+
+          if (unreadError) {
+            console.error('읽지 않은 팔로워 조회 실패:', unreadError);
+            return;
+          }
+
+          if (unreadFollows && unreadFollows.length > 0) {
+            // 팔로워 정보 가져오기
+            const followerPromises = unreadFollows.map(async (follow) => {
+              // 먼저 profiles 테이블에서 조회
+              const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('username, display_name')
+                .eq('id', follow.user_id)
+                .maybeSingle();
+              
+              // profiles에 없으면 users 테이블에서 이메일로 조회
+              if (profileError || !profileData) {
+                const { data: userData, error: userError } = await supabase.auth.admin.getUserById(follow.user_id);
+                
+                if (userError || !userData?.user) {
+                  return {
+                    ...follow,
+                    username: '알 수 없는 사용자'
+                  };
+                }
+                
+                // 이메일에서 username 추출 (@앞부분)
+                const email = userData.user.email;
+                const emailUsername = email?.split('@')[0] || 'unknown';
+                
+                return {
+                  ...follow,
+                  username: emailUsername
+                };
+              }
+              
+              return {
+                ...follow,
+                username: profileData.username || profileData.display_name || '알 수 없는 사용자'
+              };
+            });
+
+            const followersWithData = await Promise.all(followerPromises);
+            const count = followersWithData.length;
+            const firstFollower = followersWithData[0];
+
+            // 메시지 생성
+            const message = count === 1 
+              ? `✨ @${firstFollower.username}님이 큐레이터님을 팔로우했습니다! 👤`
+              : `🚀 @${firstFollower.username}님 외 ${count - 1}명이 큐레이터님을 팔로우합니다!`;
+
+            // Toast 알림 표시
+            showToast(message, 'info', 5000);
+
+            // 읽음 처리
+            await supabase
+              .from('user_follows')
+              .update({ is_read: true })
+              .eq('curator_id', curatorProfile.id)
+              .eq('is_read', false);
+          }
+        } catch (error) {
+          console.error('팔로워 알림 처리 오류:', error);
+        }
+      };
+
+      fetchUnreadFollowers();
+    } else {
+      console.log('🔍 큐레이터 프로필 없음');
+      console.log('🔍 현재 사용자:', user?.id);
+    }
+  }, [curatorProfile?.id, user?.id, showToast]);
 
   // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
