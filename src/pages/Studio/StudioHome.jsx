@@ -2044,7 +2044,7 @@ export default function StudioHome() {
         return;
       }
 
-      // 중복 확인 (로컬 상태)
+      // 중복 확인 (자신의 장소만)
       const duplicateCheck = checkDuplicatePlace(formData.name_address);
       if (duplicateCheck) {
         return;
@@ -2053,22 +2053,8 @@ export default function StudioHome() {
       console.log("🔍 StudioHome 저장 시작:", { ...formData, isDraft });
       
       if (!isDraft) {
-        // 수정 모드인 경우 DB 중복 확인 건너뛰기
-        if (!editingPlaceId) {
-          // DB에서도 중복 확인
-          const { data: existingPlaces, error: checkError } = await supabase
-            .from("places")
-            .select("id, name")
-            .ilike("name", `%${formData.name_address.trim()}%`);
-
-          if (checkError) {
-            console.error("❌ 중복 확인 오류:", checkError);
-          } else if (existingPlaces && existingPlaces.length > 0) {
-            console.log("⚠️ DB에 이미 존재하는 장소:", existingPlaces);
-            alert("이미 저장된 장소입니다.");
-            return;
-          }
-        }
+        // 수정 모드가 아닐 경우 그대로 진행 (DB 중복 확인 제거)
+        console.log("📝 새 장소 저장 모드 (다른 큐레이터 장소도 저장 가능)");
         // 실제 저장인 경우 Supabase에 저장
         // 실제 인증된 사용자 ID 사용
         if (!user) {
@@ -2147,15 +2133,16 @@ export default function StudioHome() {
           console.log("✅ 장소 마스터 저장 성공:", placeData);
           
           // 2. 큐레이터 추천에 저장
-          if (placeData && placeData.data && placeData.data[0]) {
-            const curatorPlaceData = {
-              curator_id: user.id,
-              place_id: placeData.data[0].id,
-              one_line_reason: formData.menu_reason || "",
-              tags: formData.tags || [],
-              alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
-              moods: formData.atmosphere ? [formData.atmosphere] : []
-            };
+        if (placeData && placeData.data && placeData.data[0]) {
+          const curatorPlaceData = {
+            curator_id: user.id,
+            display_name: user.display_name || user.nickname || user.email, // 추가!
+            place_id: placeData.data[0].id,
+            one_line_reason: formData.menu_reason || "",
+            tags: formData.tags || [],
+            alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
+            moods: formData.atmosphere ? [formData.atmosphere] : []
+          };
             
             console.log("📝 저장할 curator_places 데이터:", curatorPlaceData);
             
@@ -2297,13 +2284,13 @@ export default function StudioHome() {
       return false;
     }
     
-    // myPlaces에서 중복 확인
+    // myPlaces에서만 중복 확인 (자신의 장소만)
     const duplicate = myPlaces.find(place => 
       place.name.toLowerCase().trim() === placeName.toLowerCase().trim()
     );
     
     if (duplicate) {
-      console.log("⚠️ 중복된 장소:", duplicate.name);
+      console.log("⚠️ 중복된 장소 (내 장소):", duplicate.name);
       alert("이미 저장된 장소입니다.");
       return true;
     }

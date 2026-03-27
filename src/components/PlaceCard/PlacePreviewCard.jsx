@@ -6,15 +6,42 @@ export default function PlacePreviewCard({
   savedFolderColor,
   liveCuratorNameSet,
   onSave,
-  onOpenDetail,
   onOpenCurator,
   onClose,
 }) {
   if (!place) return null;
 
+  console.log("🔍 PlacePreviewCard place 데이터:", place);
+  console.log("🔍 curatorReasons:", place.curator_reasons);
+  console.log("🔍 curatorPlaces:", place.curatorPlaces);
+
   const visibleCurators = (place.curators || []).slice(0, 3);
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
+
+  // 공유하기 함수
+  const handleShare = (place) => {
+    const shareUrl = `${window.location.origin}/place/${place.id}`;
+    const shareText = `${place.name} - ${place.curators?.join(', ')} 추천 장소!`;
+    
+    if (navigator.share) {
+      // 모바일 공유 기능
+      navigator.share({
+        title: place.name,
+        text: shareText,
+        url: shareUrl
+      }).catch(err => console.log('공유 실패:', err));
+    } else {
+      // 클립보드 복사
+      navigator.clipboard.writeText(`${shareText}\n${shareUrl}`).then(() => {
+        alert('링크가 복사되었습니다!');
+      }).catch(err => {
+        console.error('클립보드 복사 실패:', err);
+        // 폴백: 프롬프트로 보여주기
+        prompt('링크를 복사하세요:', `${shareText}\n${shareUrl}`);
+      });
+    }
+  };
 
   return (
     <div style={styles.wrap}>
@@ -58,16 +85,46 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.curatorRow}>
-            {visibleCurators.map((curator) => (
-              <button
-                key={curator}
-                type="button"
-                onClick={() => onOpenCurator?.(curator)}
-                style={styles.curatorChip}
-              >
-                {curator}
-              </button>
-            ))}
+            <div style={styles.curatorScrollContainer}>
+              {place.curatorPlaces?.map((curatorPlace, index) => {
+                // curatorPlaces에서 직접 데이터 가져오기
+                const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
+                const curatorReason = curatorPlace.one_line_reason || "";
+                const isLast = index === place.curatorPlaces.length - 1;
+                
+                console.log(`🔍 큐레이터 ${curatorName}:`, { 
+                curatorReason, 
+                curatorPlace,
+                curatorPlacesLength: place.curatorPlaces?.length,
+                curatorPlaceKeys: Object.keys(curatorPlace || {})
+              });
+                
+                return (
+                  <div 
+                    key={curatorPlace.id || curatorName} 
+                    style={{
+                      ...styles.curatorInfo,
+                      paddingRight: isLast ? "20px" : "0px" // 마지막 아이템에 padding-right 추가
+                    }}
+                  >
+                    <div style={styles.curatorNameAndReason}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenCurator?.(curatorName)}
+                        style={styles.curatorChip}
+                      >
+                        {curatorName} 추천
+                      </button>
+                      {curatorReason && (
+                        <div style={styles.curatorReason}>
+                          "{curatorReason}"
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div style={styles.actionRow}>
@@ -86,10 +143,10 @@ export default function PlacePreviewCard({
 
             <button
               type="button"
-              onClick={() => onOpenDetail(place)}
-              style={styles.detailButton}
+              onClick={() => handleShare(place)}
+              style={styles.shareButton}
             >
-              상세보기
+              공유하기
             </button>
           </div>
         </div>
@@ -205,9 +262,26 @@ const styles = {
   },
   curatorRow: {
     marginTop: "10px",
+    overflow: "hidden", // 넘치는 부분 숨기기
+  },
+  curatorScrollContainer: {
     display: "flex",
-    gap: "6px",
-    flexWrap: "wrap",
+    gap: "16px", // 큐레이터 간격
+    overflowX: "auto", // 가로 스크롤
+    scrollbarWidth: "none", // 스크롤바 숨기기 (Firefox)
+    msOverflowStyle: "none", // 스크롤바 숨기기 (IE/Edge)
+    "&::-webkit-scrollbar": {
+      display: "none" // 스크롤바 숨기기 (Chrome/Safari)
+    }
+  },
+  curatorInfo: {
+    flexShrink: 0, // 크기 고정
+  },
+  curatorNameAndReason: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    alignItems: "flex-start",
   },
   curatorChip: {
     fontSize: "11px",
@@ -216,6 +290,18 @@ const styles = {
     backgroundColor: "#171717",
     color: "#d4d4d4",
     padding: "5px 9px",
+    alignSelf: "flex-start",
+    whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
+  },
+  curatorReason: {
+    fontSize: "12px",
+    color: "#e8e8e8",
+    fontStyle: "italic",
+    lineHeight: 1.3,
+    whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
+    maxWidth: "200px", // 최대 너비 제한
+    overflow: "hidden",
+    textOverflow: "ellipsis", // 넘치는 텍스트 ...으로 표시
   },
   actionRow: {
     marginTop: "14px",
@@ -233,13 +319,13 @@ const styles = {
     fontSize: "13px",
     fontWeight: 700,
   },
-  detailButton: {
+  shareButton: {
     flex: 1,
     height: "40px",
     borderRadius: "12px",
     border: "none",
-    backgroundColor: "#2ECC71",
-    color: "#111111",
+    backgroundColor: "#3498DB",
+    color: "#ffffff",
     fontSize: "13px",
     fontWeight: 800,
   },

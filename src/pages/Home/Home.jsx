@@ -52,7 +52,6 @@ export default function Home() {
 
   const [query, setQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
-  const [detailPlace, setDetailPlace] = useState(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
@@ -388,7 +387,8 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           .from("curator_places")
           .select(`
             *,
-            places (*)
+            places (*),
+            curators!curator_places_curator_id_fkey (username, display_name)
           `)
           .eq("is_archived", false) // 비공개 추천 제외
           .order("created_at", { ascending: false });
@@ -427,19 +427,45 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         });
         
         // MapView에 맞는 형식으로 변환
-        const formattedPlaces = Array.from(placeMap.values()).map(place => ({
-          id: place.id,
-          name: place.name,
-          lat: place.lat,
-          lng: place.lng,
-          category: place.category || "미분류",
-          curatorCount: place.curatorCount, // 큐레이터 수
-          curators: place.curators, // 큐레이터 목록
-          curatorPlaces: place.curatorPlaces, // 추천 정보
-          comment: "",
-          savedCount: 0,
-          tags: [],
-        }));
+        const formattedPlaces = Array.from(placeMap.values()).map(place => {
+          // 큐레이터별 한 줄 평 맵 생성
+          const curatorReasons = {};
+          const curatorNames = [];
+          
+          place.curatorPlaces.forEach(curatorPlace => {
+            // JOIN된 curators 테이블에서 display_name 가져오기
+            const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
+            // CuratorFilterBar와 통일하기 위해 username도 같이 저장
+            const curatorUsername = curatorPlace.curators?.username || curatorPlace.curator_id;
+            
+            curatorNames.push(curatorName);
+            curatorReasons[curatorName] = curatorPlace.one_line_reason || "";
+            
+            console.log(`🔍 큐레이터 데이터 처리:`, {
+              curatorName,
+              curatorUsername,
+              one_line_reason: curatorPlace.one_line_reason,
+              curators_display_name: curatorPlace.curators?.display_name,
+              curators_username: curatorPlace.curators?.username
+            });
+          });
+          
+          return {
+            id: place.id,
+            name: place.name,
+            lat: place.lat,
+            lng: place.lng,
+            category: place.category || "미분류",
+            curatorCount: place.curatorCount, // 큐레이터 수
+            curators: curatorNames, // 큐레이터 이름 목록 (display_name)
+            curatorUsernames: place.curatorPlaces?.map(cp => cp.curators?.username || cp.curator_id), // username 목록 추가
+            curatorReasons, // 큐레이터별 한 줄 평
+            curatorPlaces: place.curatorPlaces, // 추천 정보
+            comment: "",
+            savedCount: 0,
+            tags: [],
+          };
+        });
         
         console.log("🔍 중복 처리된 장소 (새 구조):", formattedPlaces.map(p => ({
           name: p.name,
@@ -559,7 +585,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
   useEffect(() => {
     console.log("🔄 페이지 로드 - selectedCurators 초기화");
     setSelectedCurators([]);
-    setShowAll(true);
+    setShowAll(true); // 항상 전체 선택으로 시작
     
     // 큐레이터 데이터 확인
     setTimeout(() => {
@@ -669,41 +695,21 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     
     // 선택된 큐레이터에 따라 필터링
     const filtered = dbPlaces.filter((place) => {
-      // 해당 장소를 추천한 큐레이터 목록 확인
-      const placeCurators = place.curators || [];
+      // 해당 장소를 추천한 큐레이터 목록 확인 (username으로 필터링)
+      const placeCuratorUsernames = place.curatorUsernames || [];
       
       console.log("🔍 장소 필터링 확인:", { 
         placeName: place.name, 
-        placeCurators, 
-        selectedCurators 
+        placeCuratorUsernames, 
+        selectedCurators,
+        placeCurators: place.curators
       });
       
       // 선택된 큐레이터 중 한 명이라도 해당 장소를 추천했으면 표시
       const hasSelectedCurator = selectedCurators.some(selectedCurator => {
-        // placeCurators 배열의 각 curatorId를 확인
-        return placeCurators.some(curatorId => {
-          // curatorId를 username으로 매핑
-          let curatorUsername = null;
-          
-          // 기존 하드코딩 매핑 (user_id 기준)
-          if (curatorId === '8cd3b6dd-42de-4bce-9867-0a395ddfd390') {
-            curatorUsername = 'solodrinker';
-          } else if (curatorId === '2fba03a4-5a6d-43e2-a7d8-7c78fa8df752') {
-            curatorUsername = 'humblefetish';
-          } else {
-            // dbCurators에서 username으로 찾기
-            const curator = dbCurators.find(c => c.id === curatorId);
-            curatorUsername = curator ? curator.username : null;
-          }
-          
-          console.log("🔍 큐레이터 매핑:", { 
-            curatorId, 
-            curatorUsername, 
-            selectedCurator,
-            match: curatorUsername === selectedCurator
-          });
-          
-          return curatorUsername === selectedCurator;
+        return placeCuratorUsernames.some(curatorUsername => {
+          console.log(`🔍 큐레이터 매칭 확인: ${selectedCurator} vs ${curatorUsername}`);
+          return selectedCurator === curatorUsername;
         });
       });
       
@@ -827,7 +833,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
   const handleClearSearch = () => {
     setQuery("");
     setSelectedPlace(null);
-    setDetailPlace(null);
     setAiError("");
     setAiSummary("");
     setAiReasons([]);
@@ -1379,23 +1384,21 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 if (next) {
                   if (selectedPlace && !isPlaceSaved(selectedPlace.id)) {
                     setSelectedPlace(null);
-                    setDetailPlace(null);
                   }
                 }
                 return next;
               });
             }}
             activeCategory={legendCategory}
-            closeSignal={selectedPlace || detailPlace}
+            closeSignal={selectedPlace}
             onSelectCategory={(key) => {
               setLegendCategory((prev) => (prev === key ? null : key));
               if (selectedPlace) setSelectedPlace(null);
-              if (detailPlace) setDetailPlace(null);
             }}
           />
         </div>
 
-        {!selectedPlace && !detailPlace ? (
+        {!selectedPlace ? (
           <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
               <SearchBar
@@ -1535,7 +1538,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         <div
           style={{
             ...styles.mapCardOverlay,
-            bottom: selectedPlace || detailPlace ? "18px" : styles.mapCardOverlay.bottom,
+            bottom: selectedPlace ? "18px" : styles.mapCardOverlay.bottom,
           }}
         >
           {selectedPlace ? (
@@ -1551,7 +1554,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 isSaved={isPlaceSaved(selectedPlace.id)}
                 savedFolderColor={savedColorMap[selectedPlace.id]}
                 onSave={setSaveTargetPlace}
-                onOpenDetail={setDetailPlace}
                 onClose={() => setSelectedPlace(null)}
               />
             </div>
@@ -1676,12 +1678,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         </div>
       </main>
 
-      <PlaceDetail
-        place={detailPlace}
-        isSaved={detailPlace ? isPlaceSaved(detailPlace.id) : false}
-        onClose={() => setDetailPlace(null)}
-        onSave={setSaveTargetPlace}
-      />
 
       <SavedPlaces
         open={savedPlacesOpen}

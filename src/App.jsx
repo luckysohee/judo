@@ -17,22 +17,22 @@ import EditPlace from "./pages/Studio/EditPlace";
 function App() {
   return (
     <ToastProvider>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/map" element={<MapView />} />
-        <Route path="/place/:id" element={<PlaceDetailPage />} />
-        <Route path="/curator/:name" element={<CuratorPageScreen />} />
-        <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
-        <Route path="/saved" element={<SavedPlacesPage />} />
-        <Route path="/admin/applications" element={<AdminApplicationsPage />} />
-        <Route path="/admin/curator/:userId" element={<CuratorManagementPage />} />
-        <Route path="/curator-apply" element={<CuratorApplyForm />} />
-        <Route path="/test-checkin" element={<CheckinTest />} />
-        {/* 스튜디오 라우트 */}
-        <Route path="/studio" element={<StudioHome />} />
-        <Route path="/studio/new-place" element={<NewPlace />} />
-        <Route path="/studio/place/:id/edit" element={<EditPlace />} />
-      </Routes>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/map" element={<MapView />} />
+      <Route path="/place/:id" element={<PlaceDetailPage />} />
+      <Route path="/curator/:name" element={<CuratorPageScreen />} />
+      <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
+      <Route path="/saved" element={<SavedPlacesPage />} />
+      <Route path="/admin/applications" element={<AdminApplicationsPage />} />
+      <Route path="/admin/curator/:userId" element={<CuratorManagementPage />} />
+      <Route path="/curator-apply" element={<CuratorApplyForm />} />
+      <Route path="/test-checkin" element={<CheckinTest />} />
+      {/* 스튜디오 라우트 */}
+      <Route path="/studio" element={<StudioHome />} />
+      <Route path="/studio/new-place" element={<NewPlace />} />
+      <Route path="/studio/place/:id/edit" element={<EditPlace />} />
+    </Routes>
     </ToastProvider>
   );
 }

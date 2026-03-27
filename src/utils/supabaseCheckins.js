@@ -142,11 +142,7 @@ export async function fetchHotPlaces24h(limit = 20) {
 export async function fetchUserCheckins(userId, visibility = null) {
   let query = supabase
     .from("checkins")
-    .select(`
-      *,
-      places(id, name, address),
-      profiles(id, nickname, avatar_url)
-    `)
+    .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
