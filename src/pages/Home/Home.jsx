@@ -896,18 +896,94 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     setShowFollowModal(false);
   };
 
+  // 큐레이터 상세 정보 가져오기
+  const fetchCuratorDetails = async (curatorName) => {
+    try {
+      console.log("🔍 큐레이터 상세 정보 조회:", curatorName);
+      
+      // curators 테이블에서 상세 정보 조회
+      const { data: curatorData, error: curatorError } = await supabase
+        .from('curators')
+        .select('*')
+        .eq('username', curatorName)
+        .maybeSingle(); // .single() 대신 .maybeSingle() 사용
+      
+      if (curatorError) {
+        console.log("❌ 큐레이터 정보 조회 실패:", curatorError);
+        return null;
+      }
+      
+      if (!curatorData) {
+        console.log("❌ 큐레이터 정보 없음:", curatorName);
+        return null;
+      }
+      
+      console.log("✅ 큐레이터 상세 정보:", curatorData);
+      
+      // curator_places 테이블에서 장소 수 조회
+      const { data: placesData, error: placesError } = await supabase
+        .from('curator_places')
+        .select('id')
+        .eq('curator_id', curatorData.id)
+        .eq('is_archived', false);
+      
+      const placeCount = placesError ? 0 : (placesData?.length || 0);
+      
+      // user_follows 테이블에서 팔로워 수 조회
+      const { data: followersData, error: followersError } = await supabase
+        .from('user_follows')
+        .select('id')
+        .eq('curator_id', curatorData.id);
+      
+      const followerCount = followersError ? 0 : (followersData?.length || 0);
+      
+      return {
+        ...curatorData,
+        placeCount,
+        followerCount,
+        saveCount: 0 // 저장 수는 다른 테이블에서 조회 필요
+      };
+      
+    } catch (error) {
+      console.error("❌ 큐레이터 상세 정보 로드 실패:", error);
+      return null;
+    }
+  };
+
+  // 선택된 큐레이터 정보 업데이트
+  useEffect(() => {
+    if (selectedCurator && !selectedCurator.placeCount) {
+      // 상세 정보가 없으면 가져오기
+      const loadDetails = async () => {
+        try {
+          const details = await fetchCuratorDetails(selectedCurator.name);
+          if (details) {
+            setSelectedCurator(prev => ({
+              ...prev,
+              ...details
+            }));
+          }
+        } catch (error) {
+          console.error("❌ 큐레이터 상세 정보 로드 실패:", error);
+        }
+      };
+      
+      loadDetails();
+    }
+  }, [selectedCurator]);
+
   // 팔로우 모달에 표시할 큐레이터 정보
   const getModalCurator = () => {
     if (selectedCurator) {
-      // 선택된 큐레이터 정보 사용
+      // 선택된 큐레이터 정보 사용 (실제 데이터)
       return {
         username: selectedCurator.name,
         displayName: selectedCurator.displayName || selectedCurator.name,
-        level: 2, // Local Curator (임시)
-        saveCount: 60, // 임시 데이터
-        placeCount: 9, // 임시 데이터
-        followerCount: 123, // 임시 데이터
-        bio: selectedCurator.bio || "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요.",
+        level: selectedCurator.grade || 2, // 실제 등급 또는 기본값
+        saveCount: selectedCurator.saveCount || 0, // 실제 저장 수
+        placeCount: selectedCurator.placeCount || 0, // 실제 장소 수
+        followerCount: selectedCurator.followerCount || 0, // 실제 팔로워 수
+        bio: selectedCurator.bio || "소개가 없습니다.",
         avatar: selectedCurator.avatar
       };
     }
