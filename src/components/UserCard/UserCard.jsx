@@ -70,33 +70,7 @@ const UserCard = ({ user, onClose, isVisible }) => {
 
         .from('user_saved_places')
 
-        .select(`
-
-          *,
-
-          places:place_id (
-
-            id,
-
-            name,
-
-            address,
-
-            category,
-
-            alcohol_type,
-
-            curator:curator_id (
-
-              username,
-
-              display_name
-
-            )
-
-          )
-
-        `)
+        .select('*')
 
         .eq('user_id', user.id)
 
@@ -124,39 +98,117 @@ const UserCard = ({ user, onClose, isVisible }) => {
 
         .from('user_follows')
 
-        .select(`
-
-          *,
-
-          curators:curator_id (
-
-            id,
-
-            username,
-
-            display_name,
-
-            bio,
-
-            image,
-
-            stats
-
-          )
-
-        `)
+        .select('*')
 
         .eq('user_id', user.id);
 
-
+      
+      console.log("🔍 UserCard - 팔로우 데이터:", followingData);
+console.log("🔍 UserCard - 현재 user.id:", user.id);
 
       if (followingError) {
 
         console.error('팔로우 큐레이터 로드 오류:', followingError);
 
+      } else if (followingData && followingData.length > 0) {
+
+        // 각 curator_id에 해당하는 큐레이터 정보 가져오기
+
+        const curatorIds = followingData.map(f => f.curator_id).filter(Boolean);
+        
+                
+        if (curatorIds.length > 0) {
+
+          // UUID와 문자열을 분리
+
+          const uuidIds = curatorIds.filter(id => id.includes('-'));
+
+          const stringIds = curatorIds.filter(id => !id.includes('-'));
+          
+          
+                    
+          let curatorData = [];
+          
+          // UUID 기반 조회
+
+          if (uuidIds.length > 0) {
+
+            const { data: uuidData, error: uuidError } = await supabase
+
+              .from('curators')
+
+              .select('*')
+
+              .in('id', uuidIds);
+            
+                        
+            if (!uuidError && uuidData) {
+
+              curatorData = [...curatorData, ...uuidData];
+
+            } else if (uuidError) {
+
+              console.error('UUID 큐레이터 정보 로드 오류:', uuidError);
+
+            }
+
+          }
+          
+          // 문자열(username) 기반 조회
+
+          if (stringIds.length > 0) {
+
+            const { data: stringData, error: stringError } = await supabase
+
+              .from('curators')
+
+              .select('*')
+
+              .or(`username.in.(${stringIds.map(id => `'${id}'`).join(',')}),slug.in.(${stringIds.map(id => `'${id}'`).join(',')})`);
+            
+                        
+            if (!stringError && stringData) {
+
+              curatorData = [...curatorData, ...stringData];
+
+            } else if (stringError) {
+
+              console.error('문자열 큐레이터 정보 로드 오류:', stringError);
+
+            }
+
+          }
+          
+                    
+          // 팔로우 데이터와 큐레이터 정보 결합
+          const enrichedData = followingData.map(follow => {
+            const curator = uuidIds.includes(follow.curator_id)
+              ? curatorData.find(c => c.id === follow.curator_id)
+              : curatorData.find(c => c.username === follow.curator_id) || 
+                curatorData.find(c => c.slug === follow.curator_id);
+            
+            console.log("🔍 큐레이터 매칭:", {
+              follow_curator_id: follow.curator_id,
+              found_curator: curator,
+              curator_username: curator?.username,
+              curator_slug: curator?.slug
+            });
+            
+            return curator || follow;
+          });
+          
+          
+          setFollowingCurators(enrichedData);
+
+        } else {
+
+          setFollowingCurators(followingData);
+
+        }
+
       } else {
 
-        setFollowingCurators(followingData?.map(f => f.curators) || []);
+        setFollowingCurators([]);
 
       }
 
