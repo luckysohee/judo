@@ -1,3 +1,42 @@
+// 폴더 색상 매핑
+const FOLDER_COLORS = {
+  after_party: '#FF8C42',    // orange
+  date: '#FF69B4',           // pink  
+  hangover: '#87CEEB',       // skyblue
+  solo: '#9B59B6',           // purple
+  group: '#F1C40F',          // yellow
+  must_go: '#27AE60',        // green
+  terrace: '#2C3E50'         // black
+};
+
+// 폴더 정보 가져오기
+function getFolderInfo(folders = []) {
+  if (!folders || folders.length === 0) {
+    return { primary: null, secondary: null, count: 0 };
+  }
+
+  const validFolders = folders.filter(f => FOLDER_COLORS[f.key]);
+  const count = validFolders.length;
+
+  if (count === 0) {
+    return { primary: null, secondary: null, count: 0 };
+  }
+
+  // 우선순위: 현재 선택된 필터 > 최근 저장 폴더 > 시스템 우선순위
+  const sortedFolders = validFolders.sort((a, b) => {
+    // 시스템 폴더 우선순위 (after_party=1, date=2, ...)
+    const priority = { after_party: 1, date: 2, hangover: 3, solo: 4, group: 5, must_go: 6, terrace: 7 };
+    return (priority[a.key] || 999) - (priority[b.key] || 999);
+  });
+
+  return {
+    primary: sortedFolders[0],
+    secondary: sortedFolders[1],
+    count
+  };
+}
+
+// 큐레이터 등급 마커 (기존 로직 유지)
 function getMarkerTier(place) {
   const curatorCount = Array.isArray(place?.curators) ? place.curators.length : 1;
 
@@ -12,7 +51,7 @@ function getMarkerTier(place) {
 
   if (curatorCount === 2) {
     return {
-      level: "hot",
+      level: "hot", 
       fill: "#8B5CF6",
       emoji: "✨",
       label: "2",
@@ -27,8 +66,27 @@ function getMarkerTier(place) {
   };
 }
 
-function createMarkerSvg(place, isSelected, savedColor, isLive) {
-  const tier = getMarkerTier(place);
+// 폴더 기반 마커 색상 가져오기
+function getFolderMarkerColor(place, userFolders) {
+  const folderInfo = getFolderInfo(userFolders);
+  
+  if (folderInfo.primary) {
+    return {
+      fill: FOLDER_COLORS[folderInfo.primary.key],
+      level: 'folder',
+      emoji: folderInfo.primary.icon || '📌',
+      folderInfo
+    };
+  }
+
+  // 폴더가 없으면 기존 큐레이터 등급 시스템 사용
+  return getMarkerTier(place);
+}
+
+function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders) {
+  // 폴더 기반 마커 정보 우선 사용
+  const markerInfo = getFolderMarkerColor(place, userFolders);
+  const tier = markerInfo.level === 'folder' ? markerInfo : getMarkerTier(place);
 
   const size = isSelected ? 64 : 50;
   const circleRadius = isSelected ? 22 : 18;
@@ -36,12 +94,33 @@ function createMarkerSvg(place, isSelected, savedColor, isLive) {
   const stroke = isSelected ? "#ffffff" : "#f3f3f3";
   const shadowOpacity = isSelected ? 0.34 : 0.2;
 
-  const outerRing =
-    tier.level === "premium"
-      ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 6}" fill="none" stroke="rgba(245,196,81,0.45)" stroke-width="4" />`
-      : tier.level === "hot"
-      ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="3" />`
-      : "";
+  // 폴더 기반 외곽 링
+  let outerRing = "";
+  if (tier.level === 'folder' && tier.folderInfo) {
+    const { folderInfo } = tier;
+    
+    if (folderInfo.count >= 3) {
+      // 3개 이상 폴더: 두꺼운 링 + "+N"
+      outerRing = `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 6}" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="4" />`;
+    } else if (folderInfo.count === 2 && folderInfo.secondary) {
+      // 2개 폴더: 이중 링
+      const primaryColor = FOLDER_COLORS[folderInfo.primary.key];
+      const secondaryColor = FOLDER_COLORS[folderInfo.secondary.key];
+      outerRing = `
+        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="${secondaryColor}" stroke-width="3" opacity="0.7" />
+        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 2}" fill="none" stroke="${primaryColor}" stroke-width="2" opacity="0.8" />
+      `;
+    }
+    // 1개 폴더: 기본 링 (아래에서 처리)
+  } else {
+    // 기존 큐레이터 등급 시스템
+    outerRing =
+      tier.level === "premium"
+        ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 6}" fill="none" stroke="rgba(245,196,81,0.45)" stroke-width="4" />`
+        : tier.level === "hot"
+        ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="3" />`
+        : "";
+  }
 
   const savedDot = savedColor
     ? `<circle cx="${size - 11}" cy="11" r="6.5" fill="${savedColor}" stroke="#ffffff" stroke-width="2" />`
@@ -66,7 +145,25 @@ function createMarkerSvg(place, isSelected, savedColor, isLive) {
         </text>
       </g>
     `
-      : "";
+    : tier.level === 'folder' && tier.folderInfo && tier.folderInfo.count >= 3
+      ? `
+      <g>
+        <circle cx="${size - 14}" cy="${size - 14}" r="9" fill="#111111" stroke="#ffffff" stroke-width="1.5" />
+        <text
+          x="${size - 14}"
+          y="${size - 14}"
+          dominant-baseline="central"
+          text-anchor="middle"
+          font-size="9"
+          font-weight="700"
+          fill="#ffffff"
+          font-family="Arial, sans-serif"
+        >
+          +${tier.folderInfo.count - 1}
+        </text>
+      </g>
+    `
+    : "";
 
   const premiumGlow =
     tier.level === "premium"
@@ -140,8 +237,8 @@ function createMarkerSvg(place, isSelected, savedColor, isLive) {
   `;
 }
 
-function createMarkerImage(place, isSelected, savedColor, isLive) {
-  const svg = createMarkerSvg(place, isSelected, savedColor, isLive);
+function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
+  const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 64 : 50;
 
@@ -160,12 +257,13 @@ export default function createMarker({
   isSelected = false,
   isLive = false,
   savedColor = null,
+  userFolders = null, // 추가
   onClick,
 }) {
   const marker = new window.kakao.maps.Marker({
     map,
     position: new window.kakao.maps.LatLng(place.lat, place.lng),
-    image: createMarkerImage(place, isSelected, savedColor, isLive),
+    image: createMarkerImage(place, isSelected, savedColor, isLive, userFolders),
     zIndex: isSelected ? 20 : 1,
   });
 

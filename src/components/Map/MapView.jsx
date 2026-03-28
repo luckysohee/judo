@@ -44,6 +44,7 @@ const MapView = forwardRef(({
   livePlaceIds,
   onCurrentLocationChange,
   center, // center prop 추가
+  userFolders, // 사용자 폴더 정보 추가
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -198,6 +199,7 @@ const MapView = forwardRef(({
         isSelected: selectedPlace?.id === p.id,
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
+        userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
         onClick: (cp) => {
           ignoreMapClickRef.current = true;
           setSelectedPlace(cp);

@@ -1,4 +1,6 @@
+import React, { useState } from "react";
 import CheckinButton from "../CheckinButton/CheckinButton";
+import SaveModal from "../SaveModal/SaveModal";
 
 export default function PlacePreviewCard({
   place,
@@ -9,10 +11,12 @@ export default function PlacePreviewCard({
   onOpenCurator,
   onClose,
 }) {
+  const [showSaveModal, setShowSaveModal] = useState(false);
+
   if (!place) return null;
 
   console.log("🔍 PlacePreviewCard place 데이터:", place);
-  console.log("🔍 curatorReasons:", place.curator_reasons);
+  console.log("🔍 curatorReasons:", place.curatorReasons);
   console.log("🔍 curatorPlaces:", place.curatorPlaces);
 
   const visibleCurators = (place.curators || []).slice(0, 3);
@@ -45,11 +49,18 @@ export default function PlacePreviewCard({
 
   return (
     <div style={styles.wrap}>
-      <div style={styles.card}>
-        <button type="button" onClick={onClose} style={styles.closeButton}>
-          ✕
-        </button>
-
+      <div style={{
+        ...styles.card,
+        border: showSaveModal ? "none" : styles.card.border,
+        borderRadius: showSaveModal ? "0" : styles.card.borderRadius,
+        boxShadow: showSaveModal ? "none" : styles.card.boxShadow
+      }}>
+        <div style={styles.header}>
+          <h3 style={styles.placeName}>{place.name}</h3>
+          <button type="button" onClick={onClose} style={styles.closeButton}>
+            &times;
+          </button>
+        </div>
         <img src={place.image} alt={place.name} style={styles.image} />
 
         <div style={styles.body}>
@@ -135,7 +146,7 @@ export default function PlacePreviewCard({
 
             <button
               type="button"
-              onClick={() => onSave(place)}
+              onClick={() => setShowSaveModal(true)}
               style={styles.saveButton}
             >
               {isSaved ? "저장 폴더" : "저장"}
@@ -149,6 +160,18 @@ export default function PlacePreviewCard({
               공유하기
             </button>
           </div>
+
+          {/* 저장 모달 */}
+          <SaveModal
+            place={place}
+            isOpen={showSaveModal}
+            onClose={() => setShowSaveModal(false)}
+            onSaveComplete={() => {
+              setShowSaveModal(false);
+              onSave?.(place);
+            }}
+            firstSavedFrom="home"
+          />
         </div>
       </div>
     </div>
@@ -172,6 +195,7 @@ const styles = {
     backdropFilter: "blur(12px)",
     animation: "judoCardUp 220ms ease-out",
     position: "relative",
+    transition: "all 0.3s ease"
   },
   closeButton: {
     position: "absolute",
