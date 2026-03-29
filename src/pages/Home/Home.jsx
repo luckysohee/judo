@@ -1609,6 +1609,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 savedFolderColor={savedColorMap[selectedPlace.id]}
                 onSave={setSaveTargetPlace}
                 onClose={() => setSelectedPlace(null)}
+                getUserRole={getUserRole}
               />
             </div>
           ) : aiRecommendedIds.length > 0 ? (
