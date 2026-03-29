@@ -135,16 +135,83 @@ const UserCard = ({ user, onClose, isVisible }) => {
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [selectedCurator, setSelectedCurator] = useState(null);
 
   useEffect(() => {
     if (isVisible && user) {
       loadUserData();
     }
   }, [isVisible, user]);
+
+  // 팔로우한 큐레이터 필터링 함수
+  const getFilteredCurators = () => {
+    if (!searchQuery.trim()) {
+      return followingCurators;
+    }
+
+    return followingCurators.filter(curator => {
+      const username = curator.username?.toLowerCase() || '';
+      const displayName = curator.display_name?.toLowerCase() || '';
+      const bio = curator.bio?.toLowerCase() || '';
+      const searchLower = searchQuery.toLowerCase();
+      
+      return username.includes(searchLower) || 
+             displayName.includes(searchLower) || 
+             bio.includes(searchLower);
+    });
+  };
+
+  // 큐레이터 프로필 불러오기
+  const loadCuratorProfile = async (curator) => {
+    try {
+      // 큐레이터 상세 정보 불러오기
+      const { data: curatorData, error: curatorError } = await supabase
+        .from('curators')
+        .select('*')
+        .eq('username', curator.username)
+        .single();
+
+      if (curatorError) {
+        console.error('큐레이터 정보 로드 오류:', curatorError);
+        return;
+      }
+
+      // 큐레이터의 저장된 장소 불러오기
+      const { data: savedPlaces, error: placesError } = await supabase
+        .from('user_saved_places')
+        .select(`
+          *,
+          places (*)
+        `)
+        .eq('user_id', curatorData.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (placesError) {
+        console.error('큐레이터 저장 장소 로드 오류:', placesError);
+      }
+
+      // 큐레이터의 팔로워 수 불러오기
+      const { count: followerCount, error: followerError } = await supabase
+        .from('user_follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('curator_id', curatorData.id);
+
+      setSelectedCurator({
+        ...curatorData,
+        savedPlaces: savedPlaces || [],
+        stats: {
+          ...curatorData.stats,
+          followerCount: followerCount || 0
+        }
+      });
+
+    } catch (error) {
+      console.error('큐레이터 프로필 로드 오류:', error);
+    }
+  };
 
   const loadUserData = async () => {
     try {
@@ -291,103 +358,6 @@ const UserCard = ({ user, onClose, isVisible }) => {
       console.error('사용자 데이터 로드 오류:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const searchCurators = async (query) => {
-    console.log('🔍 검색 시작:', query);
-    
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    try {
-      setSearchLoading(true);
-      
-      // 큐레이터 테이블이 있는지 확인
-      console.log('🔍 curators 테이블 조회 시작...');
-      
-      // 먼저 테이블 구조 확인
-      const { data: testCurators, error: testError } = await supabase
-        .from('curators')
-        .select('id, username, display_name, bio')
-        .limit(5);
-      
-      console.log('🔍 테이블 테스트 결과:', testCurators);
-      console.log('🔍 테이블 테스트 에러:', testError);
-      
-      if (testError) {
-        console.error('큐레이터 테이블 접근 오류:', testError);
-        setSearchResults([]);
-        return;
-      }
-      
-      // 큐레이터 검색 (username, bio, display_name)
-      const { data, error } = await supabase
-        .from('curators')
-        .select('*')
-        .or(`username.ilike.%${query}%,bio.ilike.%${query}%,display_name.ilike.%${query}%`)
-        .limit(10);
-
-      console.log('🔍 검색 결과:', data);
-      console.log('🔍 검색 에러:', error);
-
-      if (error) {
-        console.error('큐레이터 검색 오류:', error);
-        setSearchResults([]);
-      } else {
-        // 임시로 필터링 제거하여 모든 검색 결과 표시 (테스트용)
-        console.log('🔍 임시: 필터링 없이 모든 결과 표시');
-        setSearchResults(data);
-        
-        // 원래 필터링 로직 (주석 처리)
-        /*
-        const followingIds = followingCurators.map(c => c.id).filter(Boolean);
-        console.log('🔍 이미 팔로우한 ID들:', followingIds);
-        console.log('🔍 followingCurators 구조:', followingCurators);
-        console.log('🔍 검색 결과 구조:', data);
-        
-        // 각 큐레이터의 ID 비교
-        const filteredResults = data.filter(curator => {
-          const isFollowing = followingIds.includes(curator.id);
-          console.log(`🔍 큐레이터 ${curator.username} (${curator.id}) 팔로우 여부:`, isFollowing);
-          return !isFollowing;
-        });
-        
-        console.log('🔍 필터링된 결과:', filteredResults);
-        setSearchResults(filteredResults);
-        */
-      }
-    } catch (error) {
-      console.error('검색 중 오류:', error);
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
-  const handleFollow = async (curatorId) => {
-    try {
-      const { error } = await supabase
-        .from('user_follows')
-        .insert({
-          user_id: user.id,
-          curator_id: curatorId
-        });
-
-      if (error) {
-        console.error('팔로우 실패:', error);
-        alert('팔로우에 실패했습니다.');
-      } else {
-        // 검색 결과에서 제거
-        setSearchResults(prev => prev.filter(c => c.id !== curatorId));
-        // 팔로우 목록 새로고침
-        loadUserData();
-      }
-    } catch (error) {
-      console.error('팔로우 처리 오류:', error);
-      alert('팔로우 중 오류가 발생했습니다.');
     }
   };
 
@@ -569,10 +539,10 @@ const UserCard = ({ user, onClose, isVisible }) => {
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
-                    setShowSearchModal(true);
+                    setShowSearch(!showSearch);
                   }}
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    backgroundColor: showSearch ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.2)',
                     border: '1px solid rgba(255, 255, 255, 0.3)',
                     color: 'white',
                     borderRadius: '4px',
@@ -663,43 +633,78 @@ const UserCard = ({ user, onClose, isVisible }) => {
                 </div>
               )
             ) : (
-              followingCurators.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                  아직 팔로우한 큐레이터가 없습니다.
-                </div>
-              ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* 검색 입력창 */}
+                {showSearch && (
+                  <div style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="팔로우한 큐레이터 검색..."
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '6px',
+                        color: 'white',
+                        fontSize: '13px',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                
+                {/* 큐레이터 리스트 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {followingCurators.map((curator) => (
-                    <div
-                      key={curator.id}
-                      style={curatorCardStyles.card}
-                    >
-                      <div style={curatorCardStyles.info}>
-                        <div style={curatorCardStyles.avatar}>
-                          {curator.username?.charAt(0)?.toUpperCase() || '👤'}
-                        </div>
-                        <div style={curatorCardStyles.details}>
-                          <div style={curatorCardStyles.name}>
+                  {getFilteredCurators().length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                      {searchQuery ? '검색 결과가 없습니다' : '아직 팔로우한 큐레이터가 없습니다.'}
+                    </div>
+                  ) : (
+                    getFilteredCurators().map((curator) => (
+                      <div
+                        key={curator.id}
+                        style={curatorCardStyles.card}
+                      >
+                        <div style={curatorCardStyles.info}>
+                          <div style={curatorCardStyles.avatar}>
+                            {curator.username?.charAt(0)?.toUpperCase() || '👤'}
+                          </div>
+                          <div style={curatorCardStyles.details}>
+                          <div 
+                            style={{
+                              ...curatorCardStyles.name,
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              textDecorationColor: 'rgba(255, 255, 255, 0.3)'
+                            }}
+                            onClick={() => loadCuratorProfile(curator)}
+                          >
                             @{curator.username || 'unknown'}
                           </div>
                           <div style={curatorCardStyles.meta}>
                             {curator.bio ? `${curator.bio.slice(0, 20)}...` : '큐레이터'} • {curator.stats?.saveCount || 0} 저장
                           </div>
                         </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUnfollow(curator.id);
+                          }}
+                          style={curatorCardStyles.unfollowButton}
+                        >
+                          언팔로우
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUnfollow(curator.id);
-                        }}
-                        style={curatorCardStyles.unfollowButton}
-                      >
-                        언팔로우
-                      </button>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
-              )
+              </div>
             )}
           </div>
 
@@ -716,8 +721,8 @@ const UserCard = ({ user, onClose, isVisible }) => {
         </div>
       </div>
 
-      {/* 큐레이터 검색 모달 */}
-      {showSearchModal && (
+      {/* 큐레이터 프로필 모달 */}
+      {selectedCurator && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -736,13 +741,13 @@ const UserCard = ({ user, onClose, isVisible }) => {
             WebkitBackdropFilter: 'blur(12px)',
             borderRadius: '20px',
             width: '90%',
-            maxWidth: '400px',
+            maxWidth: '500px',
             maxHeight: '80vh',
             overflow: 'hidden',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             boxShadow: '0 14px 30px rgba(0, 0, 0, 0.32)'
           }}>
-            {/* 검색 헤더 */}
+            {/* 큐레이터 프로필 헤더 */}
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -751,14 +756,10 @@ const UserCard = ({ user, onClose, isVisible }) => {
               borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
             }}>
               <h3 style={{ margin: 0, color: 'white', fontSize: '16px' }}>
-                🔍 큐레이터 검색
+                큐레이터 프로필
               </h3>
               <button
-                onClick={() => {
-                  setShowSearchModal(false);
-                  setSearchQuery('');
-                  setSearchResults([]);
-                }}
+                onClick={() => setSelectedCurator(null)}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -771,120 +772,88 @@ const UserCard = ({ user, onClose, isVisible }) => {
               </button>
             </div>
 
-            {/* 검색 입력 */}
+            {/* 큐레이터 정보 */}
             <div style={{ padding: '20px' }}>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  const query = e.target.value;
-                  console.log('🔍 입력 변경:', query);
-                  setSearchQuery(query);
-                  searchCurators(query);
-                }}
-                placeholder="큐레이터 이름을 검색하세요..."
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+                <div style={{
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '50%',
+                  backgroundColor: '#3498DB',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '24px',
                   color: 'white',
-                  fontSize: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-                autoFocus
-              />
-              {searchQuery && (
-                <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
-                  검색어: "{searchQuery}"
+                  flexShrink: 0
+                }}>
+                  {selectedCurator.username?.charAt(0)?.toUpperCase() || '👤'}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
+                    @{selectedCurator.username}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#ccc', marginBottom: '4px' }}>
+                    {selectedCurator.display_name || '큐레이터'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#999' }}>
+                    팔로워 {selectedCurator.stats?.followerCount || 0}명 • 저장 {selectedCurator.stats?.saveCount || 0}개
+                  </div>
+                </div>
+              </div>
+
+              {selectedCurator.bio && (
+                <div style={{ 
+                  fontSize: '14px', 
+                  color: '#ccc', 
+                  lineHeight: '1.4', 
+                  marginBottom: '20px',
+                  padding: '12px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '8px'
+                }}>
+                  {selectedCurator.bio}
                 </div>
               )}
-            </div>
 
-            {/* 검색 결과 */}
-            <div style={{
-              padding: '0 20px 20px',
-              maxHeight: '400px',
-              overflowY: 'auto'
-            }}>
-              {searchLoading ? (
-                <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                  검색 중...
-                </div>
-              ) : searchResults.length === 0 && searchQuery ? (
-                <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                  검색 결과가 없습니다
-                </div>
-              ) : searchResults.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                  큐레이터를 검색해보세요
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {searchResults.map((curator) => (
-                    <div
-                      key={curator.id}
-                      style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: '8px',
-                        padding: '12px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div style={{ 
-                        flex: 1, 
-                        minWidth: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden'
-                      }}>
-                        <span style={{ 
-                          fontSize: '14px', 
-                          fontWeight: '600', 
-                          color: '#fff'
-                        }}>
-                          @{curator.username || 'unknown'}
-                        </span>
-                        <span style={{ 
-                          fontSize: '13px', 
-                          color: '#ccc'
-                        }}>
-                          ({curator.display_name || '큐레이터'})
-                        </span>
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: '#999'
-                        }}>
-                          {curator.stats?.saveCount || 0}명 저장
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleFollow(curator.id)}
+              {/* 저장된 장소 목록 */}
+              <div>
+                <h4 style={{ color: 'white', fontSize: '14px', marginBottom: '12px' }}>
+                  저장한 장소 ({selectedCurator.savedPlaces?.length || 0})
+                </h4>
+                <div style={{ 
+                  maxHeight: '300px', 
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  {selectedCurator.savedPlaces?.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                      저장한 장소가 없습니다
+                    </div>
+                  ) : (
+                    selectedCurator.savedPlaces.map((saved) => (
+                      <div
+                        key={saved.id}
                         style={{
-                          backgroundColor: '#3498DB',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '6px',
-                          padding: '6px 12px',
-                          fontSize: '12px',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                          flexShrink: 0
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '8px',
+                          padding: '12px'
                         }}
                       >
-                        팔로우
-                      </button>
-                    </div>
-                  ))}
+                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
+                          {saved.places?.name || '정보 없음'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#999' }}>
+                          {saved.places?.address || '주소 정보 없음'}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
