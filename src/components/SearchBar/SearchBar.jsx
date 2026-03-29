@@ -13,6 +13,7 @@ export default function SearchBar({
   rightActions = null,
   mapRef = null, // 카카오 지도 ref 추가
   showKakaoSearch = true, // 카카오 검색 표시 여부
+  onKakaoPlaceSelect = null, // 카카오 장소 선택 콜백
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -72,60 +73,33 @@ export default function SearchBar({
 
   // 카카오 장소 선택
   const handleKakaoPlaceSelect = (place) => {
-    // 지도 이동 - 임시로 console.log만
-    console.log('장소 선택 (지도 이동 필요):', place);
+    // 지도 이동 처리
+    console.log('장소 선택 (지도 이동):', place);
     
-    // TODO: MapView에 panTo 기능 추가 필요
-    // if (mapRef?.current) {
-    //   const moveLatLon = new window.kakao.maps.LatLng(place.y, place.x);
-    //   mapRef.current.panTo(moveLatLon);
-    // }
+    // mapRef를 통해 지도 이동 (moveToLocation 함수 사용)
+    if (mapRef?.current?.moveToLocation) {
+      mapRef.current.moveToLocation(place.y, place.x);
+      console.log('지도 이동 완료:', place.y, place.x);
+    } else {
+      console.log('moveToLocation 함수 없음');
+    }
 
-    // Supabase에 저장
-    savePlaceToDatabase(place);
+    // 콜백 함수 호출 (마커 생성)
+    if (onKakaoPlaceSelect) {
+      onKakaoPlaceSelect(place);
+    }
 
     // 검색 결과 닫기
     setShowKakaoResults(false);
     setQuery('');
   };
 
-  // Supabase 저장
-  const savePlaceToDatabase = async (place) => {
-    try {
-      const { data: existingPlace } = await supabase
-        .from('places')
-        .select('id')
-        .eq('kakao_place_id', place.id)
-        .single();
-
-      if (!existingPlace) {
-        await supabase
-          .from('places')
-          .upsert({
-            kakao_place_id: place.id,
-            name: place.place_name,
-            address: place.road_address_name || place.address_name,
-            category: place.category_name,
-            x: parseFloat(place.x),
-            y: parseFloat(place.y),
-            phone: place.phone,
-            created_at: new Date().toISOString()
-          });
-      }
-    } catch (error) {
-      console.error('장소 저장 오류:', error);
-    }
-  };
-
   const handleSubmit = () => {
-    const trimmed = query.trim();
-    if (!trimmed || isLoading) return;
-    
-    // AI 검색 대신 카카오 장소 검색만 사용
-    if (showKakaoSearch) {
-      searchKakaoPlaces(trimmed);
+    if (query.trim()) {
+      onSubmit(query);
+      setShowSuggestions(false);
+      setShowKakaoResults(false);
     }
-    onSubmit?.(trimmed);
   };
 
   const handleKeyDown = (event) => {

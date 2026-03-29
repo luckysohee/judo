@@ -73,6 +73,7 @@ const MapView = forwardRef(({
       if (!mapRef.current) return;
       const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
       mapRef.current.setCenter(moveLatLon);
+      mapRef.current.setLevel(4); // zoom in to level 4
     },
     getCurrentLocation: () => {
       if (navigator.geolocation) {

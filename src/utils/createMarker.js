@@ -66,6 +66,46 @@ function getMarkerTier(place) {
   };
 }
 
+// 카카오 카테고리별 마커 아이콘 매핑
+const KAKAO_CATEGORY_ICONS = {
+  '음식점': '🍽️',
+  '술집': '🍺', 
+  '카페': '☕',
+  '한식': '🍚',
+  '양식': '🍝',
+  '일식': '🍱',
+  '중식': '🥡',
+  '분식': '🥟',
+  '치킨': '🍗',
+  '피자': '🍕',
+  '햄버거': '🍔',
+  '아시아음식': '🥘',
+  '제과': '🍰',
+  '베이커리': '🥖',
+  '패스트푸드': '🍟',
+  '주점': '🍻',
+  '이자카야': '🏮',
+  '포장마차': '🚐',
+  '육류': '🥩',
+  '해산물': '🦐',
+  '채소': '🥬',
+  '과일': '🍎'
+};
+
+// 카카오 카테고리에서 아이콘 가져오기
+function getKakaoCategoryIcon(category) {
+  if (!category) return '📍';
+  
+  // 카테고리 문자열에 포함된 키워드로 아이콘 찾기
+  for (const [key, icon] of Object.entries(KAKAO_CATEGORY_ICONS)) {
+    if (category.includes(key)) {
+      return icon;
+    }
+  }
+  
+  return '📍'; // 기본 아이콘
+}
+
 // 폴더 기반 마커 색상 가져오기
 function getFolderMarkerColor(place, userFolders) {
   const folderInfo = getFolderInfo(userFolders);
@@ -238,6 +278,74 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders) {
 }
 
 function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
+  // 카카오 장소는 간단한 SVG 마커 사용
+  if (place.isKakaoPlace) {
+    const nameWidth = Math.min(place.name.length * 8 + 10, 120);
+    const totalWidth = Math.max(30, nameWidth);
+    const totalHeight = 35 + 25;
+    
+    // 간단한 빨간색 핀 SVG + 가게 이름
+    const svgString = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
+        <defs>
+          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
+          </filter>
+        </defs>
+        <g filter="url(#shadow)">
+          <!-- 핀 모양 (테두리 없음) -->
+          <path
+            d="M ${totalWidth/2} 5
+               C ${totalWidth/2} 5, ${totalWidth/2 - 10} 5, ${totalWidth/2 - 10} 15
+               C ${totalWidth/2 - 10} 20, ${totalWidth/2 - 5} 25, ${totalWidth/2} 35
+               C ${totalWidth/2 + 5} 25, ${totalWidth/2 + 10} 20, ${totalWidth/2 + 10} 15
+               C ${totalWidth/2 + 10} 5, ${totalWidth/2} 5, ${totalWidth/2} 5
+               Z"
+            fill="${isSelected ? '#CC0000' : '#FF4444'}"
+          />
+          <circle
+            cx="${totalWidth/2}"
+            cy="15"
+            r="3"
+            fill="#ffffff"
+          />
+          <!-- 가게 이름 (네모 블랙박스에 흰글씨) -->
+          <rect
+            x="${(totalWidth - nameWidth) / 2 - 4}"
+            y="43"
+            width="${nameWidth + 8}"
+            height="16"
+            fill="#000000"
+            rx="2"
+          />
+          <text
+            x="${totalWidth/2}"
+            y="51"
+            dominant-baseline="central"
+            text-anchor="middle"
+            font-size="11"
+            font-family="Arial, sans-serif"
+            fill="#ffffff"
+            font-weight="bold"
+          >
+            ${place.name}
+          </text>
+        </g>
+      </svg>
+    `;
+    
+    const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+    
+    return new window.kakao.maps.MarkerImage(
+      encoded,
+      new window.kakao.maps.Size(totalWidth, totalHeight),
+      {
+        offset: new window.kakao.maps.Point(totalWidth / 2, totalHeight)
+      }
+    );
+  }
+  
+  // 기존 큐레이터 마커 로직
   const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 64 : 50;
