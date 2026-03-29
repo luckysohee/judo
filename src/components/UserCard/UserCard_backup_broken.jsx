@@ -2,35 +2,53 @@ import React, { useState, useEffect } from 'react';
 
 import { supabase } from '../../lib/supabase';
 
-
-
 // CSS 애니메이션 추가
-
 const style = document.createElement('style');
-
 style.textContent = `
-
   @keyframes slideUp {
-
     from {
-
       transform: translateY(100%);
-
     }
-
     to {
-
       transform: translateY(0);
-
     }
-
   }
-
 `;
-
 document.head.appendChild(style);
 
+// SaveModal 스타일 동일하게 적용
+const modalStyles = {
+  section: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px'
+  },
+  folderGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '12px',
+    justifyContent: 'center'
+  },
+  folderButton: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    padding: '10px 6px',
+    border: '2px solid',
+    borderRadius: '8px',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    minHeight: '55px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+    position: 'relative',
+    zIndex: 10
+  }
+};
 
+document.head.appendChild(style);
 
 const UserCard = ({ user, onClose, isVisible }) => {
 
@@ -64,30 +82,63 @@ const UserCard = ({ user, onClose, isVisible }) => {
 
       
 
-      // 1. 저장한 장소 불러오기
-
+      // 1. 저장한 장소 불러오기 (폴더 정보 포함)
       const { data: savedData, error: savedError } = await supabase
-
         .from('user_saved_places')
-
-        .select('*')
-
+        .select(`
+          *,
+          user_saved_place_folders (
+            folder_key,
+            system_folders (
+              name,
+              color,
+              icon
+            )
+          )
+        `)
         .eq('user_id', user.id)
-
         .order('created_at', { ascending: false })
-
         .limit(10);
 
-
+      console.log('UserCard - savedData:', savedData);
+      console.log('UserCard - savedError:', savedError);
 
       if (savedError) {
-
         console.error('저장된 장소 로드 오류:', savedError);
-
+        setSavedPlaces([]);
       } else {
+        // 폴더별로 그룹화
+        const groupedByFolder = {};
+        
+        savedData?.forEach(saved => {
+          if (saved.user_saved_place_folders && saved.user_saved_place_folders.length > 0) {
+            saved.user_saved_place_folders.forEach(folder => {
+              const folderKey = folder.folder_key;
+              const folderInfo = folder.system_folders;
+              
+              if (!groupedByFolder[folderKey]) {
+                groupedByFolder[folderKey] = {
+                  folderInfo: folderInfo,
+                  places: []
+                };
+              }
+              
+              groupedByFolder[folderKey].places.push(saved);
+            });
+          } else {
+            // 폴더 없는 장소들은 '미분류'로
+            if (!groupedByFolder['uncategorized']) {
+              groupedByFolder['uncategorized'] = {
+                folderInfo: { name: '미분류', color: '#999', icon: '📁' },
+                places: []
+              };
+            }
+            groupedByFolder['uncategorized'].places.push(saved);
+          }
+        });
 
-        setSavedPlaces(savedData || []);
-
+        console.log('UserCard - 그룹화된 데이터:', groupedByFolder);
+        setSavedPlaces(groupedByFolder);
       }
 
 
@@ -588,119 +639,120 @@ console.log("🔍 UserCard - 현재 user.id:", user.id);
 
             <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
 
-              로딩 중...
-
-            </div>
-
-          ) : activeTab === 'saved' ? (
-
-            savedPlaces.length === 0 ? (
-
-              <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-
-                아직 저장한 장소가 없습니다.
-
-              </div>
-
+// 폴더별 그룹화 렌더링 (SaveModal 스타일 동일)
             ) : (
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-
-                {savedPlaces.map((saved) => (
-
-                  <div
-
-                    key={saved.id}
-
-                    style={{
-
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-
-                      borderRadius: '8px',
-
-                      padding: '12px',
-
-                      cursor: 'pointer',
-
-                      transition: 'all 0.2s ease'
-
-                    }}
-
-                  >
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
-
-                        <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-
-                          {saved.places.name}
-
-                        </h4>
-
-                        <p style={{ fontSize: '12px', color: '#999', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-
-                          {saved.places.address}
-
-                        </p>
-
-                        <div style={{ fontSize: '11px', color: '#3498DB' }}>
-
-                          @{saved.places.curator?.username || 'unknown'}
-
-                        </div>
-
-                      </div>
-
-                      <button
-
-                        onClick={(e) => {
-
-                          e.stopPropagation();
-
-                          handleRemoveSaved(saved.place_id);
-
-                        }}
-
-                        style={{
-
-                          padding: '4px 8px',
-
-                          backgroundColor: '#e74c3c',
-
-                          color: 'white',
-
-                          border: 'none',
-
-                          borderRadius: '4px',
-
-                          fontSize: '11px',
-
-                          fontWeight: '600',
-
-                          cursor: 'pointer',
-
-                          flexShrink: 0
-
-                        }}
-
-                      >
-
-                        삭제
-
-                      </button>
-
-                    </div>
-
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {Object.keys(savedPlaces).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                    아직 저장한 장소가 없습니다.
                   </div>
-
-                ))}
-
-              </div>
-
-            )
+                ) : (
+                  Object.entries(savedPlaces).map(([folderKey, folderData]) => (
+                    <div key={folderKey} style={styles.section}>
+                      {/* 폴더 헤더 */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '12px'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}>
+                          <span style={{ fontSize: '16px' }}>
+                            {folderData.folderInfo?.icon}
+                          </span>
+                          <span style={{
+                            fontSize: '14px',
+                            fontWeight: 'bold',
+                            color: folderData.folderInfo?.color || '#fff',
+                            textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+                          }}>
+                            {folderData.folderInfo?.name}
+                          </span>
+                          <span style={{
+                            fontSize: '12px',
+                            color: '#999'
+                          }}>
+                            ({folderData.places.length})
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* 장소 목록 - SaveModal folderGrid 스타일 동일 */}
+                      <div style={styles.folderGrid}>
+                        {folderData.places.map((saved) => (
+                          <div
+                            key={saved.id}
+                            style={{
+                              ...styles.folderButton,
+                              cursor: 'default',
+                              minHeight: 'auto',
+                              padding: '12px 8px'
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <h4 style={{ 
+                                fontSize: '11px', 
+                                fontWeight: 'bold', 
+                                color: '#fff', 
+                                marginBottom: '4px', 
+                                textAlign: 'center',
+                                whiteSpace: 'nowrap', 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis' 
+                              }}>
+                                {saved.places?.name || '정보 없음'}
+                              </h4>
+                              <p style={{ 
+                                fontSize: '10px', 
+                                color: '#999', 
+                                marginBottom: '4px', 
+                                textAlign: 'center',
+                                whiteSpace: 'nowrap', 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis' 
+                              }}>
+                                {saved.places?.address || '주소 정보 없음'}
+                              </p>
+                              <div style={{ 
+                                fontSize: '9px', 
+                                color: '#666',
+                                textAlign: 'center'
+                              }}>
+                                {new Date(saved.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveSaved(saved.place_id);
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: '4px',
+                                background: 'rgba(231, 76, 60, 0.2)',
+                                border: '1px solid rgba(231, 76, 60, 0.4)',
+                                color: '#e74c3c',
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '10px',
+                                cursor: 'pointer',
+                                zIndex: 10
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div> )
 
           ) : (
 
