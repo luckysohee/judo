@@ -1,7 +1,9 @@
 import React, { useState } from "react";
-import { useAuth } from "../../context/AuthContext";
+import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
+import { useToast } from "../Toast/ToastProvider";
+import { useAuth } from "../../context/AuthContext";
 
 export default function PlacePreviewCard({
   place,
@@ -14,6 +16,7 @@ export default function PlacePreviewCard({
   getUserRole,
 }) {
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const { showToast } = useToast();
 
   if (!place) return null;
 
@@ -40,13 +43,11 @@ export default function PlacePreviewCard({
         
         // 결과에 따른 토스트 메시지 표시
         if (result === 'duplicate') {
-          alert('이미 잔 리스트에 존재합니다.');
+          alert('이미 잔 채우기 리스트에 있는 장소입니다');
         } else if (result === 'success') {
-          alert('✅ 잔 채우기 리스트에 임시저장되었습니다!');
-        } else if (result === 'skip') {
-          alert('⚠️ 등록된 장소가 아니어서 저장할 수 없습니다.');
+          showToast('✅ 잔 채우기 리스트에 임시저장되었습니다!', 'success');
         } else {
-          alert('❌ 임시저장에 실패했습니다.');
+          alert('❌ 잔 채우기에 실패했습니다.');
         }
         
         return;
@@ -92,87 +93,67 @@ export default function PlacePreviewCard({
       const { supabase } = await import("../../lib/supabase");
       const { data: { user } } = await supabase.auth.getUser();
       
-      if (user) {
-        console.log('📍 카카오 장소 임시저장 시도:', place.name);
-        console.log('📍 장소 정보:', place);
-        
-        // 그냥 기존 장소와 매치만 해보고 없으면 저장하지 않음
-        
-        // 1. places 테이블에서 비슷한 장소 검색 (이름으로)
-        const { data: existingPlace, error: checkError } = await supabase
-          .from('places')
-          .select('*')
-          .ilike('name', `%${place.name}%`)
-          .limit(5);
-        
-        if (checkError) {
-          console.log('⚠️ places 검색 오류:', checkError.message);
-          return 'error';
-        }
-        
-        console.log('📍 검색된 장소들:', existingPlace);
-        console.log('📍 검색된 장소 상세:', existingPlace?.map(p => ({ id: p.id, name: p.name, address: p.address })));
-        console.log('📍 현재 장소 이름:', place.name);
-        console.log('📍 현재 장소 주소:', place.address);
-        
-        // 2. 정확히 일치하는 장소가 있는지 확인 (이름만으로도 체크)
-        const exactMatch = existingPlace?.find(p => 
-          p.name === place.name || 
-          p.name.includes(place.name) ||
-          place.name.includes(p.name)
-        );
-        
-        if (exactMatch) {
-          console.log('📍 정확히 일치하는 장소 찾음:', exactMatch.id);
-          
-          // curator_places에 중복 체크
-          const { data: existingCuratorPlace, error: curatorCheckError } = await supabase
-            .from('curator_places')
-            .select('*')
-            .eq('curator_id', user.id)
-            .eq('place_id', exactMatch.id)
-            .single();
-          
-          if (curatorCheckError && curatorCheckError.code !== 'PGRST116') {
-            console.log('⚠️ curator_places 중복 체크 오류:', curatorCheckError.message);
-          }
-          
-          if (existingCuratorPlace) {
-            console.log('📍 이미 curator_places에 저장된 장소');
-            return 'duplicate';
-          }
-          
-          // curator_places에 저장
-          const { error: curatorInsertError } = await supabase
-            .from('curator_places')
-            .insert({
-              curator_id: user.id,
-              place_id: exactMatch.id,
-              display_name: user.display_name || user.nickname || user.email,
-              one_line_reason: '',
-              tags: [],
-              alcohol_types: [],
-              moods: [],
-              is_archived: false,
-              created_at: new Date().toISOString()
-            });
-          
-          if (curatorInsertError) {
-            console.log('⚠️ curator_places 저장 실패:', curatorInsertError.message);
-            return 'error';
-          }
-          
-          console.log('✅ curator_places에 저장 성공');
-          return 'success';
-        } else {
-          console.log('📍 일치하는 장소 없음 - 저장하지 않음');
-          return 'skip'; // 일치하는 장소가 없으면 그냥 건너뜀
-        }
+      if (!user) {
+        console.log('⚠️ 로그인된 사용자 없음');
+        return 'error';
       }
-      return 'error';
+      
+      console.log('📍 쾌속 잔 채우기 시작:', place.name);
+      console.log('📍 카카오 장소 ID:', place.kakao_place_id || place.id);
+      console.log('📍 현재 사용자 ID:', user.id);
+      
+      // 1. localStorage에서 기존 drafts 불러오기
+      const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      console.log('📍 기존 drafts:', existingDrafts.length, '개');
+      
+      // 2. 중복 체크 - 같은 kakao_place_id가 있는지 확인
+      const isDuplicate = existingDrafts.some(draft => 
+        draft.kakao_place_id === (place.kakao_place_id || place.id) && 
+        draft.curator_id === user.id
+      );
+      
+      if (isDuplicate) {
+        console.log('📍 이미 잔 채우기 리스트에 있는 장소');
+        return 'duplicate';
+      }
+      
+      // 3. 새로운 draft 데이터 생성
+      const newDraft = {
+        id: `draft_${Date.now()}`,
+        curator_id: user.id,
+        kakao_place_id: place.kakao_place_id || place.id,
+        place_name: place.name,
+        place_address: place.address,
+        place_lat: place.lat,
+        place_lng: place.lng,
+        category: place.category || '기타',
+        phone: place.phone,
+        status: 'draft',
+        source: 'quick_save',
+        created_at: new Date().toISOString(),
+        // 스튜디오 형식에 맞게 구조화
+        basicInfo: {
+          name_address: place.name,
+          category: place.category || '기타',
+          alcohol_type: '소주',
+          price_range: '중간',
+          operating_hours: '정보 없음',
+          contact_info: place.phone || '정보 없음'
+        },
+        alcohol_type: '소주',
+        draft_status: 'draft',
+        tags: ['쾌속 잔 채우기'] // AI 학습을 위한 태그
+      };
+      
+      // 4. localStorage에 저장
+      existingDrafts.push(newDraft);
+      localStorage.setItem('studio_drafts', JSON.stringify(existingDrafts));
+      
+      console.log('✅ 잔 채우기 리스트에 임시저장 완료:', newDraft);
+      return 'success';
+      
     } catch (error) {
-      console.error('백그라운드 임시저장 오류:', error);
-      console.error('백그라운드 임시저장 에러 상세:', error);
+      console.error('쾌속 잔 채우기 오류:', error);
       return 'error';
     }
   };
