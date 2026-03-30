@@ -13,6 +13,9 @@ import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
 import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
+import RealtimeToast from "../../components/RealtimeToast/RealtimeToast";
+import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
+import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 
 import { places as dummyPlaces } from "../../data/places";
 
@@ -1200,6 +1203,12 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
 
   return (
     <>
+      {/* 실시간 Toast 알림 */}
+      <RealtimeToast position="top-right" />
+      
+      {/* 실시간 체크인 랭킹 */}
+      <CheckinRanking position="sidebar" />
+      
       {/* 팔로우 모달 */}
       {showFollowModal && (
         <div

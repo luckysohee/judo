@@ -191,25 +191,28 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
 
     try {
       // localStorage 데이터인지 Supabase 데이터인지 확인
-      if (placeItem.isKakaoPlace || placeItem.isDbPlace) {
+      if (placeItem.isKakaoPlace || placeItem.isDbPlace || placeItem.id?.startsWith('kakao_') || placeItem.id?.startsWith('local_')) {
         // localStorage 데이터 삭제
         const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
         let updatedDrafts;
         
-        if (placeItem.isKakaoPlace && placeItem.id.startsWith('kakao_')) {
+        if (placeItem.id?.startsWith('kakao_')) {
           const kakaoPlaceId = placeItem.id.replace('kakao_', '');
           updatedDrafts = existingDrafts.filter(draft => draft.kakao_place_id !== kakaoPlaceId);
+        } else if (placeItem.kakao_place_id) {
+          // kakao_place_id가 있는 경우
+          updatedDrafts = existingDrafts.filter(draft => draft.kakao_place_id !== placeItem.kakao_place_id);
         } else {
-          updatedDrafts = existingDrafts.filter(draft => {
-            if (draft.place_id) return draft.place_id !== placeItem.id;
-            else return draft.id !== placeItem.id;
-          });
+          // place_name으로 찾기
+          updatedDrafts = existingDrafts.filter(draft => 
+            draft.place_name !== placeItem.place?.name
+          );
         }
         
         localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
         console.log('✅ localStorage 장소 삭제 완료:', placeItem.place?.name);
-      } else {
-        // Supabase 데이터 삭제
+      } else if (placeItem.id && !placeItem.id.startsWith('kakao_') && !placeItem.id.startsWith('local_')) {
+        // Supabase 데이터 삭제 (UUID 형식인 경우만)
         const { error } = await supabase
           .from('user_saved_places')
           .delete()
@@ -222,6 +225,10 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
         }
         
         console.log('✅ Supabase 장소 삭제 완료:', placeItem.place?.name);
+      } else {
+        console.warn('알 수 없는 장소 데이터 형식:', placeItem);
+        alert('삭제할 수 없는 장소입니다.');
+        return;
       }
 
       // 선택된 폴더에서 해당 장소 제거
@@ -481,7 +488,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           if (folderKey && groupedByFolder[folderKey]) {
             // localStorage 데이터를 Supabase 형식으로 변환
             const placeData = {
-              id: draft.id,
+              id: draft.id || `local_${draft.kakao_place_id || draft.place_name}_${Date.now()}`,
               place: {
                 name: draft.place_name,
                 address: draft.address,
@@ -491,7 +498,8 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               },
               created_at: draft.created_at,
               isKakaoPlace: draft.isKakaoPlace || false,
-              isDbPlace: draft.isDbPlace || false
+              isDbPlace: draft.isDbPlace || false,
+              kakao_place_id: draft.kakao_place_id // 추가 정보 저장
             };
             groupedByFolder[folderKey].places.push(placeData);
             console.log(`✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`);
