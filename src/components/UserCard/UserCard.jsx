@@ -130,7 +130,7 @@ const modalStyles = {
   }
 };
 
-const UserCard = ({ user, onClose, isVisible }) => {
+const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
@@ -138,12 +138,221 @@ const UserCard = ({ user, onClose, isVisible }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [selectedCurator, setSelectedCurator] = useState(null);
+  const [selectedFolder, setSelectedFolder] = useState(null); // 선택된 폴더 상태
+  const [showFolderEditModal, setShowFolderEditModal] = useState(false); // 폴더 수정 모달 상태
+  const [editingPlace, setEditingPlace] = useState(null); // 수정 중인 장소
+  const [selectedFolders, setSelectedFolders] = useState([]); // 선택된 폴더들
 
   useEffect(() => {
+    console.log('🔄 UserCard useEffect 호출:', { isVisible, user });
     if (isVisible && user) {
+      console.log('✅ loadUserData 시작');
       loadUserData();
     }
   }, [isVisible, user]);
+
+  // 실제 장소 수를 계산하는 함수
+  const getTotalPlacesCount = () => {
+    return Object.values(savedPlaces).reduce((total, folder) => total + folder.places.length, 0);
+  };
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSelectedFolder(null);
+  };
+
+  // 폴더 클릭 핸들러
+  const handleFolderClick = (folderKey, folderData) => {
+    // 뒤로 가기 버튼 클릭 시
+    if (!folderData) {
+      setSelectedFolder(null);
+      return;
+    }
+
+    console.log('폴더 클릭:', folderData.folderInfo?.name);
+    
+    // 1. 모달 내부에 상세 리스트를 보여주기 위한 상태 업데이트
+    setSelectedFolder({
+      key: folderKey,
+      info: folderData.folderInfo,
+      places: folderData.places
+    });
+
+    // 2. 상위 컴포넌트에 알림 -> 지도에 마커 표시 요청
+    if (onFolderSelect) {
+      onFolderSelect(folderData);
+    }
+  };
+
+  // 장소 삭제 핸들러
+  const handleDeletePlace = async (placeItem) => {
+    if (!window.confirm(`${placeItem.place?.name}을(를) 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      // localStorage 데이터인지 Supabase 데이터인지 확인
+      if (placeItem.isKakaoPlace || placeItem.isDbPlace) {
+        // localStorage 데이터 삭제
+        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        let updatedDrafts;
+        
+        if (placeItem.isKakaoPlace && placeItem.id.startsWith('kakao_')) {
+          const kakaoPlaceId = placeItem.id.replace('kakao_', '');
+          updatedDrafts = existingDrafts.filter(draft => draft.kakao_place_id !== kakaoPlaceId);
+        } else {
+          updatedDrafts = existingDrafts.filter(draft => {
+            if (draft.place_id) return draft.place_id !== placeItem.id;
+            else return draft.id !== placeItem.id;
+          });
+        }
+        
+        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        console.log('✅ localStorage 장소 삭제 완료:', placeItem.place?.name);
+      } else {
+        // Supabase 데이터 삭제
+        const { error } = await supabase
+          .from('user_saved_places')
+          .delete()
+          .eq('id', placeItem.id);
+          
+        if (error) {
+          console.error('Supabase 삭제 오류:', error);
+          alert('삭제에 실패했습니다.');
+          return;
+        }
+        
+        console.log('✅ Supabase 장소 삭제 완료:', placeItem.place?.name);
+      }
+
+      // 선택된 폴더에서 해당 장소 제거
+      setSelectedFolder(prev => ({
+        ...prev,
+        places: prev.places.filter(place => place.id !== placeItem.id)
+      }));
+
+      // savedPlaces 상태도 업데이트
+      setSavedPlaces(prev => {
+        const updated = { ...prev };
+        if (updated[selectedFolder.key]) {
+          updated[selectedFolder.key].places = updated[selectedFolder.key].places.filter(
+            place => place.id !== placeItem.id
+          );
+        }
+        return updated;
+      });
+
+      alert('삭제되었습니다.');
+
+    } catch (error) {
+      console.error('장소 삭제 오류:', error);
+      alert('삭제에 실패했습니다.');
+    }
+  };
+
+  // 장소 수정 핸들러
+  const handleEditPlace = (placeItem) => {
+    setEditingPlace(placeItem);
+    
+    // 현재 장소가 속한 폴더들 찾기
+    const currentFolders = [];
+    Object.entries(savedPlaces).forEach(([folderKey, folderData]) => {
+      if (folderData.places.some(place => place.id === placeItem.id)) {
+        currentFolders.push({
+          key: folderKey,
+          name: folderData.folderInfo.name,
+          icon: folderData.folderInfo.icon,
+          color: folderData.folderInfo.color
+        });
+      }
+    });
+    
+    setSelectedFolders(currentFolders);
+    setShowFolderEditModal(true);
+  };
+
+  // 폴더 토글 핸들러
+  const toggleFolderSelection = (folderKey, folderInfo) => {
+    setSelectedFolders(prev => {
+      const isSelected = prev.some(folder => folder.key === folderKey);
+      if (isSelected) {
+        return prev.filter(folder => folder.key !== folderKey);
+      } else {
+        return [...prev, { key: folderKey, ...folderInfo }];
+      }
+    });
+  };
+
+  // 폴더 수정 저장 핸들러
+  const handleSaveFolderChanges = async () => {
+    if (!editingPlace || selectedFolders.length === 0) {
+      alert('최소 하나의 폴더를 선택해야 합니다.');
+      return;
+    }
+
+    try {
+      // localStorage 데이터인지 Supabase 데이터인지 확인
+      if (editingPlace.isKakaoPlace || editingPlace.isDbPlace) {
+        // localStorage 데이터 수정
+        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const updatedDrafts = existingDrafts.map(draft => {
+          if (draft.id === editingPlace.id || 
+              (editingPlace.isKakaoPlace && draft.kakao_place_id === editingPlace.id.replace('kakao_', '')) ||
+              (draft.place_id === editingPlace.id)) {
+            const folderNames = selectedFolders.map(folder => folder.name);
+            return { ...draft, folders: folderNames };
+          }
+          return draft;
+        });
+        
+        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        console.log('✅ localStorage 폴더 수정 완료:', editingPlace.place?.name);
+      } else {
+        // Supabase 데이터 수정 - 기존 폴더 관계 삭제 후 새로 추가
+        const { error: deleteError } = await supabase
+          .from('user_saved_place_folders')
+          .delete()
+          .eq('user_saved_place_id', editingPlace.id);
+          
+        if (deleteError) {
+          console.error('폴더 관계 삭제 오류:', deleteError);
+          alert('수정에 실패했습니다.');
+          return;
+        }
+
+        // 새로운 폴더 관계 추가
+        const folderRelations = selectedFolders.map(folder => ({
+          user_saved_place_id: editingPlace.id,
+          folder_key: folder.key
+        }));
+
+        const { error: insertError } = await supabase
+          .from('user_saved_place_folders')
+          .insert(folderRelations);
+          
+        if (insertError) {
+          console.error('폴더 관계 추가 오류:', insertError);
+          alert('수정에 실패했습니다.');
+          return;
+        }
+        
+        console.log('✅ Supabase 폴더 수정 완료:', editingPlace.place?.name);
+      }
+
+      // 데이터 다시 로드
+      await loadUserData();
+      
+      // 모달 닫기
+      setShowFolderEditModal(false);
+      setEditingPlace(null);
+      setSelectedFolders([]);
+      
+      alert('폴더가 수정되었습니다.');
+
+    } catch (error) {
+      console.error('폴더 수정 오류:', error);
+      alert('수정에 실패했습니다.');
+    }
+  };
 
   // 팔로우한 큐레이터 필터링 함수
   const getFilteredCurators = () => {
@@ -215,6 +424,7 @@ const UserCard = ({ user, onClose, isVisible }) => {
 
   const loadUserData = async () => {
     try {
+      console.log('🚀 loadUserData 함수 시작');
       setLoading(true);
 
       // 1. 저장한 장소 불러오기 (폴더 정보 포함)
@@ -222,6 +432,7 @@ const UserCard = ({ user, onClose, isVisible }) => {
         .from('user_saved_places')
         .select(`
           *,
+          places (*), 
           user_saved_place_folders (
             folder_key,
             system_folders (
@@ -233,37 +444,66 @@ const UserCard = ({ user, onClose, isVisible }) => {
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(50);
 
       console.log('UserCard - savedData:', savedData);
       console.log('UserCard - savedError:', savedError);
 
+      // localStorage 데이터 처리 (항상 실행)
+      const localStorageDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      console.log('🗂️ UserCard - localStorage 데이터:', localStorageDrafts);
+      
+      // 기본 폴더 7개 초기화
+      const SYSTEM_FOLDERS = [
+        { key: 'after_party', name: '2차', color: '#FF8C42', icon: '🍺' },
+        { key: 'date', name: '데이트', color: '#FF69B4', icon: '💘' },
+        { key: 'hangover', name: '해장', color: '#87CEEB', icon: '🥣' },
+        { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
+        { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
+        { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
+        { key: 'terrace', name: '야외/뷰', color: '#2C3E50', icon: '🌅' }
+      ];
+      
+      const groupedByFolder = {};
+      SYSTEM_FOLDERS.forEach(folder => {
+        groupedByFolder[folder.key] = {
+          folderInfo: folder,
+          places: []
+        };
+      });
+      
+      // localStorage 데이터 처리
+      localStorageDrafts.forEach(draft => {
+        const folders = draft.folders || [];
+        folders.forEach(folderName => {
+          // 폴더 이름을 key로 변환
+          const folderKey = SYSTEM_FOLDERS.find(f => f.name === folderName)?.key;
+          if (folderKey && groupedByFolder[folderKey]) {
+            // localStorage 데이터를 Supabase 형식으로 변환
+            const placeData = {
+              id: draft.id,
+              place: {
+                name: draft.place_name,
+                address: draft.address,
+                category: draft.category,
+                lat: draft.lat,
+                lng: draft.lng
+              },
+              created_at: draft.created_at,
+              isKakaoPlace: draft.isKakaoPlace || false,
+              isDbPlace: draft.isDbPlace || false
+            };
+            groupedByFolder[folderKey].places.push(placeData);
+            console.log(`✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`);
+          }
+        });
+      });
+
       if (savedError) {
         console.error('저장된 장소 로드 오류:', savedError);
-        setSavedPlaces([]);
-      } else {
-        // 폴더별로 그룹화
-        const groupedByFolder = {};
-        
-        // 기본 폴더 7개 초기화
-        const SYSTEM_FOLDERS = [
-          { key: 'after_party', name: '2차', color: '#FF8C42', icon: '🍺' },
-          { key: 'date', name: '데이트', color: '#FF69B4', icon: '💘' },
-          { key: 'hangover', name: '해장', color: '#87CEEB', icon: '🥣' },
-          { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
-          { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
-          { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
-          { key: 'terrace', name: '야외/뷰', color: '#2C3E50', icon: '🌅' }
-        ];
-        
-        SYSTEM_FOLDERS.forEach(folder => {
-          groupedByFolder[folder.key] = {
-            folderInfo: folder,
-            places: []
-          };
-        });
-        
-        savedData?.forEach(saved => {
+      } else if (savedData && savedData.length > 0) {
+        // Supabase 데이터 처리 (데이터가 있을 경우에만)
+        savedData.forEach(saved => {
           if (saved.user_saved_place_folders && saved.user_saved_place_folders.length > 0) {
             saved.user_saved_place_folders.forEach(folder => {
               const folderKey = folder.folder_key;
@@ -273,10 +513,21 @@ const UserCard = ({ user, onClose, isVisible }) => {
             });
           }
         });
-
-        console.log('UserCard - 그룹화된 데이터:', groupedByFolder);
-        setSavedPlaces(groupedByFolder);
       }
+
+      console.log('UserCard - 그룹화된 데이터:', groupedByFolder);
+      
+      // 각 폴더별 장소 수 확인
+      Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
+        console.log(`📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`, 
+          folderData.places.map(p => p.place?.name || p.name));
+      });
+      
+      // 전체 장소 수 확인
+      const totalPlaces = Object.values(groupedByFolder).reduce((sum, folder) => sum + folder.places.length, 0);
+      console.log(`📊 전체 장소 수: ${totalPlaces}개 (localStorage: ${localStorageDrafts.length}개, Supabase: ${savedData?.length || 0}개)`);
+      
+      setSavedPlaces(groupedByFolder);
 
       // 2. 팔로우한 큐레이터 불러오기
       const { data: followingData, error: followingError } = await supabase
@@ -501,7 +752,7 @@ const UserCard = ({ user, onClose, isVisible }) => {
             borderBottom: '1px solid #333'
           }}>
             <button
-              onClick={() => setActiveTab('saved')}
+              onClick={() => handleTabChange('saved')}
               style={{
                 flex: 1,
                 padding: '14px',
@@ -514,10 +765,10 @@ const UserCard = ({ user, onClose, isVisible }) => {
                 transition: 'all 0.2s ease'
               }}
             >
-              ❤️ 내 저장 ({Object.keys(savedPlaces).length})
+              ❤️ 내 저장 ({getTotalPlacesCount()})
             </button>
             <button
-              onClick={() => setActiveTab('following')}
+              onClick={() => handleTabChange('following')}
               style={{
                 flex: 1,
                 padding: '14px',
@@ -575,65 +826,152 @@ const UserCard = ({ user, onClose, isVisible }) => {
                   아직 저장한 장소가 없습니다.
                 </div>
               ) : (
-                <div style={modalStyles.section}>
-                  {/* 폴더 그리드 - 2층으로 배치 */}
-                  <div style={modalStyles.folderGrid}>
-                    {Object.entries(savedPlaces).map(([folderKey, folderData]) => (
-                      <button
-                        key={folderKey}
-                        onClick={() => {
-                          // TODO: 폴더 클릭 시 해당 폴더 장소만 필터링
-                          console.log('폴더 클릭:', folderData.folderInfo?.name);
+                selectedFolder ? (
+                  // 선택된 폴더의 상세 리스트 UI
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ 
+                      display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px',
+                      paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
+                      <button 
+                        onClick={() => handleFolderClick(null, null)}
+                        style={{ 
+                          background: 'none', border: 'none', color: '#3498DB', 
+                          cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' 
                         }}
-                        style={{
-                          ...modalStyles.folderButton,
-                          borderColor: folderData.folderInfo?.color || '#666',
-                          backgroundColor: folderData.places.length > 0 ? 
-                            `${folderData.folderInfo?.color}20` : 'transparent'
-                        }}
-                      >
-                        <span style={{ fontSize: '14px', marginBottom: '2px' }}>
-                          {folderData.folderInfo?.icon}
-                        </span>
-                        <span style={{ 
-                          fontSize: '10px', 
-                          fontWeight: 'bold',
-                          color: folderData.places.length > 0 ? 
-                            folderData.folderInfo?.color : '#999',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px'
-                        }}>
-                          {folderData.folderInfo?.name}
-                          <span style={{ 
-                            fontSize: '8px', 
-                            color: '#666',
-                            fontWeight: 'normal'
-                          }}>
-                            ({folderData.places.length})
+                      > 
+                        ← 뒤로 
+                      </button>
+                      <span style={{ fontSize: '16px' }}>{selectedFolder.info?.icon}</span>
+                      <span style={{ color: 'white', fontWeight: 'bold' }}>{selectedFolder.info?.name}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {selectedFolder.places.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px', color: '#666', fontSize: '13px' }}>
+                          이 폴더에 저장된 장소가 없습니다.
+                        </div>
+                      ) : (
+                        selectedFolder.places.map((item, index) => (
+                          <div key={item.id || `place-${index}`} style={{
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              padding: '12px', borderRadius: '8px',
+                              border: '1px solid rgba(255, 255, 255, 0.1)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ color: 'white', fontSize: '14px', fontWeight: 'bold' }}>
+                                  {item.place?.name}
+                                </div>
+                                <div style={{ color: '#999', fontSize: '12px', marginTop: '4px' }}>
+                                  {item.place?.address}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                <button
+                                  onClick={() => {
+                                    // 폴더 수정 기능 (폴더 옮기기, 중첩 저장)
+                                    console.log('수정 버튼 클릭:', item);
+                                    handleEditPlace(item);
+                                  }}
+                                  style={{
+                                    backgroundColor: '#3498DB',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '4px 8px',
+                                    fontSize: '10px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                >
+                                  수정
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    // TODO: 장소 삭제 기능
+                                    console.log('삭제 버튼 클릭:', item);
+                                    handleDeletePlace(item);
+                                  }}
+                                  style={{
+                                    backgroundColor: '#e74c3c',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    padding: '4px 8px',
+                                    fontSize: '10px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                >
+                                  삭제
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={modalStyles.section}>
+                    {/* 폴더 그리드 - 2층으로 배치 */}
+                    <div style={modalStyles.folderGrid}>
+                      {Object.entries(savedPlaces).map(([folderKey, folderData]) => (
+                        <button
+                          key={folderKey}
+                          onClick={() => handleFolderClick(folderKey, folderData)}
+                          style={{
+                            ...modalStyles.folderButton,
+                            borderColor: folderData.folderInfo?.color || '#666',
+                            backgroundColor: folderData.places.length > 0 ? 
+                              `${folderData.folderInfo?.color}20` : 'transparent'
+                          }}
+                        >
+                          <span style={{ fontSize: '14px', marginBottom: '2px' }}>
+                            {folderData.folderInfo?.icon}
                           </span>
+                          <span style={{ 
+                            fontSize: '10px', 
+                            fontWeight: 'bold',
+                            color: folderData.places.length > 0 ? 
+                              folderData.folderInfo?.color : '#999',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            {folderData.folderInfo?.name}
+                            <span style={{ 
+                              fontSize: '8px', 
+                              color: '#666',
+                              fontWeight: 'normal'
+                            }}>
+                              ({folderData.places.length})
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                      
+                      {/* 새 폴더 만들기 버튼 */}
+                      <button
+                        onClick={() => {
+                          // TODO: 새 폴더 만들기 기능
+                          alert('새 폴더 만들기 기능은 곧 구현됩니다!');
+                        }}
+                        style={modalStyles.addFolderButton}
+                      >
+                        <span style={{ fontSize: '14px' }}>+</span>
+                        <span style={{ fontSize: '10px', fontWeight: 'bold' }}>
+                          새 폴더
                         </span>
                       </button>
-                    ))}
-                    
-                    {/* 새 폴더 만들기 버튼 */}
-                    <button
-                      onClick={() => {
-                        // TODO: 새 폴더 만들기 기능
-                        alert('새 폴더 만들기 기능은 곧 구현됩니다!');
-                      }}
-                      style={modalStyles.addFolderButton}
-                    >
-                      <span style={{ fontSize: '14px' }}>+</span>
-                      <span style={{ fontSize: '10px', fontWeight: 'bold' }}>
-                        새 폴더
-                      </span>
-                    </button>
+                    </div>
                   </div>
-                </div>
+                )
               )
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {/* 검색 입력창 */}
                 {showSearch && (
                   <div style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
@@ -854,6 +1192,137 @@ const UserCard = ({ user, onClose, isVisible }) => {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 폴더 수정 모달 */}
+      {showFolderEditModal && editingPlace && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            backgroundColor: '#222',
+            borderRadius: '12px',
+            width: '90%', maxWidth: '400px',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            padding: '20px'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '20px'
+            }}>
+              <h3 style={{ color: 'white', margin: 0, fontSize: '16px' }}>
+                폴더 수정
+              </h3>
+              <button
+                onClick={() => {
+                  setShowFolderEditModal(false);
+                  setEditingPlace(null);
+                  setSelectedFolders([]);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#999',
+                  fontSize: '20px',
+                  cursor: 'pointer'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ color: 'white', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>
+                장소: {editingPlace.place?.name}
+              </div>
+              <div style={{ color: '#999', fontSize: '12px', marginBottom: '16px' }}>
+                {editingPlace.place?.address}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ color: 'white', fontSize: '14px', fontWeight: 'bold', marginBottom: '12px' }}>
+                폴더 선택 (다중 선택 가능):
+              </div>
+              
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '8px'
+              }}>
+                {Object.entries(savedPlaces).map(([folderKey, folderData]) => {
+                  const isSelected = selectedFolders.some(folder => folder.key === folderKey);
+                  return (
+                    <button
+                      key={folderKey}
+                      onClick={() => toggleFolderSelection(folderKey, folderData.folderInfo)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px',
+                        border: `2px solid ${isSelected ? folderData.folderInfo?.color : '#666'}`,
+                        borderRadius: '8px',
+                        backgroundColor: isSelected ? `${folderData.folderInfo?.color}20` : 'rgba(255, 255, 255, 0.05)',
+                        color: isSelected ? folderData.folderInfo?.color : '#999',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <span>{folderData.folderInfo?.icon}</span>
+                      <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                        {folderData.folderInfo?.name}
+                      </span>
+                      {isSelected && (
+                        <span style={{ marginLeft: 'auto', fontSize: '12px' }}>✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setShowFolderEditModal(false);
+                  setEditingPlace(null);
+                  setSelectedFolders([]);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#666',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSaveFolderChanges}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#3498DB',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                저장
+              </button>
             </div>
           </div>
         </div>
