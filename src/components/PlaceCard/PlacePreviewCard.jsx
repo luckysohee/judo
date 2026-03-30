@@ -21,16 +21,54 @@ export default function PlacePreviewCard({
   if (!place) return null;
 
   console.log("🔍 PlacePreviewCard place 데이터:", place);
-  console.log("🔍 curatorReasons:", place.curatorReasons);
-  console.log("🔍 curatorPlaces:", place.curatorPlaces);
+  console.log("🔍 isKakaoPlace:", place.isKakaoPlace);
+  
+  const isKakaoPlace = place.isKakaoPlace || false;
+  const userRole = getUserRole?.() || "user";
+  const isCurator = userRole === "curator" || userRole === "admin";
 
-  const visibleCurators = (place.curators || []).slice(0, 3);
+  // 카카오 장소 카테고리 정제
+  const cleanCategory = (categoryName) => {
+    if (!categoryName) return '';
+    const parts = categoryName.split(' > ');
+    return parts[parts.length - 1];
+  };
+
+  // 카카오 장소 주소 정보
+  const displayAddress = isKakaoPlace 
+    ? (place.road_address_name || place.address_name)
+    : place.address;
+
+  // 카카오 장소 전화번호
+  const displayPhone = isKakaoPlace ? place.phone : place.contact;
+
+  // 카카오맵 상세보기 URL
+  const handleKakaoView = () => {
+    if (isKakaoPlace && place.place_url) {
+      window.open(place.place_url, '_blank');
+    }
+  };
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
 
-  // 저장 버튼 핸들러
+  // 빠른저장 버튼 핸들러
+  const handleQuickSaveClick = async () => {
+    const userRole = getUserRole?.() || "user";
+    console.log('🔍 빠른저장 클릭 - userRole:', userRole);
+    
+    // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
+    if (userRole === "curator" || userRole === "admin") {
+      console.log('🎯 큐레이터/관리자 - 쾌속 잔 채우기 실행');
+      await handleSaveClick();
+    } else {
+      console.log('👥 일반 사용자 - 저장 모달 열기');
+      // 일반 사용자는 저장 모달 열기
+      setShowSaveModal(true);
+    }
+  };
   const handleSaveClick = async () => {
     const userRole = getUserRole?.() || "user"; // 기본값 user
+    console.log('🔍 handleSaveClick - userRole:', userRole, 'isKakaoPlace:', place.isKakaoPlace);
     
     // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
     if (userRole === "curator" || userRole === "admin") {
@@ -203,9 +241,20 @@ export default function PlacePreviewCard({
       }}>
         <div style={styles.header}>
           <h3 style={styles.placeName}>{place.name}</h3>
-          <button type="button" onClick={onClose} style={styles.closeButton}>
-            &times;
-          </button>
+          <div style={styles.headerRight}>
+            {/* 카카오맵 상세보기 링크 */}
+            {isKakaoPlace && place.place_url && (
+              <button
+                onClick={handleKakaoView}
+                style={styles.kakaoLink}
+              >
+                카카오맵
+              </button>
+            )}
+            <button type="button" onClick={onClose} style={styles.closeButton}>
+              &times;
+            </button>
+          </div>
         </div>
         <img src={place.image} alt={place.name} style={styles.image} />
 
@@ -228,10 +277,31 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.meta}>
-            {place.region} · 저장 {place.savedCount}
+            {isKakaoPlace ? (
+              <>
+                {/* 카카오 장소 정보 */}
+                {cleanCategory(place.category_name) && (
+                  <span style={styles.category}>{cleanCategory(place.category_name)}</span>
+                )}
+                {displayAddress && (
+                  <span style={styles.address}>📍 {displayAddress}</span>
+                )}
+                {displayPhone && (
+                  <span style={styles.phone}>📞 {displayPhone}</span>
+                )}
+              </>
+            ) : (
+              <>
+                {/* 일반 장소 정보 */}
+                {place.region} · 저장 {place.savedCount}
+              </>
+            )}
           </div>
 
-          <div style={styles.comment}>{place.comment}</div>
+          {/* 카카오 장소는 comment 대신 카테고리 정보 표시 */}
+          {!isKakaoPlace && (
+            <div style={styles.comment}>{place.comment}</div>
+          )}
 
           <div style={styles.tagRow}>
             {(place.tags || []).slice(0, 4).map((tag) => (
@@ -290,13 +360,25 @@ export default function PlacePreviewCard({
               placeName={place.name}
             />
 
-            <button
-              type="button"
-              onClick={handleSaveClick}
-              style={styles.saveButton}
-            >
-              {getSaveButtonText()}
-            </button>
+            {isCurator ? (
+              /* 큐레이터용 버튼 */
+              <button
+                type="button"
+                onClick={handleQuickSaveClick}
+                style={styles.curatorSaveButton}
+              >
+                쾌속 잔 채우기
+              </button>
+            ) : (
+              /* 일반 사용자용 버튼 */
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(true)}
+                style={styles.quickSaveButton}
+              >
+                빠른저장
+              </button>
+            )}
 
             <button
               type="button"
@@ -431,18 +513,21 @@ const styles = {
     padding: "5px 8px",
   },
   curatorRow: {
-    marginTop: "10px",
-    overflow: "hidden", // 넘치는 부분 숨기기
+    marginTop: "12px",
+    overflowX: "auto", // 가로 스크롤 활성화
+    overflowY: "hidden", // 세로 스크롤 숨김
+    whiteSpace: "nowrap", // 아이템들이 한 줄로 표시
+    scrollbarWidth: "none", // Firefox 스크롤바 숨김
+    msOverflowStyle: "none", // IE/Edge 스크롤바 숨김
+    "&::-webkit-scrollbar": {
+      display: "none" // Chrome/Safari 스크롤바 숨김
+    }
   },
   curatorScrollContainer: {
     display: "flex",
-    gap: "16px", // 큐레이터 간격
-    overflowX: "auto", // 가로 스크롤
-    scrollbarWidth: "none", // 스크롤바 숨기기 (Firefox)
-    msOverflowStyle: "none", // 스크롤바 숨기기 (IE/Edge)
-    "&::-webkit-scrollbar": {
-      display: "none" // 스크롤바 숨기기 (Chrome/Safari)
-    }
+    gap: "12px",
+    padding: "4px 0px 4px 4px",
+    minWidth: "max-content", // 내용물에 맞는 최소 너비
   },
   curatorInfo: {
     flexShrink: 0, // 크기 고정
@@ -452,6 +537,47 @@ const styles = {
     flexDirection: "column",
     gap: "4px",
     alignItems: "flex-start",
+  },
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  kakaoLink: {
+    background: "none",
+    border: "none",
+    color: "#3498db",
+    fontSize: "11px",
+    cursor: "pointer",
+    padding: "2px 4px",
+    borderRadius: "3px",
+    textDecoration: "underline",
+    transition: "all 0.2s"
+  },
+  category: {
+    fontSize: "13px",
+    color: "#3498db",
+    fontWeight: "500",
+    marginRight: "8px",
+  },
+  address: {
+    fontSize: "12px",
+    color: "#999",
+    marginRight: "8px",
+  },
+  phone: {
+    fontSize: "12px",
+    color: "#999",
+  },
+  curatorSaveButton: {
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #343434",
+    backgroundColor: "#2ECC71",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: "700",
   },
   curatorChip: {
     fontSize: "11px",
@@ -485,6 +611,16 @@ const styles = {
     borderRadius: "12px",
     border: "1px solid #343434",
     backgroundColor: "#1a1a1a",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  quickSaveButton: {
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #343434",
+    backgroundColor: "#2ECC71",
     color: "#ffffff",
     fontSize: "13px",
     fontWeight: 700,
