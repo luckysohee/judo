@@ -23,16 +23,19 @@ export default function SearchBar({
   const [kakaoResults, setKakaoResults] = useState([]);
   const [isKakaoLoading, setIsKakaoLoading] = useState(false);
   const [showKakaoResults, setShowKakaoResults] = useState(false);
+  const [selectedKakaoIndex, setSelectedKakaoIndex] = useState(-1); // 키보드 내비게이션을 위한 선택된 인덱스
   const searchTimeoutRef = useRef(null);
 
   // 카카오 장소 검색
   const searchKakaoPlaces = (keyword) => {
     if (!keyword.trim() || !window.kakao?.maps?.services) {
       setKakaoResults([]);
+      setSelectedKakaoIndex(-1); // 결과가 없으면 선택된 인덱스 초기화
       return;
     }
 
     setIsKakaoLoading(true);
+    setSelectedKakaoIndex(-1); // 새로운 검색 시작 시 선택된 인덱스 초기화
 
     const ps = new window.kakao.maps.services.Places();
 
@@ -44,6 +47,7 @@ export default function SearchBar({
           setShowKakaoResults(true);
         } else {
           setKakaoResults([]);
+          setSelectedKakaoIndex(-1); // 결과가 없으면 선택된 인덱스 초기화
         }
         setIsKakaoLoading(false);
       },
@@ -59,6 +63,9 @@ export default function SearchBar({
   const handleInputChange = (e) => {
     const value = e.target.value;
     setQuery(value);
+    
+    // 검색어가 변경되면 선택된 인덱스 초기화
+    setSelectedKakaoIndex(-1);
 
     if (showKakaoSearch) {
       if (searchTimeoutRef.current) {
@@ -89,8 +96,9 @@ export default function SearchBar({
       onKakaoPlaceSelect(place);
     }
 
-    // 검색 결과 닫기
+    // 검색 결과 닫기 및 선택된 인덱스 초기화
     setShowKakaoResults(false);
+    setSelectedKakaoIndex(-1);
     setQuery('');
   };
 
@@ -105,7 +113,35 @@ export default function SearchBar({
   const handleKeyDown = (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      handleSubmit();
+      
+      // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
+      if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
+        const selectedPlace = kakaoResults[selectedKakaoIndex];
+        handleKakaoPlaceSelect(selectedPlace);
+      } else {
+        // 일반 검색 실행
+        handleSubmit();
+      }
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      
+      if (showKakaoResults && kakaoResults.length > 0) {
+        // 아래 화살표: 다음 항목 선택
+        const newIndex = Math.min(selectedKakaoIndex + 1, kakaoResults.length - 1);
+        setSelectedKakaoIndex(newIndex);
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      
+      if (showKakaoResults && kakaoResults.length > 0) {
+        // 위 화살표: 이전 항목 선택
+        const newIndex = Math.max(selectedKakaoIndex - 1, -1);
+        setSelectedKakaoIndex(newIndex);
+      }
+    } else if (event.key === "Escape") {
+      // ESC 키: 검색 결과 닫기
+      setShowKakaoResults(false);
+      setSelectedKakaoIndex(-1);
     }
   };
 
@@ -113,6 +149,7 @@ export default function SearchBar({
     setQuery("");
     setKakaoResults([]);
     setShowKakaoResults(false);
+    setSelectedKakaoIndex(-1); // 초기화 추가
     onClear?.();
   };
 
@@ -140,7 +177,7 @@ export default function SearchBar({
           marginBottom: '8px',
           zIndex: 1000
         }}>
-          {kakaoResults.map((place) => (
+          {kakaoResults.map((place, index) => (
             <button
               key={place.id}
               type="button"
@@ -148,7 +185,10 @@ export default function SearchBar({
               style={{
                 ...styles.suggestionItem,
                 textAlign: 'left',
-                padding: '12px'
+                padding: '12px',
+                backgroundColor: selectedKakaoIndex === index ? '#2c3e50' : 'transparent',
+                border: selectedKakaoIndex === index ? '1px solid #3498db' : '1px solid transparent',
+                cursor: 'pointer'
               }}
             >
               <div style={{

@@ -45,7 +45,7 @@ export default function PlacePreviewCard({
         if (result === 'duplicate') {
           alert('이미 잔 채우기 리스트에 있는 장소입니다');
         } else if (result === 'success') {
-          showToast('✅ 잔 채우기 리스트에 임시저장되었습니다!', 'success');
+          showToast('잔 채우기 리스트에 임시저장되었습니다!', 'success');
         } else {
           alert('❌ 잔 채우기에 실패했습니다.');
         }
