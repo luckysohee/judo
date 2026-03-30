@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useRealtimeCheckins } from '../hooks/useRealtimeCheckins';
+import { useRealtimeCheckins } from '../../hooks/useRealtimeCheckins';
 
 const RealtimeToast = ({ position = 'top-right' }) => {
   const [toasts, setToasts] = useState([]);

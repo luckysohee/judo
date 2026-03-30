@@ -13,7 +13,7 @@ import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
 import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
-import RealtimeToast from "../../components/RealtimeToast/RealtimeToast";
+import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
 import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
 import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 
@@ -893,7 +893,12 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         const newPlaces = [...prev, formattedPlace];
         console.log('📍 카카오 장소 추가 후:', newPlaces.length);
         
-        // 마커만 생성하고 모달은 자동으로 띄우지 않음 (마커 클릭 시 커스텀 오버레이가 뜸)
+        // 마커 생성 후 해당 장소를 선택하여 카드 표시
+        setTimeout(() => {
+          setSelectedPlace(formattedPlace);
+          setShowPlaceDetail(true);
+        }, 500); // 마커가 생성될 시간을 주기 위해 약간의 지연
+        
         return newPlaces;
       }
       return prev;
@@ -1204,7 +1209,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
   return (
     <>
       {/* 실시간 Toast 알림 */}
-      <RealtimeToast position="top-right" />
+      <AnimatedToast position="top-right" />
       
       {/* 실시간 체크인 랭킹 */}
       <CheckinRanking position="sidebar" />

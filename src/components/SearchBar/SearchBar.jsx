@@ -91,7 +91,7 @@ export default function SearchBar({
       console.log('moveToLocation 함수 없음');
     }
 
-    // 콜백 함수 호출 (마커 생성)
+    // 콜백 함수 호출 (마커 생성 및 카드 표시)
     if (onKakaoPlaceSelect) {
       onKakaoPlaceSelect(place);
     }
