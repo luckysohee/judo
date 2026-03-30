@@ -36,10 +36,19 @@ export default function PlacePreviewCard({
         console.log('📍 카카오 장소 - 백그라운드 임시저장');
         
         // 백그라운드에서 임시저장 시도 (사용자에게는 토스트만 표시)
-        saveToCuratorDrafts(place);
+        const result = await saveToCuratorDrafts(place);
         
-        // 성공 토스트만 표시
-        alert('✅ 잔 채우기 리스트에 임시저장되었습니다!');
+        // 결과에 따른 토스트 메시지 표시
+        if (result === 'duplicate') {
+          alert('이미 잔 리스트에 존재합니다.');
+        } else if (result === 'success') {
+          alert('✅ 잔 채우기 리스트에 임시저장되었습니다!');
+        } else if (result === 'skip') {
+          alert('⚠️ 등록된 장소가 아니어서 저장할 수 없습니다.');
+        } else {
+          alert('❌ 임시저장에 실패했습니다.');
+        }
+        
         return;
       }
       
@@ -87,102 +96,84 @@ export default function PlacePreviewCard({
         console.log('📍 카카오 장소 임시저장 시도:', place.name);
         console.log('📍 장소 정보:', place);
         
-        // 1. 먼저 간단하게 curator_places에 시도
-        const { error: simpleError } = await supabase
-          .from('curator_places')
-          .insert({
-            curator_id: user.id,
-            place_id: place.id,
-            created_at: new Date().toISOString()
-          });
+        // 그냥 기존 장소와 매치만 해보고 없으면 저장하지 않음
         
-        if (simpleError) {
-          console.log('⚠️ curator_places 저장 실패:', simpleError.message);
-          
-          // 2. UUID 오류인 경우, 임시 테이블에 저장 시도
-          if (simpleError.message.includes('uuid')) {
-            console.log('🔄 UUID 오류 - 임시 테이블에 저장 시도');
-            
-            // 임시 테이블 생성 및 저장 (임시방법)
-            const { error: tempError } = await supabase
-              .from('temp_curator_places')
-              .insert({
-                curator_id: user.id,
-                temp_place_id: place.id,
-                place_name: place.name,
-                place_address: place.address,
-                place_lat: place.lat,
-                place_lng: place.lng,
-                category: place.category,
-                phone: place.phone,
-                kakao_place_id: place.kakao_place_id,
-                is_kakao_place: true,
-                status: 'draft',
-                created_at: new Date().toISOString()
-              });
-            
-            if (tempError) {
-              console.log('⚠️ 임시 테이블 저장도 실패:', tempError.message);
-            } else {
-              console.log('✅ 임시 테이블에 저장 성공');
-            }
-          }
-        } else {
-          console.log('✅ curator_places에 저장 성공');
+        // 1. places 테이블에서 비슷한 장소 검색 (이름으로)
+        const { data: existingPlace, error: checkError } = await supabase
+          .from('places')
+          .select('*')
+          .ilike('name', `%${place.name}%`)
+          .limit(5);
+        
+        if (checkError) {
+          console.log('⚠️ places 검색 오류:', checkError.message);
+          return 'error';
         }
         
-        // 3. 스튜디오에서 읽을 수 있도록 localStorage에도 저장 (임시방법)
-        try {
-          console.log('🔄 localStorage 저장 시도...');
+        console.log('📍 검색된 장소들:', existingPlace);
+        console.log('📍 검색된 장소 상세:', existingPlace?.map(p => ({ id: p.id, name: p.name, address: p.address })));
+        console.log('📍 현재 장소 이름:', place.name);
+        console.log('📍 현재 장소 주소:', place.address);
+        
+        // 2. 정확히 일치하는 장소가 있는지 확인 (이름만으로도 체크)
+        const exactMatch = existingPlace?.find(p => 
+          p.name === place.name || 
+          p.name.includes(place.name) ||
+          place.name.includes(p.name)
+        );
+        
+        if (exactMatch) {
+          console.log('📍 정확히 일치하는 장소 찾음:', exactMatch.id);
           
-          // 스튜디오가 읽는 키로 저장: studio_drafts
-          const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
-          console.log('📍 기존 drafts:', existingDrafts.length, '개');
+          // curator_places에 중복 체크
+          const { data: existingCuratorPlace, error: curatorCheckError } = await supabase
+            .from('curator_places')
+            .select('*')
+            .eq('curator_id', user.id)
+            .eq('place_id', exactMatch.id)
+            .single();
           
-          const newDraft = {
-            id: `temp_${Date.now()}`,
-            curator_id: user.id,
-            place_id: place.id,
-            place_name: place.name,
-            place_address: place.address,
-            place_lat: place.lat,
-            place_lng: place.lng,
-            category: place.category,
-            phone: place.phone,
-            kakao_place_id: place.kakao_place_id,
-            is_kakao_place: true,
-            status: 'draft',
-            created_at: new Date().toISOString(),
-            source: 'home_search',
-            // 스튜디오 형식에 맞게 구조화
-            basicInfo: {
-              name_address: place.name,
-              category: place.category || '기타',
-              alcohol_type: '소주',
-              price_range: '중간',
-              operating_hours: '정보 없음',
-              contact_info: place.phone || '정보 없음'
-            },
-            alcohol_type: '소주',
-            draft_status: 'draft'
-          };
+          if (curatorCheckError && curatorCheckError.code !== 'PGRST116') {
+            console.log('⚠️ curator_places 중복 체크 오류:', curatorCheckError.message);
+          }
           
-          existingDrafts.push(newDraft);
-          localStorage.setItem('studio_drafts', JSON.stringify(existingDrafts));
+          if (existingCuratorPlace) {
+            console.log('📍 이미 curator_places에 저장된 장소');
+            return 'duplicate';
+          }
           
-          // 저장 확인
-          const savedDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
-          console.log('✅ localStorage에 임시저장 완료:', savedDrafts.length, '개');
-          console.log('📍 저장된 데이터:', savedDrafts[savedDrafts.length - 1]);
+          // curator_places에 저장
+          const { error: curatorInsertError } = await supabase
+            .from('curator_places')
+            .insert({
+              curator_id: user.id,
+              place_id: exactMatch.id,
+              display_name: user.display_name || user.nickname || user.email,
+              one_line_reason: '',
+              tags: [],
+              alcohol_types: [],
+              moods: [],
+              is_archived: false,
+              created_at: new Date().toISOString()
+            });
           
-        } catch (localError) {
-          console.log('⚠️ localStorage 저장 실패:', localError.message);
-          console.log('⚠️ localStorage 에러 상세:', localError);
+          if (curatorInsertError) {
+            console.log('⚠️ curator_places 저장 실패:', curatorInsertError.message);
+            return 'error';
+          }
+          
+          console.log('✅ curator_places에 저장 성공');
+          return 'success';
+        } else {
+          console.log('📍 일치하는 장소 없음 - 저장하지 않음');
+          return 'skip'; // 일치하는 장소가 없으면 그냥 건너뜀
         }
       }
+      return 'error';
     } catch (error) {
       console.error('백그라운드 임시저장 오류:', error);
       console.error('백그라운드 임시저장 에러 상세:', error);
+      return 'error';
     }
   };
   // 버튼 텍스트 결정
