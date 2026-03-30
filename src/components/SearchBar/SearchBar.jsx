@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 
 export default function SearchBar({
@@ -165,32 +166,44 @@ export default function SearchBar({
   return (
     <section style={{ ...styles.section, position: 'relative' }}>
       {/* 카카오 장소 검색 결과 - 위쪽으로 표시 */}
-      {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
-        <div style={{
-          ...styles.suggestionBox,
-          position: 'absolute',
-          bottom: '100%',
-          left: 0,
-          right: 0,
-          maxHeight: '300px',
-          overflowY: 'auto',
-          marginBottom: '8px',
-          zIndex: 1000
-        }}>
-          {kakaoResults.map((place, index) => (
-            <button
-              key={place.id}
-              type="button"
-              onClick={() => handleKakaoPlaceSelect(place)}
-              style={{
-                ...styles.suggestionItem,
-                textAlign: 'left',
-                padding: '12px',
-                backgroundColor: selectedKakaoIndex === index ? '#2c3e50' : 'transparent',
-                border: selectedKakaoIndex === index ? '1px solid #3498db' : '1px solid transparent',
-                cursor: 'pointer'
-              }}
-            >
+      <AnimatePresence>
+        {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
+          <motion.div
+            style={{
+              ...styles.suggestionBox,
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              right: 0,
+              maxHeight: '300px',
+              overflowY: 'auto',
+              marginBottom: '8px',
+              zIndex: 1000
+            }}
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            {kakaoResults.map((place, index) => (
+              <motion.button
+                key={place.id}
+                type="button"
+                onClick={() => handleKakaoPlaceSelect(place)}
+                style={{
+                  ...styles.suggestionItem,
+                  textAlign: 'left',
+                  padding: '12px',
+                  backgroundColor: selectedKakaoIndex === index ? '#2c3e50' : 'transparent',
+                  border: selectedKakaoIndex === index ? '1px solid #3498db' : '1px solid transparent',
+                  cursor: 'pointer'
+                }}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.2, delay: index * 0.05 }}
+                whileHover={{ backgroundColor: '#34495e', x: 5 }}
+                whileTap={{ scale: 0.98 }}
+              >
               <div style={{
                 fontSize: '14px',
                 fontWeight: '600',
@@ -216,62 +229,99 @@ export default function SearchBar({
                 <span>{place.category_name}</span>
                 {place.distance && <span>• {Math.round(place.distance)}m</span>}
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div style={styles.searchWrap}>
-        <button
+        <motion.button
           type="button"
           onClick={handleSubmit}
           style={styles.iconButton}
           aria-label="검색"
           disabled={isLoading}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
         >
-          <span style={styles.icon}>{isLoading ? "…" : "🔎"}</span>
-        </button>
+          <motion.span 
+            style={styles.icon}
+            animate={{ rotate: isLoading ? 360 : 0 }}
+            transition={{ duration: 1, repeat: isLoading ? Infinity : 0, ease: "linear" }}
+          >
+            {isLoading ? "🔄" : "🔎"}
+          </motion.span>
+        </motion.button>
 
-        <input
-          value={query}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          onFocus={() => showKakaoSearch && setShowKakaoResults(true)}
-          style={{
-            ...styles.input,
-            ...(rightActions ? styles.inputWithRightActions : {}),
-          }}
-          disabled={isLoading}
-        />
+        <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+          <motion.input
+            value={query}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder=""  // placeholder 비우기
+            onFocus={() => showKakaoSearch && setShowKakaoResults(true)}
+            style={{
+              ...styles.input,
+              ...(rightActions ? styles.inputWithRightActions : {}),
+            }}
+            disabled={isLoading}
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          />
+          
+          {/* 전광판 효과 - placeholder 글씨 움직임 */}
+          {!query && (
+            <motion.div
+              style={{
+                position: 'absolute',
+                top: '25%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                color: 'rgba(255, 255, 255, 0.4)',
+                fontSize: '14px',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                fontWeight: 'normal',
+                lineHeight: '1',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              animate={{ x: ['100%', '-100%'] }}
+              transition={{
+                duration: 8,
+                repeat: Infinity,
+                ease: 'linear',
+                repeatDelay: 0
+              }}
+            >
+              {placeholder}
+            </motion.div>
+          )}
+        </div>
 
         {query ? (
-          <button
+          <motion.button
             type="button"
             onClick={handleClear}
             style={styles.clearButton}
             aria-label="검색어 지우기"
+            whileHover={{ scale: 1.1, rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0 }}
+            transition={{ duration: 0.2 }}
           >
             ✕
-          </button>
+          </motion.button>
         ) : null}
 
         {rightActions ? (
           <div style={styles.rightActions}>{rightActions}</div>
         ) : null}
       </div>
-
-      {!query.trim() ? (
-        <div style={styles.exampleRow}>
-          {/* <button
-            type="button"
-            onClick={() => onExampleClick?.("을지로 조용한 노포 2차")}
-            style={styles.exampleChip}
-          >
-            을지로 조용한 노포 2차
-          </button> */}
-        </div>
-      ) : null}
 
       {query.trim() && visibleSuggestions.length > 0 ? (
         <div style={styles.suggestionBox}>
@@ -359,7 +409,7 @@ const styles = {
   },
 
   inputWithRightActions: {
-    paddingRight: "120px",
+    paddingRight: "100px",
   },
 
   clearButton: {
