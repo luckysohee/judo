@@ -63,6 +63,7 @@ export default function Home() {
   const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
   const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
@@ -967,6 +968,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       setAiRecommendedIds(
         Array.isArray(data.recommendedPlaceIds) ? data.recommendedPlaceIds : []
       );
+      setBlogReviews(Array.isArray(data.blogReviews) ? data.blogReviews : []); // 블로그 리뷰 저장
       setAiSheetOpen(true);
     } catch (error) {
       console.error(error);
@@ -1763,6 +1765,90 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                   </div>
                 </div>
               ) : null}
+
+              {/* 네이버 블로그 리뷰 섹션 */}
+              {blogReviews.length > 0 && (
+                <div style={{
+                  marginTop: "16px",
+                  padding: "16px",
+                  backgroundColor: "#f8f9fa",
+                  borderRadius: "12px",
+                  borderTop: "1px solid #e9ecef"
+                }}>
+                  <div style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#495057",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}>
+                    <span>📝</span>
+                    네이버 블로그 실제 리뷰 ({blogReviews.length}개)
+                  </div>
+                  <div style={{
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px"
+                  }}>
+                    {blogReviews.slice(0, 3).map((review, index) => (
+                      <div key={index} style={{
+                        padding: "8px",
+                        backgroundColor: "white",
+                        borderRadius: "8px",
+                        border: "1px solid #e9ecef"
+                      }}>
+                        <div style={{
+                          fontSize: "12px",
+                          fontWeight: "500",
+                          color: "#e74c3c",
+                          marginBottom: "4px"
+                        }}>
+                          {review.place_name}
+                        </div>
+                        <div style={{
+                          fontSize: "11px",
+                          color: "#666",
+                          lineHeight: "1.4",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden"
+                        }}>
+                          {review.content && review.content !== "내용 추출 실패" 
+                            ? review.content.length > 100 
+                              ? review.content.substring(0, 100) + "..."
+                              : review.content
+                            : "리뷰 내용을 불러오지 못했습니다."
+                          }
+                        </div>
+                        {review.publish_date && review.publish_date !== "작성일 없음" && (
+                          <div style={{
+                            fontSize: "10px",
+                            color: "#999",
+                            marginTop: "4px"
+                          }}>
+                            {review.publish_date}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {blogReviews.length > 3 && (
+                    <div style={{
+                      fontSize: "11px",
+                      color: "#999",
+                      textAlign: "center",
+                      marginTop: "8px"
+                    }}>
+                      외 {blogReviews.length - 3}개의 리뷰 더보기
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : null}
         </div>
@@ -1774,6 +1860,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         folders={folders}
         savedPlacesByFolder={savedPlacesByFolder}
         onClose={() => setSavedPlacesOpen(false)}
+        getUserRole={getUserRole}
       />
 
       <AddPlaceForm

@@ -15,6 +15,8 @@ export default function SearchBar({
   mapRef = null, // 카카오 지도 ref 추가
   showKakaoSearch = true, // 카카오 검색 표시 여부
   onKakaoPlaceSelect = null, // 카카오 장소 선택 콜백
+  showSuggestions = false, // suggestions 표시 상태
+  setShowSuggestions = () => {}, // suggestions 표시 제어 함수
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
