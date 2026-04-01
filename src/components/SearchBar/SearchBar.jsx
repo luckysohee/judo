@@ -8,6 +8,7 @@ export default function SearchBar({
   onSubmit,
   onClear,
   onExampleClick,
+  onRealTimeSearch, // 실시간 검색 콜백 추가
   suggestions = [],
   placeholder = "검색어를 입력해 주세요",
   isLoading = false,
@@ -69,6 +70,17 @@ export default function SearchBar({
     
     // 검색어가 변경되면 선택된 인덱스 초기화
     setSelectedKakaoIndex(-1);
+
+    // 실시간 AI 검색
+    if (onRealTimeSearch) {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      searchTimeoutRef.current = setTimeout(() => {
+        onRealTimeSearch(value);
+      }, 500); // 500ms 디바운스
+    }
 
     if (showKakaoSearch) {
       if (searchTimeoutRef.current) {
@@ -406,8 +418,9 @@ const styles = {
     border: "none",
     outline: "none",
     backgroundColor: "transparent",
-    color: "#ffffff",
+    color: "#ffffff", 
     fontSize: "14px",
+    textDecoration: "none", // 밑줄 제거
   },
 
   inputWithRightActions: {

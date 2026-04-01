@@ -1,81 +1,23 @@
-const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, '.env') });
-
-// 환경 변수 로깅
-console.log('🔍 환경 변수 확인:');
-console.log('🔍 __dirname:', __dirname);
-console.log('🔍 env path:', path.join(__dirname, '.env'));
-console.log('🔍 NAVER_CLIENT_ID:', process.env.NAVER_CLIENT_ID ? '설정됨' : '설정안됨');
-console.log('🔍 NAVER_CLIENT_SECRET:', process.env.NAVER_CLIENT_SECRET ? '설정됨' : '설정안됨');
 const express = require("express");
 const cors = require("cors");
 const { spawn } = require("child_process");
+const path = require("path");
 const fs = require("fs");
 const OpenAI = require("openai");
 
 const app = express();
 app.use(cors());
-app.use(express.json({ charset: 'utf-8' }));
-app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
+app.use(express.json());
 
 const port = 4000;
 
 // OpenAI 클라이언트 초기화
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 실제 키 필요
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 네이버 지도 API 모듈
-const naverMapAPI = {
-  // 장소 검색
-  async searchPlaces(query) {
-    try {
-      const axios = require('axios');
-      const clientId = process.env.NAVER_CLIENT_ID; // 실제 API 키 필요
-      const clientSecret = process.env.NAVER_CLIENT_SECRET; // 실제 API 키 필요
-      
-      console.log('🔍 naverMapAPI.searchPlaces 호출');
-      console.log('🔍 Client ID:', clientId);
-      console.log('🔍 Client Secret:', clientSecret ? '설정됨' : '설정안됨');
-      console.log('🔍 Query:', query);
-      
-      if (!clientId || !clientSecret) {
-        console.log('⚠️ 네이버 API 키가 설정되지 않음');
-        return [];
-      }
-
-      console.log('🔍 API 호출 시작...');
-      const response = await axios.get(
-        'https://openapi.naver.com/v1/search/local.json',
-        {
-          params: {
-            query: query,
-            display: 5,
-            sort: 'random'
-          },
-          headers: {
-            'X-Naver-Client-Id': clientId,
-            'X-Naver-Client-Secret': clientSecret
-          }
-        }
-      );
-
-      console.log('🔍 API 응답 성공:', response.data.items.length);
-      return response.data.items.map(item => ({
-        name: item.title.replace(/<[^>]*>/g, '').trim(),
-        address: item.roadAddress || item.address,
-        category: item.category,
-        x: item.mapx,
-        y: item.mapy,
-        link: item.link
-      }));
-    } catch (error) {
-      console.error('🔍 네이버 지도 API 오류:', error.message);
-      console.error('🔍 상태 코드:', error.response?.status);
-      return [];
-    }
-  }
-};
+// 네이버 API 모듈 임포트
+const naverAPI = require('./naver_api');
 
 // 장소 데이터를 AI가 이해하기 쉽게 압축하는 함수
 function compactPlacesForAI(places) {
@@ -194,13 +136,11 @@ app.post("/api/ai-search", async (req, res) => {
       return res.status(400).json({ error: "query가 비어 있습니다." });
     }
 
-    // places가 비어있어도 네이버 API는 호출하도록 수정
-    let compactPlaces = [];
-    if (Array.isArray(places) && places.length > 0) {
-      compactPlaces = compactPlacesForAI(places);
-    } else {
-      console.log('⚠️ places가 비어있어 네이버 API만 사용합니다.');
+    if (!Array.isArray(places) || places.length === 0) {
+      return res.status(400).json({ error: "places가 비어 있습니다." });
     }
+
+    const compactPlaces = compactPlacesForAI(places);
 
     // 1. 네이버 블로그 크롤링 실행
     console.log(`🔍 검색어: ${query}`);
@@ -224,71 +164,16 @@ app.post("/api/ai-search", async (req, res) => {
       blogSummary = "블로그 리뷰를 불러오지 못했지만, 기존 데이터로 추천해드릴게요.";
     }
 
-    // 2. 네이버 지도 API로 장소 검색
-    console.log(`🗺️ 네이버 지도 API로 장소 검색: ${query}`);
-    console.log(`🗺️ 원본 쿼리: ${JSON.stringify(query)}`);
-    console.log(`🗺️ 쿼리 타입: ${typeof query}`);
-    console.log(`🗺️ 쿼리 길이: ${query.length}`);
-    
-    // 검색어 단순화 - 네이버 API는 간단한 검색어만 지원
-    let simplifiedQuery = query;
-    
-    // 복잡한 검색어를 단순화
-    if (query.includes('혼술하기 좋은') || query.includes('추천') || query.includes('좋은')) {
-      simplifiedQuery = query.replace(/혼술하기 좋은|추천|좋은/g, '').trim();
-    }
-    
-    // 지역명 + 술 종류 조합으로 단순화
-    if (simplifiedQuery.includes('술집') || simplifiedQuery.includes('바') || simplifiedQuery.includes('와인')) {
-      // 이미 좋은 검색어
-    } else {
-      // 기본 검색어 추가
-      simplifiedQuery += ' 술집';
-    }
-    
-    console.log(`🗺️ 단순화된 쿼리: ${simplifiedQuery}`);
-    
-    const naverPlaces = await naverMapAPI.searchPlaces(simplifiedQuery);
-    console.log(`📍 네이버 지도 검색 결과: ${naverPlaces.length}개 장소`);
-
-    // 3. AI 추천 생성 (내부 데이터 + 네이버 장소 통합)
-    console.log(`🤖 AI 추천 생성 시작...`);
-    
-    // 네이버 장소를 internal 데이터 형식으로 변환하여 AI 추천에 포함
-    const naverPlacesForAI = naverPlaces.map((place, index) => ({
-      id: `naver_${index}`, // 고유 ID 생성
-      name: place.title,
-      address: place.address,
-      region: place.address,
-      primaryCurator: "네이버 지도",
-      curators: ["네이버 지도"],
-      tags: place.category ? [place.category] : [],
-      comment: place.description || "",
-      savedCount: 0,
-      aiText: [
-        place.title,
-        place.address,
-        "네이버 지도",
-        place.category || "",
-        place.description || "",
-      ].filter(Boolean).join(" | "),
-    }));
-    
-    // 내부 데이터와 네이버 장소 통합
-    const allPlacesForAI = [...compactPlaces, ...naverPlacesForAI];
-    
-    console.log(`📊 AI 추천용 데이터: 내부 ${compactPlaces.length}개 + 네이버 ${naverPlaces.length}개 = 총 ${allPlacesForAI.length}개`);
-
-    // 4. AI 검색 실행 (블로그 리뷰 + 네이버 지도 정보)
+    // 2. AI 검색 실행 (블로그 리뷰 정보 포함)
     const systemPrompt = blogReviews.length > 0
       ? `너는 한국 술집 추천 큐레이터다. 사용자 검색어와 관련된 네이버 블로그 실제 리뷰 정보를 제공받았다.
 
 실제 블로그 리뷰 데이터:
 ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
 
-블로그 리뷰에 언급된 장소와 네이버 지도 검색된 장소를 모두 고려하여 추천해라. 네이버 지도에서 검색된 최신 장소 정보를 우선적으로 고려하되, 블로그 리뷰에 실제로 언급된 장소가 있다면 가중치를 높여 추천해라.
+이 실제 리뷰를 참고해서 제공된 장소 목록에서 가장 적합한 곳을 추천해라.
 추천 형식: 상호명 - 추천이유 (한줄)`
-      : "너는 한국 술집 추천 큐레이터다. 네이버 지도에서 검색된 최신 장소 정보를 우선적으로 고려하여 추천해라. 추천 형식: 상호명 - 추천이유 (한줄)";
+      : "너는 한국 술집 추천 큐레이터다. 추천 형식: 상호명 - 추천이유 (한줄)";
 
     const response = await openai.responses.create({
       model: "gpt-4o",
@@ -315,12 +200,11 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
               text:
                 `사용자 검색어:\n${query}\n\n` +
                 `블로그 리뷰 요약:\n${blogSummary}\n\n` +
-                `후보 장소 목록(JSON):\n${JSON.stringify(allPlacesForAI)}\n\n` +
+                `후보 장소 목록(JSON):\n${JSON.stringify(compactPlaces)}\n\n` +
                 `규칙:\n` +
                 `- recommendedPlaceIds는 반드시 위 목록의 id만 사용\n` +
                 `- 최대 5개 추천\n` +
                 `- 요청과 잘 맞는 순서대로 정렬\n` +
-                `- 네이버 지도에서 검색된 장소를 우선적으로 고려\n` +
                 `- reasons에는 각 장소를 왜 골랐는지 사용자 검색어 기준으로 설명`,
             },
           ],
@@ -363,55 +247,37 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
 
     const parsed = JSON.parse(response.output_text);
 
-    const validIdSet = new Set(allPlacesForAI.map((p) => String(p.id)));
+    const validIdSet = new Set(compactPlaces.map((p) => String(p.id)));
 
-    let recommendedPlaceIds = [];
-    let reasons = [];
+    let recommendedPlaceIds = Array.isArray(parsed.recommendedPlaceIds)
+      ? parsed.recommendedPlaceIds
+          .map((id) => String(id))
+          .filter((id) => validIdSet.has(id))
+          .slice(0, 5)
+      : [];
 
-    // AI 추천 결과 처리 (내부 데이터 + 네이버 장소 통합)
-    if (allPlacesForAI.length > 0) {
-      recommendedPlaceIds = Array.isArray(parsed.recommendedPlaceIds)
-        ? parsed.recommendedPlaceIds
-            .map((id) => String(id))
-            .filter((id) => validIdSet.has(id))
-            .slice(0, 5)
-        : [];
+    let reasons = Array.isArray(parsed.reasons)
+      ? parsed.reasons
+          .map((item) => ({
+            placeId: String(item.placeId),
+            reason: String(item.reason || ""),
+          }))
+          .filter((item) => validIdSet.has(item.placeId))
+      : [];
 
-      reasons = Array.isArray(parsed.reasons)
-        ? parsed.reasons
-            .map((item) => ({
-              placeId: String(item.placeId),
-              reason: String(item.reason || ""),
-            }))
-            .filter((item) => validIdSet.has(item.placeId))
-        : [];
+    if (recommendedPlaceIds.length === 0) {
+      const fallback = [...compactPlaces]
+        .sort((a, b) => b.savedCount - a.savedCount)
+        .slice(0, 5);
 
-      if (recommendedPlaceIds.length === 0) {
-        // fallback: 네이버 장소 우선으로 정렬
-        const fallback = [...allPlacesForAI]
-          .sort((a, b) => {
-            // 네이버 장소를 우선적으로 정렬
-            const aIsNaver = a.id.startsWith('naver_');
-            const bIsNaver = b.id.startsWith('naver_');
-            if (aIsNaver && !bIsNaver) return -1;
-            if (!aIsNaver && bIsNaver) return 1;
-            return 0;
-          })
-          .slice(0, 5);
-
-        recommendedPlaceIds = fallback.map((item) => item.id);
-        reasons = fallback.map((item) => ({
-          placeId: item.id,
-          reason: item.id.startsWith('naver_') 
-            ? "네이버 지도에서 검색된 최신 장소입니다." 
-            : "AI가 완벽히 일치하는 결과를 좁히지 못해 인기 높은 후보로 보완했어요.",
-        }));
-      }
-    } else {
-      console.log('⚠️ 추천 가능한 장소가 없어 AI 추천을 건너뜁니다.');
+      recommendedPlaceIds = fallback.map((item) => item.id);
+      reasons = fallback.map((item) => ({
+        placeId: item.id,
+        reason: "AI가 완벽히 일치하는 결과를 좁히지 못해 인기 높은 후보로 보완했어요.",
+      }));
     }
 
-    // 5. 블로그 리뷰 정보 추가
+    // 3. 블로그 리뷰 정보 추가
     const finalSummary = blogReviews.length > 0
       ? `${parsed.summary} (네이버 블로그 ${blogReviews.length}개 리뷰 기반)`
       : parsed.summary;
@@ -422,16 +288,6 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
       reasons,
       blogReviews: blogReviews.slice(0, 10), // 최대 10개 리뷰 전달
       blogSummary,
-      naverPlaces: naverPlaces.map(place => ({
-        id: `naver_${place.name.replace(/\s+/g, '_')}`,
-        name: place.name,
-        address: place.address,
-        category: place.category,
-        lat: parseFloat(place.y) / 10000000, // 네이버 좌표 변환
-        lng: parseFloat(place.x) / 10000000, // 네이버 좌표 변환
-        isNaverPlace: true,
-        link: place.link
-      }))
     });
   } catch (error) {
     console.error("AI search error:", error);

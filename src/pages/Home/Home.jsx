@@ -939,21 +939,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         },
         body: JSON.stringify({
           query: nextQuery,
-          places: filteredByCuratorPlaces.map((place) => ({
-            ...place,
-            aiText: [
-              place.name,
-              place.region,
-              place.address,
-              place.primaryCurator,
-              ...(place.curators || []),
-              ...(place.tags || []),
-              place.comment,
-              place.savedCount ? `저장 ${place.savedCount}` : "",
-            ]
-              .filter(Boolean)
-              .join(" | "),
-          })),
+          places: [], // 내 데이터 완전히 제외
         }),
       });
 
@@ -970,6 +956,43 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       );
       setBlogReviews(Array.isArray(data.blogReviews) ? data.blogReviews : []); // 블로그 리뷰 저장
       setAiSheetOpen(true);
+
+      // 네이버 장소 처리
+      if (data.naverPlaces && Array.isArray(data.naverPlaces)) {
+        console.log('📍 네이버 장소 데이터:', data.naverPlaces);
+        
+        // 네이버 장소를 kakaoPlaces에 추가하여 지도에 마커 표시
+        setKakaoPlaces(prev => {
+          const newPlaces = data.naverPlaces.map(naverPlace => ({
+            ...naverPlace,
+            kakao_place_id: naverPlace.id,
+            isKakaoPlace: true,
+            isLive: true,
+            place_url: naverPlace.link
+          }));
+          
+          const existingIds = prev.map(p => p.id);
+          const uniqueNewPlaces = newPlaces.filter(p => !existingIds.includes(p.id));
+          
+          return [...prev, ...uniqueNewPlaces];
+        });
+      }
+      
+      // AI 추천 결과 처리: 지도 이동 및 첫 번째 장소 자동 선택
+      if (data.recommendedPlaceIds && data.recommendedPlaceIds.length > 0) {
+        const recommendedPlaces = mapDisplayedPlacesWithLegend.filter(place => 
+          data.recommendedPlaceIds.map(String).includes(String(place.id))
+        );
+        
+        if (recommendedPlaces.length > 0) {
+          // 지도 줌인 (MapView ref)
+          if (mapRef.current && mapRef.current.zoomToPlaces) {
+            mapRef.current.zoomToPlaces(recommendedPlaces);
+          }
+          // 첫 번째 추천 장소 카드 표시
+          setSelectedPlace(recommendedPlaces[0]);
+        }
+      }
     } catch (error) {
       console.error(error);
       setAiError(error.message || "AI 검색 중 오류가 발생했습니다.");
