@@ -62,7 +62,7 @@ function getMarkerTier(place) {
 
   return {
     level: "basic",
-    fill: "#2ECC71",
+    fill: "#2ECC71", // 초록색으로 복원
     emoji: "🍶",
     label: "",
   };
