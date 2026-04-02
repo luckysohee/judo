@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
+import axios from "axios";
 
 dotenv.config();
 
@@ -51,6 +52,74 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// 네이버 지역 검색 API
+async function searchNaverLocal(query) {
+  const clientId = process.env.NAVER_CLIENT_ID;
+  const clientSecret = process.env.NAVER_CLIENT_SECRET;
+  
+  if (!clientId || !clientSecret) {
+    console.error("NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET가 없습니다.");
+    return [];
+  }
+
+  try {
+    const response = await axios.get('https://openapi.naver.com/v1/search/local.json', {
+      params: {
+        query: query,
+        display: 10,
+        sort: 'random'
+      },
+      headers: {
+        'X-Naver-Client-Id': clientId,
+        'X-Naver-Client-Secret': clientSecret
+      }
+    });
+
+    return response.data.items || [];
+  } catch (error) {
+    console.error("네이버 API 검색 오류:", error.message);
+    return [];
+  }
+}
+
+// KATECH 좌표를 위경도로 변환 (간단한 근사치)
+function convertKatechToWGS84(mapx, mapy) {
+  // 실제로는 더 정밀한 변환이 필요하지만, 여기서는 간단한 근사치 사용
+  // 서울 중심부 기준으로 대략적인 변환
+  const centerX = 319544;
+  const centerY = 529945;
+  const offsetX = (mapx - centerX) * 0.00005;
+  const offsetY = (mapy - centerY) * 0.00005;
+  
+  return {
+    lat: 37.5665 + offsetY,
+    lng: 126.9780 + offsetX
+  };
+}
+
+// 네이버 검색 결과를 장소 데이터로 변환
+function convertNaverToPlaceData(items, query) {
+  return items.map((item, index) => {
+    const coords = convertKatechToWGS84(
+      parseInt(item.mapx),
+      parseInt(item.mapy)
+    );
+    
+    return {
+      id: `naver_${index}_${Date.now()}`,
+      name: item.title.replace(/<[^>]*>/g, ''),
+      address: item.address,
+      lat: coords.lat,
+      lng: coords.lng,
+      category: item.category,
+      phone: item.telephone || '',
+      aiText: `${item.title.replace(/<[^>]*>/g, '')} - ${item.category} · ${item.address}`,
+      isExternal: true, // 외부 데이터 표시
+      source: 'naver'
+    };
+  });
+}
+
 app.post("/api/ai-search", async (req, res) => {
   try {
     const { query, places } = req.body ?? {};
@@ -59,11 +128,22 @@ app.post("/api/ai-search", async (req, res) => {
       return res.status(400).json({ error: "query가 비어 있습니다." });
     }
 
-    if (!Array.isArray(places) || places.length === 0) {
-      return res.status(400).json({ error: "places가 비어 있습니다." });
+    // 네이버 API로 외부 데이터 검색
+    console.log("🔍 네이버 API 검색 시작:", query);
+    const naverResults = await searchNaverLocal(query);
+    console.log("✅ 네이버 API 검색 결과:", naverResults.length, "개");
+    
+    // 네이버 결과를 장소 데이터로 변환
+    const naverPlaces = convertNaverToPlaceData(naverResults, query);
+    
+    // 외부 데이터가 있으면 외부 데이터만 사용
+    const finalPlaces = naverPlaces.length > 0 ? naverPlaces : places;
+    
+    if (!Array.isArray(finalPlaces) || finalPlaces.length === 0) {
+      return res.status(400).json({ error: "검색 결과가 없습니다." });
     }
 
-    const compactPlaces = compactPlacesForAI(places);
+    const compactPlaces = compactPlacesForAI(finalPlaces);
 
     const response = await openai.responses.create({
       model: "gpt-5.4",
@@ -172,9 +252,10 @@ app.post("/api/ai-search", async (req, res) => {
     res.json({
       summary:
         parsed.summary ||
-        "요청 조건에 맞는 후보를 현재 데이터 안에서 골라봤어요.",
+        "요청 조건에 맞는 후보를 네이버 검색 결과에서 골라봤어요.",
       recommendedPlaceIds,
       reasons,
+      externalPlaces: naverPlaces, // 외부 데이터도 함께 반환
     });
   } catch (error) {
     console.error("AI search error:", error);
