@@ -1589,36 +1589,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           </div>
         ) : null}
 
-        {(isAiSearching || aiError || aiSummary) && (
-          <div style={styles.aiStatusBox}>
-            <div style={styles.aiStatusInner}>
-              {isAiSearching ? (
-                <>
-                  <div style={styles.aiSpinner} />
-                  <div style={styles.aiStatusTextWrap}>
-                    <div style={styles.aiStatusTitle}>
-                      AI가 분위기 맞는 곳 찾는 중{loadingDots}
-                    </div>
-                    <div style={styles.aiStatusSubtext}>
-                      지역, 분위기, 술 종류, 1차/2차 느낌까지 보고 있어요
-                    </div>
-                  </div>
-                </>
-              ) : aiError ? (
-                <div style={styles.aiStatusTextWrap}>
-                  <div style={styles.aiStatusTitle}>AI 검색 오류</div>
-                  <div style={styles.aiStatusError}>{aiError}</div>
-                </div>
-              ) : (
-                <div style={styles.aiStatusTextWrap}>
-                  <div style={styles.aiStatusTitle}>AI 해석 완료</div>
-                  <div style={styles.aiStatusSubtext}>{aiSummary}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         <div
           style={{
             ...styles.mapCardOverlay,
@@ -1686,23 +1656,6 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 <div style={styles.aiBottomSheet}>
                   <div style={styles.aiSheetHandleWrap}>
                     <div style={styles.aiSheetHandle} />
-                  </div>
-
-                  <div style={styles.aiSheetHeader}>
-                    <div>
-                      <div style={styles.aiSheetTitle}>AI 추천 리스트</div>
-                      <div style={styles.aiSheetDesc}>
-                        {aiSummary || "분위기와 조건에 맞는 후보예요."}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      style={styles.aiSheetCloseBtn}
-                      onClick={() => setAiSheetOpen(false)}
-                    >
-                      닫기
-                    </button>
                   </div>
 
                   <div style={styles.aiSheetList}>
@@ -2257,7 +2210,7 @@ const styles = {
     position: "absolute",
     left: "16px",
     right: "16px",
-    bottom: "150px",
+    bottom: "100px", 
     zIndex: 40,
     pointerEvents: "none",
   },
@@ -2344,28 +2297,27 @@ const styles = {
   },
 
   aiPeekArrow: {
-    fontSize: "18px",
-    color: "#fff",
-    flexShrink: 0,
-  },
 
-  aiBottomSheet: {
+aiBottomSheet: {
     marginTop: "10px",
     width: "100%",
-    maxHeight: "48vh",
+    maxHeight: "24vh",
     borderRadius: "24px 24px 0 0",
-    background: "rgba(255,255,255,0.96)",
-    boxShadow: "0 -8px 32px rgba(0,0,0,0.18)",
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
+    background: "rgba(255,255,255,0.85)",
+    boxShadow: "0 -4px 20px rgba(0,0,0,0.12)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     overflow: "hidden",
-    pointerEvents: "auto",
+    pointerEvents: "auto", 
+    position: "relative", 
+    zIndex: 100, 
   },
 
-  aiSheetHandleWrap: {
-    display: "flex",
-    justifyContent: "center",
-    paddingTop: "10px",
+aiSheetHandleWrap: {
+display: "flex",
+justifyContent: "center",
+paddingTop: "10px",
+},
   },
 
   aiSheetHandle: {
@@ -2434,23 +2386,26 @@ const styles = {
   },
 
   aiSheetList: {
-    maxHeight: "36vh",
+    maxHeight: "28vh", 
     overflowY: "auto",
     padding: "8px 12px 14px",
     display: "flex",
     flexDirection: "column",
     gap: "10px",
+    pointerEvents: "auto", 
   },
 
   aiSheetItem: {
     width: "100%",
     border: "1px solid rgba(17,17,17,0.06)",
-    borderRadius: "18px",
-    background: "#fff",
-    padding: "14px",
+    borderRadius: "24px", 
+    background: "rgba(255,255,255,0.9)",
+    padding: "8px 12px", 
     textAlign: "left",
     cursor: "pointer",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.05)",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.08)", 
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
   },
 
   aiSheetItemTop: {
