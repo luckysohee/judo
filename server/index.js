@@ -1,5 +1,12 @@
-const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, '.env') });
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+// ES 모듈에서 __dirname 대체
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // 환경 변수 로깅
 console.log('🔍 환경 변수 확인:');
@@ -7,25 +14,20 @@ console.log('🔍 __dirname:', __dirname);
 console.log('🔍 env path:', path.join(__dirname, '.env'));
 console.log('🔍 NAVER_CLIENT_ID:', process.env.NAVER_CLIENT_ID ? '설정됨' : '설정안됨');
 console.log('🔍 NAVER_CLIENT_SECRET:', process.env.NAVER_CLIENT_SECRET ? '설정됨' : '설정안됨');
-const express = require("express");
-const cors = require("cors");
-const { spawn } = require("child_process");
-const fs = require("fs");
-const OpenAI = require("openai");
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
+import { spawn } from "child_process";
+import fs from "fs";
 import OpenAI from "openai";
 import axios from "axios";
-
-dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json({ charset: 'utf-8' }));
 app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
 
-const port = 4000;
+const port = process.env.PORT || 4000;
 
 // OpenAI 클라이언트 초기화
 const openai = new OpenAI({
@@ -37,7 +39,6 @@ const naverMapAPI = {
   // 장소 검색
   async searchPlaces(query) {
     try {
-      const axios = require('axios');
       const clientId = process.env.NAVER_CLIENT_ID; // 실제 API 키 필요
       const clientSecret = process.env.NAVER_CLIENT_SECRET; // 실제 API 키 필요
       
@@ -256,22 +257,22 @@ function generateSampleData(query) {
       {
         title: '강남역 와인바 라뮤즈',
         address: '서울 강남구 강남대로 123',
-        mapx: '320000',
-        mapy: '530000',
+        mapx: '319600',
+        mapy: '530100',
         category: '와인바',
         telephone: '02-5678-1234'
       }
     );
   }
   
-  // 기본 샘플 데이터
+  // 기본 샘플 데이터 (서울 중심부 좌표)
   if (sampleData.length === 0) {
     sampleData.push(
       {
         title: '서울 와인바 비노테카',
         address: '서울 종로구 삼청동 101',
-        mapx: '319600',
-        mapy: '530100',
+        mapx: '319544',
+        mapy: '529945',
         category: '와인바',
         telephone: '02-8901-1234'
       }
@@ -293,14 +294,15 @@ function convertKatechToWGS84(mapx, mapy) {
   const SEOUL_LNG = 126.9780;
   
   // KATECH 좌표를 위경도로 변환 (간단한 선형 변환)
-  // 1 KATECH 단위 ≈ 0.0001도 (약 11m)
-  const SCALE = 0.0001;
+  // 실제 네이버 API는 다른 좌표계를 사용하므로 더 정확한 변환 필요
+  const SCALE_X = 0.000001; // 경도 스케일
+  const SCALE_Y = 0.000001; // 위도 스케일
   
-  const deltaX = mapx - SEOUL_CENTER_X;
-  const deltaY = mapy - SEOUL_CENTER_Y;
+  const deltaX = (parseInt(mapx) - SEOUL_CENTER_X) * SCALE_X;
+  const deltaY = (parseInt(mapy) - SEOUL_CENTER_Y) * SCALE_Y;
   
-  const lat = SEOUL_LAT + (deltaY * SCALE);
-  const lng = SEOUL_LNG + (deltaX * SCALE);
+  const lat = SEOUL_LAT + deltaY;
+  const lng = SEOUL_LNG + deltaX;
   
   // 서울 지역 범위로 제한 (잘못된 좌표 방지)
   const boundedLat = Math.max(37.4, Math.min(37.7, lat));
@@ -446,16 +448,16 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
     console.log("✅ 네이버 API 검색 결과:", naverResults.length, "개");
     
     // 네이버 결과를 장소 데이터로 변환
-    const naverPlaces = convertNaverToPlaceData(naverResults, query);
+    const convertedNaverPlaces = convertNaverToPlaceData(naverResults, query);
     
     // 외부 데이터가 있으면 외부 데이터만 사용
-    const finalPlaces = naverPlaces.length > 0 ? naverPlaces : places;
+    const finalPlaces = convertedNaverPlaces.length > 0 ? convertedNaverPlaces : places;
     
     if (!Array.isArray(finalPlaces) || finalPlaces.length === 0) {
       return res.status(400).json({ error: "검색 결과가 없습니다." });
     }
 
-    const compactPlaces = compactPlacesForAI(finalPlaces);
+    const compactPlacesForOpenAI = compactPlacesForAI(finalPlaces);
 
     const response = await openai.responses.create({
       model: "gpt-4o",
@@ -482,7 +484,7 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
               text:
                 `사용자 검색어:\n${query}\n\n` +
                 `블로그 리뷰 요약:\n${blogSummary}\n\n` +
-                `후보 장소 목록(JSON):\n${JSON.stringify(allPlacesForAI)}\n\n` +
+                `후보 장소 목록(JSON):\n${JSON.stringify(compactPlacesForOpenAI)}\n\n` +
                 `규칙:\n` +
                 `- recommendedPlaceIds는 반드시 위 목록의 id만 사용\n` +
                 `- 최대 5개 추천\n` +
@@ -530,13 +532,13 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
 
     const parsed = JSON.parse(response.output_text);
 
-    const validIdSet = new Set(allPlacesForAI.map((p) => String(p.id)));
+    const validIdSet = new Set(compactPlacesForOpenAI.map((p) => String(p.id)));
 
     let recommendedPlaceIds = [];
     let reasons = [];
 
     // AI 추천 결과 처리 (내부 데이터 + 네이버 장소 통합)
-    if (allPlacesForAI.length > 0) {
+    if (compactPlacesForOpenAI.length > 0) {
       recommendedPlaceIds = Array.isArray(parsed.recommendedPlaceIds)
         ? parsed.recommendedPlaceIds
             .map((id) => String(id))
@@ -555,7 +557,7 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
 
       if (recommendedPlaceIds.length === 0) {
         // fallback: 네이버 장소 우선으로 정렬
-        const fallback = [...allPlacesForAI]
+        const fallback = [...compactPlacesForOpenAI]
           .sort((a, b) => {
             // 네이버 장소를 우선적으로 정렬
             const aIsNaver = a.id.startsWith('naver_');
@@ -601,7 +603,7 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
         lng: parseFloat(place.x) / 10000000, // 네이버 좌표 변환
         isNaverPlace: true,
         link: place.link
-      }))
+      })),
       externalPlaces: naverPlaces, // 외부 데이터도 함께 반환
     });
   } catch (error) {
