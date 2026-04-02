@@ -791,12 +791,30 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       aiRecommendedIds.map((id, index) => [String(id), index])
     );
 
-    return filteredByCuratorPlaces
-      .filter((place) => idSet.has(String(place.id)))
-      .sort(
-        (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
-      );
-  }, [filteredByCuratorPlaces, aiRecommendedIds, query]);
+    // 네이버 장소도 포함하여 필터링
+    const allPlaces = [...filteredByCuratorPlaces, ...kakaoPlaces];
+    
+    return allPlaces
+      .filter((place) => idSet.has(String(place.id)) || place.id?.toString().startsWith('naver_'))
+      .sort((a, b) => {
+        // 네이버 장소를 우선적으로 정렬
+        const aIsNaver = a.id?.toString().startsWith('naver_');
+        const bIsNaver = b.id?.toString().startsWith('naver_');
+        
+        if (aIsNaver && !bIsNaver) return -1;
+        if (!aIsNaver && bIsNaver) return 1;
+        
+        // AI 추천 순서로 정렬
+        const aOrder = idOrderMap.get(String(a.id));
+        const bOrder = idOrderMap.get(String(b.id));
+        
+        if (aOrder !== undefined && bOrder !== undefined) {
+          return aOrder - bOrder;
+        }
+        
+        return 0;
+      });
+  }, [filteredByCuratorPlaces, aiRecommendedIds, query, kakaoPlaces]);
 
   const mapDisplayedPlaces = useMemo(() => {
     if (!showSavedOnly) return displayedPlaces;
@@ -939,7 +957,15 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         },
         body: JSON.stringify({
           query: nextQuery,
-          places: [], // 내 데이터 완전히 제외
+          places: filteredByCuratorPlaces.slice(0, 3).map(place => ({ // 임시로 내 데이터 3개만 사용
+            id: place.id,
+            name: place.name,
+            address: place.address,
+            lat: place.lat,
+            lng: place.lng,
+            category: place.category,
+            phone: place.phone,
+          })),
         }),
       });
 
@@ -984,13 +1010,27 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           data.recommendedPlaceIds.map(String).includes(String(place.id))
         );
         
-        if (recommendedPlaces.length > 0) {
+        // 네이버 장소도 추천 리스트에 추가
+        const naverRecommendedPlaces = data.naverPlaces && Array.isArray(data.naverPlaces) 
+          ? data.naverPlaces.slice(0, 3).map(naverPlace => ({
+              ...naverPlace,
+              id: naverPlace.id,
+              name: naverPlace.name,
+              address: naverPlace.address,
+              category: naverPlace.category,
+              isNaverPlace: true
+            }))
+          : [];
+        
+        const allRecommendedPlaces = [...recommendedPlaces, ...naverRecommendedPlaces];
+        
+        if (allRecommendedPlaces.length > 0) {
           // 지도 줌인 (MapView ref)
           if (mapRef.current && mapRef.current.zoomToPlaces) {
-            mapRef.current.zoomToPlaces(recommendedPlaces);
+            mapRef.current.zoomToPlaces(allRecommendedPlaces);
           }
           // 첫 번째 추천 장소 카드 표시
-          setSelectedPlace(recommendedPlaces[0]);
+          setSelectedPlace(allRecommendedPlaces[0]);
         }
       }
     } catch (error) {
