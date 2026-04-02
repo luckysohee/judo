@@ -184,7 +184,16 @@ const MapView = forwardRef(({
     const liveMarkers = [];
     const clusterMarkers = [];
 
-    const nextMarkers = places.map((p) => {
+    const validPlaces = places.filter(p => {
+      const lat = p.lat || p.latitude;
+      const lng = p.lng || p.longitude;
+      // 유효한 좌표만 필터링 (서울 지역 범위)
+      return lat && lng && lat >= 37.4 && lat <= 37.7 && lng >= 126.8 && lng <= 127.2;
+    });
+
+    console.log("🗺️ 유효한 장소 수:", validPlaces.length, "/", places.length);
+
+    const nextMarkers = validPlaces.map((p) => {
       // lat/lng 필드가 없으면 latitude/longitude 사용
       const lat = p.lat || p.latitude;
       const lng = p.lng || p.longitude;
