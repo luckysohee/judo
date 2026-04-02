@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import createMarker from "../../utils/createMarker";
+import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
 
 const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
 
@@ -45,9 +46,16 @@ const MapView = forwardRef(({
   onCurrentLocationChange,
   center, // center prop 추가
   userFolders, // 사용자 폴더 정보 추가
+  onQuickSave, // 쾌속 잔 채우기 핸들러 추가
+  userRole, // 사용자 역할 추가
+  onSave, // 일반 사용자 저장 핸들러 추가
+  savedFolders, // 저장된 폴더 정보 추가
+  userSavedPlaces, // 사용자 저장 장소 정보 추가
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const [overlayPlace, setOverlayPlace] = useState(null); // 커스텀 오버레이에 표시할 장소
+  const overlayRef = useRef(null); // 커스텀 오버레이 DOM 참조
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
   const ignoreMapClickRef = useRef(false);
@@ -58,6 +66,64 @@ const MapView = forwardRef(({
   const prevPlacesRef = useRef([]);
 
   const [mapReady, setMapReady] = useState(false);
+
+  // 특정 키워드가 포함된 카테고리 확인
+  const isTargetCategory = (categoryName) => {
+    if (!categoryName) return false;
+    const targetKeywords = ['술집', '호프', '포장마차', '민속주점', '해산물', '주점', '바', '선술집'];
+    return targetKeywords.some(keyword => categoryName.includes(keyword));
+  };
+
+  // 타겟 장소를 Supabase에 자동 저장
+  const saveTargetPlaceToSupabase = async (place) => {
+    try {
+      const { supabase } = await import("../../lib/supabase");
+      
+      // places 테이블에 upsert
+      const { data: savedPlace, error: placeError } = await supabase
+        .from('places')
+        .upsert({
+          kakao_place_id: place.id,
+          name: place.place_name,
+          address: place.road_address_name || place.address_name,
+          category: place.category_name,
+          phone: place.phone,
+          lat: place.y,
+          lng: place.x,
+          created_at: new Date().toISOString()
+        }, {
+          onConflict: 'kakao_place_id'
+        })
+        .select()
+        .single();
+
+      if (placeError) {
+        console.log('⚠️ 타겟 장소 저장 실패:', placeError.message);
+        return;
+      }
+
+      console.log('✅ 타겟 장소 자동 저장 성공:', savedPlace);
+      
+      // AI 학습을 위한 태그 추가 (나중에 활용)
+      // 여기에 추가적인 AI 학습 데이터 로직을 구현할 수 있음
+      
+    } catch (error) {
+      console.error('타겟 장소 저장 오류:', error);
+    }
+  };
+
+  // 커스텀 오버레이 닫기
+  const closeOverlay = () => {
+    setOverlayPlace(null);
+  };
+
+  // 쾌속 잔 채우기 핸들러
+  const handleQuickSave = (place) => {
+    // 부모 컴포넌트의 쾌속 잔 채우기 로직 호출
+    if (onQuickSave) {
+      onQuickSave(place);
+    }
+  };
   const [mapError, setMapError] = useState("");
 
   useImperativeHandle(ref, () => ({
@@ -133,7 +199,10 @@ const MapView = forwardRef(({
               };
 
               window.kakao.maps.event.addListener(map, "click", () => {
-                if (!ignoreMapClickRef.current) setSelectedPlace(null);
+                if (!ignoreMapClickRef.current) {
+                  setSelectedPlace(null);
+                  closeOverlay(); // 커스텀 오버레이도 닫기
+                }
               });
 
               window.kakao.maps.event.addListener(map, "dragend", markUserInteracted);
@@ -212,7 +281,15 @@ const MapView = forwardRef(({
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
         onClick: (cp) => {
           ignoreMapClickRef.current = true;
+          
+          // 모든 장소를 PlacePreviewCard로 표시
           setSelectedPlace(cp);
+          
+          // 타겟 카테고리이면 자동으로 Supabase에 저장
+          if (cp.isKakaoPlace && isTargetCategory(cp.category_name)) {
+            saveTargetPlaceToSupabase(cp);
+          }
+          
           setTimeout(() => {
             ignoreMapClickRef.current = false;
           }, 200);
@@ -319,6 +396,21 @@ const MapView = forwardRef(({
           <div ref={mapContainerRef} style={styles.mapInner} />
         )}
       </div>
+      
+      {/* 커스텀 오버레이 */}
+      {overlayPlace && (
+        <div ref={overlayRef}>
+          <KakaoPlaceOverlay
+            place={overlayPlace}
+            onClose={closeOverlay}
+            onQuickSave={handleQuickSave}
+            userRole={userRole} // 사용자 역할 전달
+            onSave={onSave} // 일반 사용자 저장 핸들러
+            savedFolders={savedFolders} // 저장된 폴더 정보
+            userSavedPlaces={userSavedPlaces} // 사용자 저장 장소 정보
+          />
+        </div>
+      )}
     </div>
   );
 });

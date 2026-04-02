@@ -13,6 +13,9 @@ import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
 import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
+import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
+import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
+import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 
 import { places as dummyPlaces } from "../../data/places";
 
@@ -60,6 +63,7 @@ export default function Home() {
   const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
   const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
@@ -790,6 +794,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       aiRecommendedIds.map((id, index) => [String(id), index])
     );
 
+<<<<<<< HEAD
     // 외부 데이터에서 AI 추천 장소 찾기
     const externalRecommendedPlaces = externalPlaces
       .filter((place) => idSet.has(String(place.id)))
@@ -810,6 +815,32 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     console.log("🔍 displayedPlaces 최종:", finalPlaces.length, finalPlaces);
     return finalPlaces;
   }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
+=======
+    // 네이버 장소도 포함하여 필터링
+    const allPlaces = [...filteredByCuratorPlaces, ...kakaoPlaces];
+    
+    return allPlaces
+      .filter((place) => idSet.has(String(place.id)) || place.id?.toString().startsWith('naver_'))
+      .sort((a, b) => {
+        // 네이버 장소를 우선적으로 정렬
+        const aIsNaver = a.id?.toString().startsWith('naver_');
+        const bIsNaver = b.id?.toString().startsWith('naver_');
+        
+        if (aIsNaver && !bIsNaver) return -1;
+        if (!aIsNaver && bIsNaver) return 1;
+        
+        // AI 추천 순서로 정렬
+        const aOrder = idOrderMap.get(String(a.id));
+        const bOrder = idOrderMap.get(String(b.id));
+        
+        if (aOrder !== undefined && bOrder !== undefined) {
+          return aOrder - bOrder;
+        }
+        
+        return 0;
+      });
+  }, [filteredByCuratorPlaces, aiRecommendedIds, query, kakaoPlaces]);
+>>>>>>> 14504eab6675a3ef19c16e99d31927c6e7cf9688
 
   const mapDisplayedPlaces = useMemo(() => {
     if (!showSavedOnly) return displayedPlaces;
@@ -877,6 +908,58 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
     setIsAiSearching(false);
   };
 
+  // 카카오 장소 선택 핸들러 (마커 생성용)
+  const handleKakaoPlaceSelect = (kakaoPlace) => {
+    console.log('📍 카카오 장소 선택:', kakaoPlace);
+    
+    // 카카오 장소 데이터 형식 변환
+    const formattedPlace = {
+      id: `kakao_${kakaoPlace.id}`,
+      name: kakaoPlace.place_name,
+      address: kakaoPlace.road_address_name || kakaoPlace.address_name,
+      lat: parseFloat(kakaoPlace.y),
+      lng: parseFloat(kakaoPlace.x),
+      category: kakaoPlace.category_name,
+      phone: kakaoPlace.phone,
+      kakao_place_id: kakaoPlace.id,
+      isKakaoPlace: true,
+      isLive: true,
+      place_url: kakaoPlace.place_url, // 카카오맵 상세보기 URL
+      category_name: kakaoPlace.category_name, // 커스텀 오버레이용
+      road_address_name: kakaoPlace.road_address_name, // 커스텀 오버레이용
+    };
+    
+    console.log('📍 마커 데이터:', formattedPlace);
+    
+    // kakaoPlaces에 추가
+    setKakaoPlaces(prev => {
+      const exists = prev.some(p => p.id === formattedPlace.id);
+      if (!exists) {
+        const newPlaces = [...prev, formattedPlace];
+        console.log('📍 카카오 장소 추가 후:', newPlaces.length);
+        
+        // 마커 생성 후 해당 장소를 선택하여 카드 표시
+        setTimeout(() => {
+          setSelectedPlace(formattedPlace);
+          setShowPlaceDetail(true);
+        }, 500); // 마커가 생성될 시간을 주기 위해 약간의 지연
+        
+        return newPlaces;
+      }
+      return prev;
+    });
+  };
+
+  // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
+  const handleQuickSave = (place) => {
+    console.log('📍 쾌속 잔 채우기 요청:', place);
+    
+    // PlacePreviewCard의 로직과 동일하게 처리
+    // localStorage에 저장하는 로직을 구현해야 함
+    // 임시로 alert로 처리
+    alert('쾌속 잔 채우기 기능은 개발 중입니다.');
+  };
+
   const handleSearchSubmit = async (value) => {
     const nextQuery = value.trim();
 
@@ -900,7 +983,19 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         },
         body: JSON.stringify({
           query: nextQuery,
+<<<<<<< HEAD
           places: [], // 빈 배열 전송 - 서버에서 네이버 API로 가져옴
+=======
+          places: filteredByCuratorPlaces.slice(0, 3).map(place => ({ // 임시로 내 데이터 3개만 사용
+            id: place.id,
+            name: place.name,
+            address: place.address,
+            lat: place.lat,
+            lng: place.lng,
+            category: place.category,
+            phone: place.phone,
+          })),
+>>>>>>> 14504eab6675a3ef19c16e99d31927c6e7cf9688
         }),
       });
 
@@ -923,7 +1018,59 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
       setAiRecommendedIds(
         Array.isArray(data.recommendedPlaceIds) ? data.recommendedPlaceIds : []
       );
+      setBlogReviews(Array.isArray(data.blogReviews) ? data.blogReviews : []); // 블로그 리뷰 저장
       setAiSheetOpen(true);
+
+      // 네이버 장소 처리
+      if (data.naverPlaces && Array.isArray(data.naverPlaces)) {
+        console.log('📍 네이버 장소 데이터:', data.naverPlaces);
+        
+        // 네이버 장소를 kakaoPlaces에 추가하여 지도에 마커 표시
+        setKakaoPlaces(prev => {
+          const newPlaces = data.naverPlaces.map(naverPlace => ({
+            ...naverPlace,
+            kakao_place_id: naverPlace.id,
+            isKakaoPlace: true,
+            isLive: true,
+            place_url: naverPlace.link
+          }));
+          
+          const existingIds = prev.map(p => p.id);
+          const uniqueNewPlaces = newPlaces.filter(p => !existingIds.includes(p.id));
+          
+          return [...prev, ...uniqueNewPlaces];
+        });
+      }
+      
+      // AI 추천 결과 처리: 지도 이동 및 첫 번째 장소 자동 선택
+      if (data.recommendedPlaceIds && data.recommendedPlaceIds.length > 0) {
+        const recommendedPlaces = mapDisplayedPlacesWithLegend.filter(place => 
+          data.recommendedPlaceIds.map(String).includes(String(place.id))
+        );
+        
+        // 네이버 장소도 추천 리스트에 추가
+        const naverRecommendedPlaces = data.naverPlaces && Array.isArray(data.naverPlaces) 
+          ? data.naverPlaces.slice(0, 3).map(naverPlace => ({
+              ...naverPlace,
+              id: naverPlace.id,
+              name: naverPlace.name,
+              address: naverPlace.address,
+              category: naverPlace.category,
+              isNaverPlace: true
+            }))
+          : [];
+        
+        const allRecommendedPlaces = [...recommendedPlaces, ...naverRecommendedPlaces];
+        
+        if (allRecommendedPlaces.length > 0) {
+          // 지도 줌인 (MapView ref)
+          if (mapRef.current && mapRef.current.zoomToPlaces) {
+            mapRef.current.zoomToPlaces(allRecommendedPlaces);
+          }
+          // 첫 번째 추천 장소 카드 표시
+          setSelectedPlace(allRecommendedPlaces[0]);
+        }
+      }
     } catch (error) {
       console.error(error);
       setAiError(error.message || "AI 검색 중 오류가 발생했습니다.");
@@ -1164,6 +1311,12 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
 
   return (
     <>
+      {/* 실시간 Toast 알림 */}
+      <AnimatedToast position="top-right" />
+      
+      {/* 실시간 체크인 랭킹 */}
+      <CheckinRanking position="sidebar" />
+      
       {/* 팔로우 모달 */}
       {showFollowModal && (
         <div
@@ -1352,6 +1505,11 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           savedColorMap={savedColorMap}
           livePlaceIds={livePlaceIds}
           userFolders={userSavedPlaces} // 사용자 폴더 정보 전달
+          onQuickSave={handleQuickSave} // 쾌속 잔 채우기 핸들러 전달
+          userRole={getUserRole?.()} // 사용자 역할 전달
+          onSave={setSaveTargetPlace} // 일반 사용자 저장 핸들러 전달
+          savedFolders={savedColorMap} // 저장된 폴더 정보 전달
+          userSavedPlaces={userSavedPlaces} // 사용자 저장 장소 정보 전달
         />
 
         <div style={styles.headerOverlay}>
@@ -1438,42 +1596,11 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 onSubmit={handleSearchSubmit}
                 onClear={handleClearSearch}
                 onExampleClick={handleSearchSubmit}
-                placeholder="AI에게 물어보세요. 예: 을지로 조용한 노포 2차"
+                placeholder="AI 검색: 강남역 근처 혼술하기 좋은 바 찾아줘"
                 isLoading={isAiSearching}
                 mapRef={mapRef}
                 showKakaoSearch={true}
-                onKakaoPlaceSelect={(place) => {
-                  // 카카오 장소 마커 생성
-                  const kakaoPlace = {
-                    id: `kakao_${place.id}`,
-                    name: place.place_name,
-                    address: place.road_address_name || place.address_name,
-                    x: parseFloat(place.x),
-                    y: parseFloat(place.y),
-                    lat: parseFloat(place.y),
-                    lng: parseFloat(place.x),
-                    category: place.category_name,
-                    phone: place.phone,
-                    kakao_place_id: place.id,
-                    isKakaoPlace: true,
-                    isLive: true
-                  };
-                  
-                  console.log('📍 카카오 장소 마커 생성:', kakaoPlace);
-                  
-                  // kakaoPlaces에 추가
-                  setKakaoPlaces(prev => {
-                    const exists = prev.some(p => p.id === kakaoPlace.id);
-                    if (!exists) {
-                      const newPlaces = [...prev, kakaoPlace];
-                      console.log('📍 카카오 장소 추가 후:', newPlaces.length);
-                      return newPlaces;
-                    }
-                    return prev;
-                  });
-                  
-                  setSelectedPlace(kakaoPlace);
-                }}
+                onKakaoPlaceSelect={handleKakaoPlaceSelect}
                 rightActions={
                   <div style={styles.authRowInline}>
                     {/* 모든 사용자 @아이디 버튼 */}
@@ -1620,6 +1747,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                 savedFolderColor={savedColorMap[selectedPlace.id]}
                 onSave={setSaveTargetPlace}
                 onClose={() => setSelectedPlace(null)}
+                getUserRole={getUserRole}
               />
             </div>
           ) : aiRecommendedIds.length > 0 ? (
@@ -1738,6 +1866,90 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
                   </div>
                 </div>
               ) : null}
+
+              {/* 네이버 블로그 리뷰 섹션 */}
+              {blogReviews.length > 0 && (
+                <div style={{
+                  marginTop: "16px",
+                  padding: "16px",
+                  backgroundColor: "#f8f9fa",
+                  borderRadius: "12px",
+                  borderTop: "1px solid #e9ecef"
+                }}>
+                  <div style={{
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#495057",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}>
+                    <span>📝</span>
+                    네이버 블로그 실제 리뷰 ({blogReviews.length}개)
+                  </div>
+                  <div style={{
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px"
+                  }}>
+                    {blogReviews.slice(0, 3).map((review, index) => (
+                      <div key={index} style={{
+                        padding: "8px",
+                        backgroundColor: "white",
+                        borderRadius: "8px",
+                        border: "1px solid #e9ecef"
+                      }}>
+                        <div style={{
+                          fontSize: "12px",
+                          fontWeight: "500",
+                          color: "#e74c3c",
+                          marginBottom: "4px"
+                        }}>
+                          {review.place_name}
+                        </div>
+                        <div style={{
+                          fontSize: "11px",
+                          color: "#666",
+                          lineHeight: "1.4",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden"
+                        }}>
+                          {review.content && review.content !== "내용 추출 실패" 
+                            ? review.content.length > 100 
+                              ? review.content.substring(0, 100) + "..."
+                              : review.content
+                            : "리뷰 내용을 불러오지 못했습니다."
+                          }
+                        </div>
+                        {review.publish_date && review.publish_date !== "작성일 없음" && (
+                          <div style={{
+                            fontSize: "10px",
+                            color: "#999",
+                            marginTop: "4px"
+                          }}>
+                            {review.publish_date}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {blogReviews.length > 3 && (
+                    <div style={{
+                      fontSize: "11px",
+                      color: "#999",
+                      textAlign: "center",
+                      marginTop: "8px"
+                    }}>
+                      외 {blogReviews.length - 3}개의 리뷰 더보기
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : null}
         </div>
@@ -1749,6 +1961,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
         folders={folders}
         savedPlacesByFolder={savedPlacesByFolder}
         onClose={() => setSavedPlacesOpen(false)}
+        getUserRole={getUserRole}
       />
 
       <AddPlaceForm
@@ -1860,9 +2073,11 @@ const styles = {
 
   bottomBarContainer: {
     position: "absolute",
-    left: "16px",
-    right: "16px",
+    left: "50%",
+    transform: "translateX(-50%)",
     bottom: "18px",
+    width: "90%",
+    maxWidth: "600px",
     display: "flex",
     alignItems: "center",
     gap: "10px",

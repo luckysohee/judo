@@ -83,6 +83,15 @@ export default function CheckinButton({ placeId, placeName, placeAddress }) {
       setIsCheckedIn(true);
       showToast("체크인이 완료되었습니다!", "success");
       
+      // 체크인 생성
+      await supabase
+        .from('check_ins')
+        .insert({
+          user_id: user.id,
+          place_id: placeId,
+          visibility: 'public'
+        });
+      
       // 체크인 수 업데이트
       const newCount = await fetchPlaceCheckinCount(placeId);
       setCurrentCheckinCount(newCount);
@@ -158,3 +167,89 @@ export default function CheckinButton({ placeId, placeName, placeAddress }) {
     </div>
   );
 }
+        });
+        setIsCheckedIn(true);
+        console.log(`✅ ${placeName} 체크인 완료`);
+      }
+    } catch (error) {
+      console.error("체크인 처리 에러:", error);
+      alert(error.message || "체크인 처리 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <button style={styles.button} disabled>
+        <span>🎯</span>
+        <span>로그인 필요</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      style={{
+        ...styles.button,
+        backgroundColor: isCheckedIn ? "#34C759" : "#007AFF",
+        opacity: loading ? 0.7 : 1
+      }}
+      onClick={handleCheckin}
+      disabled={loading}
+    >
+      <span>{loading ? "⏳" : isCheckedIn ? "✅" : "🎯"}</span>
+      <span>{loading ? "처리 중..." : isCheckedIn ? "체크인 완료" : "체크인"}</span>
+    </button>
+  );
+}
+
+const styles = {
+  button: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    padding: "10px 14px",
+    borderRadius: "12px",
+    border: "none",
+    fontSize: "12px",
+    fontWeight: "700",
+    color: "#fff",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    minWidth: "90px",
+    flexShrink: 0,
+    height: "40px",
+  },
+
+  notCheckedIn: {
+    background: "#007AFF",
+  },
+
+  checkedIn: {
+    background: "#34C759",
+  },
+
+  loading: {
+    opacity: 0.7,
+    cursor: "not-allowed",
+  },
+
+  icon: {
+    fontSize: "12px",
+  },
+
+  text: {
+    flex: 1,
+    textAlign: "center",
+  },
+
+  count: {
+    background: "rgba(255,255,255,0.2)",
+    borderRadius: "999px",
+    padding: "2px 5px",
+    fontSize: "9px",
+    fontWeight: "800",
+  },
+};

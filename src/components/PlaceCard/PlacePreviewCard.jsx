@@ -1,6 +1,9 @@
 import React, { useState } from "react";
+import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
+import { useToast } from "../Toast/ToastProvider";
+import { useAuth } from "../../context/AuthContext";
 
 export default function PlacePreviewCard({
   place,
@@ -10,20 +13,201 @@ export default function PlacePreviewCard({
   onSave,
   onOpenCurator,
   onClose,
+  getUserRole,
 }) {
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const { showToast } = useToast();
 
   if (!place) return null;
 
   console.log("🔍 PlacePreviewCard place 데이터:", place);
-  console.log("🔍 curatorReasons:", place.curatorReasons);
-  console.log("🔍 curatorPlaces:", place.curatorPlaces);
+  console.log("🔍 isKakaoPlace:", place.isKakaoPlace);
+  
+  const isKakaoPlace = place.isKakaoPlace || false;
+  const userRole = getUserRole?.() || "user";
+  const isCurator = userRole === "curator" || userRole === "admin";
 
-  const visibleCurators = (place.curators || []).slice(0, 3);
+  // 카카오 장소 카테고리 정제
+  const cleanCategory = (categoryName) => {
+    if (!categoryName) return '';
+    const parts = categoryName.split(' > ');
+    return parts[parts.length - 1];
+  };
+
+  // 카카오 장소 주소 정보
+  const displayAddress = isKakaoPlace 
+    ? (place.road_address_name || place.address_name)
+    : place.address;
+
+  // 카카오 장소 전화번호
+  const displayPhone = isKakaoPlace ? place.phone : place.contact;
+
+  // 카카오맵 상세보기 URL
+  const handleKakaoView = () => {
+    if (isKakaoPlace && place.place_url) {
+      window.open(place.place_url, '_blank');
+    }
+  };
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
 
-  // 공유하기 함수
+  // 빠른저장 버튼 핸들러
+  const handleQuickSaveClick = async () => {
+    const userRole = getUserRole?.() || "user";
+    console.log('🔍 빠른저장 클릭 - userRole:', userRole);
+    
+    // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
+    if (userRole === "curator" || userRole === "admin") {
+      console.log('🎯 큐레이터/관리자 - 쾌속 잔 채우기 실행');
+      await handleSaveClick();
+    } else {
+      console.log('👥 일반 사용자 - 저장 모달 열기');
+      // 일반 사용자는 저장 모달 열기
+      setShowSaveModal(true);
+    }
+  };
+  const handleSaveClick = async () => {
+    const userRole = getUserRole?.() || "user"; // 기본값 user
+    console.log('🔍 handleSaveClick - userRole:', userRole, 'isKakaoPlace:', place.isKakaoPlace);
+    
+    // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
+    if (userRole === "curator" || userRole === "admin") {
+      // 카카오 장소는 백그라운드로 임시저장
+      if (place.isKakaoPlace) {
+        console.log('📍 카카오 장소 - 백그라운드 임시저장');
+        
+        // 백그라운드에서 임시저장 시도 (사용자에게는 토스트만 표시)
+        const result = await saveToCuratorDrafts(place);
+        
+        // 결과에 따른 토스트 메시지 표시
+        if (result === 'duplicate') {
+          alert('이미 잔 채우기 리스트에 있는 장소입니다');
+        } else if (result === 'success') {
+          showToast('잔 채우기 리스트에 임시저장되었습니다!', 'success');
+        } else {
+          alert('❌ 잔 채우기에 실패했습니다.');
+        }
+        
+        return;
+      }
+      
+      try {
+        // 일반 장소는 기존 방식으로 저장
+        const { supabase } = await import("../../lib/supabase");
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (user) {
+          // 잔 채우기 테이블에 저장 (curator_places 테이블)
+          const { error } = await supabase
+            .from('curator_places')
+            .insert({
+              curator_id: user.id,
+              place_id: place.id
+            });
+            
+          if (error) {
+            console.error('잔 채우기 저장 실패:', error);
+            alert('잔 채우기 저장에 실패했습니다.');
+            return;
+          }
+          
+          console.log('✅ 잔 채우기 리스트에 저장 완료');
+          alert('✅ 잔 채우기 리스트에 저장되었습니다!');
+        }
+      } catch (error) {
+        console.error('쾌속 잔 채우기 오류:', error);
+        alert('쾌속 잔 채우기에 실패했습니다.');
+      }
+      return;
+    }
+    
+    // 일반 사용자일 경우 기존 저장 모달 표시
+    setShowSaveModal(true);
+  };
+
+  // 백그라운드 임시저장 함수
+  const saveToCuratorDrafts = async (place) => {
+    try {
+      const { supabase } = await import("../../lib/supabase");
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        console.log('⚠️ 로그인된 사용자 없음');
+        return 'error';
+      }
+      
+      console.log('📍 쾌속 잔 채우기 시작:', place.name);
+      console.log('📍 카카오 장소 ID:', place.kakao_place_id || place.id);
+      console.log('📍 현재 사용자 ID:', user.id);
+      
+      // 1. localStorage에서 기존 drafts 불러오기
+      const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      console.log('📍 기존 drafts:', existingDrafts.length, '개');
+      
+      // 2. 중복 체크 - 같은 kakao_place_id가 있는지 확인
+      const isDuplicate = existingDrafts.some(draft => 
+        draft.kakao_place_id === (place.kakao_place_id || place.id) && 
+        draft.curator_id === user.id
+      );
+      
+      if (isDuplicate) {
+        console.log('📍 이미 잔 채우기 리스트에 있는 장소');
+        return 'duplicate';
+      }
+      
+      // 3. 새로운 draft 데이터 생성
+      const newDraft = {
+        id: `draft_${Date.now()}`,
+        curator_id: user.id,
+        kakao_place_id: place.kakao_place_id || place.id,
+        place_name: place.name,
+        place_address: place.address,
+        place_lat: place.lat,
+        place_lng: place.lng,
+        category: place.category || '기타',
+        phone: place.phone,
+        status: 'draft',
+        source: 'quick_save',
+        created_at: new Date().toISOString(),
+        // 스튜디오 형식에 맞게 구조화
+        basicInfo: {
+          name_address: place.name,
+          category: place.category || '기타',
+          alcohol_type: '소주',
+          price_range: '중간',
+          operating_hours: '정보 없음',
+          contact_info: place.phone || '정보 없음'
+        },
+        alcohol_type: '소주',
+        draft_status: 'draft',
+        tags: ['쾌속 잔 채우기'] // AI 학습을 위한 태그
+      };
+      
+      // 4. localStorage에 저장
+      existingDrafts.push(newDraft);
+      localStorage.setItem('studio_drafts', JSON.stringify(existingDrafts));
+      
+      console.log('✅ 잔 채우기 리스트에 임시저장 완료:', newDraft);
+      return 'success';
+      
+    } catch (error) {
+      console.error('쾌속 잔 채우기 오류:', error);
+      return 'error';
+    }
+  };
+  // 버튼 텍스트 결정
+  const getSaveButtonText = () => {
+    const userRole = getUserRole?.() || "user"; // 기본값 user
+    
+    // 큐레이터 또는 관리자일 경우
+    if (userRole === "curator" || userRole === "admin") {
+      return "쾌속 잔 채우기";
+    }
+    
+    // 일반 사용자일 경우
+    return isSaved ? "저장 폴더" : "저장";
+  };
+
   const handleShare = (place) => {
     const shareUrl = `${window.location.origin}/place/${place.id}`;
     const shareText = `${place.name} - ${place.curators?.join(', ')} 추천 장소!`;
@@ -57,9 +241,20 @@ export default function PlacePreviewCard({
       }}>
         <div style={styles.header}>
           <h3 style={styles.placeName}>{place.name}</h3>
-          <button type="button" onClick={onClose} style={styles.closeButton}>
-            &times;
-          </button>
+          <div style={styles.headerRight}>
+            {/* 카카오맵 상세보기 링크 */}
+            {isKakaoPlace && place.place_url && (
+              <button
+                onClick={handleKakaoView}
+                style={styles.kakaoLink}
+              >
+                카카오맵
+              </button>
+            )}
+            <button type="button" onClick={onClose} style={styles.closeButton}>
+              &times;
+            </button>
+          </div>
         </div>
         <img src={place.image} alt={place.name} style={styles.image} />
 
@@ -82,10 +277,31 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.meta}>
-            {place.region} · 저장 {place.savedCount}
+            {isKakaoPlace ? (
+              <>
+                {/* 카카오 장소 정보 */}
+                {cleanCategory(place.category_name) && (
+                  <span style={styles.category}>{cleanCategory(place.category_name)}</span>
+                )}
+                {displayAddress && (
+                  <span style={styles.address}>📍 {displayAddress}</span>
+                )}
+                {displayPhone && (
+                  <span style={styles.phone}>📞 {displayPhone}</span>
+                )}
+              </>
+            ) : (
+              <>
+                {/* 일반 장소 정보 */}
+                {place.region} · 저장 {place.savedCount}
+              </>
+            )}
           </div>
 
-          <div style={styles.comment}>{place.comment}</div>
+          {/* 카카오 장소는 comment 대신 카테고리 정보 표시 */}
+          {!isKakaoPlace && (
+            <div style={styles.comment}>{place.comment}</div>
+          )}
 
           <div style={styles.tagRow}>
             {(place.tags || []).slice(0, 4).map((tag) => (
@@ -144,13 +360,25 @@ export default function PlacePreviewCard({
               placeName={place.name}
             />
 
-            <button
-              type="button"
-              onClick={() => setShowSaveModal(true)}
-              style={styles.saveButton}
-            >
-              {isSaved ? "저장 폴더" : "저장"}
-            </button>
+            {isCurator ? (
+              /* 큐레이터용 버튼 */
+              <button
+                type="button"
+                onClick={handleQuickSaveClick}
+                style={styles.curatorSaveButton}
+              >
+                쾌속 잔 채우기
+              </button>
+            ) : (
+              /* 일반 사용자용 버튼 */
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(true)}
+                style={styles.quickSaveButton}
+              >
+                빠른저장
+              </button>
+            )}
 
             <button
               type="button"
@@ -285,18 +513,21 @@ const styles = {
     padding: "5px 8px",
   },
   curatorRow: {
-    marginTop: "10px",
-    overflow: "hidden", // 넘치는 부분 숨기기
+    marginTop: "12px",
+    overflowX: "auto", // 가로 스크롤 활성화
+    overflowY: "hidden", // 세로 스크롤 숨김
+    whiteSpace: "nowrap", // 아이템들이 한 줄로 표시
+    scrollbarWidth: "none", // Firefox 스크롤바 숨김
+    msOverflowStyle: "none", // IE/Edge 스크롤바 숨김
+    "&::-webkit-scrollbar": {
+      display: "none" // Chrome/Safari 스크롤바 숨김
+    }
   },
   curatorScrollContainer: {
     display: "flex",
-    gap: "16px", // 큐레이터 간격
-    overflowX: "auto", // 가로 스크롤
-    scrollbarWidth: "none", // 스크롤바 숨기기 (Firefox)
-    msOverflowStyle: "none", // 스크롤바 숨기기 (IE/Edge)
-    "&::-webkit-scrollbar": {
-      display: "none" // 스크롤바 숨기기 (Chrome/Safari)
-    }
+    gap: "12px",
+    padding: "4px 0px 4px 4px",
+    minWidth: "max-content", // 내용물에 맞는 최소 너비
   },
   curatorInfo: {
     flexShrink: 0, // 크기 고정
@@ -306,6 +537,47 @@ const styles = {
     flexDirection: "column",
     gap: "4px",
     alignItems: "flex-start",
+  },
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  kakaoLink: {
+    background: "none",
+    border: "none",
+    color: "#3498db",
+    fontSize: "11px",
+    cursor: "pointer",
+    padding: "2px 4px",
+    borderRadius: "3px",
+    textDecoration: "underline",
+    transition: "all 0.2s"
+  },
+  category: {
+    fontSize: "13px",
+    color: "#3498db",
+    fontWeight: "500",
+    marginRight: "8px",
+  },
+  address: {
+    fontSize: "12px",
+    color: "#999",
+    marginRight: "8px",
+  },
+  phone: {
+    fontSize: "12px",
+    color: "#999",
+  },
+  curatorSaveButton: {
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #343434",
+    backgroundColor: "#2ECC71",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: "700",
   },
   curatorChip: {
     fontSize: "11px",
@@ -339,6 +611,16 @@ const styles = {
     borderRadius: "12px",
     border: "1px solid #343434",
     backgroundColor: "#1a1a1a",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  quickSaveButton: {
+    flex: 1,
+    height: "40px",
+    borderRadius: "12px",
+    border: "1px solid #343434",
+    backgroundColor: "#2ECC71",
     color: "#ffffff",
     fontSize: "13px",
     fontWeight: 700,
