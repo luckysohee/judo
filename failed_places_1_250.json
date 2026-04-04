@@ -1,0 +1,263 @@
+[
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "연남동 곤로",
+    "one_line_reason": "연남동의 아늑한 공간에서 즐기는 내추럴 와인과 계절 요리.",
+    "alcohol_types": ["내추럴와인"],
+    "tags": ["#데이트", "#연남동", "#분위기"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 짧음"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "종로 시청광장 더스팟팹",
+    "one_line_reason": "종로 시청광장 근처의 트렌디한 펍.",
+    "alcohol_types": ["수제맥주", "칵테일"],
+    "tags": ["#종로", "#펍", "#트렌디"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "한남동 방울과꼬막",
+    "one_line_reason": "한남동에서 제철 해산물로 가장 핫한 야장 느낌 실내 포차.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#머스트고", "#그룹", "#해산물"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "성수연방 창화당",
+    "one_line_reason": "붉은 벽돌 마당에서 즐기는 지글지글 모둠 만두와 맥주.",
+    "alcohol_types": ["맥주", "생맥주"],
+    "tags": ["#테라스", "#성수동", "#분식주점"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "삼청동 기와탭룸",
+    "one_line_reason": "삼청동의 전통적인 분위기에서 즐기는 전통주.",
+    "alcohol_types": ["전통주", "막걸리"],
+    "tags": ["#전통", "#삼청동", "#정취있는"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "신당동 하니칼국수",
+    "one_line_reason": "신당동 시장 골목 안, 십이지신 컨셉의 독특한 칼국수.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#시장", "#신당동", "#칼국수"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "삼전동 갯벌의진주",
+    "one_line_reason": "삼전동 갯벌에서 즐기는 신선한 해산물 요리.",
+    "alcohol_types": ["소주", "전통주"],
+    "tags": ["#해산물", "#삼전동", "#자연"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "한남동 강가네 맷돌빈대떡",
+    "one_line_reason": "한남동에서 비 오는 날이면 1순위로 생각나는 전설적인 빈대떡 야장.",
+    "alcohol_types": ["막걸리", "소주"],
+    "tags": ["#노포", "#비오는날", "#야장"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "갯벌의진주",
+    "one_line_reason": "잠실 야외 테라스에서 즐기는 조개구이. 활기찬 분위기에서 소맥 한잔하기 좋습니다.",
+    "alcohol_types": ["소주", "소맥"],
+    "tags": ["#그룹", "#해산물", "#테라스"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "백곰막걸리",
+    "one_line_reason": "압구정에서 전국의 수많은 전통주를 한곳에서 만날 수 있는 우리술 성지.",
+    "alcohol_types": ["막걸리", "전통주"],
+    "tags": ["#전통주", "#그룹", "#머스트고"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "어반소스",
+    "one_line_reason": "성수동 넓은 정원과 테라스가 있는 대형 펍. 단체 모임에 최적입니다.",
+    "alcohol_types": ["수제맥주", "에이드"],
+    "tags": ["#테라스", "#그룹", "#성수동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 영문 상호명"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "창화당 성수점",
+    "one_line_reason": "붉은 벽돌 마당에서 즐기는 지글지글 모둠 만두와 맥주.",
+    "alcohol_types": ["맥주", "생맥주"],
+    "tags": ["#테라스", "#성수동", "#분식주점"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 지점명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "정식바",
+    "one_line_reason": "청담동에서 가장 우아하게 글라스 와인을 즐길 수 있는 공간.",
+    "alcohol_types": ["와인", "칵테일"],
+    "tags": ["#분위기", "#와인바", "#데이트"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 일반적임"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "진미평양냉면",
+    "one_line_reason": "학동역의 전설적인 평냉집. 어복쟁반에 소주는 실패가 없죠.",
+    "alcohol_types": ["소주", "전통주"],
+    "tags": ["#머스트고", "#1차추천", "#노포"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "성부숙성고기",
+    "one_line_reason": "성수동에서 숙성 고기와 함께 프리미엄 하이볼을 즐기는 곳.",
+    "alcohol_types": ["하이볼", "전통주"],
+    "tags": ["#고기주점", "#성수핫플", "#그룹"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "미아논나",
+    "one_line_reason": "망원동에서 가볍게 화이트 와인과 샌드위치로 시작하는 낮술 아지트.",
+    "alcohol_types": ["와인", "내추럴와인"],
+    "tags": ["#낮술", "#데이트", "#솔로"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 외래어 상호명"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "엘피노708",
+    "one_line_reason": "수요미식회도 인정한 멕시칸 요리. 데킬라와 마가리타로 기분 내기 좋습니다.",
+    "alcohol_types": ["데킬라", "마가리타"],
+    "tags": ["#머스트고", "#데이트", "#이태원"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 영문+숫자 조합"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "계식당",
+    "one_line_reason": "압구정 닭 특수부위 구이 전문점. 힙한 조명 아래서 즐기는 닭목살과 맥주.",
+    "alcohol_types": ["생맥주", "소맥"],
+    "tags": ["#분위기", "#그룹", "#압구정"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 일반적임"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "스피크이지사자",
+    "one_line_reason": "건대 입구 비밀스러운 입구 너머 펼쳐지는 숲속 감성의 칵테일 바.",
+    "alcohol_types": ["칵테일", "위스키"],
+    "tags": ["#분위기", "#데이트", "#비밀공간"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 영문 상호명"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "유카바",
+    "one_line_reason": "한남동에서 즐기는 정통 하이볼과 위스키. 조용히 혼술하기에도 완벽한 곳.",
+    "alcohol_types": ["위스키", "하이볼"],
+    "tags": ["#혼술", "#분위기", "#한남동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 외래어 상호명"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "동다리식당",
+    "one_line_reason": "남영동 노포 고깃집. 투박한 삼겹살에 껍데기, 소주 한잔의 정겨운 맛.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#노포", "#로컬감성", "#남영동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "탭샵바 동대문점",
+    "one_line_reason": "원하는 와인을 탭으로 자유롭게 즐기는 곳. ddp를 바라보며 마시는 테라스 와인.",
+    "alcohol_types": ["와인", "수제맥주"],
+    "tags": ["#와인바", "#테라스", "#솔로"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 지점명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "공항동라무진",
+    "one_line_reason": "강서구에서 즐기는 삿포로식 양갈비. 정갈한 분위기에서 하이볼 곁들이기 최적.",
+    "alcohol_types": ["하이볼", "위스키"],
+    "tags": ["#양갈비", "#분위기", "#강서구"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "와인포차차",
+    "one_line_reason": "합리적인 가격으로 와인과 한식 안주를 즐기는 세련된 가성비 와인바.",
+    "alcohol_types": ["와인", "수제맥주"],
+    "tags": ["#와인바", "#가성비", "#데이트"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "부부펍",
+    "one_line_reason": "성산동의 편안한 동네 펍. 수제 맥주와 정성 가득한 안주가 반기는 곳.",
+    "alcohol_types": ["수제맥주", "전통주"],
+    "tags": ["#혼술", "#가성비", "#성산동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 일반적임"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "바오26",
+    "one_line_reason": "한남동 가벼운 딤섬 바. 2차로 들러 하이볼과 교자를 즐기기에 안성맞춤.",
+    "alcohol_types": ["하이볼", "나마비루"],
+    "tags": ["#2차추천", "#딤섬", "#한남동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 영문+숫자 조합"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "티켓정거장",
+    "one_line_reason": "을지로 노가리 골목 한복판, 옛 기차역 감성의 이색적인 야외 펍.",
+    "alcohol_types": ["수제맥주", "소맥"],
+    "tags": ["#야장", "#분위기", "#을지로"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 상호명이 너무 길고 복잡함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "신당동우리집",
+    "one_line_reason": "신당역 중앙시장 힙포. 저렴한 가맥 안주에 시원한 생맥주 한잔.",
+    "alcohol_types": ["생맥주", "소주"],
+    "tags": ["#가성비", "#힙포", "#신당동"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 동네명 포함"
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "바앤참",
+    "one_line_reason": "서촌의 고풍스러운 한옥에서 한국적 재료로 빚은 창의적 칵테일.",
+    "alcohol_types": ["칵테일", "전통주"],
+    "tags": ["#서촌", "#분위기", "#머스트고"],
+    "status": "failed",
+    "reason": "카카오 API 검색 실패 - 영문+한글 조합"
+  }
+]

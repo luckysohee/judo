@@ -39,6 +39,26 @@ export default function PlacePreviewCard({
     ? (place.road_address_name || place.address_name)
     : place.address;
 
+  // 상호명만 추출하는 함수
+  const extractDisplayName = (fullName) => {
+    if (!fullName) return '';
+    
+    // 구 이름 제거 (강동구, 성북구, 용산구 등)
+    const withoutDistrict = fullName.replace(/^[가-힣]+구\s+/, '');
+    
+    // "테라스", "야장", "루프탑" 등이 포함된 경우, 그 앞까지를 상호명으로 간주
+    const placeTypePatterns = ['테라스', '야장', '루프탑', '펍', '바', '가든', '카페', '집', '골목'];
+    for (const pattern of placeTypePatterns) {
+      const index = withoutDistrict.indexOf(pattern);
+      if (index > -1) {
+        return withoutDistrict.substring(0, index + pattern.length).trim();
+      }
+    }
+    
+    // 패턴이 없으면 전체 반환
+    return withoutDistrict.trim();
+  };
+
   // 카카오 장소 전화번호
   const displayPhone = isKakaoPlace ? place.phone : place.contact;
 
@@ -240,7 +260,7 @@ export default function PlacePreviewCard({
         boxShadow: showSaveModal ? "none" : styles.card.boxShadow
       }}>
         <div style={styles.header}>
-          <h3 style={styles.placeName}>{place.name}</h3>
+          <h3 style={styles.placeName}>{extractDisplayName(place.name)}</h3>
           <div style={styles.headerRight}>
             {/* 카카오맵 상세보기 링크 */}
             {isKakaoPlace && place.place_url && (
@@ -260,7 +280,7 @@ export default function PlacePreviewCard({
 
         <div style={styles.body}>
           <div style={styles.titleRow}>
-            <div style={styles.title}>{place.name}</div>
+            <div style={styles.title}>{extractDisplayName(place.name)}</div>
 
             <div style={styles.titleRight}>
               {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}

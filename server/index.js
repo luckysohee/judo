@@ -118,7 +118,7 @@ function runNaverCrawler(query) {
   return new Promise((resolve, reject) => {
     console.log(`🔍 네이버 블로그 크롤링 시작: ${query}`);
     
-    const pythonProcess = spawn("python", [
+    const pythonProcess = spawn("python3", [
       path.join(__dirname, "..", "naver_blog_crawler_v2.py"),
       query,
     ]);

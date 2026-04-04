@@ -1,0 +1,191 @@
+[
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "연남동 끝자락 숲길 테라스",
+    "one_line_reason": "연트럴파크의 북적임이 잦아드는 끝자락, 조용하게 밤바람 맞기 좋은 곳.",
+    "alcohol_types": ["와인", "수제맥주"],
+    "tags": ["#데이트", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "신사동 가로수길 뒤뜰 펍",
+    "one_line_reason": "화려한 메인 거리를 살짝 벗어나 마주하는 아늑한 비밀 정원 스타일.",
+    "alcohol_types": ["하이볼", "칵테일"],
+    "tags": ["#데이트", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "종로 관철동 청계천변 야장",
+    "one_line_reason": "졸졸 흐르는 청계천 물소리를 배경 삼아 퇴근 후 마시는 생맥주 한잔.",
+    "alcohol_types": ["생맥주", "소맥"],
+    "tags": ["#직장인성지", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "성북동 언덕 위 야외 와인바",
+    "one_line_reason": "서울 성곽길 조명을 조망하며 즐기는 낭만적인 야외 와인 플레이스.",
+    "alcohol_types": ["와인"],
+    "tags": ["#데이트", "#머스트고"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "합정동 당인리 발전소길 야장",
+    "one_line_reason": "벚꽃 나무 아래서 즐기는 합정동 특유의 세련되고 여유로운 야외 정취.",
+    "alcohol_types": ["수제맥주", "생맥주"],
+    "tags": ["#데이트", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "청담동 루프탑 라운지",
+    "one_line_reason": "서울에서 가장 화려한 밤을 보내고 싶을 때 찾는 프리미엄 루프탑.",
+    "alcohol_types": ["샴페인", "위스키"],
+    "tags": ["#머스트고", "#그룹"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "왕십리 행당시장 노천 야장",
+    "one_line_reason": "시장 골목 전체가 시끌벅적한 야장으로 변하는 찐 노포 감성 충만 플레이스.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#노포", "#그룹"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "서대문 연희맛로 마당 술집",
+    "one_line_reason": "주택을 개조해 만든 마당에서 친구들과 도란도란 이야기 나누기 좋은 곳.",
+    "alcohol_types": ["전통주", "맥주"],
+    "tags": ["#그룹", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "압구정 로데오 골목 테라스",
+    "one_line_reason": "트렌디한 사람 구경하며 즐기는 압구정 최고의 야외 명당.",
+    "alcohol_types": ["하이볼", "샴페인"],
+    "tags": ["#머스트고", "#데이트"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "용산 남영동 스테이크 골목 야장",
+    "one_line_reason": "오래된 노포들 사이 야외 테이블에서 즐기는 묘한 이국적 분위기.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#노포", "#애프터파티"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "성수동 서울숲 입구 테라스",
+    "one_line_reason": "낮에는 브런치, 밤에는 피크닉 온 기분으로 술잔을 기울이는 야외 카페.",
+    "alcohol_types": ["와인", "생맥주"],
+    "tags": ["#낮술", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "이태원 우사단길 루프탑",
+    "one_line_reason": "가파른 언덕을 올라온 보람이 있는, 서울의 전경이 한눈에 들어오는 비밀 장소.",
+    "alcohol_types": ["칵테일", "맥주"],
+    "tags": ["#솔로", "#머스트고"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "신림역 별빛거리 야장",
+    "one_line_reason": "화려한 네온사인 아래 왁자지껄한 분위기가 매력적인 신림의 대표 야외석.",
+    "alcohol_types": ["소맥", "소주"],
+    "tags": ["#애프터파티", "#그룹"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "공릉동 경춘선 숲길 테라스",
+    "one_line_reason": "철길 산책로를 따라 조성된 아기자기한 야외 테이블에서 즐기는 밤공기.",
+    "alcohol_types": ["수제맥주", "와인"],
+    "tags": ["#데이트", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "잠실 석촌호수 테라스 카페",
+    "one_line_reason": "호수 뷰를 보며 도심 속 힐링을 만끽하는 가장 우아한 방법.",
+    "alcohol_types": ["생맥주", "와인"],
+    "tags": ["#데이트", "#머스트고"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "충무로 필동 면옥 근처 야장",
+    "one_line_reason": "평양냉면 먹고 2차로 들르기 좋은, 오래된 정취가 살아있는 야외 맥주집.",
+    "alcohol_types": ["생맥주", "소맥"],
+    "tags": ["#노포", "#애프터파티"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "상도동 중앙대 정문 루프탑",
+    "one_line_reason": "대학생들의 활기찬 에너지가 넘치는 가성비 최고의 캠퍼스 뷰 야장.",
+    "alcohol_types": ["소주", "맥주"],
+    "tags": ["#그룹", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "영등포 타임스퀘어 뒤 골목 야장",
+    "one_line_reason": "화려한 쇼핑몰 바로 뒤편, 세월의 흔적이 느껴지는 반전 야외 술자리.",
+    "alcohol_types": ["소맥", "소주"],
+    "tags": ["#노포", "#직장인성지"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "강남역 신분당선 근처 테라스 펍",
+    "one_line_reason": "강남역의 번잡함을 피해 여유롭게 즐길 수 있는 세련된 야외 테라스.",
+    "alcohol_types": ["수제맥주", "하이볼"],
+    "tags": ["#직장인성지", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "방배동 카페골목 루프탑 가든",
+    "one_line_reason": "방배동 주민들이 사랑하는 조용하고 쾌적한 옥상 정원 아지트.",
+    "alcohol_types": ["와인", "칵테일"],
+    "tags": ["#데이트", "#솔로"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "신당동 중앙시장 입구 야장",
+    "one_line_reason": "요즘 가장 핫한 신당동 시장 바이브를 야외 테이블에서 만끽해보세요.",
+    "alcohol_types": ["생맥주", "소주"],
+    "tags": ["#머스트고", "#그룹"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "혜화동 낙산공원 입구 테라스",
+    "one_line_reason": "낙산 산책 후 시원한 맥주 한잔으로 마무리하기 좋은 대학로 명당.",
+    "alcohol_types": ["생맥주", "하이볼"],
+    "tags": ["#데이트", "#테라스"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "망원동 포은로 골목 테라스",
+    "one_line_reason": "아기자기한 소품샵들 사이, 망원동만의 소박한 감성이 묻어나는 야외석.",
+    "alcohol_types": ["전통주", "맥주"],
+    "tags": ["#솔로", "#데이트"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "여의도 KBS 앞 야외 치맥",
+    "one_line_reason": "방송국 사람들과 퇴근한 직장인들이 한데 어우러진 여의도 찐 야장.",
+    "alcohol_types": ["생맥주"],
+    "tags": ["#직장인성지", "#그룹"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "서대문 독립문 공원 옆 테라스",
+    "one_line_reason": "역사적 정취와 현대적 감각이 어우러진 조용하고 품격 있는 야외석.",
+    "alcohol_types": ["와인", "수제맥주"],
+    "tags": ["#테라스", "#데이트"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "광화문 경희궁길 야외 카페",
+    "one_line_reason": "고즈넉한 궁궐 옆 길목, 정갈한 안주와 함께 즐기는 야간 정취.",
+    "alcohol_types": ["막걸리", "청주"],
+    "tags": ["#데이트", "#노포"]
+  },
+  {
+    "curator_id": "96026af8-edf8-4838-ab35-911acc26fde1",
+    "display_name": "동작구 노량진 수산시장 루프탑",
+    "one_line_reason": "신선한 회와 함께 63빌딩 야경을 바라보며 마시는 소주 한잔.",
+    "alcohol_types": ["소주", "청하"],
+    "tags": ["#머스트고", "#그룹"]
+  }
+]
