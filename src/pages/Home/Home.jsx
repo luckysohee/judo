@@ -16,6 +16,7 @@ import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
 import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
 import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
 import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
+import CheckInToast from "../../components/CheckInToast/CheckInToast";
 
 import { places as dummyPlaces } from "../../data/places";
 
@@ -1982,6 +1983,18 @@ const handleClearSearch = () => {
 
       <div style={styles.page}>
       <main style={styles.mainContainer}>
+        {/* 실시간 체크인 토스트 - 지도 좌측 */}
+        <div style={{ 
+          position: 'absolute', 
+          top: '80px', // 헤더 높이만큼 아래로
+          left: '20px', // 좌측에 붙임
+          transform: 'none', // 중앙 정렬 제거
+          zIndex: 1000, // 헤더보다 낮게
+          pointerEvents: 'none'
+        }}>
+          <CheckInToast />
+        </div>
+
         <MapView
           ref={mapRef}
           places={mapDisplayedPlacesWithLegend}

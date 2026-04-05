@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import ContextTags from './ContextTags';
 import { InitialState, TypingState, SearchCompleteState } from './SearchStates';
-import CheckInToast from '../CheckInToast/CheckInToast';
 
 export default function SearchBar({
   query,
@@ -258,9 +257,6 @@ export default function SearchBar({
 
   return (
     <section style={{ ...styles.section, position: 'relative' }}>
-      {/* 실시간 체크인 토스트 */}
-      <CheckInToast />
-      
       {/* 상태별 UI 렌더링 */}
       <AnimatePresence>
         {/* 입력 중 상태: 자동완성 + 상황 태그 */}

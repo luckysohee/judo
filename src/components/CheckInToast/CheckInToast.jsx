@@ -180,97 +180,79 @@ const CheckInToast = () => {
         const now = Date.now();
         const randomId = Math.random().toString(36).substr(2, 9); // 고유 ID 생성
         const scenarios = [
-          // 단일 체크인 시나리오 (사용자 위치 근처)
+          // 단일 체크인 시나리오 (사용자 위치 근처) - 방금 전
           [
             { 
               id: `test-single-${randomId}`, 
               user: '술고래', 
               place: '주진당', 
               emoji: '🐋', 
-              timestamp: new Date(now),
+              timestamp: new Date(now - 30000), // 30초 전
               latitude: userLocation ? userLocation.lat + 0.01 : 37.5765,
               longitude: userLocation ? userLocation.lng + 0.01 : 126.9880
             }
           ],
-          // 다중 체크인 시나리오
+          // 다중 체크인 시나리오 - 5분 전
           [
             { 
               id: `test-multi-1-${randomId}`, 
               user: '맥주왕', 
               place: '신전떡볶이', 
               emoji: '👑', 
-              timestamp: new Date(now),
-              latitude: userLocation ? userLocation.lat - 0.005 : 37.5615,
-              longitude: userLocation ? userLocation.lng + 0.005 : 126.9830
+              timestamp: new Date(now - 300000), // 5분 전
+              latitude: userLocation ? userLocation.lat - 0.01 : 37.5665,
+              longitude: userLocation ? userLocation.lng - 0.01 : 126.9780
             },
             { 
               id: `test-multi-2-${randomId}`, 
               user: '와인여왕', 
               place: '신전떡볶이', 
               emoji: '👸', 
-              timestamp: new Date(now + 1000),
-              latitude: userLocation ? userLocation.lat - 0.006 : 37.5605,
-              longitude: userLocation ? userLocation.lng + 0.006 : 126.9840
+              timestamp: new Date(now - 300000), // 5분 전
+              latitude: userLocation ? userLocation.lat - 0.01 : 37.5665,
+              longitude: userLocation ? userLocation.lng - 0.01 : 126.9780
             },
             { 
               id: `test-multi-3-${randomId}`, 
               user: '소주신', 
               place: '신전떡볶이', 
               emoji: '🍶', 
-              timestamp: new Date(now + 2000),
-              latitude: userLocation ? userLocation.lat - 0.004 : 37.5625,
-              longitude: userLocation ? userLocation.lng + 0.004 : 126.9820
+              timestamp: new Date(now - 300000), // 5분 전
+              latitude: userLocation ? userLocation.lat - 0.01 : 37.5665,
+              longitude: userLocation ? userLocation.lng - 0.01 : 126.9780
             }
           ],
-          // 멀리 있는 체크인 (3km 밖 - 필터링됨)
+          // 단일 체크인 시나리오 - 23분 전
           [
             { 
-              id: `test-far-${randomId}`, 
-              user: '막걸리공주', 
-              place: '부산 포차', 
-              emoji: '🥛', 
-              timestamp: new Date(now),
-              latitude: 35.1796, // 부산
-              longitude: 129.0756
-            }
-          ],
-          // 대규모 다중 체크인
-          [
-            { 
-              id: `test-large-1-${randomId}`, 
-              user: '고기마스터', 
-              place: '건대 고깃집', 
-              emoji: '🍖', 
-              timestamp: new Date(now),
-              latitude: userLocation ? userLocation.lat + 0.02 : 37.5865,
-              longitude: userLocation ? userLocation.lng - 0.02 : 126.9580
-            },
-            { 
-              id: `test-large-2-${randomId}`, 
+              id: `test-single-2-${randomId}`, 
               user: '해장요정', 
               place: '건대 고깃집', 
               emoji: '🧚', 
-              timestamp: new Date(now + 500),
-              latitude: userLocation ? userLocation.lat + 0.021 : 37.5875,
-              longitude: userLocation ? userLocation.lng - 0.021 : 126.9570
-            },
+              timestamp: new Date(now - 1380000), // 23분 전
+              latitude: userLocation ? userLocation.lat + 0.02 : 37.5865,
+              longitude: userLocation ? userLocation.lng + 0.02 : 126.9980
+            }
+          ],
+          // 다중 체크인 시나리오 - 1시간 전
+          [
             { 
-              id: `test-large-3-${randomId}`, 
-              user: '바텐더', 
-              place: '건대 고깃집', 
+              id: `test-multi-4-${randomId}`, 
+              user: '칵테일마스터', 
+              place: '홍대 포차', 
               emoji: '🍸', 
-              timestamp: new Date(now + 1500),
-              latitude: userLocation ? userLocation.lat + 0.019 : 37.5855,
-              longitude: userLocation ? userLocation.lng - 0.019 : 126.9590
+              timestamp: new Date(now - 3600000), // 1시간 전
+              latitude: userLocation ? userLocation.lat - 0.02 : 37.5465,
+              longitude: userLocation ? userLocation.lng - 0.02 : 126.9680
             },
             { 
-              id: `test-large-4-${randomId}`, 
-              user: '술꾼', 
-              place: '건대 고깃집', 
-              emoji: '🍻', 
-              timestamp: new Date(now + 3000),
-              latitude: userLocation ? userLocation.lat + 0.022 : 37.5885,
-              longitude: userLocation ? userLocation.lng - 0.022 : 126.9560
+              id: `test-multi-5-${randomId}`, 
+              user: '위스키전문가', 
+              place: '홍대 포차', 
+              emoji: '🥃', 
+              timestamp: new Date(now - 3600000), // 1시간 전
+              latitude: userLocation ? userLocation.lat - 0.02 : 37.5465,
+              longitude: userLocation ? userLocation.lng - 0.02 : 126.9680
             }
           ]
         ];
@@ -281,18 +263,24 @@ const CheckInToast = () => {
       const initialScenario = createTestScenario();
       // 3km 내 체크인만 필터링
       const filteredScenario = filterNearbyCheckins(initialScenario);
-      setDisplayCheckins(filteredScenario);
+      // 그룹화하고 포맷팅
+      const groupedScenario = groupCheckins(filteredScenario);
+      const formattedScenario = groupedScenario.map(group => createGroupDisplay(group));
+      setDisplayCheckins(formattedScenario);
       
       // 4초마다 새로운 시나리오
       const interval = setInterval(() => {
         const newScenario = createTestScenario();
         // 3km 내 체크인만 필터링
         const filteredScenario = filterNearbyCheckins(newScenario);
-        setDisplayCheckins(prev => [...prev.slice(-3), ...filteredScenario]);
+        // 그룹화하고 포맷팅
+        const groupedScenario = groupCheckins(filteredScenario);
+        const formattedScenario = groupedScenario.map(group => createGroupDisplay(group));
+        setDisplayCheckins(prev => [...prev.slice(-3), ...formattedScenario]);
         
         // 8초 후 오래된 것들 제거
         setTimeout(() => {
-          setDisplayCheckins(prev => prev.filter(c => filteredScenario.some(ns => ns.id === c.id)));
+          setDisplayCheckins(prev => prev.filter(c => formattedScenario.some(fs => fs.id === c.id)));
         }, 8000);
       }, 4000);
       
@@ -308,7 +296,8 @@ const CheckInToast = () => {
       
       // 체크인 데이터 그룹화
       const groupedCheckins = groupCheckins(nearbyCheckins);
-      const formattedCheckins = groupedCheckins.map(group => createGroupDisplay(group));
+      const displayCheckins = groupedCheckins.slice(0, 3);
+      const formattedCheckins = displayCheckins.map(group => createGroupDisplay(group));
       
       setDisplayCheckins(formattedCheckins);
       
@@ -335,39 +324,39 @@ const CheckInToast = () => {
   };
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 px-4 space-y-1 max-h-32 overflow-hidden">
+    <div className="absolute bottom-full left-0 right-0 mb-2 space-y-1 max-h-14 overflow-hidden">
       <AnimatePresence>
         {displayCheckins.map((checkIn, index) => (
           <motion.div
             key={checkIn.id}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20, transition: { duration: 0.5 } }}
-            className="text-xs text-gray-600 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/30"
+            exit={{ opacity: 0, y: -10, transition: { duration: 0.3 } }}
+            className="text-[6px] text-gray-600 bg-white/60 backdrop-blur-sm px-1 py-0.5 rounded-full border border-white/30 whitespace-nowrap text-left"
             style={{
-              transform: `translateY(${index * 28}px)`,
+              transform: `translateY(${index * 14}px)`,
               opacity: 1 - (index * 0.2) // 위로 갈수록 투명하게
             }}
           >
             {checkIn.type === 'single' ? (
               // 단일 체크인
               <>
-                <span className="mr-2">{checkIn.emoji}</span>
-                <span className="font-medium text-gray-800">{checkIn.user}</span>
-                <span className="text-gray-600">님이 </span>
-                <span className="font-medium text-blue-600">{checkIn.place}</span>
-                <span className="text-gray-600">에 체크인 ({checkIn.time})</span>
+                <span className="mr-0.5">{checkIn.emoji}</span>
+                <span className="font-medium text-gray-800 text-[6px]">{checkIn.user}</span>
+                <span className="text-gray-600 text-[6px]">님이 </span>
+                <span className="font-medium text-blue-600 text-[6px]">{checkIn.place}</span>
+                <span className="text-gray-600 text-[6px]">에 체크인 ({checkIn.time})</span>
               </>
             ) : (
               // 다중 체크인
               <>
-                <span className="mr-2">{checkIn.emoji}</span>
-                <span className="font-medium text-gray-800">{checkIn.user}</span>
-                <span className="text-gray-600">님 외 </span>
-                <span className="font-medium text-orange-600">{checkIn.otherCount}명</span>
-                <span className="text-gray-600">이 </span>
-                <span className="font-medium text-blue-600">{checkIn.place}</span>
-                <span className="text-gray-600">에 체크인 ({checkIn.time})</span>
+                <span className="mr-0.5">{checkIn.emoji}</span>
+                <span className="font-medium text-gray-800 text-[6px]">{checkIn.user}</span>
+                <span className="text-gray-600 text-[6px]">님 외 </span>
+                <span className="font-medium text-orange-600 text-[6px]">{checkIn.otherCount}명</span>
+                <span className="text-gray-600 text-[6px]">이 </span>
+                <span className="font-medium text-blue-600 text-[6px]">{checkIn.place}</span>
+                <span className="text-gray-600 text-[6px]">에 체크인 ({checkIn.time})</span>
               </>
             )}
           </motion.div>
