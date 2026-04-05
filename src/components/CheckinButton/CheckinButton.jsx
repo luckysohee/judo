@@ -57,7 +57,7 @@ export default function CheckinButton({ placeId, placeName, placeAddress }) {
   }, [placeId, fetchPlaceCheckinCount, placeCheckinCounts]);
 
   // 체크인 처리
-  const handleCheckin = async () => {
+  const handleCheckin = () => {
     if (!user?.id) {
       showToast("로그인이 필요합니다.", "warning");
       return;
@@ -68,6 +68,19 @@ export default function CheckinButton({ placeId, placeName, placeAddress }) {
       return;
     }
 
+    // alert로 확인
+    const nickname = getUserNickname();
+    const confirmed = window.confirm(
+      `🎯 ${placeName} 체크인\n\n체크인 시 "${nickname}" 닉네임으로 장소 체크인 상황이 공유됩니다.\n\n동의하시겠습니까?`
+    );
+
+    if (confirmed) {
+      executeCheckin();
+    }
+  };
+
+  // 실제 체크인 실행
+  const executeCheckin = async () => {
     setLoading(true);
     
     try {

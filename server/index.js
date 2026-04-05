@@ -34,6 +34,39 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 실제 키 필요
 });
 
+// 카카오 로컬 API 모듈 추가
+const kakaoLocalAPI = {
+  // 장소 검색
+  async searchPlaces(query) {
+    try {
+      const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY;
+      if (!kakaoRestApiKey) {
+        console.log('⚠️ 카카오 REST API 키가 없습니다.');
+        return [];
+      }
+
+      console.log('🔍 kakaoLocalAPI.searchPlaces 호출');
+      const response = await axios.get('https://dapi.kakao.com/v2/local/search/keyword.json', {
+        params: {
+          query: query,
+          size: 10,
+          sort: 'distance'
+        },
+        headers: {
+          'Authorization': `KakaoAK ${kakaoRestApiKey}`
+        }
+      });
+
+      const results = response.data.documents || [];
+      console.log(`✅ 카카오 API 응답 성공: ${results.length}개`);
+      return results;
+    } catch (error) {
+      console.error('카카오 API 검색 오류:', error.message);
+      return [];
+    }
+  }
+};
+
 // 네이버 지도 API 모듈
 const naverMapAPI = {
   // 장소 검색
@@ -391,39 +424,135 @@ app.post("/api/ai-search", async (req, res) => {
       simplifiedQuery = query.replace(/혼술하기 좋은|추천|좋은/g, '').trim();
     }
     
-    // 지역명 + 술 종류 조합으로 단순화
-    if (simplifiedQuery.includes('술집') || simplifiedQuery.includes('바') || simplifiedQuery.includes('와인')) {
-      // 이미 좋은 검색어
-    } else {
-      // 기본 검색어 추가
-      simplifiedQuery += ' 술집';
+    // 지역명 분석 및 확장
+    const dongPatterns = [
+      /강남역|역삼동|역삼|삼성동|삼성|선릉동|선릉|개포동|개포|일원동|일원/,
+      /홍대|신촌|합정|망원|연희|대현|공덕|창신/,
+      /명동|회현|소공|을지로|동대문|종로|광화기|신당|방배/,
+      /이태원|한남|서초동|서초|교대|사당|방배|도곡동|도곡/,
+      /잠실|신천|송파|가락|문정|장지|방이|오금/,
+      /여의도|영등포|대림|신도림|구로|가산|안양|부천/,
+      /제주|부산|대구|광주|대전|울산/
+    ];
+    
+    const guPatterns = [
+      /강남구|강남/,
+      /서초구|서초/,
+      /송파구|송파/,
+      /영등포구|영등포/,
+      /마포구|마포/,
+      /용산구|용산/,
+      /성동구|성동/,
+      /광진구|광진/,
+      /동대문구|동대문/,
+      /중구|종로구/,
+      /은평구|서대문구/,
+      /노원구|도봉구|강북구/,
+      /강동구|강서구|구로구|금천구|영등포구/
+    ];
+    
+    let hasDong = false;
+    let hasGu = false;
+    let regionName = '';
+    
+    // 동 단위 지역명 확인
+    for (const pattern of dongPatterns) {
+      const match = simplifiedQuery.match(pattern);
+      if (match) {
+        hasDong = true;
+        regionName = match[0];
+        break;
+      }
     }
     
+    // 구 단위 지역명 확인
+    if (!hasDong) {
+      for (const pattern of guPatterns) {
+        const match = simplifiedQuery.match(pattern);
+        if (match) {
+          hasGu = true;
+          regionName = match[0];
+          break;
+        }
+      }
+    }
+    
+    // 지역명이 없으면 구 단위로 확장된 검색어 생성
+    if (!hasDong && !hasGu) {
+      // 사용자 위치가 있으면 현재 지역 기반으로 검색
+      if (userLocation) {
+        const lat = userLocation.lat;
+        const lng = userLocation.lng;
+        
+        // 대략적인 지역 판단 (위도/경도 기준)
+        if (lat >= 37.5 && lat <= 37.6 && lng >= 127.0 && lng <= 127.1) {
+          simplifiedQuery = '강남구 ' + simplifiedQuery;
+        } else if (lat >= 37.55 && lat <= 37.6 && lng >= 126.9 && lng <= 127.0) {
+          simplifiedQuery = '마포구 ' + simplifiedQuery;
+        } else if (lat >= 37.48 && lat <= 37.55 && lng >= 127.0 && lng <= 127.1) {
+          simplifiedQuery = '송파구 ' + simplifiedQuery;
+        } else {
+          simplifiedQuery = '서울 ' + simplifiedQuery;
+        }
+      } else {
+        simplifiedQuery = '서울 ' + simplifiedQuery;
+      }
+    } else {
+      // 지역명이 있으면 그대로 사용 (강제로 술집 추가 안함)
+      // 이미 좋은 검색어이거나 사용자가 원하는 검색어
+    }
+    
+    console.log(`🗺️ 지역 분석: 동=${hasDong}, 구=${hasGu}, 지역=${regionName}`);
     console.log(`🗺️ 단순화된 쿼리: ${simplifiedQuery}`);
     
     const naverPlaces = await naverMapAPI.searchPlaces(simplifiedQuery);
     console.log(`📍 네이버 지도 검색 결과: ${naverPlaces.length}개 장소`);
+    
+    // 카카오 API 병행 검색
+    const kakaoPlaces = await kakaoLocalAPI.searchPlaces(simplifiedQuery);
+    console.log(`📍 카카오 지도 검색 결과: ${kakaoPlaces.length}개 장소`);
+    
+    // 카카오 결과를 네이버 형식으로 변환
+    const convertedKakaoPlaces = kakaoPlaces.map(place => ({
+      name: place.place_name,
+      address: place.road_address_name || place.address_name,
+      category: place.category_name,
+      x: place.x.toString(),
+      y: place.y.toString(),
+      link: place.place_url,
+      source: 'kakao'
+    }));
+    
+    // 두 API 결과 병합 및 중복 제거
+    const allPlaces = [...naverPlaces, ...convertedKakaoPlaces];
+    const uniquePlaces = allPlaces.filter((place, index, self) => 
+      index === self.findIndex(p => p.name === place.name)
+    );
+    
+    console.log(`📍 전체 검색 결과: 네이버 ${naverPlaces.length}개 + 카카오 ${kakaoPlaces.length}개 = 총 ${allPlaces.length}개 (중복 제거: ${uniquePlaces.length}개)`);
+    
+    // 병합된 결과를 최종 결과로 사용
+    const mergedAPIPlaces = uniquePlaces;
 
     // 3. AI 추천 생성 (내부 데이터 + 네이버 장소 통합)
     console.log(`🤖 AI 추천 생성 시작...`);
     
     // 네이버 장소를 internal 데이터 형식으로 변환하여 AI 추천에 포함
-    const naverPlacesForAI = naverPlaces.map((place, index) => ({
-      id: `naver_${index}`, // 고유 ID 생성
-      name: place.title,
+    const naverPlacesForAI = mergedAPIPlaces.map((place, index) => ({
+      id: `api_${index}`, // 고유 ID 생성
+      name: place.name || place.title,
       address: place.address,
       region: place.address,
-      primaryCurator: "네이버 지도",
-      curators: ["네이버 지도"],
+      primaryCurator: place.source === 'kakao' ? "카카오 지도" : "네이버 지도",
+      curators: place.source === 'kakao' ? ["카카오 지도"] : ["네이버 지도"],
       tags: place.category ? [place.category] : [],
       comment: place.description || "",
       savedCount: 0,
       aiText: [
-        place.title,
+        place.name || place.title,
         place.address,
-        "네이버 지도",
-        place.category || "",
-        place.description || "",
+        place.category,
+        place.source === 'kakao' ? "카카오 지도" : "네이버 지도"
       ].filter(Boolean).join(" | "),
     }));
     
@@ -451,13 +580,13 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
     const convertedNaverPlaces = convertNaverToPlaceData(naverResults, query);
     
     // 외부 데이터가 있으면 외부 데이터만 사용
-    const finalPlaces = convertedNaverPlaces.length > 0 ? convertedNaverPlaces : places;
+    const mergedPlaces = convertedNaverPlaces.length > 0 ? convertedNaverPlaces : places;
     
-    if (!Array.isArray(finalPlaces) || finalPlaces.length === 0) {
+    if (!Array.isArray(mergedPlaces) || mergedPlaces.length === 0) {
       return res.status(400).json({ error: "검색 결과가 없습니다." });
     }
 
-    const compactPlacesForOpenAI = compactPlacesForAI(finalPlaces);
+    const compactPlacesForOpenAI = compactPlacesForAI(mergedPlaces);
 
     const response = await openai.responses.create({
       model: "gpt-4o",

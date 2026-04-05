@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
+import ContextTags from './ContextTags';
+import { InitialState, TypingState, SearchCompleteState } from './SearchStates';
+import CheckInToast from '../CheckInToast/CheckInToast';
 
 export default function SearchBar({
   query,
@@ -18,6 +21,9 @@ export default function SearchBar({
   onKakaoPlaceSelect = null, // 카카오 장소 선택 콜백
   showSuggestions = false, // suggestions 표시 상태
   setShowSuggestions = () => {}, // suggestions 표시 제어 함수
+  setShowKakaoResults = () => {}, // 카카오 결과 표시 제어 함수
+  setShowKakaoSearch = () => {}, // 카카오 검색 표시 제어 함수
+  onContextTagClick = null, // 상황 태그 클릭 콜백
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -26,9 +32,14 @@ export default function SearchBar({
   // 카카오 장소 검색 관련 상태
   const [kakaoResults, setKakaoResults] = useState([]);
   const [isKakaoLoading, setIsKakaoLoading] = useState(false);
-  const [showKakaoResults, setShowKakaoResults] = useState(false);
+  const [showKakaoResults, setShowKakaoResultsState] = useState(false);
   const [selectedKakaoIndex, setSelectedKakaoIndex] = useState(-1); // 키보드 내비게이션을 위한 선택된 인덱스
   const searchTimeoutRef = useRef(null);
+
+  // UI 상태 관리
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [appliedFilters, setAppliedFilters] = useState([]); // 적용된 필터 칩
 
   // 카카오 장소 검색
   const searchKakaoPlaces = (keyword) => {
@@ -119,22 +130,90 @@ export default function SearchBar({
 
   const handleSubmit = () => {
     if (query.trim()) {
+      setIsSearching(true); // 검색 상태로 변경
+      
       onSubmit(query);
+      
+      // 필터 칩 생성 (검색어 분석)
+      const filters = [];
+      if (query.includes('뒷풀이') || query.includes('회식')) {
+        filters.push({ icon: '🎉', label: '뒷풀이', type: 'context' });
+      }
+      if (query.includes('데이트') || query.includes('연인')) {
+        filters.push({ icon: '💕', label: '데이트', type: 'context' });
+      }
+      if (query.includes('혼술') || query.includes('혼자')) {
+        filters.push({ icon: '🍶', label: '혼술', type: 'context' });
+      }
+      if (query.includes('해장') || query.includes('숙취')) {
+        filters.push({ icon: '💊', label: '해장', type: 'context' });
+      }
+      
+      setAppliedFilters(filters);
+      
+      // 검색 실행 후 모든 자동완성 UI 숨김
       setShowSuggestions(false);
       setShowKakaoResults(false);
+      setSelectedKakaoIndex(-1);
+      
+      // 검색 완료 후 상태 복원 (시뮬레이션)
+      setTimeout(() => {
+        setIsSearching(false);
+        setQuery(''); // 검색창 비우기
+      }, 1000);
+    }
+  };
+
+  // 상황 태그 클릭 핸들러
+  const handleContextTagClick = (contextKey, contextName) => {
+    console.log(`🏷️ 상황 태그 클릭: ${contextKey} - ${contextName}`);
+    
+    // 상황별 추천 검색어 생성
+    const contextQueries = {
+      after_party: '강남역 뒷풀이 술집',
+      date: '홍대 데이트 맛집',
+      hangover: '해장 맛집',
+      solo: '혼술하기 좋은 곳',
+      group: '대규모 단체 모임 장소',
+      must_go: '인생 맛집',
+      terrace: '루프탑 바'
+    };
+
+    const searchQuery = contextQueries[contextKey] || contextName;
+    setQuery(searchQuery);
+    
+    // 태그 클릭 시 즉시 검색 실행
+    onSubmit(searchQuery);
+    
+    // 모든 자동완성 UI 숨김
+    setShowSuggestions(false);
+    setShowKakaoResults(false);
+    setSelectedKakaoIndex(-1);
+    
+    // 부모 컴포넌트에 알림
+    if (onContextTagClick) {
+      onContextTagClick(contextKey, contextName);
     }
   };
 
   const handleKeyDown = (event) => {
+    console.log('🔑 키 눌림:', event.key); // 디버깅용
+    
     if (event.key === "Enter") {
       event.preventDefault();
+      console.log('🔑 Enter 키 감지!'); // 디버깅용
+      
+      // 엔터키 시 모든 자동완성 카드 즉시 숨김
+      setShowSuggestions(false);
+      setShowKakaoResults(false);
+      setSelectedKakaoIndex(-1);
       
       // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
       if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
         const selectedPlace = kakaoResults[selectedKakaoIndex];
         handleKakaoPlaceSelect(selectedPlace);
       } else {
-        // 일반 검색 실행
+        // 일반 AI 검색 실행 - 지도에 마커만 표시
         handleSubmit();
       }
     } else if (event.key === "ArrowDown") {
@@ -179,6 +258,34 @@ export default function SearchBar({
 
   return (
     <section style={{ ...styles.section, position: 'relative' }}>
+      {/* 실시간 체크인 토스트 */}
+      <CheckInToast />
+      
+      {/* 상태별 UI 렌더링 */}
+      <AnimatePresence>
+        {/* 입력 중 상태: 자동완성 + 상황 태그 */}
+        {query && !isSearching && (
+          <TypingState
+            kakaoResults={kakaoResults}
+            isKakaoLoading={isKakaoLoading}
+            matchedContexts={[]} // ContextTags에서 처리
+            onKakaoPlaceClick={handleKakaoPlaceSelect}
+            onContextTagClick={handleContextTagClick}
+            selectedKakaoIndex={selectedKakaoIndex}
+          />
+        )}
+
+        {/* 검색 후 상태: 필터 칩 */}
+        {!query && !isSearching && appliedFilters.length > 0 && (
+          <SearchCompleteState
+            appliedFilters={appliedFilters}
+            onFilterRemove={(index) => {
+              setAppliedFilters(prev => prev.filter((_, i) => i !== index));
+            }}
+          />
+        )}
+      </AnimatePresence>
+      
       {/* 카카오 장소 검색 결과 - 위쪽으로 표시 */}
       <AnimatePresence>
         {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (

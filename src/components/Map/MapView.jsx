@@ -290,8 +290,32 @@ const MapView = forwardRef(({
         onClick: (cp) => {
           ignoreMapClickRef.current = true;
           
+          // API 결과를 PlacePreviewCard 형식으로 변환
+          const formattedPlace = {
+            id: cp.id || `api_${cp.name?.replace(/\s+/g, '_')}`,
+            name: cp.name || cp.title || cp.place_name,
+            address: cp.address || cp.road_address_name || cp.address_name,
+            region: cp.address || '',
+            category: cp.category || cp.category_name || '',
+            primaryCurator: cp.source === 'kakao' ? '카카오 지도' : '네이버 지도',
+            curators: cp.source === 'kakao' ? ['카카오 지도'] : ['네이버 지도'],
+            tags: cp.category ? [cp.category] : [],
+            comment: '',
+            savedCount: 0,
+            lat: cp.lat,
+            lng: cp.lng,
+            // 네이버/카카오 API 추가 필드
+            source: cp.source || 'naver',
+            link: cp.link || cp.place_url,
+            phone: cp.phone || cp.telephone || '',
+            distance: cp.distance,
+            walkingTime: cp.walkingTime
+          };
+          
+          console.log('🗺️ 마커 클릭 - 장소 데이터:', formattedPlace);
+          
           // 모든 장소를 PlacePreviewCard로 표시
-          setSelectedPlace(cp);
+          setSelectedPlace(formattedPlace);
           
           // 타겟 카테고리이면 자동으로 Supabase에 저장
           if (cp.isKakaoPlace && isTargetCategory(cp.category_name)) {
