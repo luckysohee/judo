@@ -1,0 +1,122 @@
+[
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "감미옥",
+    "lat": 37.5088971582088,
+    "lng": 127.003732400403,
+    "place_id": null,
+    "one_line_reason": "반포한강공원 근처 반원상가 노포 야장 삼겹살과 물회",
+    "alcohol_types": ["소주"],
+    "moods": ["소소한"],
+    "tags": ["노포"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "문래옥상",
+    "lat": 37.51482445124475,
+    "lng": 126.8942651924607,
+    "place_id": null,
+    "one_line_reason": "문래 루프탑에서 영등포 야경 보며 이자카야 안주와 소주",
+    "alcohol_types": ["소주"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "성수옥상",
+    "lat": 37.5426460151374,
+    "lng": 127.059451118514,
+    "place_id": null,
+    "one_line_reason": "성수 루프탑 야장",
+    "alcohol_types": ["소주"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "연남옥상",
+    "lat": 37.5605812306823,
+    "lng": 126.925811243221,
+    "place_id": null,
+    "one_line_reason": "연남 최고 루프탑",
+    "alcohol_types": ["칵테일"],
+    "moods": ["소소한"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "마곡테라스",
+    "lat": 37.5683130910025,
+    "lng": 126.824832114927,
+    "place_id": null,
+    "one_line_reason": "잘 꾸며진 야외테라스",
+    "alcohol_types": ["소주"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "이태원루프탑",
+    "lat": 37.5332642739106,
+    "lng": 126.993506139284,
+    "place_id": null,
+    "one_line_reason": "이태원 핫한 루프탑 야장 술집. 야외에서 즐기는 분위기 좋은 공간.",
+    "alcohol_types": ["소주"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "건대루프탑",
+    "lat": 37.5455393854284,
+    "lng": 127.073623128116,
+    "place_id": null,
+    "one_line_reason": "건대 후문 루프탑 칵테일과 안주로 분위기 있는 야장",
+    "alcohol_types": ["칵테일"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "성수노포",
+    "lat": 37.5378042109473,
+    "lng": 127.054608382192,
+    "place_id": null,
+    "one_line_reason": "성수 노포 야장",
+    "alcohol_types": ["소주"],
+    "moods": ["왁자지껄"],
+    "tags": ["노포"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "가산루프탑",
+    "lat": 37.4823304410021,
+    "lng": 126.885196132441,
+    "place_id": null,
+    "one_line_reason": "가산디지털단지역 근처 루프탑 펍에서 야외 테이블 즐기기",
+    "alcohol_types": ["소주"],
+    "moods": ["왁자지껄"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  },
+  {
+    "curator_id": "43b3eb72-a835-4b5b-b305-da4708b53b5c",
+    "display_name": "공릉루프탑",
+    "lat": 37.6261262394412,
+    "lng": 127.073709331824,
+    "place_id": null,
+    "one_line_reason": "공릉 루프탑 야외테이블 많고 거울포토존 분위기 좋음",
+    "alcohol_types": ["칵테일"],
+    "moods": ["데이트"],
+    "tags": ["루프탑"],
+    "is_archived": false
+  }
+]

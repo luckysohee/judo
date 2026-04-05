@@ -393,7 +393,7 @@ const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상�
           .from("curator_places")
           .select(`
             *,
-            places (*),
+            places (id, name, lat, lng, place_id, category, created_at),
             curators!curator_places_curator_id_fkey (username, display_name)
           `)
           .eq("is_archived", false) // 비공개 추천 제외

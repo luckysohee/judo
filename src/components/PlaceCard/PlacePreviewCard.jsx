@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
+import { getKakaoPlaceBasicInfoJSONP } from "../../utils/kakaoAPIJSONP"; // JSONP로 변경
 
 export default function PlacePreviewCard({
   place,
@@ -16,16 +17,57 @@ export default function PlacePreviewCard({
   getUserRole,
 }) {
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [kakaoDetails, setKakaoDetails] = useState(null);
+  const [isLoadingKakao, setIsLoadingKakao] = useState(false);
   const { showToast } = useToast();
 
   if (!place) return null;
 
   console.log("🔍 PlacePreviewCard place 데이터:", place);
   console.log("🔍 isKakaoPlace:", place.isKakaoPlace);
+  console.log("🔍 place_id:", place.place_id);
   
   const isKakaoPlace = place.isKakaoPlace || false;
   const userRole = getUserRole?.() || "user";
   const isCurator = userRole === "curator" || userRole === "admin";
+
+  // place_id가 있으면 카카오 API 호출
+  useEffect(() => {
+    console.log('🔍 useEffect 실행:', {
+      place_id: place.place_id,
+      isKakaoPlace: place.isKakaoPlace,
+      kakaoDetails: kakaoDetails,
+      place_name: place.name,
+      place_data: place
+    });
+    
+    // 임시: place_id가 없으면 테스트용 ID 사용
+    const testPlaceId = place.place_id || '1720697728'; // 서문객잔 ID로 테스트
+    
+    if (testPlaceId && !place.isKakaoPlace && !kakaoDetails) {
+      console.log("🔍 카카오 장소 상세 정보 조회 시작 (JSONP):", testPlaceId);
+      setIsLoadingKakao(true);
+      
+      getKakaoPlaceBasicInfoJSONP(testPlaceId)
+        .then(details => {
+          console.log("✅ 카카오 장소 상세 정보 조회 성공 (JSONP):", details);
+          setKakaoDetails(details);
+        })
+        .catch(error => {
+          console.error('❌ 카카오 장소 정보 로딩 실패 (JSONP):', error);
+          // 에러 발생 시 기본 정보라도 표시
+          setKakaoDetails({
+            place_name: place.name,
+            address: place.address,
+            phone: place.contact,
+            category_name: '정보 없음'
+          });
+        })
+        .finally(() => {
+          setIsLoadingKakao(false);
+        });
+    }
+  }, [place.place_id, place.isKakaoPlace, kakaoDetails]);
 
   // 카카오 장소 카테고리 정제
   const cleanCategory = (categoryName) => {
@@ -37,7 +79,7 @@ export default function PlacePreviewCard({
   // 카카오 장소 주소 정보
   const displayAddress = isKakaoPlace 
     ? (place.road_address_name || place.address_name)
-    : place.address;
+    : (kakaoDetails?.address || place.address);
 
   // 상호명만 추출하는 함수
   const extractDisplayName = (fullName) => {
@@ -60,12 +102,13 @@ export default function PlacePreviewCard({
   };
 
   // 카카오 장소 전화번호
-  const displayPhone = isKakaoPlace ? place.phone : place.contact;
+  const displayPhone = isKakaoPlace ? place.phone : (kakaoDetails?.phone || place.contact);
 
   // 카카오맵 상세보기 URL
   const handleKakaoView = () => {
-    if (isKakaoPlace && place.place_url) {
-      window.open(place.place_url, '_blank');
+    const placeUrl = isKakaoPlace ? place.place_url : kakaoDetails?.place_url;
+    if (placeUrl) {
+      window.open(placeUrl, '_blank');
     }
   };
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
@@ -263,13 +306,17 @@ export default function PlacePreviewCard({
           <h3 style={styles.placeName}>{extractDisplayName(place.name)}</h3>
           <div style={styles.headerRight}>
             {/* 카카오맵 상세보기 링크 */}
-            {isKakaoPlace && place.place_url && (
+            {(isKakaoPlace || kakaoDetails) && (
               <button
                 onClick={handleKakaoView}
                 style={styles.kakaoLink}
               >
                 카카오맵
               </button>
+            )}
+            {/* 로딩 상태 표시 */}
+            {isLoadingKakao && (
+              <span style={styles.loadingText}>로딩 중...</span>
             )}
             <button type="button" onClick={onClose} style={styles.closeButton}>
               &times;
@@ -297,17 +344,26 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.meta}>
-            {isKakaoPlace ? (
+            {(isKakaoPlace || kakaoDetails) ? (
               <>
                 {/* 카카오 장소 정보 */}
-                {cleanCategory(place.category_name) && (
-                  <span style={styles.category}>{cleanCategory(place.category_name)}</span>
+                {(kakaoDetails?.category_name || place.category_name) && (
+                  <span style={styles.category}>
+                    {cleanCategory(kakaoDetails?.category_name || place.category_name)}
+                  </span>
                 )}
                 {displayAddress && (
                   <span style={styles.address}>📍 {displayAddress}</span>
                 )}
                 {displayPhone && (
                   <span style={styles.phone}>📞 {displayPhone}</span>
+                )}
+                {/* 카카오 장소 평점 정보 */}
+                {kakaoDetails?.rating && (
+                  <span style={styles.rating}>⭐ {kakaoDetails.rating}</span>
+                )}
+                {kakaoDetails?.review_count && (
+                  <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
                 )}
               </>
             ) : (
@@ -539,6 +595,7 @@ const styles = {
     whiteSpace: "nowrap", // 아이템들이 한 줄로 표시
     scrollbarWidth: "none", // Firefox 스크롤바 숨김
     msOverflowStyle: "none", // IE/Edge 스크롤바 숨김
+    WebkitOverflowScrolling: "touch", // iOS 스크롤 부드럽게
     "&::-webkit-scrollbar": {
       display: "none" // Chrome/Safari 스크롤바 숨김
     }
@@ -588,6 +645,20 @@ const styles = {
   phone: {
     fontSize: "12px",
     color: "#999",
+  },
+  rating: {
+    fontSize: "12px",
+    color: "#f39c12",
+    marginRight: "4px",
+  },
+  reviewCount: {
+    fontSize: "11px",
+    color: "#999",
+  },
+  loadingText: {
+    fontSize: "11px",
+    color: "#999",
+    fontStyle: "italic",
   },
   curatorSaveButton: {
     flex: 1,
