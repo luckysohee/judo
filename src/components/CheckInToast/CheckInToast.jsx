@@ -178,11 +178,12 @@ const CheckInToast = () => {
       // 가끔 여러 명이 동시에 체크인하는 시나리오 추가
       const createTestScenario = () => {
         const now = Date.now();
+        const randomId = Math.random().toString(36).substr(2, 9); // 고유 ID 생성
         const scenarios = [
           // 단일 체크인 시나리오 (사용자 위치 근처)
           [
             { 
-              id: 'test-1', 
+              id: `test-single-${randomId}`, 
               user: '술고래', 
               place: '주진당', 
               emoji: '🐋', 
@@ -194,7 +195,7 @@ const CheckInToast = () => {
           // 다중 체크인 시나리오
           [
             { 
-              id: 'test-2', 
+              id: `test-multi-1-${randomId}`, 
               user: '맥주왕', 
               place: '신전떡볶이', 
               emoji: '👑', 
@@ -203,7 +204,7 @@ const CheckInToast = () => {
               longitude: userLocation ? userLocation.lng + 0.005 : 126.9830
             },
             { 
-              id: 'test-3', 
+              id: `test-multi-2-${randomId}`, 
               user: '와인여왕', 
               place: '신전떡볶이', 
               emoji: '👸', 
@@ -212,7 +213,7 @@ const CheckInToast = () => {
               longitude: userLocation ? userLocation.lng + 0.006 : 126.9840
             },
             { 
-              id: 'test-4', 
+              id: `test-multi-3-${randomId}`, 
               user: '소주신', 
               place: '신전떡볶이', 
               emoji: '🍶', 
@@ -224,7 +225,7 @@ const CheckInToast = () => {
           // 멀리 있는 체크인 (3km 밖 - 필터링됨)
           [
             { 
-              id: 'test-5', 
+              id: `test-far-${randomId}`, 
               user: '막걸리공주', 
               place: '부산 포차', 
               emoji: '🥛', 
@@ -236,7 +237,7 @@ const CheckInToast = () => {
           // 대규모 다중 체크인
           [
             { 
-              id: 'test-6', 
+              id: `test-large-1-${randomId}`, 
               user: '고기마스터', 
               place: '건대 고깃집', 
               emoji: '🍖', 
@@ -245,7 +246,7 @@ const CheckInToast = () => {
               longitude: userLocation ? userLocation.lng - 0.02 : 126.9580
             },
             { 
-              id: 'test-7', 
+              id: `test-large-2-${randomId}`, 
               user: '해장요정', 
               place: '건대 고깃집', 
               emoji: '🧚', 
@@ -254,7 +255,7 @@ const CheckInToast = () => {
               longitude: userLocation ? userLocation.lng - 0.021 : 126.9570
             },
             { 
-              id: 'test-8', 
+              id: `test-large-3-${randomId}`, 
               user: '바텐더', 
               place: '건대 고깃집', 
               emoji: '🍸', 
@@ -263,7 +264,7 @@ const CheckInToast = () => {
               longitude: userLocation ? userLocation.lng - 0.019 : 126.9590
             },
             { 
-              id: 'test-9', 
+              id: `test-large-4-${randomId}`, 
               user: '술꾼', 
               place: '건대 고깃집', 
               emoji: '🍻', 
