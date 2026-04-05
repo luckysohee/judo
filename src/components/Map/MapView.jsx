@@ -141,6 +141,14 @@ const MapView = forwardRef(({
       mapRef.current.setCenter(moveLatLon);
       mapRef.current.setLevel(4); // zoom in to level 4
     },
+    setZoomLevel: (level) => {
+      if (!mapRef.current) return;
+      mapRef.current.setLevel(level);
+    },
+    getBounds: () => {
+      if (!mapRef.current) return null;
+      return mapRef.current.getBounds();
+    },
     getCurrentLocation: () => {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition((pos) => {

@@ -280,13 +280,14 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders) {
 }
 
 function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
-  // 카카오 장소는 간단한 SVG 마커 사용
+  // 카카오 장소는 카카오 기본 마커 + 상호명 라벨
   if (place.isKakaoPlace) {
-    const nameWidth = Math.min(place.name.length * 8 + 10, 120);
+    const name = place.name || place.place_name || '알 수 없는 장소';
+    const nameWidth = Math.min(name.length * 8 + 10, 120);
     const totalWidth = Math.max(30, nameWidth);
-    const totalHeight = 35 + 25;
+    const totalHeight = 35 + 25; // 핀 + 상호명 라벨
     
-    // 간단한 빨간색 핀 SVG + 가게 이름
+    // 카카오 기본 핀 + 상호명 라벨 SVG
     const svgString = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
         <defs>
@@ -294,59 +295,70 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
             <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
           </filter>
         </defs>
+        
+        <!-- 상호명 라벨 (블랙 박스 + 흰 글씨) -->
+        <rect
+          x="${(totalWidth - nameWidth) / 2}"
+          y="${totalHeight - 20}"
+          width="${nameWidth}"
+          height="16"
+          rx="2"
+          fill="#000000"
+        />
+        <text
+          x="${totalWidth / 2}"
+          y="${totalHeight - 8}"
+          text-anchor="middle"
+          font-size="11"
+          font-family="Arial, sans-serif"
+          fill="#ffffff"
+          font-weight="bold"
+        >
+          ${name}
+        </text>
+        
+        <!-- 카카오 기본 빨간 핀 모양 -->
         <g filter="url(#shadow)">
-          <!-- 핀 모양 (테두리 없음) -->
           <path
-            d="M ${totalWidth/2} 5
-               C ${totalWidth/2} 5, ${totalWidth/2 - 10} 5, ${totalWidth/2 - 10} 15
-               C ${totalWidth/2 - 10} 20, ${totalWidth/2 - 5} 25, ${totalWidth/2} 35
-               C ${totalWidth/2 + 5} 25, ${totalWidth/2 + 10} 20, ${totalWidth/2 + 10} 15
-               C ${totalWidth/2 + 10} 5, ${totalWidth/2} 5, ${totalWidth/2} 5
+            d="M ${totalWidth/2} ${totalHeight*0.15}
+               C ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.35}
+               C ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 - totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2} ${totalHeight*0.75}
+               C ${totalWidth/2 + totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.35}
+               C ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}
                Z"
             fill="${isSelected ? '#CC0000' : '#FF4444'}"
           />
+          <!-- 내부 원 -->
           <circle
             cx="${totalWidth/2}"
-            cy="15"
-            r="3"
-            fill="#ffffff"
+            cy="${totalHeight*0.35}"
+            r="${totalHeight*0.08}"
+            fill="white"
           />
-          <!-- 가게 이름 (네모 블랙박스에 흰글씨) -->
-          <rect
-            x="${(totalWidth - nameWidth) / 2 - 4}"
-            y="43"
-            width="${nameWidth + 8}"
-            height="16"
-            fill="#000000"
-            rx="2"
-          />
-          <text
-            x="${totalWidth/2}"
-            y="51"
-            dominant-baseline="central"
-            text-anchor="middle"
-            font-size="11"
-            font-family="Arial, sans-serif"
-            fill="#ffffff"
-            font-weight="bold"
-          >
-            ${place.name}
-          </text>
         </g>
       </svg>
     `;
     
-    const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
-    
-    return new window.kakao.maps.MarkerImage(
-      encoded,
-      new window.kakao.maps.Size(totalWidth, totalHeight),
-      {
-        offset: new window.kakao.maps.Point(totalWidth / 2, totalHeight)
+    // 카카오 마커 이미지 생성
+    try {
+      if (window.kakao?.maps?.MarkerImage) {
+        const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+        return new window.kakao.maps.MarkerImage(
+          encoded,
+          new window.kakao.maps.Size(totalWidth, totalHeight),
+          {
+            offset: new window.kakao.maps.Point(totalWidth / 2, totalHeight)
+          }
+        );
       }
-    );
+    } catch (error) {
+      console.error('마커 이미지 생성 오류:', error);
+    }
+    
+    // fallback: 기본 마커 사용
+    return null;
   }
-  
+
   // 기존 큐레이터 마커 로직
   const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;

@@ -46,7 +46,345 @@ export default function Home() {
 
   const devAdminUserId = import.meta.env.VITE_ADMIN_USER_ID;
 
+  // 팔로우 알림 확인 함수
+  const checkUnreadFollowers = async (curatorId) => {
+    // 테이블이 존재하지 않으므로 바로 종료
+    console.log('ℹ️ follower_notifications 테이블이 존재하지 않아 팔로우 알림 확인을 건너뜁니다.');
+    return;
+    
+    try {
+      // 테이블이 존재하는지 확인 후 쿼리 실행
+      const { data, error } = await supabase
+        .from('follower_notifications')
+        .select('*')
+        .eq('curator_id', curatorId)
+        .eq('is_read', false);
+
+      if (error) {
+        // 테이블이 없는 경우 에러를 무시하고 로그만 남김
+        if (error.code === 'PGRST205') {
+          console.log('ℹ️ follower_notifications 테이블이 존재하지 않습니다.');
+          return;
+        }
+        console.error('팔로우 알림 확인 오류:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        console.log(`🔔 새로운 팔로워 ${data.length}명이 있습니다!`);
+        // 여기에 알림 표시 로직 추가
+      }
+    } catch (error) {
+      console.error('팔로우 알림 확인 중 오류:', error);
+    }
+  };
+
+  // 로컬 AI 검색 함수들
+  const getCurrentUserLocation = () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation이 지원되지 않습니다.'));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          resolve({ lat: latitude, lng: longitude });
+        },
+        (error) => {
+          console.error('위치 가져오기 실패:', error);
+          // 기본 위치: 서울 시청
+          resolve({ lat: 37.5665, lng: 126.9780 });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 300000 // 5분 캐시
+        }
+      );
+    });
+  };
+
+  const searchNearbyBars = async (keyword, userLocation) => {
+    return new Promise((resolve) => {
+      if (!window.kakao?.maps?.services) {
+        resolve([]);
+        return;
+      }
+
+      const ps = new window.kakao.maps.services.Places();
+      
+      // 1. 지역명 추출 (강남역, 언주역, 명동 등)
+      const locationPattern = /(\w+역|\w+동|\w+구|\w+대로|\w+로|\w+거리|\w+시장)/;
+      const locationMatch = keyword.match(locationPattern);
+      const locationName = locationMatch ? locationMatch[1] : null;
+      
+      // 2. 술집 키워드 추출
+      const barKeywords = ['술집', '포차', '바', '펍', '주점', '호프'];
+      const barKeyword = barKeywords.find(k => keyword.includes(k)) || '술집';
+      
+      let searchKeyword;
+      let searchLocation;
+      
+      if (locationName) {
+        // 지역명이 있으면 지역명으로 검색
+        searchKeyword = locationName;
+        searchLocation = null; // 지역명 검색이므로 위치 기반 검색 아님
+        console.log('🔍 지역명 기반 검색:', locationName);
+      } else {
+        // 지역명이 없으면 술집 키워드로 현재 위치 기반 검색
+        searchKeyword = barKeyword;
+        searchLocation = userLocation;
+        console.log('🔍 현재 위치 기반 검색:', barKeyword);
+      }
+
+      const searchOptions = {
+        category_group_code: 'FD6', // 음식점
+        sort: window.kakao.maps.services.SortBy.DISTANCE
+      };
+
+      if (searchLocation) {
+        // 현재 위치 기반 검색
+        searchOptions.location = new window.kakao.maps.LatLng(searchLocation.lat, searchLocation.lng);
+        searchOptions.radius = 800;
+      }
+
+      ps.keywordSearch(
+        searchKeyword,
+        (data, status) => {
+          if (status === window.kakao.maps.services.Status.OK) {
+            let nearbyPlaces;
+            
+            if (locationName) {
+              // 지역명 검색 결과는 그대로 사용
+              nearbyPlaces = data.map(place => ({
+                ...place,
+                distance: 0 // 지역명 검색이므로 거리 정보 없음
+              }));
+              console.log(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
+            } else {
+              // 현재 위치 기반 검색은 800m 이내 필터링
+              nearbyPlaces = data.filter(place => {
+                const distance = calculateDistance(
+                  userLocation.lat, 
+                  userLocation.lng, 
+                  place.y, 
+                  place.x
+                );
+                return distance <= 800;
+              }).map(place => ({
+                ...place,
+                distance: Math.round(calculateDistance(
+                  userLocation.lat, 
+                  userLocation.lng, 
+                  place.y, 
+                  place.x
+                ))
+              }));
+              console.log(`🍺 ${barKeyword} 근처 검색 결과:`, nearbyPlaces.length);
+            }
+            
+            resolve(nearbyPlaces);
+          } else {
+            console.log(`🍺 ${searchKeyword} 검색 결과 없음:`, status);
+            resolve([]);
+          }
+        },
+        searchOptions
+      );
+    });
+  };
+
+  // 네이버 블로그 검색 함수
+  const searchBlogReviews = async (keyword) => {
+    try {
+      console.log('📝 네이버 블로그 검색 시작:', keyword);
+      
+      // 네이버 블로그 검색 API 호출 (실제 구현 필요)
+      // 임시로 더미 데이터 반환
+      const dummyReviews = [
+        {
+          title: `${keyword} 맛집 후기`,
+          content: `${keyword}에 다녀왔습니다. 정말 맛있었습니다!`,
+          author: 'food_lover',
+          date: '2024-01-15'
+        },
+        {
+          title: `${keyword} 재방문 의사 100%`,
+          content: '분위기도 좋고 음식도 맛있어서 자주 가게 됩니다.',
+          author: 'restaurant_critic',
+          date: '2024-01-10'
+        }
+      ];
+      
+      console.log('📝 네이버 블로그 검색 결과:', dummyReviews.length);
+      return dummyReviews;
+    } catch (error) {
+      console.error('📝 네이버 블로그 검색 오류:', error);
+      return [];
+    }
+  };
+
+  const searchMapBars = async (keyword) => {
+    return new Promise((resolve) => {
+      if (!window.kakao?.maps?.services || !mapRef.current) {
+        console.error('❌ searchMapBars: 카카오 API 또는 맵 레퍼런스 없음');
+        resolve([]);
+        return;
+      }
+
+      const ps = new window.kakao.maps.services.Places();
+      
+      // 현재 지도 영역 가져오기
+      const mapBounds = mapRef.current.getBounds();
+      if (!mapBounds) {
+        console.error('❌ searchMapBars: 지도 영역 없음');
+        resolve([]);
+        return;
+      }
+
+      console.log('🗺️ searchMapBars 호출:', keyword);
+      console.log('🗺️ 카카오 API 상태:', !!window.kakao?.maps);
+      console.log('🗺️ 맵 레퍼런스 상태:', !!mapRef.current);
+
+      ps.keywordSearch(
+        keyword, // 전달받은 키워드 그대로 사용
+        (data, status) => {
+          console.log('🗺️ 카카오 검색 응답:', { status, dataLength: data?.length });
+          
+          if (status === window.kakao.maps.services.Status.OK) {
+            let mapPlaces;
+            
+            // 지역명이 포함된 검색어는 지도 영역 필터링 없음
+            if (keyword.includes('역') || keyword.includes('동') || keyword.includes('구') || keyword.includes('대로') || keyword.includes('로') || keyword.includes('거리') || keyword.includes('시장')) {
+              // 지역명 검색은 필터링 없음
+              mapPlaces = data.map(place => ({
+                ...place,
+                distance: 0
+              }));
+              console.log(`🗺️ ${keyword} 지역명 검색 결과 (필터링 없음):`, mapPlaces.length);
+            } else {
+              // 일반 검색은 지도 영역 필터링
+              mapPlaces = data.filter(place => {
+                const placeLatLng = new window.kakao.maps.LatLng(place.y, place.x);
+                return mapBounds.contain(placeLatLng);
+              }).map(place => ({
+                ...place,
+                distance: 0 // 전체 검색이므로 거리 정보 없음
+              }));
+              console.log(`🗺️ ${keyword} 범용 검색 결과 (지도 영역 필터링 후):`, mapPlaces.length);
+            }
+            
+            console.log('🗺️ 최종 mapPlaces:', mapPlaces);
+            resolve(mapPlaces);
+          } else {
+            console.log(`🗺️ ${keyword} 검색 결과 없음:`, status);
+            resolve([]);
+          }
+        },
+        {
+          category_group_code: 'FD6', // 음식점
+          // 현재 지도 영역으로 검색 범위 제한
+          bounds: mapBounds,
+          sort: window.kakao.maps.services.SortBy.ACCURACY
+        }
+      );
+    });
+  };
+
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // 지구 반지름 (km)
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c * 1000; // 미터로 변환
+  };
+
+  const calculateLocalAIScores = (places, keyword, userLocation = null) => {
+    return places.map(place => {
+      let score = 0;
+      
+      // 거리 점수 (위치기반 검색만 적용)
+      if (userLocation && place.distance > 0) {
+        score += Math.max(0, 50 - place.distance / 16);
+      }
+      
+      // 카테고리 매칭 점수
+      if (keyword.includes('술집') || keyword.includes('포차') || keyword.includes('바')) {
+        score += 15;
+      }
+      
+      // 분위기 매칭 점수 (키워드 기반)
+      if (keyword.includes('조용') && place.category_name.includes('바')) score += 10;
+      if (keyword.includes('활기') && place.category_name.includes('호프')) score += 10;
+      if (keyword.includes('이국') && place.category_name.includes('펍')) score += 10;
+      
+      // 2차 술집 매칭
+      if (keyword.includes('2차') || keyword.includes('이차')) {
+        score += 20;
+      }
+      
+      // 걸어갈 만한 거리 보너스 (위치기반 검색만 적용)
+      if (userLocation && place.distance > 0 && place.distance <= 500) {
+        score += 15;
+      }
+
+      // 장소 이름 기반 점수
+      if (place.place_name.includes('포차') || place.place_name.includes('바')) {
+        score += 5;
+      }
+
+      return {
+        ...place,
+        aiScore: Math.round(score),
+        recommendation: getLocalRecommendationReason(score, keyword, place, userLocation),
+        estimatedCapacity: 20,
+        atmosphere: getAtmosphereFromCategory(place.category_name),
+        id: `local_${place.id}`,
+        isExternal: true
+      };
+    }).sort((a, b) => b.aiScore - a.aiScore).slice(0, 5);
+  };
+
+  const getAtmosphereFromCategory = (category) => {
+    if (category.includes('바') || category.includes('펍')) return '조용한';
+    if (category.includes('호프') || category.includes('주점')) return '활기찬';
+    if (category.includes('포차') || category.includes('선술집')) return '전통적인';
+    return '일반적인';
+  };
+
+  const getLocalRecommendationReason = (score, keyword, place, userLocation = null) => {
+    const reasons = [];
+    
+    // 거리 기반 추천 (위치기반 검색만 적용)
+    if (userLocation && place.distance > 0) {
+      if (place.distance <= 300) reasons.push('도보 5분 거리');
+      if (place.distance <= 500) reasons.push('도보 10분 거리');
+    }
+    
+    // 카테고리 기반 추천
+    if (place.category_name.includes('포차')) reasons.push('전통적인 분위기');
+    if (place.category_name.includes('바')) reasons.push('조용한 분위기');
+    if (place.category_name.includes('호프')) reasons.push('활기찬 분위기');
+    
+    // 키워드 기반 추천
+    if (keyword.includes('2차') || keyword.includes('이차')) reasons.push('2차 술집 추천');
+    
+    // 전체 지도 검색의 경우
+    if (!userLocation || place.distance === 0) {
+      reasons.push('지도 전체 검색');
+    }
+    
+    return reasons.length > 0 ? reasons.join(', ') : 'AI 추천 장소';
+  };
+
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showPlaceDetail, setShowPlaceDetail] = useState(false); // 장소 상세 표시 상태
   const [isCurator, setIsCurator] = useState(false);
   const curatorWelcomeRef = useRef(false); // 큐레이터 상태 변화 감지용 ref
   const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
@@ -77,6 +415,7 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [loadingDots, setLoadingDots] = useState(".");
+  const [isLocationBasedSearch, setIsLocationBasedSearch] = useState(false); // 위치기반 검색 여부
 
   const [legendCategory, setLegendCategory] = useState(null);
 
@@ -950,77 +1289,222 @@ const handleClearSearch = () => {
     const nextQuery = value.trim();
 
     setQuery(nextQuery);
+    
+    // 검색 시작 시 모든 상태 초기화
+    setIsLocationBasedSearch(false);
     setSelectedPlace(null);
     setAiError("");
     setAiSummary("");
     setAiReasons([]);
     setAiRecommendedIds([]);
     setAiSheetOpen(false);
+    
+    // 이전 검색 결과 강제 초기화
+    setExternalPlaces([]);
+    setKakaoPlaces([]);
+    setBlogReviews([]);
+    
+    console.log('🧹 모든 검색 상태 초기화 완료');
 
     if (!nextQuery) return;
 
     try {
       setIsAiSearching(true);
 
-      const response = await fetch(`${AI_API_BASE_URL}/api/ai-search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: nextQuery,
-          places: [], // 빈 배열 전송 - 서버에서 네이버 API로 가져옴
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "AI 검색에 실패했습니다.");
-      }
-
-      console.log("🔍 AI 검색 결과:", data);
-      
-      // 외부 데이터가 있으면 설정
-      if (data.externalPlaces && Array.isArray(data.externalPlaces)) {
-        console.log("🔍 외부 데이터 설정:", data.externalPlaces.length, "개");
-        setExternalPlaces(data.externalPlaces);
-      }
-      
-      // 네이버 장소도 externalPlaces에 추가하여 리스트에 표시되도록 함
-      if (data.naverPlaces && Array.isArray(data.naverPlaces)) {
-        console.log('📍 네이버 장소 데이터:', data.naverPlaces);
-        setExternalPlaces(prev => [...prev, ...data.naverPlaces]);
-      }
-      
-      setAiSummary(data.summary || "");
-      setAiReasons(Array.isArray(data.reasons) ? data.reasons : []);
-      setAiRecommendedIds(
-        Array.isArray(data.recommendedPlaceIds) ? data.recommendedPlaceIds : []
-      );
-      setBlogReviews(Array.isArray(data.blogReviews) ? data.blogReviews : []); // 블로그 리뷰 저장
-      setAiSheetOpen(true);
-
-      // 네이버 장소 처리
-      if (data.naverPlaces && Array.isArray(data.naverPlaces)) {
-        console.log('📍 네이버 장소 데이터:', data.naverPlaces);
+      // 검색 모드에 따라 다르게 처리
+      if (isLocationBasedSearch) {
+        // 내 위치 중심 검색 (빨강 핀 클릭 후) - 위치 기반 검색
+        console.log("🔍 내 위치 중심 검색 시작:", nextQuery);
         
-        // 네이버 장소를 kakaoPlaces에 추가하여 지도에 마커 표시
-        setKakaoPlaces(prev => {
-          const newPlaces = data.naverPlaces.map(naverPlace => ({
-            ...naverPlace,
-            kakao_place_id: naverPlace.id,
-            isKakaoPlace: true,
-            isLive: true,
-            place_url: naverPlace.link
-          }));
-          const uniqueNewPlaces = newPlaces.filter((place) => !prev.some((p) => p.id === place.id));
-          return [...prev, ...uniqueNewPlaces];
-        });
+        // 1. 현재 위치 파악
+        const userLocation = await getCurrentUserLocation();
+        console.log('📍 사용자 현재 위치:', userLocation);
+
+        // 2. 카카오 지도에서 800m 이내 장소 검색 (위치 기반)
+        const nearbyPlaces = await searchNearbyBars(nextQuery, userLocation);
+        console.log('🍺 위치 기반 검색 결과:', nearbyPlaces);
+
+        // 3. AI 스코어링 (모든 검색에 동일하게 적용)
+        const scoredPlaces = calculateLocalAIScores(nearbyPlaces, nextQuery, userLocation);
+        console.log('🎯 AI 최종 추천:', scoredPlaces);
+
+        // 결과 설정
+        setExternalPlaces(scoredPlaces);
+        setAiSummary("주변 술집 AI 추천 목록");
+        setAiReasons(["거리 기반 추천", "카테고리 매칭", "사용자 키워드 분석"]);
+        setAiRecommendedIds(scoredPlaces.map(p => p.id));
+        setBlogReviews([]);
+        setAiSheetOpen(false); // 리스트 없이 바로 마커
+
+        // 지도에 바로 마커 표시
+        const kakaoFormattedPlaces = scoredPlaces.map(place => ({
+          ...place,
+          lat: parseFloat(place.y),
+          lng: parseFloat(place.x),
+          name: place.place_name,
+          place_name: place.place_name,
+          address_name: place.address_name || place.road_address_name,
+          category_name: place.category_name,
+          phone: place.phone || '',
+          id: place.id,
+          isExternal: true,
+          isLive: true,
+          kakao_place_id: place.id
+        }));
+        
+        setKakaoPlaces(kakaoFormattedPlaces);
+        
+      } else {
+        // 전체 지도 범용 검색 (바로 검색) - 미리보기 리스트 후 마커
+        console.log("🔍 전체 지도 범용 검색 시작:", nextQuery);
+
+        // 1. 키워드에서 지역명 추출 (언주역, 강남역, 동대문, 서울역, 삼성역, 을지로 등)
+        const locationPattern = /(\w+역|\w+동|\w+구|\w+대로|\w+로|\w+거리|\w+시장)/;
+        const match = nextQuery.match(locationPattern);
+        const locationName = match ? match[1] : null;
+        
+        // 동대문 특별 처리 - "동대문"이 포함되면 항상 동대문으로 인식
+        if (nextQuery.includes('동대문')) {
+          locationName = '동대문';
+        }
+        
+        console.log('🔍 추출된 지역명:', locationName);
+        console.log('🔍 원본 검색어:', nextQuery);
+        
+        // 2. 검색어에서 실제 키워드 추출 (해장국, 카페, 식당 등)
+        const businessPattern = /(\w+집|\w+당|\w+관|\w+점|\w+식|\w+당|\w+국|\w+면|\w+밥|\w+찌개|\w+탕|\w+전골|\w+카페|\w+빵|\w+케이크|\w+피자|\w+햄버거|\w+치킨|\w+파스타|\w+스테이크|\w+초밥|\w+돈까스|\w+라면|\w+김밥|\w+떡볶이|\w+순대|\w호떡|\w붕어빵|\w+타코|\w+샐러드|\w+스프|\w+커리|\w+짜장|\w+짬뽕|\w+볶음밥|\w+fried rice|\w+noodle|\w+soup|\w+cafe|\w+restaurant|\w+food|해장국|해장|순대국|부대찌개|김치찌개|된장찌개|갈비탕|삼계탕|뼈해장국|순두부|고등어|조개|꽁치|장어|회|초밥|돈까스|우동|라멘|국수|냉면|비빔국수|칼국수|잔치국수|만두|군만두|물만두|고기|불고기|갈비|삼겹살|목살|닭갈비|소갈비|돼지갈비|소고기|돼지고기|닭고기|생선|게|새우|게장|새우볶음|낙지|오징어|문어|전복|조개구이|고등어구이|갈치구이|꽁치구이|장어구이|닭구이|치킨|후라이드치킨|양념치킨|간장치킨|피자|파스타|스파게티|알리오올리오|봉골레|까르보나라|로제|토마토|크림|뇨끼|볶음밥|김치볶음밥|새우볶음밥|제육볶음|오징어볶음|낙지볶음|해물볶음|야채볶음|비빔밥|돌솥비빔밥|산채비빔밥|냉면|물냉면|비빔냉면|막국수|쫄면|칼국수|잔치국수|만두|군만두|물만두|고기|불고기|갈비|삼겹살|목살|닭갈비|소갈비|돼지갈비|소고기|돼지고기|닭고기|생선|게|새우|게장|새우볶음|낙지|오징어|문어|전복|조개구이|고등어구이|갈치구이|꽁치구이|장어구이|닭구이|치킨|후라이드치킨|양념치킨|간장치킨)/;
+        const businessMatch = nextQuery.match(businessPattern);
+        const businessKeyword = businessMatch ? businessMatch[1] : nextQuery.includes('해장') ? '해장국' : nextQuery.includes('술') || nextQuery.includes('바') || nextQuery.includes('포차') ? '술집' : '음식점';
+        
+        // 검색 키워드 결정
+        let searchKeyword;
+        if (locationName && businessKeyword) {
+          searchKeyword = `${locationName} ${businessKeyword}`;
+        } else if (locationName) {
+          searchKeyword = locationName;
+        } else if (businessKeyword) {
+          searchKeyword = businessKeyword;
+        } else {
+          searchKeyword = nextQuery;
+        }
+        
+        console.log('🔍 추출된 지역명:', locationName);
+        console.log('🔍 추출된 업종 키워드:', businessKeyword);
+        console.log('🔍 최종 검색 키워드:', searchKeyword);
+
+        // 2. 지역명으로 지도 이동 및 줌인
+        if (match && mapRef.current) {
+          try {
+            // 카카오 장소 검색으로 지역명 좌표 찾기
+            const ps = new window.kakao.maps.services.Places();
+            
+            await new Promise((resolve) => {
+              ps.keywordSearch(searchKeyword, (data, status) => {
+                if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
+                  const firstResult = data[0];
+                  const targetLocation = new window.kakao.maps.LatLng(firstResult.y, firstResult.x);
+                  
+                  // 지도 이동 및 줌인
+                  mapRef.current.moveToLocation(firstResult.y, firstResult.x);
+                  mapRef.current.setZoomLevel(3); // 상세 줌인
+                  
+                  console.log(`🗺️ ${searchKeyword}으로 지도 이동 및 줌인 완료`);
+                }
+                resolve(); // 항상 resolve 호출
+              });
+            });
+            
+            // 지도 이동 후 약간의 딜레이
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+          } catch (error) {
+            console.error('지역명 검색 실패:', error);
+          }
+        }
+
+        // 3. 카카오 키워드 검색 (줌인된 지도 영역 기반)
+        // 타이핑 시 자동완성과 동일한 검색어 사용
+        const mapPlaces = await searchMapBars(nextQuery);
+        console.log('🗺️ 전체 지도 검색 결과:', mapPlaces);
+
+        // 4. AI 스코어링 (모든 검색에 동일하게 적용)
+        const scoredPlaces = calculateLocalAIScores(mapPlaces, nextQuery, null);
+        console.log('🎯 AI 최종 추천:', scoredPlaces);
+
+        // 결과 설정 (미리보기 리스트 + 실시간 마커)
+        setExternalPlaces(scoredPlaces);
+        setAiSummary(`${searchKeyword} 검색 결과`);
+        setAiReasons([`${searchKeyword} 지역 검색`, `지도 이동 및 줌인`]);
+        setAiRecommendedIds([]); // AI 추천 결과 카드 없음
+        setAiSheetOpen(false); // 엔터키 시 추천 목록 카드 사라짐
+
+        // 네이버 블로그 검색
+        const blogReviews = await searchBlogReviews(nextQuery);
+        setBlogReviews(blogReviews);
+
+        // 지도에도 실시간 마커 표시 + 지도 이동
+        const kakaoFormattedPlaces = scoredPlaces.map(place => ({
+          ...place,
+          lat: parseFloat(place.y),
+          lng: parseFloat(place.x),
+          name: place.place_name,
+          place_name: place.place_name,
+          address_name: place.address_name || place.road_address_name,
+          category_name: place.category_name,
+          phone: place.phone || '',
+          id: place.id,
+          isExternal: true,
+          isLive: true,
+          isKakaoPlace: true, // 카카오 기본 빨간 핀 마커 사용
+          kakao_place_id: place.id
+        }));
+        
+        setKakaoPlaces(kakaoFormattedPlaces);
+        
+        // 검색 결과가 있으면 지도 이동
+        if (kakaoFormattedPlaces.length > 0 && mapRef.current) {
+          const firstPlace = kakaoFormattedPlaces[0];
+          
+          // 카카오 API 확인
+          if (!window.kakao || !window.kakao.maps) {
+            console.error('❌ 카카오 맵 API가 로드되지 않았습니다!');
+            return;
+          }
+          
+          console.log('✅ 카카오 맵 API 확인:', window.kakao.maps);
+          console.log('🗺️ 지도 이동 시도:', firstPlace.name, firstPlace.lat, firstPlace.lng);
+          console.log('🔍 네이버 연결 상태: 끊김 (블로그 리뷰 없음)');
+          
+          try {
+            // 직접 좌표로 이동 테스트
+            const targetPosition = new window.kakao.maps.LatLng(firstPlace.lat, firstPlace.lng);
+            mapRef.current.panTo(targetPosition);
+            mapRef.current.setZoomLevel(4); // 마커들이 잘 보이는 줌 레벨
+            console.log(`🗺️ 검색 결과로 지도 이동 성공: ${firstPlace.name}`);
+          } catch (error) {
+            console.error('❌ 지도 이동 실패:', error);
+            console.log('🔄 대체 시도: moveToLocation 사용');
+            try {
+              mapRef.current.moveToLocation(firstPlace.lat, firstPlace.lng);
+              mapRef.current.setZoomLevel(4); // 마커들이 잘 보이는 줌 레벨
+              console.log(`🗺️ 대체 이동 성공: ${firstPlace.name}`);
+            } catch (error2) {
+              console.error('❌ 대체 이동도 실패:', error2);
+            }
+          }
+        } else {
+          console.log('⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:', {
+            hasPlaces: kakaoFormattedPlaces.length > 0,
+            hasMapRef: !!mapRef.current,
+            kakaoApi: !!window.kakao?.maps,
+            firstPlace: kakaoFormattedPlaces.length > 0 ? kakaoFormattedPlaces[0] : null
+          });
+        }
       }
+
     } catch (error) {
-      console.error("❌ AI 검색 실패:", error);
-      setAiError("검색 중 오류가 발생했습니다. 다시 시도해주세요.");
+      console.error("AI 검색 오류:", error);
+      alert(error?.message || "AI 검색에 실패했습니다.");
     } finally {
       setIsAiSearching(false);
     }
@@ -1494,11 +1978,22 @@ const handleClearSearch = () => {
                 onSubmit={handleSearchSubmit}
                 onClear={handleClearSearch}
                 onExampleClick={handleSearchSubmit}
-                placeholder="AI 검색: 강남역 근처 혼술하기 좋은 바 찾아줘"
+                placeholder="AI 검색: 동대문 근처 고기 먹고 해산물 포차 갈까? 3명이야..."
                 isLoading={isAiSearching}
                 mapRef={mapRef}
                 showKakaoSearch={true}
                 onKakaoPlaceSelect={handleKakaoPlaceSelect}
+                onRealTimeSearch={(value) => {
+                  // AI 실시간 검색 기능 추가
+                  if (value.trim()) {
+                    console.log('🤖 AI 실시간 검색:', value);
+                    // 여기에 AI 검색 로직 추가
+                  }
+                }}
+                onLocationModeChange={(isLocationBased) => {
+                  setIsLocationBasedSearch(isLocationBased);
+                  console.log('🔍 위치기반 검색 모드:', isLocationBased);
+                }}
                 rightActions={
                   <div style={styles.authRowInline}>
                     {/* 모든 사용자 @아이디 버튼 */}
@@ -1626,7 +2121,29 @@ const handleClearSearch = () => {
                   ...styles.aiPeekBar,
                   opacity: isAiSearching ? 0.92 : 1,
                 }}
-                onClick={() => setAiSheetOpen((prev) => !prev)}
+                onClick={() => {
+  // 카드는 닫지 않고 지도에 마커만 추가
+  // 현재 displayedPlaces를 지도 마커로 변환
+  if (displayedPlaces.length > 0) {
+    const kakaoFormattedPlaces = displayedPlaces.map(place => ({
+      ...place,
+      lat: parseFloat(place.y || place.lat),
+      lng: parseFloat(place.x || place.lng),
+      name: place.name || place.place_name,
+      place_name: place.place_name,
+      address_name: place.address_name || place.road_address_name,
+      category_name: place.category_name,
+      phone: place.phone || '',
+      id: place.id,
+      isExternal: true,
+      isLive: true,
+      kakao_place_id: place.id
+    }));
+    
+    console.log('🗺️ 카드 결과를 지도 마커로 변환:', kakaoFormattedPlaces);
+    setKakaoPlaces(kakaoFormattedPlaces);
+  }
+}}
               >
                 <div style={styles.aiPeekLeft}>
                   <span style={styles.aiPeekBadge}>AI</span>
@@ -1680,11 +2197,11 @@ const handleClearSearch = () => {
 
                           <div style={styles.aiSheetMain}>
                             <div style={styles.aiSheetNameRow}>
-                              <span style={styles.aiSheetName}>{place.name}</span>
+                              <span style={styles.aiSheetName}>{place.name || place.place_name || '알 수 없는 장소'}</span>
                             </div>
 
                             <div style={styles.aiSheetMeta}>
-                              {place.address}
+                              {place.address || place.address_name || '주소 정보 없음'}
                             </div>
 
                             {topReasonMap[place.id] ? (
