@@ -1,0 +1,63 @@
+/* 동글 스크롤바 스타일 - 반응형 */
+.search-results-container::-webkit-scrollbar {
+  width: 6px !important; /* 스크롤바 너비 */
+}
+
+.search-results-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05) !important; /* 트랙 배경 */
+  border-radius: 3px !important; /* 동글하게 */
+}
+
+.search-results-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3) !important; /* 스크롤바 색상 */
+  border-radius: 3px !important; /* 동글하게 */
+}
+
+.search-results-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5) !important; /* 호버 시 밝아짐 */
+}
+
+/* 모바일에서는 스크롤바 좀 더 크게 */
+@media (max-width: 768px) {
+  .search-results-container::-webkit-scrollbar {
+    width: 8px !important; /* 모바일에서는 더 넓게 */
+  }
+  
+  .search-results-container::-webkit-scrollbar-track {
+    border-radius: 4px !important;
+  }
+  
+  .search-results-container::-webkit-scrollbar-thumb {
+    border-radius: 4px !important;
+  }
+}
+
+/* ID 선택자도 함께 사용 */
+div[id="search-results-sheet"].search-results-container::-webkit-scrollbar {
+  width: 6px !important;
+}
+
+div[id="search-results-sheet"].search-results-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 3px !important;
+}
+
+div[id="search-results-sheet"].search-results-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-radius: 3px !important;
+}
+
+div[id="search-results-sheet"].search-results-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Firefox용 스크롤바 */
+.search-results-container {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.05) !important;
+}
+
+div[id="search-results-sheet"].search-results-container {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.05) !important;
+}

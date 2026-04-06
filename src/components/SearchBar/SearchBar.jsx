@@ -196,8 +196,7 @@ export default function SearchBar({
   };
 
   const handleKeyDown = (event) => {
-    console.log('🔑 키 눌림:', event.key); // 디버깅용
-    
+    // 키보드 네비게이션 기능 취소
     if (event.key === "Enter") {
       event.preventDefault();
       console.log('🔑 Enter 키 감지!'); // 디버깅용
@@ -207,34 +206,8 @@ export default function SearchBar({
       setShowKakaoResults(false);
       setSelectedKakaoIndex(-1);
       
-      // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
-      if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
-        const selectedPlace = kakaoResults[selectedKakaoIndex];
-        handleKakaoPlaceSelect(selectedPlace);
-      } else {
-        // 일반 AI 검색 실행 - 지도에 마커만 표시
-        handleSubmit();
-      }
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      
-      if (showKakaoResults && kakaoResults.length > 0) {
-        // 아래 화살표: 다음 항목 선택
-        const newIndex = Math.min(selectedKakaoIndex + 1, kakaoResults.length - 1);
-        setSelectedKakaoIndex(newIndex);
-      }
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      
-      if (showKakaoResults && kakaoResults.length > 0) {
-        // 위 화살표: 이전 항목 선택
-        const newIndex = Math.max(selectedKakaoIndex - 1, -1);
-        setSelectedKakaoIndex(newIndex);
-      }
-    } else if (event.key === "Escape") {
-      // ESC 키: 검색 결과 닫기
-      setShowKakaoResults(false);
-      setSelectedKakaoIndex(-1);
+      // 일반 AI 검색 실행 - 지도에 마커만 표시
+      handleSubmit();
     }
   };
 
@@ -352,7 +325,10 @@ export default function SearchBar({
         )}
       </AnimatePresence>
 
-      <div style={styles.searchWrap}>
+      <div style={{
+        ...styles.searchWrap,
+        borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px" // 바텀시트 있을 때만 상단 각지게
+      }}>
         <motion.button
           type="button"
           onClick={handleSubmit}
@@ -487,7 +463,7 @@ const styles = {
     height: "50px",
     border: "1px solid rgba(255,255,255,0.08)",
     backgroundColor: "rgba(18, 19, 18, 0.94)",
-    borderRadius: "16px",
+    borderRadius: "0 0 16px 16px", // 하단만 둥글게, 상단은 각지게
     display: "flex",
     alignItems: "center",
     gap: "8px",
