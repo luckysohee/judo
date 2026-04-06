@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import ContextTags from './ContextTags';
 import { InitialState, TypingState, SearchCompleteState } from './SearchStates';
+import { parseNaturalQuery, POPULAR_TAGS } from '../../utils/naturalLanguageParser';
 
 export default function SearchBar({
   query,
@@ -133,19 +134,53 @@ export default function SearchBar({
       
       onSubmit(query);
       
-      // 필터 칩 생성 (검색어 분석)
+      // 룰 기반 필터 칩 생성
+      const parsedQuery = parseNaturalQuery(query);
       const filters = [];
-      if (query.includes('뒷풀이') || query.includes('회식')) {
-        filters.push({ icon: '🎉', label: '뒷풀이', type: 'context' });
+      
+      // 지역 필터
+      if (parsedQuery.region) {
+        filters.push({ icon: '📍', label: parsedQuery.region, type: 'region' });
       }
-      if (query.includes('데이트') || query.includes('연인')) {
-        filters.push({ icon: '💕', label: '데이트', type: 'context' });
+      
+      // 주종 필터  
+      if (parsedQuery.alcohol) {
+        const alcoholIcons = {
+          '소주': '🥃', '맥주': '🍺', '와인': '🍷', '양주': '🥃', 
+          '사케': '🍶', '하이볼': '🍹', '막걸리': '🍶', '칵테일': '🍹'
+        };
+        const icon = alcoholIcons[parsedQuery.alcohol] || '🍷';
+        filters.push({ icon, label: parsedQuery.alcohol, type: 'alcohol' });
       }
-      if (query.includes('혼술') || query.includes('혼자')) {
-        filters.push({ icon: '🍶', label: '혼술', type: 'context' });
+      
+      // 분위기 필터
+      if (parsedQuery.vibe) {
+        const vibeIcons = {
+          '조용한': '🤫', '활기찬': '🎉', '이국적인': '🌍', '감성적인': '✨',
+          '트렌디한': '🔥', '클래식한': '🎩', '락바': '🎸', '재즈': '🎺'
+        };
+        const icon = vibeIcons[parsedQuery.vibe] || '🎭';
+        filters.push({ icon, label: parsedQuery.vibe, type: 'vibe' });
       }
-      if (query.includes('해장') || query.includes('숙취')) {
-        filters.push({ icon: '💊', label: '해장', type: 'context' });
+      
+      // 상황 필터
+      if (parsedQuery.purpose) {
+        const purposeIcons = {
+          '뒷풀이': '🎉', '데이트': '💕', '혼술': '🍶', '해장': '💊',
+          '회식': '👥', '생일': '🎂', '기념일': '🎊', '2차': '🌃'
+        };
+        const icon = purposeIcons[parsedQuery.purpose] || '🎯';
+        filters.push({ icon, label: parsedQuery.purpose, type: 'purpose' });
+      }
+      
+      // 음식 필터
+      if (parsedQuery.food) {
+        const foodIcons = {
+          '고기': '🥩', '해산물': '🦐', '치킨': '🍗', '피자': '🍕',
+          '패스트푸드': '🍔', '아시안': '🥢', '양식': '🍝', '한식': '🍚'
+        };
+        const icon = foodIcons[parsedQuery.food] || '🍽️';
+        filters.push({ icon, label: parsedQuery.food, type: 'food' });
       }
       
       setAppliedFilters(filters);
@@ -310,10 +345,12 @@ export default function SearchBar({
                 style={{
                   ...styles.suggestionItem,
                   textAlign: 'left',
-                  padding: '12px',
+                  padding: '16px',
                   backgroundColor: selectedKakaoIndex === index ? '#2c3e50' : 'transparent',
                   border: selectedKakaoIndex === index ? '1px solid #3498db' : '1px solid transparent',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  borderRadius: '12px',
+                  margin: '4px 8px'
                 }}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -321,36 +358,112 @@ export default function SearchBar({
                 whileHover={{ backgroundColor: '#34495e', x: 5 }}
                 whileTap={{ scale: 0.98 }}
               >
-              <div style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#fff',
-                marginBottom: '4px'
-              }}>
-                {place.place_name}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#999',
-                marginBottom: '2px'
-              }}>
-                {place.road_address_name || place.address_name}
-              </div>
-              <div style={{
-                fontSize: '11px',
-                color: '#666',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <span>{place.category_name}</span>
-                {place.distance && <span>• {Math.round(place.distance)}m</span>}
-              </div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px'
+                }}>
+                  {/* 장소 아이콘 */}
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <span style={{ fontSize: '18px' }}>📍</span>
+                  </div>
+                  
+                  {/* 장소 정보 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: '15px',
+                      fontWeight: '700',
+                      color: '#fff',
+                      marginBottom: '6px',
+                      lineHeight: '1.2'
+                    }}>
+                      {place.place_name}
+                    </div>
+                    <div style={{
+                      fontSize: '13px',
+                      color: '#bdc3c7',
+                      marginBottom: '4px',
+                      lineHeight: '1.3',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span>🏠</span>
+                      <span>{place.road_address_name || place.address_name}</span>
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#95a5a6',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      flexWrap: 'wrap'
+                    }}>
+                      <span style={{
+                        background: 'rgba(52, 152, 219, 0.2)',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        color: '#3498db'
+                      }}>
+                        {place.category_name}
+                      </span>
+                      {place.distance && (
+                        <span style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <span>🚶</span>
+                          <span>{Math.round(place.distance)}m</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </motion.button>
             ))}
           </motion.div>
         )}
       </AnimatePresence>
+
+// ...
+      {/* 인기 태그 */}
+      {!query && !isSearching && (
+        <div style={styles.exampleRow}>
+          {POPULAR_TAGS.slice(0, 5).map((tag, index) => (
+            <motion.button
+              key={tag.label}
+              type="button"
+              onClick={() => {
+                setQuery(tag.query);
+                onSubmit(tag.query);
+              }}
+              style={styles.exampleChip}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: index * 0.1 }}
+              whileHover={{ 
+                backgroundColor: "rgba(255,255,255,0.15)",
+                y: -2,
+                transition: { duration: 0.2 }
+              }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <span style={{ marginRight: '4px' }}>{tag.icon}</span>
+              {tag.label}
+            </motion.button>
+          ))}
+        </div>
+      )}
 
       <div style={styles.searchWrap}>
         <motion.button
