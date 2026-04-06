@@ -171,8 +171,12 @@ const CheckInToast = () => {
     }
   };
 
-  // 테스트용 시뮬레이션 (실제 체크인이 없을 때만)
+  // 테스트용 시뮬레이션 (실제 체크인이 없을 때만) - 비활성화
   useEffect(() => {
+    // 테스트 기능 비활성화 - 실제 체크인만 사용
+    return;
+    
+    /*
     // 실제 체크인이 없으면 테스트 데이터 표시
     if (recentCheckins.length === 0) {
       // 가끔 여러 명이 동시에 체크인하는 시나리오 추가
@@ -286,6 +290,7 @@ const CheckInToast = () => {
       
       return () => clearInterval(interval);
     }
+    */
   }, [recentCheckins]);
 
   // 실제 체크인 데이터 처리

@@ -31,8 +31,12 @@ export default function PlacePreviewCard({
   const userRole = getUserRole?.() || "user";
   const isCurator = userRole === "curator" || userRole === "admin";
 
-  // place_id가 있으면 카카오 API 호출
+  // place_id가 있으면 카카오 API 호출 (임시 비활성화)
   useEffect(() => {
+    // 카카오 API 호출 비활성화 - 지연 로딩으로 변경
+    return;
+    
+    /*
     console.log('🔍 useEffect 실행:', {
       place_id: place.place_id,
       isKakaoPlace: place.isKakaoPlace,
@@ -57,17 +61,18 @@ export default function PlacePreviewCard({
           console.error('❌ 카카오 장소 정보 로딩 실패 (JSONP):', error);
           // 에러 발생 시 기본 정보라도 표시
           setKakaoDetails({
-            place_name: place.name,
-            address: place.address,
-            phone: place.contact,
-            category_name: '정보 없음'
+            place_name: place.name || '알 수 없는 장소',
+            address_name: place.address || '주소 정보 없음',
+            phone: place.phone || '전화번호 정보 없음',
+            category_name: place.category || '분류 정보 없음'
           });
         })
         .finally(() => {
           setIsLoadingKakao(false);
         });
     }
-  }, [place.place_id, place.isKakaoPlace, kakaoDetails]);
+    */
+  }, [place.place_id, place.isKakaoPlace, kakaoDetails, place]);
 
   // 카카오 장소 카테고리 정제
   const cleanCategory = (categoryName) => {
