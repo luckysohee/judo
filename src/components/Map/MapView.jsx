@@ -74,42 +74,10 @@ const MapView = forwardRef(({
     return targetKeywords.some(keyword => categoryName.includes(keyword));
   };
 
-  // 타겟 장소를 Supabase에 자동 저장
+  // 카카오 장소 정보만 표시하고 저장하지 않음 (일회성 검색용)
   const saveTargetPlaceToSupabase = async (place) => {
-    try {
-      const { supabase } = await import("../../lib/supabase");
-      
-      // places 테이블에 upsert
-      const { data: savedPlace, error: placeError } = await supabase
-        .from('places')
-        .upsert({
-          kakao_place_id: place.id,
-          name: place.place_name,
-          address: place.road_address_name || place.address_name,
-          category: place.category_name,
-          phone: place.phone,
-          lat: place.y,
-          lng: place.x,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'kakao_place_id'
-        })
-        .select()
-        .single();
-
-      if (placeError) {
-        console.log('⚠️ 타겟 장소 저장 실패:', placeError.message);
-        return;
-      }
-
-      console.log('✅ 타겟 장소 자동 저장 성공:', savedPlace);
-      
-      // AI 학습을 위한 태그 추가 (나중에 활용)
-      // 여기에 추가적인 AI 학습 데이터 로직을 구현할 수 있음
-      
-    } catch (error) {
-      console.error('타겟 장소 저장 오류:', error);
-    }
+    console.log('📍 카카오 장소 정보 표시:', place.name);
+    // 일회성 검색용이므로 저장하지 않음
   };
 
   // 커스텀 오버레이 닫기
@@ -252,8 +220,9 @@ const MapView = forwardRef(({
     markersRef.current.forEach(m => m.setMap(null));
     if (clustererRef.current) clustererRef.current.clear();
     
-    console.log("🗺️ MapView places 데이터:", places);
-    console.log("🗺️ places.length:", places?.length);
+    // 디버깅 로그 제거 - 장소 데이터 전체 출력 방지
+    // console.log("🗺️ MapView places 데이터:", places);
+    // console.log("🗺️ places.length:", places?.length);
     
     if (!places?.length) return;
 
@@ -264,21 +233,22 @@ const MapView = forwardRef(({
     const validPlaces = places.filter(p => {
       const lat = p.lat || p.latitude;
       const lng = p.lng || p.longitude;
-      // 유효한 좌표만 필터링 (서울 지역 범위)
+      
       return lat && lng && lat >= 37.4 && lat <= 37.7 && lng >= 126.8 && lng <= 127.2;
     });
-
-    console.log("🗺️ 유효한 장소 수:", validPlaces.length, "/", places.length);
 
     const nextMarkers = validPlaces.map((p) => {
       // lat/lng 필드가 없으면 latitude/longitude 사용
       const lat = p.lat || p.latitude;
       const lng = p.lng || p.longitude;
       
-      console.log("📍 마커 데이터:", { id: p.id, name: p.name, lat, lng });
+      // 디버깅 로그 제거 - 200개 장소가 전부 찍히는 문제 해결
+      // console.log("📍 마커 데이터:", { id: p.id, name: p.name, lat, lng });
       
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
-      const shouldCluster = Boolean(clustererRef.current) && !isLive;
+      // 검색 결과가 있으면 클러스터러 비활성화
+      const hasSearchResults = places.some(p => p.isKakaoPlace);
+      const shouldCluster = false; // 일단 전체 비활성화로 테스트
 
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,

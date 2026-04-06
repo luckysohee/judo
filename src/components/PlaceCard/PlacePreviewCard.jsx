@@ -27,7 +27,10 @@ export default function PlacePreviewCard({
   console.log("🔍 isKakaoPlace:", place.isKakaoPlace);
   console.log("🔍 place_id:", place.place_id);
   
-  const isKakaoPlace = place.isKakaoPlace || false;
+  // isKakaoPlace 판별 로직 개선
+  const isKakaoPlace = place.isKakaoPlace || 
+                        (place.kakao_place_id && place.kakao_place_id.startsWith('kakao_')) ||
+                        (place.id && place.id.toString().length > 10) || false;
   const userRole = getUserRole?.() || "user";
   const isCurator = userRole === "curator" || userRole === "admin";
 
@@ -166,11 +169,17 @@ export default function PlacePreviewCard({
         
         if (user) {
           // 잔 채우기 테이블에 저장 (curator_places 테이블)
+          // UUID 형식으로 place_id 변환
+          let placeId = place.id;
+          if (!placeId || placeId.startsWith('local_')) {
+            placeId = `uuid_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          }
+          
           const { error } = await supabase
             .from('curator_places')
             .insert({
               curator_id: user.id,
-              place_id: place.id
+              place_id: placeId
             });
             
           if (error) {

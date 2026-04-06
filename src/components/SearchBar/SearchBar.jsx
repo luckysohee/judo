@@ -207,10 +207,10 @@ export default function SearchBar({
       setShowKakaoResults(false);
       setSelectedKakaoIndex(-1);
       
-      // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
-      if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
-        const selectedPlace = kakaoResults[selectedKakaoIndex];
-        handleKakaoPlaceSelect(selectedPlace);
+      // 카카오 검색 결과가 표시되면 모든 마커가 보이는 지도로 이동
+      if (showKakaoResults && kakaoResults.length > 0) {
+        // 모든 검색 결과를 지도에 표시하고 적절한 위치로 이동
+        handleSubmit(); // AI 검색 실행으로 모든 마커 표시
       } else {
         // 일반 AI 검색 실행 - 지도에 마커만 표시
         handleSubmit();

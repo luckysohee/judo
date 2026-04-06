@@ -38,24 +38,40 @@ const TypingState = ({
 
     {/* 장소명 자동완성 */}
     {kakaoResults.length > 0 && (
-      <div className="p-3 bg-white/80 backdrop-blur-md rounded-xl shadow-lg border border-white/20 ring-1 ring-black/5">
-        <div className="text-xs text-gray-600 mb-2 font-medium">📍 장소 검색 결과</div>
-        {kakaoResults.map((place, index) => (
-          <button
-            key={place.id}
-            onClick={() => onKakaoPlaceClick(place)}
-            className={`
-              w-full text-left px-3 py-2 rounded-lg text-sm transition-all duration-200
-              ${selectedKakaoIndex === index 
-                ? 'bg-blue-50/80 text-blue-700 border border-blue-200/50 backdrop-blur-sm' 
-                : 'hover:bg-gray-50/50 text-gray-700 hover:translate-x-1'
-              }
-            `}
-          >
-            <div className="font-medium">{place.place_name}</div>
-            <div className="text-xs text-gray-500 truncate">{place.road_address_name || place.address_name}</div>
-          </button>
-        ))}
+      <div className="absolute top-full left-0 right-0 mt-0 w-full bg-black/85 backdrop-blur-2xl border border-white/30 rounded-b-lg shadow-2xl shadow-black/60 z-50">
+        <div className="border-b border-white/20">
+          <div className="px-4 py-2 bg-black/70 border-b border-white/20">
+            <div className="text-xs font-medium text-white/90">📍 장소 검색 결과 ({kakaoResults.length}개)</div>
+          </div>
+        </div>
+        <div className="max-h-48 overflow-y-auto">
+          {kakaoResults.map((place, index) => (
+            <div
+              key={place.id}
+              className={`
+                w-full px-4 py-2 border-b border-white/15 last:border-b-0 transition-all duration-200 cursor-pointer
+                ${selectedKakaoIndex === index 
+                  ? 'bg-white/25 border-l-4 border-l-white/70 backdrop-blur-sm' 
+                  : 'hover:bg-white/15 border-l-4 border-l-transparent hover:backdrop-blur-sm'
+                }
+              `}
+              onClick={() => onKakaoPlaceClick(place)}
+            >
+              <div className="text-sm">
+                <span className={`font-medium ${
+                  selectedKakaoIndex === index ? 'text-white' : 'text-white/95'
+                }`}>
+                  {index + 1}. {place.place_name}
+                </span>
+                {place.road_address_name || place.address_name ? (
+                  <span className="text-white/70 ml-2">
+                    ({place.road_address_name || place.address_name})
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )}
 
