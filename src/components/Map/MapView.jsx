@@ -44,18 +44,19 @@ const MapView = forwardRef(({
   savedColorMap,
   livePlaceIds,
   onCurrentLocationChange,
-  center, // center prop 추가
-  userFolders, // 사용자 폴더 정보 추가
-  onQuickSave, // 쾌속 잔 채우기 핸들러 추가
-  userRole, // 사용자 역할 추가
-  onSave, // 일반 사용자 저장 핸들러 추가
-  savedFolders, // 저장된 폴더 정보 추가
-  userSavedPlaces, // 사용자 저장 장소 정보 추가
+  center,
+  userFolders,
+  onQuickSave,
+  userRole,
+  onSave,
+  savedFolders,
+  userSavedPlaces,
+  onLocationButtonClick,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const [overlayPlace, setOverlayPlace] = useState(null); // 커스텀 오버레이에 표시할 장소
-  const overlayRef = useRef(null); // 커스텀 오버레이 DOM 참조
+  const [overlayPlace, setOverlayPlace] = useState(null);
+  const overlayRef = useRef(null);
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
   const ignoreMapClickRef = useRef(false);
@@ -66,6 +67,11 @@ const MapView = forwardRef(({
   const prevPlacesRef = useRef([]);
 
   const [mapReady, setMapReady] = useState(false);
+  
+  // 현재 위치 마커 상태
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const currentLocationMarkerRef = useRef(null);
+  const [isLocating, setIsLocating] = useState(false);
 
   // 특정 키워드가 포함된 카테고리 확인
   const isTargetCategory = (categoryName) => {
@@ -125,6 +131,131 @@ const MapView = forwardRef(({
     }
   };
   const [mapError, setMapError] = useState("");
+
+  // 현재 위치 마커 업데이트
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !currentLocation) return;
+
+    // 기존 마커 제거
+    if (currentLocationMarkerRef.current) {
+      currentLocationMarkerRef.current.setMap(null);
+    }
+
+    // 새 현재 위치 마커 생성 (파란색 점)
+    const markerContent = document.createElement('div');
+    markerContent.innerHTML = `
+      <div style="
+        width: 16px;
+        height: 16px;
+        background: #4285F4;
+        border: 3px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        position: relative;
+      ">
+        <div style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 8px;
+          height: 8px;
+          background: white;
+          border-radius: 50%;
+        "></div>
+      </div>
+    `;
+
+    const position = new window.kakao.maps.LatLng(currentLocation.lat, currentLocation.lng);
+    
+    const marker = new window.kakao.maps.CustomOverlay({
+      position: position,
+      content: markerContent,
+      yAnchor: 0.5,
+      xAnchor: 0.5,
+      zIndex: 100
+    });
+
+    marker.setMap(mapRef.current);
+    currentLocationMarkerRef.current = marker;
+
+    // 위치 변경 콜백 호출
+    if (onCurrentLocationChange) {
+      onCurrentLocationChange(currentLocation);
+    }
+  }, [currentLocation, mapReady]);
+
+  // 내 위치 버튼 핸들러
+  const handleGetCurrentLocation = () => {
+    console.log('📍 내 위치 버튼 클릭');
+    
+    // 부모 컴포넌트에서 로그인 체크 등을 처리할 수 있도록 콜백 호출
+    if (onLocationButtonClick) {
+      const prevented = onLocationButtonClick();
+      console.log('📍 onLocationButtonClick 결과:', prevented);
+      if (prevented) return;
+    }
+
+    if (!navigator.geolocation) {
+      alert("이 브라우저에서는 위치 정보를 지원하지 않습니다.");
+      return;
+    }
+
+    setIsLocating(true);
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const newLocation = { lat: latitude, lng: longitude };
+        
+        console.log('📍 위치 가져오기 성공:', newLocation);
+        console.log('📍 mapRef.current:', mapRef.current);
+        console.log('📍 mapReady:', mapReady);
+        
+        setCurrentLocation(newLocation);
+        
+        // 지도 중심 이동
+        if (mapRef.current && mapReady) {
+          try {
+            const target = new window.kakao.maps.LatLng(latitude, longitude);
+            console.log('📍 지도 이동 시작:', target);
+            mapRef.current.panTo(target);
+            mapRef.current.setLevel(4);
+            console.log('📍 지도 이동 완료');
+          } catch (error) {
+            console.error('📍 지도 이동 실패:', error);
+          }
+        } else {
+          console.log('📍 mapRef 또는 mapReady 없음:', { mapRef: mapRef.current, mapReady });
+        }
+        
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error('위치 가져오기 실패:', error);
+        setIsLocating(false);
+        
+        let errorMsg = "위치 정보를 가져올 수 없습니다.";
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMsg = "위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMsg = "위치 정보를 사용할 수 없습니다.";
+            break;
+          case error.TIMEOUT:
+            errorMsg = "위치 요청 시간이 초과되었습니다.";
+            break;
+        }
+        alert(errorMsg);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 300000
+      }
+    );
+  };
 
   useImperativeHandle(ref, () => ({
     moveToSeoulCenter: () => {
@@ -429,6 +560,26 @@ const MapView = forwardRef(({
         )}
       </div>
       
+      {/* 내 위치 버튼 */}
+      <button
+        onClick={handleGetCurrentLocation}
+        disabled={isLocating}
+        style={{
+          ...styles.locationButton,
+          opacity: isLocating ? 0.7 : 1,
+        }}
+        title="내 위치"
+      >
+        {isLocating ? (
+          <div style={styles.spinner} />
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+          </svg>
+        )}
+      </button>
+      
       {/* 커스텀 오버레이 */}
       {overlayPlace && (
         <div ref={overlayRef}>
@@ -436,10 +587,10 @@ const MapView = forwardRef(({
             place={overlayPlace}
             onClose={closeOverlay}
             onQuickSave={handleQuickSave}
-            userRole={userRole} // 사용자 역할 전달
-            onSave={onSave} // 일반 사용자 저장 핸들러
-            savedFolders={savedFolders} // 저장된 폴더 정보
-            userSavedPlaces={userSavedPlaces} // 사용자 저장 장소 정보
+            userRole={userRole}
+            onSave={onSave}
+            savedFolders={savedFolders}
+            userSavedPlaces={userSavedPlaces}
           />
         </div>
       )}
@@ -448,33 +599,59 @@ const MapView = forwardRef(({
 });
 
 const styles = {
-  mapOuter: { 
-    width: "100%", 
-    height: "100%", 
-    borderRadius: "0px", 
-    overflow: "hidden", 
-    backgroundColor: "#f0f0f0", 
+  mapOuter: {
+    width: "100%",
+    height: "100%",
+    borderRadius: "0px",
+    overflow: "hidden",
+    backgroundColor: "#f0f0f0",
     position: "relative",
     zIndex: 1
   },
-  mapInner: { 
-    width: "100%", 
+  mapInner: {
+    width: "100%",
     height: "100%",
-    backgroundColor: "#f0f0f0", 
+    backgroundColor: "#f0f0f0",
     position: "absolute",
     top: 0,
     left: 0,
     zIndex: 2
   },
-  errorBox: { 
-    width: "100%", 
-    height: "100%", 
-    display: "flex", 
-    alignItems: "center", 
-    justifyContent: "center", 
+  errorBox: {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     color: "#333",
     zIndex: 3
   },
+  locationButton: {
+    position: "absolute",
+    bottom: "20px",
+    right: "20px",
+    width: "44px",
+    height: "44px",
+    borderRadius: "50%",
+    backgroundColor: "white",
+    border: "none",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    transition: "all 0.2s ease",
+    color: "#333"
+  },
+  spinner: {
+    width: "16px",
+    height: "16px",
+    border: "2px solid #ddd",
+    borderTopColor: "#4285F4",
+    borderRadius: "50%",
+    animation: "spin 1s linear infinite"
+  }
 };
 
 export default MapView;

@@ -35,6 +35,10 @@ export default function SearchBar({
   const [selectedKakaoIndex, setSelectedKakaoIndex] = useState(-1); // 키보드 내비게이션을 위한 선택된 인덱스
   const searchTimeoutRef = useRef(null);
 
+  // 주변 검색 관련 상태
+  const [nearbyResults, setNearbyResults] = useState([]);
+  const [isNearbyMode, setIsNearbyMode] = useState(false);
+
   // UI 상태 관리
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -227,6 +231,144 @@ export default function SearchBar({
       }
     };
   }, []);
+
+  // 거리 계산 함수 (Haversine formula)
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // 지구 반지름 (km)
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return Math.round(R * c * 1000); // 미터 단위로 반환
+  };
+
+  // 주변 술집 검색 함수 (블로그 필터링 포함)
+  const searchNearbyBars = async (location) => {
+    if (!window.kakao?.maps?.services || !location) {
+      console.log('❌ searchNearbyBars: 조건 불만족', { hasLocation: !!location });
+      return;
+    }
+
+    console.log('🔍 주변 술집 대량 검색 시작:', location);
+    setIsKakaoLoading(true);
+
+    const ps = new window.kakao.maps.services.Places();
+    
+    // 다양한 키워드로 검색해서 결과 합치기
+    const searchKeywords = ['술집', 'bar', 'pub', 'izakaya', 'wine', 'beer', '호프', '요리주점', '포장마차', '야키토리'];
+    const searchPromises = [];
+
+    searchKeywords.forEach(keyword => {
+      const promise = new Promise((resolve) => {
+        const searchOptions = {
+          category_group_code: 'FD6',
+          radius: 3000, // 3km
+          sort: window.kakao.maps.services.SortBy.DISTANCE,
+          location: new window.kakao.maps.LatLng(location.lat, location.lng),
+          size: 15,
+        };
+
+        ps.keywordSearch(
+          keyword,
+          (data, status) => {
+            if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
+              const resultsWithDistance = data.map(place => ({
+                ...place,
+                distance: calculateDistance(
+                  location.lat, location.lng,
+                  parseFloat(place.y), parseFloat(place.x)
+                ),
+                searchKeyword: keyword
+              }));
+              resolve(resultsWithDistance);
+            } else {
+              resolve([]);
+            }
+          },
+          searchOptions
+        );
+      });
+      searchPromises.push(promise);
+    });
+
+    // 모든 검색 결과 수집
+    const resultsArray = await Promise.all(searchPromises);
+    
+    // 결과 통합 및 중복 제거
+    let combinedResults = [];
+    resultsArray.forEach(results => {
+      combinedResults = [...combinedResults, ...results];
+    });
+
+    const uniqueResults = [];
+    const seen = new Set();
+    combinedResults.forEach(place => {
+      const key = `${place.place_name}|${place.address_name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueResults.push(place);
+      }
+    });
+
+    // 거리순 정렬
+    uniqueResults.sort((a, b) => a.distance - b.distance);
+    console.log('📍 통합 검색 결과:', uniqueResults.length, '개 (중복제거)');
+
+    // 블로그 기반 필터링 API 호출 (최대 30개만)
+    console.log('🔍 블로그 기반 필터링 시작...');
+    
+    try {
+      const response = await fetch('/api/nearby-with-blog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          places: uniqueResults.slice(0, 30),
+          userQuery: '주변 술집',
+          location: location.address || ''
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.places.length > 0) {
+          console.log(`✅ 블로그 필터링 완료: ${data.filteredCount}개 추천`);
+          setNearbyResults(data.places);
+          setIsNearbyMode(true);
+          // 부모 컴포넌트에 필터링된 결과 전달
+          if (onKakaoPlaceSelect) {
+            // 여러 장소를 한번에 표시
+            data.places.forEach(place => onKakaoPlaceSelect(place));
+          }
+        } else {
+          console.log('⚠️ 블로그 필터링 결과 없음, 원본 결과 사용');
+          setNearbyResults(uniqueResults);
+          setIsNearbyMode(true);
+          if (onKakaoPlaceSelect) {
+            uniqueResults.forEach(place => onKakaoPlaceSelect(place));
+          }
+        }
+      } else {
+        setNearbyResults(uniqueResults);
+        setIsNearbyMode(true);
+        if (onKakaoPlaceSelect) {
+          uniqueResults.forEach(place => onKakaoPlaceSelect(place));
+        }
+      }
+    } catch (error) {
+      console.error('❌ 블로그 필터링 API 오류:', error);
+      setNearbyResults(uniqueResults);
+      setIsNearbyMode(true);
+      if (onKakaoPlaceSelect) {
+        uniqueResults.forEach(place => onKakaoPlaceSelect(place));
+      }
+    } finally {
+      setIsKakaoLoading(false);
+      setKakaoResults([]);
+      setShowKakaoResults(false);
+    }
+  };
 
   return (
     <section style={{ ...styles.section, position: 'relative' }}>

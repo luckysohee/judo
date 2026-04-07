@@ -265,11 +265,12 @@ app.post("/api/ai-search", async (req, res) => {
     }
 
     // 2. AI 검색 실행 (블로그 리뷰 정보 포함)
+    const blogDataForPrompt = crawlerSuccess ? JSON.stringify(blogReviews.slice(0, 3), null, 2) : '[]';
     const systemPrompt = crawlerSuccess ? 
       `너는 한국 술집 추천 큐레이터다. 사용자 검색어와 관련된 네이버 블로그 실제 리뷰 정보를 제공받았다.
       
 실제 블로그 리뷰 데이터:
-${JSON.stringify(blogReviews.slice(0, 3), null, 2)}
+${blogDataForPrompt}
 
 이 실제 리뷰를 참고해서 제공된 장소 목록 안에서 가장 적합한 곳을 추천해라.
 블로그에서 언급된 장소나 비슷한 분위기의 장소가 목록에 있다면 우선적으로 고려해라.
@@ -411,6 +412,183 @@ ${JSON.stringify(blogReviews.slice(0, 3), null, 2)}
     });
   }
 });
+
+// 새로운 API: 주변 가게들의 블로그 크롤링 + 키워드 매칭
+app.post('/api/nearby-with-blog', async (req, res) => {
+  try {
+    const { places, userQuery, location } = req.body;
+    
+    if (!places || !Array.isArray(places) || places.length === 0) {
+      return res.status(400).json({ error: '가게 목록이 필요합니다.' });
+    }
+    
+    console.log(`🔍 주변 가게 ${places.length}개 블로그 분석 시작...`);
+    console.log(`📝 사용자 검색어: "${userQuery || '주변 술집'}"`);
+    
+    // 1. 각 가게별로 블로그 크롤링 (최대 20개로 제한하여 속도 최적화)
+    const placesWithKeywords = await Promise.all(
+      places.slice(0, 20).map(async (place) => {
+        try {
+          const placeName = place.place_name || place.name;
+          const neighborhood = place.address_name?.split(' ')[1] || location || '';
+          const searchQuery = `${neighborhood} ${placeName}`;
+          
+          // 네이버 블로그 크롤링
+          const crawlerResult = await runNaverCrawler(searchQuery);
+          
+          if (crawlerResult.success && crawlerResult.data.length > 0) {
+            // 키워드 추출 (AI로 분석하거나 규칙 기반)
+            const keywords = extractKeywordsFromBlogs(crawlerResult.data);
+            
+            return {
+              ...place,
+              blogKeywords: keywords,
+              blogReviewCount: crawlerResult.data.length,
+              matchScore: calculateMatchScore(keywords, userQuery)
+            };
+          }
+          
+          return {
+            ...place,
+            blogKeywords: [],
+            blogReviewCount: 0,
+            matchScore: 0
+          };
+        } catch (error) {
+          console.error(`❌ ${place.place_name} 크롤링 실패:`, error.message);
+          return {
+            ...place,
+            blogKeywords: [],
+            blogReviewCount: 0,
+            matchScore: 0
+          };
+        }
+      })
+    );
+    
+    // 2. 매칭 점수 기준으로 필터링 및 정렬
+    const MIN_MATCH_SCORE = 1; // 최소 1개 키워드 일치
+    const filteredPlaces = placesWithKeywords
+      .filter(place => place.matchScore >= MIN_MATCH_SCORE)
+      .sort((a, b) => b.matchScore - a.matchScore);
+    
+    // 3. 상위 결과만 반환 (최대 15개)
+    const topPlaces = filteredPlaces.slice(0, 15);
+    
+    console.log(`✅ 필터링 완료: ${places.length}개 → ${topPlaces.length}개`);
+    
+    res.json({
+      success: true,
+      totalSearched: places.length,
+      filteredCount: topPlaces.length,
+      userQuery: userQuery || '주변 술집',
+      places: topPlaces
+    });
+    
+  } catch (error) {
+    console.error('❌ 주변 가게 블로그 분석 API 오류:', error);
+    res.status(500).json({
+      error: '서버 오류가 발생했습니다.',
+      message: error.message
+    });
+  }
+});
+
+// 키워드 추출 함수 (규칙 기반)
+function extractKeywordsFromBlogs(blogPosts) {
+  const keywords = {
+    atmosphere: [], // 분위기 키워드
+    menu: [],       // 메뉴 키워드
+    purpose: [],    // 목적/특징 키워드
+    drink: []       // 주류 키워드
+  };
+  
+  // 모든 블로그 본문 합치기
+  const allText = blogPosts.map(post => 
+    `${post.title} ${post.description || ''}`
+  ).join(' ').toLowerCase();
+  
+  // 분위기 키워드
+  const atmosphereKeywords = [
+    '조용한', '시끄러운', '활기찬', '아늑한', '모던한', '빈티지', '레트로',
+    '감성', '힙한', '세련된', '편안한', '고급스러운', '캐주얼한', '로맨틱'
+  ];
+  
+  // 메뉴 키워드
+  const menuKeywords = [
+    '피자', '파스타', '스테이크', '햄버거', '안주', '치킨', '해산물',
+    '샐러드', '타코', '라멘', '스시', '꼬치', '야키토리', '이자카야'
+  ];
+  
+  // 목적/특징 키워드
+  const purposeKeywords = [
+    '데이트', '2차', '회식', '혼술', '친구', '단체', '기념일', '생일',
+    '분위기 좋은', '맛있는', '가성비', '뷰 좋은', '인스타감성'
+  ];
+  
+  // 주류 키워드
+  const drinkKeywords = [
+    '맥주', '소주', '와인', '하이볼', '칵테일', '위스키', '사케',
+    '막걸리', '전통주', '수제맥주', '와인바'
+  ];
+  
+  // 각 카테고리별 매칭 확인
+  atmosphereKeywords.forEach(kw => {
+    if (allText.includes(kw)) keywords.atmosphere.push(kw);
+  });
+  
+  menuKeywords.forEach(kw => {
+    if (allText.includes(kw)) keywords.menu.push(kw);
+  });
+  
+  purposeKeywords.forEach(kw => {
+    if (allText.includes(kw)) keywords.purpose.push(kw);
+  });
+  
+  drinkKeywords.forEach(kw => {
+    if (allText.includes(kw)) keywords.drink.push(kw);
+  });
+  
+  // 중복 제거
+  keywords.atmosphere = [...new Set(keywords.atmosphere)];
+  keywords.menu = [...new Set(keywords.menu)];
+  keywords.purpose = [...new Set(keywords.purpose)];
+  keywords.drink = [...new Set(keywords.drink)];
+  
+  return keywords;
+}
+
+// 매칭 점수 계산 함수
+function calculateMatchScore(keywords, userQuery) {
+  if (!userQuery) return 0;
+  
+  const query = userQuery.toLowerCase();
+  let score = 0;
+  let matchedKeywords = [];
+  
+  // 모든 키워드 카테고리 통합
+  const allKeywords = [
+    ...keywords.atmosphere,
+    ...keywords.menu,
+    ...keywords.purpose,
+    ...keywords.drink
+  ];
+  
+  // 키워드별 매칭 확인
+  allKeywords.forEach(keyword => {
+    if (query.includes(keyword.toLowerCase())) {
+      score += 1;
+      matchedKeywords.push(keyword);
+    }
+  });
+  
+  // 기본 검색어 매칭 (술집, bar, pub 등)
+  if (query.includes('술집') || query.includes('bar') || query.includes('pub')) {
+    score += 0.5;
+  }
+  
+  return score;
+}
 
 // 서버 시작
 app.listen(port, () => {

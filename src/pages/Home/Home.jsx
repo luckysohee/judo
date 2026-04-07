@@ -17,6 +17,7 @@ import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
 import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
 import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 import CheckInToast from "../../components/CheckInToast/CheckInToast";
+import FeatureLoginPrompt from "../../components/LoginPrompt/FeatureLoginPrompt";
 
 import { places as dummyPlaces } from "../../data/places";
 
@@ -34,6 +35,9 @@ import {
 } from "../../utils/storage";
 
 import { getCustomPlaces } from "../../utils/customPlacesStorage";
+import { parseSearchQuery, createFilterChips, createSearchSummary, scorePlace, SEARCH_EXAMPLES } from "../../utils/searchParser";
+import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
+import { useLoginRequired } from "../../hooks/useLoginRequired";
 
 const AI_API_BASE_URL =
   import.meta.env.VITE_AI_API_BASE_URL || "http://localhost:4000";
@@ -493,7 +497,13 @@ export default function Home() {
   const [legendCategory, setLegendCategory] = useState(null);
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
-const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
+  const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
+
+  // 로그인 유도 모달 훅
+  const { showLoginPrompt, requiredFeature, requireLogin, closeLoginPrompt } = useLoginRequired();
+
+  // 현재 위치 상태
+  const [currentLocation, setCurrentLocation] = useState(null);
 
   const livePlaceIdsText = useMemo(() => {
     try {
@@ -1796,6 +1806,17 @@ const handleClearSearch = () => {
 
   const testCurator = getModalCurator();
 
+  // 내 위치 버튼 클릭 핸들러 (로그인 체크)
+  const handleCurrentLocationClick = () => {
+    if (!user) {
+      // 비로그인 사용자는 로그인 유도 모달 표시
+      requireLogin('location');
+      return true; // true 반환하면 MapView의 기본 동작 중단
+    }
+    // 로그인 사용자는 false 반환하여 MapView의 기본 동작 계속 진행
+    return false;
+  };
+
   return (
     <>
       {/* 실시간 Toast 알림 */}
@@ -1803,6 +1824,19 @@ const handleClearSearch = () => {
       
       {/* 실시간 체크인 랭킹 */}
       <CheckinRanking position="sidebar" />
+
+      {/* 로그인 유도 모달 */}
+      {showLoginPrompt && (
+        <FeatureLoginPrompt
+          feature={requiredFeature}
+          onClose={closeLoginPrompt}
+          onLogin={() => {
+            closeLoginPrompt();
+            // 로그인 페이지로 이동 또는 소셜 로그인 호출
+            signInWithProvider('google');
+          }}
+        />
+      )}
       
       {/* 팔로우 모달 */}
       {showFollowModal && (
@@ -2009,6 +2043,11 @@ const handleClearSearch = () => {
           onSave={setSaveTargetPlace} // 일반 사용자 저장 핸들러 전달
           savedFolders={savedColorMap} // 저장된 폴더 정보 전달
           userSavedPlaces={userSavedPlaces} // 사용자 저장 장소 정보 전달
+          onLocationButtonClick={handleCurrentLocationClick}
+          onCurrentLocationChange={(location) => {
+            setCurrentLocation(location);
+            console.log('📍 현재 위치 업데이트:', location);
+          }}
         />
 
         <div style={styles.headerOverlay}>
@@ -2100,6 +2139,50 @@ const handleClearSearch = () => {
                 mapRef={mapRef}
                 showKakaoSearch={true}
                 onKakaoPlaceSelect={handleKakaoPlaceSelect}
+                userLocation={currentLocation}
+                onNearbySearch={(location) => {
+                  console.log('📍 내 주변 검색:', location);
+                  setIsLocationBasedSearch(true);
+                  // 현재 위치 상태 업데이트 (마커 표시용)
+                  setCurrentLocation(location);
+                  // 지도를 현재 위치로 이동
+                  if (mapRef?.current?.moveToLocation) {
+                    console.log('🗺️ 지도 이동:', location.lat, location.lng);
+                    mapRef.current.moveToLocation(location.lat, location.lng);
+                  } else {
+                    console.log('⚠️ mapRef 또는 moveToLocation 없음:', mapRef?.current);
+                  }
+                }}
+                onNearbyPlacesFound={(places) => {
+                  console.log('📍 내 주변 술집 마커로 표시:', places.length, '개');
+                  // 카카오 장소 데이터를 마커 형식으로 변환
+                  const formattedPlaces = places.map(place => ({
+                    id: `kakao_${place.id}`,
+                    name: place.place_name,
+                    address: place.road_address_name || place.address_name,
+                    lat: parseFloat(place.y),
+                    lng: parseFloat(place.x),
+                    category: place.category_name,
+                    phone: place.phone,
+                    kakao_place_id: place.id,
+                    isKakaoPlace: true,
+                    isLive: true,
+                    place_url: place.place_url,
+                    category_name: place.category_name,
+                    road_address_name: place.road_address_name,
+                    distance: place.distance // 거리 정보 추가
+                  }));
+                  
+                  // kakaoPlaces 상태에 추가하여 지도에 마커 표시
+                  setKakaoPlaces(prev => {
+                    const existingIds = new Set(prev.map(p => p.id));
+                    const newPlaces = formattedPlaces.filter(p => !existingIds.has(p.id));
+                    return [...prev, ...newPlaces];
+                  });
+                  
+                  // 검색창 비우기
+                  setQuery('');
+                }}
                 onRealTimeSearch={(value) => {
                   // AI 실시간 검색 기능 추가
                   if (value.trim()) {
