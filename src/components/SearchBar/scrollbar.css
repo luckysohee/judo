@@ -1,26 +1,26 @@
-/* 동글 스크롤바 스타일 - 반응형 */
+/* Dynamic scrollbar styles - responsive */
 .search-results-container::-webkit-scrollbar {
-  width: 6px !important; /* 스크롤바 너비 */
+  width: 6px !important; /* scrollbar width */
 }
 
 .search-results-container::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05) !important; /* 트랙 배경 */
-  border-radius: 3px !important; /* 동글하게 */
+  background: rgba(255, 255, 255, 0.05) !important; /* track background */
+  border-radius: 3px !important; /* rounded */
 }
 
 .search-results-container::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3) !important; /* 스크롤바 색상 */
-  border-radius: 3px !important; /* 동글하게 */
+  background: rgba(255, 255, 255, 0.3) !important; /* scrollbar color */
+  border-radius: 3px !important; /* rounded */
 }
 
 .search-results-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.5) !important; /* 호버 시 밝아짐 */
+  background: rgba(255, 255, 255, 0.5) !important; /* hover brighten */
 }
 
-/* 모바일에서는 스크롤바 좀 더 크게 */
+/* mobile - wider scrollbar */
 @media (max-width: 768px) {
   .search-results-container::-webkit-scrollbar {
-    width: 8px !important; /* 모바일에서는 더 넓게 */
+    width: 8px !important; /* wider on mobile */
   }
   
   .search-results-container::-webkit-scrollbar-track {
@@ -32,7 +32,7 @@
   }
 }
 
-/* ID 선택자도 함께 사용 */
+/* ID selector also */
 div[id="search-results-sheet"].search-results-container::-webkit-scrollbar {
   width: 6px !important;
 }
@@ -51,7 +51,7 @@ div[id="search-results-sheet"].search-results-container::-webkit-scrollbar-thumb
   background: rgba(255, 255, 255, 0.5) !important;
 }
 
-/* Firefox용 스크롤바 */
+/* Firefox scrollbar */
 .search-results-container {
   scrollbar-width: thin !important;
   scrollbar-color: rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.05) !important;
@@ -60,4 +60,10 @@ div[id="search-results-sheet"].search-results-container::-webkit-scrollbar-thumb
 div[id="search-results-sheet"].search-results-container {
   scrollbar-width: thin !important;
   scrollbar-color: rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.05) !important;
+}
+
+/* spinner animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }

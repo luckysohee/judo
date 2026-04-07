@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
 import ContextTags from './ContextTags';
-import { InitialState, TypingState, SearchCompleteState } from './SearchStates';
 
 export default function SearchBar({
   query,
@@ -10,19 +10,21 @@ export default function SearchBar({
   onSubmit,
   onClear,
   onExampleClick,
-  onRealTimeSearch, // 실시간 검색 콜백 추가
-  suggestions = [],
-  placeholder = "검색어를 입력해 주세요",
   isLoading = false,
+  suggestions = [],
+  showSuggestions = false,
+  setShowSuggestions = () => {},
+  matchedContexts = [],
+  onContextTagClick = null,
+  onKakaoPlaceSelect = null,
+  showKakaoSearch = true,
+  onRealTimeSearch = null,
+  userLocation = null,
+  onNearbySearch = null,
+  onNearbyPlacesFound = null,
   rightActions = null,
-  mapRef = null, // 카카오 지도 ref 추가
-  showKakaoSearch = true, // 카카오 검색 표시 여부
-  onKakaoPlaceSelect = null, // 카카오 장소 선택 콜백
-  showSuggestions = false, // suggestions 표시 상태
-  setShowSuggestions = () => {}, // suggestions 표시 제어 함수
-  setShowKakaoResults = () => {}, // 카카오 결과 표시 제어 함수
-  setShowKakaoSearch = () => {}, // 카카오 검색 표시 제어 함수
-  onContextTagClick = null, // 상황 태그 클릭 콜백
+  mapRef = null,
+  placeholder = 'Search for places...',
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -62,10 +64,10 @@ export default function SearchBar({
       (data, status) => {
         if (status === window.kakao.maps.services.Status.OK) {
           setKakaoResults(data);
-          setShowKakaoResults(true);
+          setShowKakaoResultsState(true);
         } else {
           setKakaoResults([]);
-          setSelectedKakaoIndex(-1); // 결과가 없으면 선택된 인덱스 초기화
+          setShowKakaoResultsState(false);
         }
         setIsKakaoLoading(false);
       },
@@ -200,25 +202,51 @@ export default function SearchBar({
   };
 
   const handleKeyDown = (event) => {
-    // 키보드 네비게이션 기능 취소
+    // 키보드 네비게이션 기능 복원
     if (event.key === "Enter") {
       event.preventDefault();
       console.log('🔑 Enter 키 감지!'); // 디버깅용
       
       // 엔터키 시 모든 자동완성 카드 즉시 숨김
       setShowSuggestions(false);
-      setShowKakaoResults(false);
+      setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
       
-      // 일반 AI 검색 실행 - 지도에 마커만 표시
-      handleSubmit();
+      // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
+      if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
+        const selectedPlace = kakaoResults[selectedKakaoIndex];
+        handleKakaoPlaceSelect(selectedPlace);
+      } else {
+        // 일반 AI 검색 실행 - 지도에 마커만 표시
+        handleSubmit();
+      }
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      
+      if (showKakaoResults && kakaoResults.length > 0) {
+        // 아래 화살표: 다음 항목 선택
+        const newIndex = Math.min(selectedKakaoIndex + 1, kakaoResults.length - 1);
+        setSelectedKakaoIndex(newIndex);
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      
+      if (showKakaoResults && kakaoResults.length > 0) {
+        // 위 화살표: 이전 항목 선택
+        const newIndex = Math.max(selectedKakaoIndex - 1, -1);
+        setSelectedKakaoIndex(newIndex);
+      }
+    } else if (event.key === "Escape") {
+      // ESC 키: 검색 결과 닫기
+      setShowKakaoResultsState(false);
+      setSelectedKakaoIndex(-1);
     }
   };
 
   const handleClear = () => {
     setQuery("");
     setKakaoResults([]);
-    setShowKakaoResults(false);
+    setShowKakaoResultsState(false);
     setSelectedKakaoIndex(-1); // 초기화 추가
     onClear?.();
   };
@@ -370,19 +398,81 @@ export default function SearchBar({
     }
   };
 
+  const handleNearbySearch = async () => {
+    console.log('SearchBar: handleNearbySearch called');
+    
+    if (!userLocation) {
+      // If no user location, try to get current location
+      if (!navigator.geolocation) {
+        alert("This browser doesn't support location services.");
+        return;
+      }
+
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 300000
+          });
+        });
+
+        const location = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          address: 'Current Location'
+        };
+
+        console.log('SearchBar: Got current location:', location);
+        
+        // Call nearby search with current location
+        if (onNearbySearch) {
+          onNearbySearch(location);
+        }
+      } catch (error) {
+        console.error('SearchBar: Location error:', error);
+        
+        let errorMsg = "Unable to get your location.";
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMsg = "Location permission denied. Please enable location in your browser settings.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMsg = "Location information is unavailable.";
+            break;
+          case error.TIMEOUT:
+            errorMsg = "Location request timed out.";
+            break;
+        }
+        alert(errorMsg);
+      }
+    } else {
+      // Use existing user location
+      console.log('SearchBar: Using existing location:', userLocation);
+      if (onNearbySearch) {
+        onNearbySearch(userLocation);
+      }
+    }
+  };
+
   return (
     <section style={{ ...styles.section, position: 'relative' }}>
       {/* 상태별 UI 렌더링 */}
       <AnimatePresence>
         {/* 입력 중 상태: 자동완성 + 상황 태그 */}
-        {query && !isSearching && (
+        {showSuggestions && (
           <TypingState
+            query={query}
             kakaoResults={kakaoResults}
             isKakaoLoading={isKakaoLoading}
-            matchedContexts={[]} // ContextTags에서 처리
-            onKakaoPlaceClick={handleKakaoPlaceSelect}
-            onContextTagClick={handleContextTagClick}
+            showKakaoResults={showKakaoResults}
             selectedKakaoIndex={selectedKakaoIndex}
+            setSelectedKakaoIndex={setSelectedKakaoIndex}
+            onKakaoPlaceClick={handleKakaoPlaceSelect}
+            matchedContexts={matchedContexts}
+            onContextTagClick={handleContextTagClick}
+            userLocation={userLocation}
+            onNearbySearch={handleNearbySearch}
           />
         )}
 
@@ -531,7 +621,7 @@ export default function SearchBar({
                 repeatDelay: 0
               }}
             >
-              {placeholder}
+              {placeholder || 'Search for places...'}
             </motion.div>
           )}
         </div>
