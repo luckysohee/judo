@@ -30,5 +30,7 @@ dist-ssr
 *.sln
 *.sw?
 
-.env
-server/.env
+# Additional security - prevent ALL .env files from being tracked
+.env.*
+!.env.example
+server/.env*
