@@ -1,9 +1,12 @@
 // 서버 프록시를 통한 카카오 API 호출
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+// 비우면 동일 출처 `/api/*` (Vite dev에서 proxy → server:4000)
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 export async function getKakaoPlaceDetailsViaProxy(placeId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/kakao/place-details`, {
+    const base = API_BASE_URL;
+    const url = base ? `${base}/api/kakao/place-details` : "/api/kakao/place-details";
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

@@ -44,10 +44,41 @@ export function getKakaoPlaceDetailsJSONP(placeId) {
   });
 }
 
+function collectPhotoUrlsFromDetail(details) {
+  if (!details || typeof details !== "object") return [];
+  const out = [];
+  const push = (u) => {
+    if (typeof u === "string" && u.trim() && !out.includes(u)) out.push(u);
+  };
+  push(
+    details.thumbnail_url ||
+      details.thumbnail ||
+      details.photo_url ||
+      details.image_url
+  );
+  const lists = [
+    details.photos,
+    details.photo_urls,
+    details.place_photo_list,
+    details.images,
+  ];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item === "string") push(item);
+      else if (item && typeof item === "object") {
+        push(item.url || item.image_url || item.thumbnail_url || item.origin_url);
+      }
+    }
+  }
+  return out;
+}
+
 export async function getKakaoPlaceBasicInfoJSONP(placeId) {
   try {
     const details = await getKakaoPlaceDetailsJSONP(placeId);
-    
+    const photo_urls = collectPhotoUrlsFromDetail(details);
+
     return {
       place_name: details.place_name,
       place_id: details.id,
@@ -59,7 +90,9 @@ export async function getKakaoPlaceBasicInfoJSONP(placeId) {
       y: details.y,
       place_url: details.place_url,
       rating: details.rating || 0,
-      review_count: details.review_count || 0
+      review_count: details.review_count || 0,
+      thumbnail_url: photo_urls[0] || null,
+      photo_urls,
     };
   } catch (error) {
     console.error('JSONP 카카오 API 호출 실패:', error);

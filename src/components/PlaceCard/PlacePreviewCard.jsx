@@ -1,54 +1,133 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
 import { getKakaoPlaceBasicInfoJSONP } from "../../utils/kakaoAPIJSONP"; // JSONP로 변경
-
+import {
+  curatorPhotoPublicUrl,
+  deleteCuratorPlacePhoto,
+  fetchCuratorPlacePhotoRows,
+  uploadCuratorPlacePhoto,
+} from "../../utils/curatorPlacePhotos";
+import {
+  isAcceptableRasterImageFile,
+  prepareImageFileForUpload,
+} from "../../utils/prepareImageFileForUpload";
+import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 export default function PlacePreviewCard({
   place,
   isSaved,
   savedFolderColor,
   liveCuratorNameSet,
+  selectedCurators = [],
   onSave,
   onOpenCurator,
   onClose,
   getUserRole,
+  searchSessionIdRef,
 }) {
+  const { user } = useAuth();
+  const curatorPhotoInputRef = useRef(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [kakaoDetails, setKakaoDetails] = useState(null);
   const [isLoadingKakao, setIsLoadingKakao] = useState(false);
+  const [curatorPhotoRows, setCuratorPhotoRows] = useState([]);
+  const [curatorPhotosLoading, setCuratorPhotosLoading] = useState(false);
+  const [curatorPhotoUploading, setCuratorPhotoUploading] = useState(false);
+  const [curatorPhotoDeletingId, setCuratorPhotoDeletingId] = useState(null);
+  const [googlePhotoUrls, setGooglePhotoUrls] = useState([]);
+  const [googlePhotoAttributions, setGooglePhotoAttributions] = useState([]);
+  const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
   const { showToast } = useToast();
+  const extractedPlaceIdFromUrl = place?.place_url?.match(/\/place\/(\d+)/)?.[1] || null;
+  const idAsKakao =
+    place?.id != null &&
+    (typeof place.id === "number" ||
+      (typeof place.id === "string" && /^\d+$/.test(place.id.trim())))
+      ? String(place.id).trim()
+      : null;
+  const rawKakaoPlaceId =
+    place?.place_id ||
+    place?.kakao_place_id ||
+    place?.kakaoId ||
+    extractedPlaceIdFromUrl ||
+    idAsKakao ||
+    null;
+  const kakaoPlaceId =
+    typeof rawKakaoPlaceId === "string" && /^\d+$/.test(rawKakaoPlaceId)
+      ? rawKakaoPlaceId
+      : typeof rawKakaoPlaceId === "number"
+      ? String(rawKakaoPlaceId)
+      : null;
 
-  if (!place) return null;
+  const internalPlaceIdForPhotos =
+    typeof place?.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      place.id
+    )
+      ? place.id
+      : null;
 
   console.log("🔍 PlacePreviewCard place 데이터:", place);
-  console.log("🔍 isKakaoPlace:", place.isKakaoPlace);
-  console.log("🔍 place_id:", place.place_id);
-  
-  const isKakaoPlace = place.isKakaoPlace || false;
+  console.log("🔍 isKakaoPlace:", place?.isKakaoPlace);
+  console.log("🔍 place_id:", place?.place_id);
+
+  const isKakaoPlace = place?.isKakaoPlace || false;
   const userRole = getUserRole?.() || "user";
   const isCurator = userRole === "curator" || userRole === "admin";
 
-  // place_id가 있으면 카카오 API 호출
+  const checkinWgs = useMemo(() => resolvePlaceWgs84(place), [place]);
+
+  // 장소가 바뀔 때 이전 카카오 상세 데이터 초기화
+  useEffect(() => {
+    setKakaoDetails(null);
+  }, [place?.id, place?.place_id, place?.kakao_place_id]);
+
+  useEffect(() => {
+    setGooglePhotoUrls([]);
+    setGooglePhotoAttributions([]);
+    setGooglePhotosLoading(false);
+    setCuratorPhotoRows([]);
+    setCuratorPhotosLoading(false);
+  }, [place?.id, place?.place_id, kakaoPlaceId]);
+
+  useEffect(() => {
+    if (!place) return;
+    if (!kakaoPlaceId && !internalPlaceIdForPhotos) return;
+    let cancelled = false;
+    setCuratorPhotosLoading(true);
+    (async () => {
+      const rows = await fetchCuratorPlacePhotoRows({
+        kakaoPlaceId: kakaoPlaceId || undefined,
+        internalPlaceId: internalPlaceIdForPhotos || undefined,
+      });
+      if (!cancelled) {
+        setCuratorPhotoRows(rows);
+        setCuratorPhotosLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [place, kakaoPlaceId, internalPlaceIdForPhotos]);
+
+  // 카카오 place id가 있으면 기본정보 조회
   useEffect(() => {
     console.log('🔍 useEffect 실행:', {
-      place_id: place.place_id,
+      place_id: kakaoPlaceId,
       isKakaoPlace: place.isKakaoPlace,
       kakaoDetails: kakaoDetails,
       place_name: place.name,
       place_data: place
     });
-    
-    // 임시: place_id가 없으면 테스트용 ID 사용
-    const testPlaceId = place.place_id || '1720697728'; // 서문객잔 ID로 테스트
-    
-    if (testPlaceId && !place.isKakaoPlace && !kakaoDetails) {
-      console.log("🔍 카카오 장소 상세 정보 조회 시작 (JSONP):", testPlaceId);
+
+    if (kakaoPlaceId && !kakaoDetails) {
+      console.log("🔍 카카오 장소 상세 정보 조회 시작 (JSONP):", kakaoPlaceId);
       setIsLoadingKakao(true);
       
-      getKakaoPlaceBasicInfoJSONP(testPlaceId)
+      getKakaoPlaceBasicInfoJSONP(kakaoPlaceId)
         .then(details => {
           console.log("✅ 카카오 장소 상세 정보 조회 성공 (JSONP):", details);
           setKakaoDetails(details);
@@ -66,8 +145,40 @@ export default function PlacePreviewCard({
         .finally(() => {
           setIsLoadingKakao(false);
         });
+    } else if (!kakaoPlaceId) {
+      console.warn("⚠️ 카카오 place id 없음 - 상세조회 생략", {
+        id: place?.id,
+        place_id: place?.place_id,
+        kakao_place_id: place?.kakao_place_id,
+        kakaoId: place?.kakaoId,
+        place_url: place?.place_url,
+      });
     }
-  }, [place.place_id, place.isKakaoPlace, kakaoDetails]);
+  }, [kakaoPlaceId, place.isKakaoPlace, place.name, place.address, place.contact, kakaoDetails]);
+
+  // 카카오 place id가 없는 저장 장소는 장소명으로 기본정보 보강 조회
+  useEffect(() => {
+    if (kakaoPlaceId || kakaoDetails || !place?.name) return;
+    if (!window.kakao?.maps?.services) return;
+
+    const placesService = new window.kakao.maps.services.Places();
+    const keyword = `${place.name} ${place.address || ""}`.trim();
+
+    placesService.keywordSearch(keyword, (data, status) => {
+      if (status !== window.kakao.maps.services.Status.OK || !data?.length) return;
+      const best = data[0];
+      setKakaoDetails({
+        place_name: best.place_name || place.name,
+        place_id: best.id,
+        address: best.road_address_name || best.address_name || place.address,
+        phone: best.phone || place.contact || place.phone,
+        category_name: best.category_name || place.category_name || place.category,
+        x: best.x,
+        y: best.y,
+        place_url: best.place_url,
+      });
+    });
+  }, [kakaoPlaceId, kakaoDetails, place?.name, place?.address, place?.contact, place?.phone, place?.category_name, place?.category]);
 
   // 카카오 장소 카테고리 정제
   const cleanCategory = (categoryName) => {
@@ -76,9 +187,9 @@ export default function PlacePreviewCard({
     return parts[parts.length - 1];
   };
 
-  // 카카오 장소 주소 정보
-  const displayAddress = isKakaoPlace 
-    ? (place.road_address_name || place.address_name)
+  // 카카오 장소 주소 정보 (place 값이 없으면 API 상세값 fallback)
+  const displayAddress = isKakaoPlace
+    ? (place.road_address_name || place.address_name || kakaoDetails?.address || place.address)
     : (kakaoDetails?.address || place.address);
 
   // 상호명만 추출하는 함수
@@ -101,8 +212,10 @@ export default function PlacePreviewCard({
     return withoutDistrict.trim();
   };
 
-  // 카카오 장소 전화번호
-  const displayPhone = isKakaoPlace ? place.phone : (kakaoDetails?.phone || place.contact);
+  // 카카오 장소 전화번호 (place 값이 없으면 API 상세값 fallback)
+  const displayPhone = isKakaoPlace
+    ? (place.phone || kakaoDetails?.phone || place.contact)
+    : (kakaoDetails?.phone || place.contact);
 
   // 카카오맵 상세보기 URL
   const handleKakaoView = () => {
@@ -111,8 +224,288 @@ export default function PlacePreviewCard({
       window.open(placeUrl, '_blank');
     }
   };
+  const displayLat = place?.lat ?? (kakaoDetails?.y ? Number(kakaoDetails.y) : null);
+  const displayLng = place?.lng ?? (kakaoDetails?.x ? Number(kakaoDetails.x) : null);
+  const kakaoJsKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
+
+  const buildStaticMapUrl = (w, h, level) => {
+    if (!kakaoJsKey || displayLat == null || displayLng == null) return null;
+    return `https://dapi.kakao.com/v2/maps/staticmap?appkey=${encodeURIComponent(
+      kakaoJsKey
+    )}&center=${displayLng},${displayLat}&level=${level}&w=${w}&h=${h}&markers=${displayLng},${displayLat}`;
+  };
+
+  /** 카카오 장소: API·저장소에서 온 사진 URL만 (지도 타일 제외) */
+  const kakaoPreviewPhotoUrls = useMemo(() => {
+    if (!(isKakaoPlace || kakaoDetails)) return [];
+    const out = [];
+    const pushU = (u) => {
+      if (u && typeof u === "string" && !out.includes(u)) out.push(u);
+    };
+    const fromApi = kakaoDetails?.photo_urls;
+    if (Array.isArray(fromApi)) {
+      fromApi.forEach(pushU);
+    }
+    pushU(kakaoDetails?.thumbnail_url);
+    pushU(place?.image);
+    return out;
+  }, [
+    isKakaoPlace,
+    kakaoDetails,
+    place?.image,
+    kakaoDetails?.thumbnail_url,
+    kakaoDetails?.photo_urls,
+  ]);
+
+  const curatorPhotoUrls = useMemo(
+    () =>
+      curatorPhotoRows
+        .map((r) => curatorPhotoPublicUrl(r.storage_path))
+        .filter(Boolean),
+    [curatorPhotoRows]
+  );
+
+  const curatorPhotoUrlSet = useMemo(
+    () => new Set(curatorPhotoUrls.filter((u) => typeof u === "string" && u)),
+    [curatorPhotoUrls]
+  );
+
+  const curatorRowByPublicUrl = useMemo(() => {
+    const m = new Map();
+    for (const row of curatorPhotoRows) {
+      const url = curatorPhotoPublicUrl(row.storage_path);
+      if (url) m.set(url, row);
+    }
+    return m;
+  }, [curatorPhotoRows]);
+
+  const canUserDeleteCuratorPhotoUrl = (url) => {
+    if (!user?.id || typeof url !== "string") return false;
+    const row = curatorRowByPublicUrl.get(url);
+    return Boolean(row && row.curator_id === user.id);
+  };
+
+  const mergedKakaoCuratorPhotos = useMemo(() => {
+    const out = [];
+    const add = (u) => {
+      if (typeof u === "string" && u && !out.includes(u)) out.push(u);
+    };
+    curatorPhotoUrls.forEach(add);
+    if (isKakaoPlace || kakaoDetails) {
+      kakaoPreviewPhotoUrls.forEach(add);
+    }
+    return out;
+  }, [
+    curatorPhotoUrls,
+    kakaoPreviewPhotoUrls,
+    isKakaoPlace,
+    kakaoDetails,
+  ]);
+
+  const kakaoPlacePageUrl = (isKakaoPlace || kakaoDetails)
+    ? isKakaoPlace
+      ? place.place_url
+      : kakaoDetails?.place_url
+    : null;
+
+  /** 큐레이터 스토리지 사진 클릭 시 카카오맵으로 보내지 않음 */
+  const photoClickOpensKakao = (url) =>
+    Boolean(
+      kakaoPlacePageUrl &&
+        typeof url === "string" &&
+        !curatorPhotoUrlSet.has(url)
+    );
+
+  const previewPhotoUrls =
+    mergedKakaoCuratorPhotos.length > 0
+      ? mergedKakaoCuratorPhotos
+      : googlePhotoUrls;
+
+  const previewHasKakaoOpenablePhoto = useMemo(
+    () =>
+      previewPhotoUrls.some(
+        (u) =>
+          kakaoPlacePageUrl &&
+          typeof u === "string" &&
+          !curatorPhotoUrlSet.has(u)
+      ),
+    [previewPhotoUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+  );
+
+  const showGooglePhotoCredit =
+    googlePhotoUrls.length > 0 && mergedKakaoCuratorPhotos.length === 0;
+  const showCuratorPhotoBadge = curatorPhotoUrls.length > 0;
+
+  useEffect(() => {
+    if (!(isKakaoPlace || kakaoDetails)) {
+      setGooglePhotoUrls([]);
+      setGooglePhotoAttributions([]);
+      return;
+    }
+    if (isLoadingKakao) return;
+    if (kakaoPreviewPhotoUrls.length > 0 || curatorPhotoUrls.length > 0) {
+      setGooglePhotoUrls([]);
+      setGooglePhotoAttributions([]);
+      return;
+    }
+    if (displayLat == null || displayLng == null) return;
+    const q = place?.name?.trim();
+    if (!q) return;
+
+    const ac = new AbortController();
+    setGooglePhotosLoading(true);
+
+    const base = (
+      import.meta.env.VITE_AI_API_BASE_URL ||
+      import.meta.env.VITE_API_BASE_URL ||
+      ""
+    )
+      .toString()
+      .replace(/\/$/, "");
+
+    const params = new URLSearchParams({
+      name: q,
+      lat: String(displayLat),
+      lng: String(displayLng),
+    });
+
+    fetch(`${base}/api/google-place-photos?${params}`, { signal: ac.signal })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data?.ok || !Array.isArray(data.imageUrls)) return;
+        const urls = data.imageUrls
+          .filter((u) => typeof u === "string" && u.startsWith("/"))
+          .map((path) => (base ? `${base}${path}` : path));
+        if (urls.length > 0) {
+          setGooglePhotoUrls(urls);
+          setGooglePhotoAttributions(
+            Array.isArray(data.attributions) ? data.attributions : []
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!ac.signal.aborted) setGooglePhotosLoading(false);
+      });
+
+    return () => {
+      ac.abort();
+    };
+  }, [
+    isKakaoPlace,
+    kakaoDetails,
+    isLoadingKakao,
+    kakaoPreviewPhotoUrls.length,
+    curatorPhotoUrls.length,
+    displayLat,
+    displayLng,
+    place?.name,
+    place?.id,
+    place?.place_id,
+  ]);
+
+  const showKakaoPhotoLoading =
+    previewPhotoUrls.length === 0 &&
+    (((isKakaoPlace || kakaoDetails) &&
+      (isLoadingKakao || googlePhotosLoading || curatorPhotosLoading)) ||
+      (!isKakaoPlace &&
+        !kakaoDetails &&
+        internalPlaceIdForPhotos &&
+        curatorPhotosLoading));
+
+  const canCuratorUploadPhoto =
+    isCurator &&
+    user &&
+    (kakaoPlaceId || internalPlaceIdForPhotos);
+
+  const reloadCuratorPlacePhotos = async () => {
+    const rows = await fetchCuratorPlacePhotoRows({
+      kakaoPlaceId: kakaoPlaceId || undefined,
+      internalPlaceId: internalPlaceIdForPhotos || undefined,
+    });
+    setCuratorPhotoRows(rows);
+  };
+
+  const handleDeleteCuratorPhoto = async (row) => {
+    if (!row?.id || !user || row.curator_id !== user.id) return;
+    if (!window.confirm("이 사진을 삭제할까요?")) return;
+    setCuratorPhotoDeletingId(row.id);
+    try {
+      await deleteCuratorPlacePhoto({
+        id: row.id,
+        storagePath: row.storage_path,
+      });
+      await reloadCuratorPlacePhotos();
+      showToast("사진을 삭제했습니다.", "success");
+    } catch (err) {
+      showToast(err?.message || "삭제에 실패했습니다.", "error");
+    } finally {
+      setCuratorPhotoDeletingId(null);
+    }
+  };
+
+  const handleCuratorPhotoFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user) return;
+    if (!kakaoPlaceId && !internalPlaceIdForPhotos) {
+      showToast("이 장소에는 사진을 연결할 수 없습니다.", "error");
+      return;
+    }
+    if (!isAcceptableRasterImageFile(file)) {
+      showToast("이미지 파일만 업로드할 수 있습니다.", "error");
+      return;
+    }
+    setCuratorPhotoUploading(true);
+    try {
+      const fileToUpload = await prepareImageFileForUpload(file);
+      await uploadCuratorPlacePhoto({
+        file: fileToUpload,
+        curatorId: user.id,
+        kakaoPlaceId: kakaoPlaceId || null,
+        placeId: internalPlaceIdForPhotos,
+      });
+      await reloadCuratorPlacePhotos();
+      showToast("사진을 등록했습니다.", "success");
+    } catch (err) {
+      showToast(err?.message || "업로드에 실패했습니다.", "error");
+    } finally {
+      setCuratorPhotoUploading(false);
+    }
+  };
+
+  const staticMapImage = buildStaticMapUrl(800, 360, 3);
+  const displayImage =
+    isKakaoPlace || kakaoDetails ? null : place?.image || staticMapImage;
+
+  const handleRoadviewOpen = () => {
+    if (!displayLat || !displayLng) return;
+    window.open(`https://map.kakao.com/link/roadview/${displayLat},${displayLng}`, "_blank");
+  };
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
+  const selectedCuratorNames = Array.isArray(selectedCurators) ? selectedCurators : [];
+
+  const getCuratorDisplayName = (curatorPlace) => {
+    return (
+      curatorPlace?.curators?.display_name ||
+      curatorPlace?.curators?.username ||
+      curatorPlace?.display_name ||
+      curatorPlace?.curator_id ||
+      ""
+    );
+  };
+
+  const featuredCuratorPlace =
+    (place.curatorPlaces || []).find((curatorPlace) => {
+      const candidates = [
+        curatorPlace?.curators?.display_name,
+        curatorPlace?.curators?.username,
+        curatorPlace?.display_name,
+        curatorPlace?.curator_id,
+      ].filter(Boolean);
+      return candidates.some((candidate) => selectedCuratorNames.includes(candidate));
+    }) || (place.curatorPlaces || [])[0];
 
   // 빠른저장 버튼 핸들러
   const handleQuickSaveClick = async () => {
@@ -294,6 +687,8 @@ export default function PlacePreviewCard({
     }
   };
 
+  if (!place) return null;
+
   return (
     <div style={styles.wrap}>
       <div style={{
@@ -308,22 +703,196 @@ export default function PlacePreviewCard({
             {/* 카카오맵 상세보기 링크 */}
             {(isKakaoPlace || kakaoDetails) && (
               <button
+                type="button"
                 onClick={handleKakaoView}
                 style={styles.kakaoLink}
               >
-                카카오맵
+                카카오맵에서 열기
+              </button>
+            )}
+            {(displayLat && displayLng) && (
+              <button onClick={handleRoadviewOpen} style={styles.kakaoLink}>
+                로드뷰
               </button>
             )}
             {/* 로딩 상태 표시 */}
             {isLoadingKakao && (
               <span style={styles.loadingText}>로딩 중...</span>
             )}
+            {canCuratorUploadPhoto ? (
+              <>
+                <input
+                  ref={curatorPhotoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+                  style={{ display: "none" }}
+                  onChange={handleCuratorPhotoFileChange}
+                />
+                <button
+                  type="button"
+                  disabled={curatorPhotoUploading}
+                  onClick={() => curatorPhotoInputRef.current?.click()}
+                  style={styles.curatorPhotoUploadBtn}
+                >
+                  {curatorPhotoUploading ? "업로드 중…" : "사진 올리기"}
+                </button>
+              </>
+            ) : null}
             <button type="button" onClick={onClose} style={styles.closeButton}>
               &times;
             </button>
           </div>
         </div>
-        <img src={place.image} alt={place.name} style={styles.image} />
+        {previewPhotoUrls.length > 0 ? (
+          <div style={styles.kakaoPreviewSection}>
+            <div style={styles.photoHeroWrap}>
+              {photoClickOpensKakao(previewPhotoUrls[0]) ? (
+                <button
+                  type="button"
+                  onClick={handleKakaoView}
+                  style={styles.kakaoPhotoHeroBtn}
+                  title="카카오맵에서 열기"
+                >
+                  <div style={styles.imageFrame}>
+                    <img
+                      src={previewPhotoUrls[0]}
+                      alt=""
+                      style={styles.imageFill}
+                      loading="eager"
+                    />
+                  </div>
+                </button>
+              ) : (
+                <div
+                  style={styles.kakaoPhotoHeroStatic}
+                  role="img"
+                  aria-label="장소 사진"
+                >
+                  <div style={styles.imageFrame}>
+                    <img
+                      src={previewPhotoUrls[0]}
+                      alt=""
+                      style={styles.imageFill}
+                      loading="eager"
+                    />
+                  </div>
+                </div>
+              )}
+              {canUserDeleteCuratorPhotoUrl(previewPhotoUrls[0]) ? (
+                <button
+                  type="button"
+                  style={styles.curatorPhotoDeleteOverlay}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const row = curatorRowByPublicUrl.get(previewPhotoUrls[0]);
+                    if (row) handleDeleteCuratorPhoto(row);
+                  }}
+                  disabled={curatorPhotoDeletingId != null}
+                  aria-label="내 사진 삭제"
+                  title="삭제"
+                >
+                  <FaTimes style={{ fontSize: 13 }} />
+                </button>
+              ) : null}
+            </div>
+            {previewPhotoUrls.length > 1 ? (
+              <div
+                style={{ ...styles.kakaoPreviewStrip, marginTop: 8 }}
+                aria-label="장소 사진"
+              >
+                {previewPhotoUrls.slice(1).map((src, i) => (
+                  <div
+                    key={`${src.slice(0, 48)}-${i}`}
+                    style={styles.previewThumbWrap}
+                  >
+                    {photoClickOpensKakao(src) ? (
+                      <button
+                        type="button"
+                        onClick={handleKakaoView}
+                        style={styles.kakaoPreviewThumbBtn}
+                        title="카카오맵에서 열기"
+                      >
+                        <img
+                          src={src}
+                          alt=""
+                          style={styles.kakaoPreviewThumbImg}
+                          loading="lazy"
+                        />
+                      </button>
+                    ) : (
+                      <div
+                        style={styles.kakaoPreviewThumbStatic}
+                        role="img"
+                        aria-label="큐레이터 등록 사진"
+                      >
+                        <img
+                          src={src}
+                          alt=""
+                          style={styles.kakaoPreviewThumbImg}
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+                    {canUserDeleteCuratorPhotoUrl(src) ? (
+                      <button
+                        type="button"
+                        style={styles.curatorPhotoDeleteThumb}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const row = curatorRowByPublicUrl.get(src);
+                          if (row) handleDeleteCuratorPhoto(row);
+                        }}
+                        disabled={curatorPhotoDeletingId != null}
+                        aria-label="내 사진 삭제"
+                        title="삭제"
+                      >
+                        <FaTimes style={{ fontSize: 10 }} />
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div style={styles.kakaoPreviewHint}>
+              {showGooglePhotoCredit
+                ? "Google Places로 자동 매칭된 이미지 · 동일 업체가 아닐 수 있음"
+                : showCuratorPhotoBadge && (isKakaoPlace || kakaoDetails)
+                ? previewHasKakaoOpenablePhoto
+                  ? "큐레이터 등록 사진 포함 · 카카오 사진 탭 시 상세로 이동"
+                  : "큐레이터 등록 사진 · 지도는 상단 「카카오맵에서 열기」"
+                : showCuratorPhotoBadge
+                ? "큐레이터 등록 사진"
+                : isKakaoPlace || kakaoDetails
+                ? previewHasKakaoOpenablePhoto
+                  ? "사진 · 더 보려면 「카카오맵에서 열기」"
+                  : "지도는 상단 「카카오맵에서 열기」"
+                : ""}
+            </div>
+            {showGooglePhotoCredit && googlePhotoAttributions.length > 0 ? (
+              <div style={styles.googlePhotoCredit}>
+                {googlePhotoAttributions.join(" · ")}
+              </div>
+            ) : null}
+          </div>
+        ) : showKakaoPhotoLoading ? (
+          <div style={styles.kakaoPreviewLoading}>미리보기 불러오는 중…</div>
+        ) : displayImage ? (
+          <div style={styles.imageFrameStandalone}>
+            <img
+              src={displayImage}
+              alt={place.name}
+              style={styles.imageFill}
+            />
+          </div>
+        ) : (isKakaoPlace || kakaoDetails) ? (
+          <div style={styles.imageFallback}>
+            사진 없음 · 큐레이터는 「사진 올리기」 또는 카카오맵에서 확인
+          </div>
+        ) : (
+          <div style={styles.imageFallback}>이미지 없음</div>
+        )}
 
         <div style={styles.body}>
           <div style={styles.titleRow}>
@@ -343,6 +912,54 @@ export default function PlacePreviewCard({
             </div>
           </div>
 
+          {place.blogInsight && place.blogInsight.reviewCount > 0 ? (
+            <div style={styles.blogInsightBlock} aria-label="블로그 기반 정보">
+              <div style={styles.blogInsightLabel}>
+                블로그에서 묻어난 정보 · 근거 {place.blogInsight.reviewCount}건
+              </div>
+              {typeof place.blogInsight.summary === "string" &&
+              place.blogInsight.summary.trim() ? (
+                <div style={styles.blogInsightSummary}>
+                  {place.blogInsight.summary.trim()}
+                </div>
+              ) : null}
+              {[
+                place.blogInsight.atmosphere,
+                place.blogInsight.menu,
+                place.blogInsight.purpose,
+                place.blogInsight.drink,
+              ].some((a) => Array.isArray(a) && a.length > 0) ? (
+                <div style={styles.blogInsightPills}>
+                  {(place.blogInsight.atmosphere || []).map((t) => (
+                    <span key={`bi-a-${t}`} style={styles.blogInsightPillMuted}>
+                      분위기 · {t}
+                    </span>
+                  ))}
+                  {(place.blogInsight.purpose || []).map((t) => (
+                    <span key={`bi-p-${t}`} style={styles.blogInsightPill}>
+                      상황 · {t}
+                    </span>
+                  ))}
+                  {(place.blogInsight.menu || []).map((t) => (
+                    <span key={`bi-m-${t}`} style={styles.blogInsightPillMuted}>
+                      메뉴 · {t}
+                    </span>
+                  ))}
+                  {(place.blogInsight.drink || []).map((t) => (
+                    <span key={`bi-d-${t}`} style={styles.blogInsightPill}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.blogInsightEmpty}>
+                  본문에서 분위기·상황 키워드는 아직 못 찾았어요. (블로그 본문은 AI
+                  시트에서 확인)
+                </div>
+              )}
+            </div>
+          ) : null}
+
           <div style={styles.meta}>
             {(isKakaoPlace || kakaoDetails) ? (
               <>
@@ -358,6 +975,12 @@ export default function PlacePreviewCard({
                 {displayPhone && (
                   <span style={styles.phone}>📞 {displayPhone}</span>
                 )}
+                {Number.isFinite(place?.distance) && (
+                  <span style={styles.distance}>🚶 {place.distance}m</span>
+                )}
+                {Number.isFinite(place?.walkingTime) && place.walkingTime > 0 && (
+                  <span style={styles.walkingTime}>도보 약 {place.walkingTime}분</span>
+                )}
                 {/* 카카오 장소 평점 정보 */}
                 {kakaoDetails?.rating && (
                   <span style={styles.rating}>⭐ {kakaoDetails.rating}</span>
@@ -365,11 +988,33 @@ export default function PlacePreviewCard({
                 {kakaoDetails?.review_count && (
                   <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
                 )}
+                {/* 큐레이터 추천 코멘트 추가 - DB 데이터 사용 */}
+                {featuredCuratorPlace && (
+                  <div style={styles.curatorComment}>
+                    💬 <span style={styles.curatorCommentText}>
+                      {getCuratorDisplayName(featuredCuratorPlace)}님 추천
+                    </span>
+                    <span style={styles.curatorReason}>
+                      "{featuredCuratorPlace?.one_line_reason || ""}"
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
               <>
                 {/* 일반 장소 정보 */}
                 {place.region} · 저장 {place.savedCount}
+                {/* 큐레이터 추천 코멘트 추가 - DB 데이터 사용 */}
+                {featuredCuratorPlace && (
+                  <div style={styles.curatorComment}>
+                    💬 <span style={styles.curatorCommentText}>
+                      {getCuratorDisplayName(featuredCuratorPlace)}님 추천
+                    </span>
+                    <span style={styles.curatorReason}>
+                      "{featuredCuratorPlace?.one_line_reason || ""}"
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -431,9 +1076,24 @@ export default function PlacePreviewCard({
           </div>
 
           <div style={styles.actionRow}>
-            <CheckinButton 
-              placeId={place.id} 
+            <CheckinButton
+              placeId={place.id}
               placeName={place.name}
+              placeAddress={
+                place.address ??
+                place.road_address_name ??
+                place.address_name ??
+                place.road_address ??
+                ""
+              }
+              placeLat={checkinWgs?.lat}
+              placeLng={checkinWgs?.lng}
+              kakaoPlaceId={
+                place.place_id ??
+                place.kakao_place_id ??
+                place.kakaoId ??
+                null
+              }
             />
 
             {isCurator ? (
@@ -475,6 +1135,7 @@ export default function PlacePreviewCard({
               onSave?.(place);
             }}
             firstSavedFrom="home"
+            searchSessionIdRef={searchSessionIdRef}
           />
         </div>
       </div>
@@ -491,10 +1152,14 @@ const styles = {
   },
   card: {
     width: "92%",
+    maxWidth: "420px",
+    maxHeight: "min(62vh, 480px)",
+    overflowX: "hidden",
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
     backgroundColor: "rgba(18,18,18,0.96)",
     border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "20px",
-    overflow: "hidden",
+    borderRadius: "16px",
     boxShadow: "0 14px 30px rgba(0,0,0,0.32)",
     backdropFilter: "blur(12px)",
     animation: "judoCardUp 220ms ease-out",
@@ -514,14 +1179,188 @@ const styles = {
     fontSize: "13px",
     zIndex: 2,
   },
-  image: {
+  /** 프레임 높이 고정 + img는 cover로 채워 비율 유지(버튼 내부 img 찌그러짐 방지) */
+  imageFrame: {
+    position: "relative",
     width: "100%",
-    height: "170px",
-    objectFit: "cover",
+    height: "clamp(96px, 26vw, 140px)",
+    overflow: "hidden",
+    borderRadius: "10px",
     backgroundColor: "#242424",
   },
+  imageFrameStandalone: {
+    position: "relative",
+    width: "100%",
+    height: "clamp(96px, 26vw, 140px)",
+    overflow: "hidden",
+    backgroundColor: "#242424",
+  },
+  imageFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center",
+    display: "block",
+  },
+  imageFallback: {
+    width: "100%",
+    height: "clamp(96px, 26vw, 140px)",
+    backgroundColor: "#242424",
+    color: "#8a8a8a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    padding: "0 12px",
+    textAlign: "center",
+    boxSizing: "border-box",
+  },
+  kakaoPreviewSection: {
+    padding: "8px 10px 6px",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.12) 100%)",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+  },
+  kakaoPhotoHeroBtn: {
+    display: "block",
+    width: "100%",
+    padding: 0,
+    margin: 0,
+    border: "none",
+    cursor: "pointer",
+    background: "transparent",
+    WebkitTapHighlightColor: "transparent",
+  },
+  kakaoPhotoHeroStatic: {
+    display: "block",
+    width: "100%",
+    padding: 0,
+    margin: 0,
+    border: "none",
+    cursor: "default",
+    background: "transparent",
+    WebkitTapHighlightColor: "transparent",
+  },
+  photoHeroWrap: {
+    position: "relative",
+    width: "100%",
+  },
+  curatorPhotoDeleteOverlay: {
+    position: "absolute",
+    top: "8px",
+    right: "8px",
+    zIndex: 3,
+    width: "30px",
+    height: "30px",
+    padding: 0,
+    border: "none",
+    borderRadius: "999px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+  },
+  previewThumbWrap: {
+    position: "relative",
+    flex: "0 0 auto",
+    width: "88px",
+    height: "58px",
+    flexShrink: 0,
+  },
+  curatorPhotoDeleteThumb: {
+    position: "absolute",
+    top: "2px",
+    right: "2px",
+    zIndex: 2,
+    width: "22px",
+    height: "22px",
+    padding: 0,
+    border: "none",
+    borderRadius: "999px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff",
+    backgroundColor: "rgba(192,57,43,0.92)",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.35)",
+  },
+  kakaoPreviewStrip: {
+    display: "flex",
+    flexDirection: "row",
+    gap: "8px",
+    overflowX: "auto",
+    overflowY: "hidden",
+    WebkitOverflowScrolling: "touch",
+    scrollbarWidth: "thin",
+    paddingBottom: "2px",
+  },
+  kakaoPreviewThumbBtn: {
+    flex: "0 0 auto",
+    width: "88px",
+    height: "58px",
+    padding: 0,
+    border: "1px solid rgba(255,255,255,0.14)",
+    borderRadius: "10px",
+    overflow: "hidden",
+    cursor: "pointer",
+    background: "rgba(0,0,0,0.35)",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+  },
+  kakaoPreviewThumbStatic: {
+    flex: "0 0 auto",
+    width: "88px",
+    height: "58px",
+    padding: 0,
+    border: "1px solid rgba(255,255,255,0.14)",
+    borderRadius: "10px",
+    overflow: "hidden",
+    cursor: "default",
+    background: "rgba(0,0,0,0.35)",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    flexShrink: 0,
+  },
+  kakaoPreviewThumbImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center",
+    display: "block",
+    flexShrink: 0,
+    pointerEvents: "none",
+  },
+  kakaoPreviewHint: {
+    marginTop: "6px",
+    fontSize: "10px",
+    color: "rgba(255,255,255,0.45)",
+    letterSpacing: "-0.02em",
+    lineHeight: 1.35,
+  },
+  googlePhotoCredit: {
+    marginTop: "4px",
+    fontSize: "9px",
+    color: "rgba(255,255,255,0.35)",
+    lineHeight: 1.3,
+  },
+  kakaoPreviewLoading: {
+    width: "100%",
+    height: "clamp(96px, 26vw, 140px)",
+    backgroundColor: "#242424",
+    color: "#8a8a8a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+  },
   body: {
-    padding: "14px 14px 16px",
+    padding: "10px 12px 12px",
   },
   titleRow: {
     display: "flex",
@@ -536,10 +1375,59 @@ const styles = {
     flexShrink: 0,
   },
   title: {
-    fontSize: "18px",
+    fontSize: "16px",
     fontWeight: 800,
     color: "#ffffff",
     lineHeight: 1.25,
+  },
+  blogInsightBlock: {
+    marginTop: "10px",
+    padding: "8px 10px",
+    borderRadius: "10px",
+    backgroundColor: "rgba(52, 152, 219, 0.1)",
+    border: "1px solid rgba(52, 152, 219, 0.28)",
+  },
+  blogInsightLabel: {
+    fontSize: "10px",
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.5)",
+    marginBottom: "6px",
+    letterSpacing: "-0.02em",
+  },
+  blogInsightSummary: {
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "#e8f4ff",
+    lineHeight: 1.45,
+    marginBottom: "8px",
+  },
+  blogInsightPills: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+  },
+  blogInsightPill: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#a8d8ff",
+    border: "1px solid rgba(168,216,255,0.35)",
+    borderRadius: "999px",
+    padding: "3px 9px",
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  blogInsightPillMuted: {
+    fontSize: "11px",
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.72)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: "999px",
+    padding: "3px 9px",
+    backgroundColor: "rgba(0,0,0,0.18)",
+  },
+  blogInsightEmpty: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.45)",
+    lineHeight: 1.4,
   },
   liveBadge: {
     height: "20px",
@@ -615,6 +1503,22 @@ const styles = {
     gap: "4px",
     alignItems: "flex-start",
   },
+  curatorComment: {
+    fontSize: "12px",
+    color: "#3498db",
+    backgroundColor: "rgba(52, 152, 219, 0.1)",
+    padding: "8px 12px",
+    borderRadius: "8px",
+    marginTop: "8px",
+    border: "1px solid rgba(52, 152, 219, 0.2)",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  },
+  curatorCommentText: {
+    fontWeight: "600",
+    color: "#3498db",
+  },
   headerRight: {
     display: "flex",
     alignItems: "center",
@@ -630,6 +1534,17 @@ const styles = {
     borderRadius: "3px",
     textDecoration: "underline",
     transition: "all 0.2s"
+  },
+  curatorPhotoUploadBtn: {
+    background: "rgba(46, 204, 113, 0.2)",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    color: "#2ECC71",
+    fontSize: "11px",
+    fontWeight: 600,
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: "6px",
+    whiteSpace: "nowrap",
   },
   category: {
     fontSize: "13px",
@@ -655,6 +1570,16 @@ const styles = {
     fontSize: "11px",
     color: "#999",
   },
+  distance: {
+    fontSize: "12px",
+    color: "#9cc8ff",
+    marginLeft: "8px",
+  },
+  walkingTime: {
+    fontSize: "12px",
+    color: "#9cc8ff",
+    marginLeft: "6px",
+  },
   loadingText: {
     fontSize: "11px",
     color: "#999",
@@ -662,8 +1587,8 @@ const styles = {
   },
   curatorSaveButton: {
     flex: 1,
-    height: "40px",
-    borderRadius: "12px",
+    height: "36px",
+    borderRadius: "10px",
     border: "1px solid #343434",
     backgroundColor: "#2ECC71",
     color: "#ffffff",
@@ -691,15 +1616,15 @@ const styles = {
     textOverflow: "ellipsis", // 넘치는 텍스트 ...으로 표시
   },
   actionRow: {
-    marginTop: "14px",
+    marginTop: "10px",
     display: "flex",
     gap: "8px",
     alignItems: "center",
   },
   saveButton: {
     flex: 1,
-    height: "40px",
-    borderRadius: "12px",
+    height: "36px",
+    borderRadius: "10px",
     border: "1px solid #343434",
     backgroundColor: "#1a1a1a",
     color: "#ffffff",
@@ -708,8 +1633,8 @@ const styles = {
   },
   quickSaveButton: {
     flex: 1,
-    height: "40px",
-    borderRadius: "12px",
+    height: "36px",
+    borderRadius: "10px",
     border: "1px solid #343434",
     backgroundColor: "#2ECC71",
     color: "#ffffff",
@@ -718,8 +1643,8 @@ const styles = {
   },
   shareButton: {
     flex: 1,
-    height: "40px",
-    borderRadius: "12px",
+    height: "36px",
+    borderRadius: "10px",
     border: "none",
     backgroundColor: "#3498DB",
     color: "#ffffff",

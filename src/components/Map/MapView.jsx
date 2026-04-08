@@ -1,39 +1,30 @@
-import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from "react";
 import createMarker from "../../utils/createMarker";
+import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
 
 const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
 
-function loadKakaoMapsSdk({ appKey }) {
-  return new Promise((resolve, reject) => {
-    if (window.kakao?.maps) {
-      resolve();
-      return;
-    }
+function resolvePlaceCoords(place) {
+  return resolvePlaceWgs84(place);
+}
 
-    if (!appKey) {
-      reject(new Error("VITE_KAKAO_JAVASCRIPT_KEY is missing"));
-      return;
-    }
-
-    const existing = document.querySelector('script[data-kakao-maps-sdk="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Failed to load Kakao Maps SDK")));
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.defer = true;
-    script.setAttribute("data-kakao-maps-sdk", "true");
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(
-      appKey
-    )}&autoload=false&libraries=services,clusterer`;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
-    document.head.appendChild(script);
-  });
+/** 체크인 랭킹 TOP과 place.id / place_id 등 매칭 */
+function markerCheckinMeta(place, checkinCountByPlaceId, hotRankTopPlaceIds) {
+  const ids = [place?.id, place?.place_id, place?.kakao_place_id, place?.kakaoId]
+    .filter((x) => x != null && x !== "")
+    .map((x) => String(x));
+  let checkinCount = 0;
+  for (const id of ids) {
+    const v = checkinCountByPlaceId?.[id];
+    if (typeof v === "number" && v > checkinCount) checkinCount = v;
+  }
+  const showHotFlame =
+    hotRankTopPlaceIds &&
+    typeof hotRankTopPlaceIds.has === "function" &&
+    ids.some((id) => hotRankTopPlaceIds.has(id));
+  return { checkinCount, showHotFlame };
 }
 
 const MapView = forwardRef(({
@@ -52,6 +43,14 @@ const MapView = forwardRef(({
   savedFolders,
   userSavedPlaces,
   onLocationButtonClick,
+  onMapViewportChange,
+  /** 장소 id → 최근 3h 체크인 수 (get_place_checkin_count 등) */
+  checkinCountByPlaceId = {},
+  /** Set<string> 랭킹 TOP place_id */
+  hotRankTopPlaceIds = null,
+  /** false면 지도 우하단 내 위치 FAB 숨김(부모에서 다른 위치에 배치할 때) */
+  showFloatingLocationButton = true,
+  onMyLocationLoadingChange,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -63,6 +62,38 @@ const MapView = forwardRef(({
 
   const userInteractedRef = useRef(false);
   const ignoreViewportEventRef = useRef(false);
+  const viewportNotifyReadyRef = useRef(false);
+  const onViewportChangeRef = useRef(onMapViewportChange);
+
+  useEffect(() => {
+    onViewportChangeRef.current = onMapViewportChange;
+  }, [onMapViewportChange]);
+
+  const runWithIgnoredViewportEvents = useCallback((fn, clearMs = 450) => {
+    ignoreViewportEventRef.current = true;
+    try {
+      fn();
+    } finally {
+      setTimeout(() => {
+        ignoreViewportEventRef.current = false;
+      }, clearMs);
+    }
+  }, []);
+
+  const notifyViewportCenterChanged = useCallback(() => {
+    if (
+      !viewportNotifyReadyRef.current ||
+      ignoreViewportEventRef.current ||
+      !mapRef.current
+    ) {
+      return;
+    }
+    const c = mapRef.current.getCenter();
+    if (!c) return;
+    const lat = c.getLat();
+    const lng = c.getLng();
+    onViewportChangeRef.current?.({ lat, lng });
+  }, []);
 
   const prevPlacesRef = useRef([]);
 
@@ -202,7 +233,8 @@ const MapView = forwardRef(({
     }
 
     setIsLocating(true);
-    
+    onMyLocationLoadingChange?.(true);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
@@ -217,11 +249,16 @@ const MapView = forwardRef(({
         // 지도 중심 이동
         if (mapRef.current && mapReady) {
           try {
-            const target = new window.kakao.maps.LatLng(latitude, longitude);
-            console.log('📍 지도 이동 시작:', target);
-            mapRef.current.panTo(target);
-            mapRef.current.setLevel(4);
-            console.log('📍 지도 이동 완료');
+            runWithIgnoredViewportEvents(() => {
+              const target = new window.kakao.maps.LatLng(latitude, longitude);
+              console.log("📍 지도 이동 시작:", target);
+              mapRef.current.panTo(target);
+              mapRef.current.setLevel(4);
+              console.log("📍 지도 이동 완료");
+            });
+            setTimeout(() => {
+              onViewportChangeRef.current?.({ lat: latitude, lng: longitude });
+            }, 480);
           } catch (error) {
             console.error('📍 지도 이동 실패:', error);
           }
@@ -230,10 +267,12 @@ const MapView = forwardRef(({
         }
         
         setIsLocating(false);
+        onMyLocationLoadingChange?.(false);
       },
       (error) => {
         console.error('위치 가져오기 실패:', error);
         setIsLocating(false);
+        onMyLocationLoadingChange?.(false);
         
         let errorMsg = "위치 정보를 가져올 수 없습니다.";
         switch (error.code) {
@@ -257,39 +296,90 @@ const MapView = forwardRef(({
     );
   };
 
-  useImperativeHandle(ref, () => ({
-    moveToSeoulCenter: () => {
-      if (!mapRef.current) return;
-      const moveLatLon = new window.kakao.maps.LatLng(
-        SEOUL_CENTER.lat,
-        SEOUL_CENTER.lng
-      );
-      mapRef.current.setCenter(moveLatLon);
-    },
-    moveToLocation: (lat, lng) => {
-      if (!mapRef.current) return;
-      const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
-      mapRef.current.setCenter(moveLatLon);
-      mapRef.current.setLevel(4); // zoom in to level 4
-    },
-    setZoomLevel: (level) => {
-      if (!mapRef.current) return;
-      mapRef.current.setLevel(level);
-    },
-    getBounds: () => {
-      if (!mapRef.current) return null;
-      return mapRef.current.getBounds();
-    },
-    getCurrentLocation: () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-          const target = new window.kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
-          mapRef.current.panTo(target);
-          if (onCurrentLocationChange) onCurrentLocationChange({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        }, () => alert("위치 정보를 가져올 수 없습니다."));
-      }
-    },
-  }));
+  const requestMyLocationRef = useRef(handleGetCurrentLocation);
+  requestMyLocationRef.current = handleGetCurrentLocation;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      moveToSeoulCenter: () => {
+        if (!mapRef.current) return;
+        runWithIgnoredViewportEvents(() => {
+          const moveLatLon = new window.kakao.maps.LatLng(
+            SEOUL_CENTER.lat,
+            SEOUL_CENTER.lng
+          );
+          mapRef.current.setCenter(moveLatLon);
+        });
+      },
+      moveToLocation: (lat, lng) => {
+        if (!mapRef.current) return;
+        runWithIgnoredViewportEvents(() => {
+          const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
+          mapRef.current.setCenter(moveLatLon);
+          mapRef.current.setLevel(4);
+        });
+      },
+      setZoomLevel: (level) => {
+        if (!mapRef.current) return;
+        runWithIgnoredViewportEvents(() => {
+          mapRef.current.setLevel(level);
+        });
+      },
+      getCenter: () => {
+        if (!mapRef.current) return null;
+        const c = mapRef.current.getCenter();
+        return c
+          ? { lat: c.getLat(), lng: c.getLng() }
+          : null;
+      },
+      panTo: (lat, lng) => {
+        if (!mapRef.current) return;
+        runWithIgnoredViewportEvents(() => {
+          mapRef.current.panTo(
+            new window.kakao.maps.LatLng(lat, lng)
+          );
+        });
+      },
+      setLevel: (level, opts) => {
+        if (!mapRef.current) return;
+        runWithIgnoredViewportEvents(() => {
+          if (opts !== undefined) mapRef.current.setLevel(level, opts);
+          else mapRef.current.setLevel(level);
+        });
+      },
+      getBounds: () => {
+        if (!mapRef.current) return null;
+        return mapRef.current.getBounds();
+      },
+      getCurrentLocation: () => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const lat = pos.coords.latitude;
+              const lng = pos.coords.longitude;
+              runWithIgnoredViewportEvents(() => {
+                const target = new window.kakao.maps.LatLng(lat, lng);
+                mapRef.current.panTo(target);
+              });
+              if (onCurrentLocationChange) {
+                onCurrentLocationChange({ lat, lng });
+              }
+              setTimeout(() => {
+                onViewportChangeRef.current?.({ lat, lng });
+              }, 450);
+            },
+            () => alert("위치 정보를 가져올 수 없습니다.")
+          );
+        }
+      },
+      /** 로그인 체크·마커·지도 이동까지 포함한 홈 내 위치 버튼과 동일 동작 */
+      requestMyLocation: () => {
+        requestMyLocationRef.current?.();
+      },
+    }),
+    [onCurrentLocationChange, runWithIgnoredViewportEvents]
+  );
 
   // 1. 지도 초기화
   useEffect(() => {
@@ -344,8 +434,14 @@ const MapView = forwardRef(({
                 }
               });
 
-              window.kakao.maps.event.addListener(map, "dragend", markUserInteracted);
-              window.kakao.maps.event.addListener(map, "zoom_changed", markUserInteracted);
+              window.kakao.maps.event.addListener(map, "dragend", () => {
+                markUserInteracted();
+                notifyViewportCenterChanged();
+              });
+              window.kakao.maps.event.addListener(map, "zoom_changed", () => {
+                markUserInteracted();
+                notifyViewportCenterChanged();
+              });
 
               if (window.kakao.maps.MarkerClusterer) {
                 clustererRef.current = new window.kakao.maps.MarkerClusterer({
@@ -355,7 +451,11 @@ const MapView = forwardRef(({
                   gridSize: 60,
                 });
               }
+              viewportNotifyReadyRef.current = false;
               setMapReady(true);
+              setTimeout(() => {
+                viewportNotifyReadyRef.current = true;
+              }, 650);
             } catch (e) {
               console.error("kakao map init error:", e);
               setMapError("지도 로딩 오류");
@@ -373,7 +473,7 @@ const MapView = forwardRef(({
     };
     initMap();
     return () => { mounted = false; clearTimeout(retryTimer); };
-  }, [setSelectedPlace]);
+  }, [setSelectedPlace, notifyViewportCenterChanged]);
 
   // 2. 마커 업데이트 (데이터 변경 시에만 범위 조정)
   useEffect(() => {
@@ -392,24 +492,24 @@ const MapView = forwardRef(({
     const liveMarkers = [];
     const clusterMarkers = [];
 
-    const validPlaces = places.filter(p => {
-      const lat = p.lat || p.latitude;
-      const lng = p.lng || p.longitude;
-      // 유효한 좌표만 필터링 (서울 지역 범위)
-      return lat && lng && lat >= 37.4 && lat <= 37.7 && lng >= 126.8 && lng <= 127.2;
+    const validPlaces = places.filter((p) => {
+      const c = resolvePlaceCoords(p);
+      if (!c) return false;
+      const { lat, lng } = c;
+      return lat >= 37.4 && lat <= 37.7 && lng >= 126.8 && lng <= 127.2;
     });
 
     console.log("🗺️ 유효한 장소 수:", validPlaces.length, "/", places.length);
 
     const nextMarkers = validPlaces.map((p) => {
-      // lat/lng 필드가 없으면 latitude/longitude 사용
-      const lat = p.lat || p.latitude;
-      const lng = p.lng || p.longitude;
+      const { lat, lng } = resolvePlaceCoords(p);
       
       console.log("📍 마커 데이터:", { id: p.id, name: p.name, lat, lng });
       
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
       const shouldCluster = Boolean(clustererRef.current) && !isLive;
+
+      const checkinMeta = markerCheckinMeta(p, checkinCountByPlaceId, hotRankTopPlaceIds);
 
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
@@ -418,10 +518,13 @@ const MapView = forwardRef(({
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
+        checkinMeta,
         onClick: (cp) => {
           ignoreMapClickRef.current = true;
-          
-          // API 결과를 PlacePreviewCard 형식으로 변환
+
+          const wgs = resolvePlaceCoords(cp);
+
+          // API 결과를 PlacePreviewCard 형식으로 변환 (y/x만 있어도 lat·lng 채움)
           const formattedPlace = {
             id: cp.id || `api_${cp.name?.replace(/\s+/g, '_')}`,
             name: cp.name || cp.title || cp.place_name,
@@ -433,14 +536,30 @@ const MapView = forwardRef(({
             tags: cp.category ? [cp.category] : [],
             comment: '',
             savedCount: 0,
-            lat: cp.lat,
-            lng: cp.lng,
+            lat: wgs?.lat ?? cp.lat,
+            lng: wgs?.lng ?? cp.lng,
+            ...(wgs
+              ? {
+                  x: String(wgs.lng),
+                  y: String(wgs.lat),
+                }
+              : {}),
+            image: cp.image,
+            curatorPlaces: cp.curatorPlaces || [],
             // 네이버/카카오 API 추가 필드
             source: cp.source || 'naver',
             link: cp.link || cp.place_url,
+            place_url: cp.place_url || cp.link || '',
             phone: cp.phone || cp.telephone || '',
+            place_id: cp.place_id || cp.kakao_place_id || cp.kakaoId || cp.id,
+            kakao_place_id: cp.kakao_place_id || cp.place_id || cp.kakaoId || cp.id,
+            isKakaoPlace: Boolean(cp.isKakaoPlace || cp.source === 'kakao' || cp.place_url),
+            category_name: cp.category_name || cp.category || '',
+            road_address_name: cp.road_address_name || '',
+            address_name: cp.address_name || cp.address || '',
             distance: cp.distance,
-            walkingTime: cp.walkingTime
+            walkingTime: cp.walkingTime,
+            blogInsight: cp.blogInsight,
           };
           
           console.log('🗺️ 마커 클릭 - 장소 데이터:', formattedPlace);
@@ -480,32 +599,45 @@ const MapView = forwardRef(({
       const isStudioPage = window.location.pathname.includes('/studio');
       if (!userInteractedRef.current || isStudioPage) {
         ignoreViewportEventRef.current = true;
-        if (places.length === 1) {
-          const place = places[0];
-          const lat = place.lat || place.latitude;
-          const lng = place.lng || place.longitude;
-          
-          console.log("단일 마커 중심 이동:", lat, lng); // 디버깅
-          if (lat && lng) {
+        if (validPlaces.length === 1) {
+          const c = resolvePlaceCoords(validPlaces[0]);
+          console.log("단일 마커 중심 이동:", c);
+          if (c) {
             mapRef.current.setCenter(
-              new window.kakao.maps.LatLng(lat, lng)
+              new window.kakao.maps.LatLng(c.lat, c.lng)
             );
             mapRef.current.setLevel(4);
           }
-        } else {
+        } else if (validPlaces.length > 1) {
           mapRef.current.setBounds(bounds);
         }
         setTimeout(() => {
           ignoreViewportEventRef.current = false;
-        }, 0);
+        }, 450);
       }
       prevPlacesRef.current = places;
     }
-  }, [places, selectedPlace, mapReady, savedColorMap, livePlaceIds]);
+  }, [
+    places,
+    selectedPlace,
+    mapReady,
+    savedColorMap,
+    livePlaceIds,
+    userFolders,
+    checkinCountByPlaceId,
+    hotRankTopPlaceIds,
+  ]);
 
   // 3. 선택된 장소로 부드럽게 이동
   useEffect(() => {
     if (mapReady && mapRef.current && selectedPlace) {
+      ignoreViewportEventRef.current = true;
+      const releaseIgnore = () => {
+        setTimeout(() => {
+          ignoreViewportEventRef.current = false;
+        }, 520);
+      };
+
       const desiredLevel = 4;
       const currentLevel = mapRef.current.getLevel?.();
       const panUpPx = 220;
@@ -528,12 +660,12 @@ const MapView = forwardRef(({
       const moveToOffset = () => {
         const offsetLatLng = getOffsetLatLng();
         mapRef.current.panTo(offsetLatLng);
+        releaseIgnore();
       };
 
       const needsZoomIn = typeof currentLevel === "number" && currentLevel > desiredLevel;
       if (needsZoomIn) {
         mapRef.current.setLevel(desiredLevel, { animate: true });
-        // 줌 애니메이션과 동시에 좌표 보정 이동을 하면 덜 자연스러울 수 있어 짧게만 대기합니다.
         setTimeout(moveToOffset, 180);
       } else {
         moveToOffset();
@@ -545,10 +677,14 @@ const MapView = forwardRef(({
   useEffect(() => {
     if (mapReady && mapRef.current && center) {
       console.log("🗺️ 지도 중심 이동:", center);
-      mapRef.current.setCenter(new window.kakao.maps.LatLng(center.lat, center.lng));
-      mapRef.current.setLevel(4);
+      runWithIgnoredViewportEvents(() => {
+        mapRef.current.setCenter(
+          new window.kakao.maps.LatLng(center.lat, center.lng)
+        );
+        mapRef.current.setLevel(4);
+      });
     }
-  }, [center, mapReady]);
+  }, [center, mapReady, runWithIgnoredViewportEvents]);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -560,25 +696,28 @@ const MapView = forwardRef(({
         )}
       </div>
       
-      {/* 내 위치 버튼 */}
-      <button
-        onClick={handleGetCurrentLocation}
-        disabled={isLocating}
-        style={{
-          ...styles.locationButton,
-          opacity: isLocating ? 0.7 : 1,
-        }}
-        title="내 위치"
-      >
-        {isLocating ? (
-          <div style={styles.spinner} />
-        ) : (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-          </svg>
-        )}
-      </button>
+      {showFloatingLocationButton ? (
+        <button
+          type="button"
+          onClick={handleGetCurrentLocation}
+          disabled={isLocating}
+          style={{
+            ...styles.locationButton,
+            opacity: isLocating ? 0.7 : 1,
+          }}
+          title="내 위치"
+          aria-label="내 위치로 이동"
+        >
+          {isLocating ? (
+            <div style={styles.spinner} />
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+            </svg>
+          )}
+        </button>
+      ) : null}
       
       {/* 커스텀 오버레이 */}
       {overlayPlace && (

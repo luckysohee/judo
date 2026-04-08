@@ -45,41 +45,59 @@ export const useRealtimeCheckins = () => {
 
   // 모든 장소의 체크인 수 업데이트
   const updateAllPlaceCheckinCounts = async () => {
-    const hotPlaceIds = hotPlaces.map(place => place.place_id);
-    const counts = {};
-    
-    for (const placeId of hotPlaceIds) {
-      const count = await fetchPlaceCheckinCount(placeId);
-      counts[placeId] = count;
+    const hotPlaceIds = hotPlaces.map((place) => place.place_id);
+    if (hotPlaceIds.length === 0) {
+      setPlaceCheckinCounts({});
+      return;
     }
-    
-    setPlaceCheckinCounts(counts);
+    const pairs = await Promise.all(
+      hotPlaceIds.map(async (placeId) => {
+        const count = await fetchPlaceCheckinCount(placeId);
+        return [placeId, count];
+      })
+    );
+    setPlaceCheckinCounts(Object.fromEntries(pairs));
   };
 
-  // 체크인하기
-  const performCheckin = async (userNickname, placeId, placeName, placeAddress) => {
+  // 체크인하기 (서버 RPC: 장소 좌표 대비 GPS 거리 검증 후에만 INSERT)
+  const performCheckin = async ({
+    userNickname,
+    placeId,
+    placeName,
+    placeAddress,
+    placeLat,
+    placeLng,
+    userLat,
+    userLng,
+    accuracyM,
+    skipDistanceCheck = false,
+  }) => {
     try {
-      const { data, error } = await supabase
-        .from('check_ins')
-        .insert({
-          user_nickname: userNickname,
-          place_id: placeId,
-          place_name: placeName,
-          place_address: placeAddress
-        })
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc("perform_check_in_nearby", {
+        p_user_nickname: userNickname,
+        p_place_id: String(placeId),
+        p_place_name: placeName,
+        p_place_address: placeAddress || "",
+        p_place_lat: skipDistanceCheck ? null : placeLat,
+        p_place_lng: skipDistanceCheck ? null : placeLng,
+        p_user_lat: skipDistanceCheck ? null : userLat,
+        p_user_lng: skipDistanceCheck ? null : userLng,
+        p_accuracy_m: skipDistanceCheck ? null : accuracyM ?? null,
+        p_skip_distance_check: skipDistanceCheck,
+      });
 
       if (error) throw error;
-      
-      // 체크인 성공 후 데이터 새로고침
-      await Promise.all([
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error("checkin_no_row");
+
+      // 랭킹/핫플 새로고침은 N회 RPC를 순차 호출할 수 있어 수십 초 걸림 → UI 블로킹 방지
+      void Promise.all([
         fetchHotPlaces(),
         fetchCheckinRanking(),
-        updateAllPlaceCheckinCounts()
-      ]);
+        updateAllPlaceCheckinCounts(),
+      ]).catch((e) => console.warn("체크인 후 목록 갱신:", e));
 
-      return data;
+      return row;
     } catch (error) {
       console.error('체크인 오류:', error);
       throw error;

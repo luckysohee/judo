@@ -7,6 +7,7 @@ import CuratorPageScreen from "./pages/CuratorPageScreen";
 import CuratorProfilePage from "./pages/CuratorProfilePage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import AdminApplicationsPage from "./pages/AdminApplicationsPage";
+import SearchInsightsPage from "./pages/SearchInsightsPage";
 import CuratorManagementPage from "./pages/CuratorManagementPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
@@ -25,6 +26,7 @@ function App() {
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin/applications" element={<AdminApplicationsPage />} />
+      <Route path="/admin/search-insights" element={<SearchInsightsPage />} />
       <Route path="/admin/curator/:userId" element={<CuratorManagementPage />} />
       <Route path="/curator-apply" element={<CuratorApplyForm />} />
       <Route path="/test-checkin" element={<CheckinTest />} />

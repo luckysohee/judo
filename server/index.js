@@ -6,14 +6,17 @@ import dotenv from "dotenv";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config({ path: path.join(__dirname, '.env') });
+// 루트 .env → server/.env 순 (같은 키는 server가 덮어씀). 키가 루트에만 있어도 로드됨.
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
+dotenv.config({ path: path.join(__dirname, ".env") });
 
 // 환경 변수 로깅
-console.log('🔍 환경 변수 확인:');
-console.log('🔍 __dirname:', __dirname);
-console.log('🔍 env path:', path.join(__dirname, '.env'));
-console.log('🔍 NAVER_CLIENT_ID:', process.env.NAVER_CLIENT_ID ? '설정됨' : '설정안됨');
-console.log('🔍 NAVER_CLIENT_SECRET:', process.env.NAVER_CLIENT_SECRET ? '설정됨' : '설정안됨');
+console.log("🔍 환경 변수 확인:");
+console.log("🔍 __dirname:", __dirname);
+console.log("🔍 env (루트):", path.join(__dirname, "..", ".env"));
+console.log("🔍 env (서버):", path.join(__dirname, ".env"));
+console.log("🔍 NAVER_CLIENT_ID:", process.env.NAVER_CLIENT_ID ? "설정됨" : "설정안됨");
+console.log("🔍 NAVER_CLIENT_SECRET:", process.env.NAVER_CLIENT_SECRET ? "설정됨" : "설정안됨");
 
 import express from "express";
 import cors from "cors";
@@ -21,6 +24,14 @@ import { spawn } from "child_process";
 import fs from "fs";
 import OpenAI from "openai";
 import axios from "axios";
+import {
+  blogInsightFromCacheRow,
+  fetchPlaceBlogInsightsBatch,
+  fingerprintFromPosts,
+  isPlaceBlogCacheEnabled,
+  stableExternalPlaceId,
+  upsertPlaceBlogInsight,
+} from "./placeBlogInsightsCache.js";
 
 const app = express();
 app.use(cors());
@@ -29,10 +40,107 @@ app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
 
 const port = process.env.PORT || 4000;
 
-// OpenAI 클라이언트 초기화
+const PLACEHOLDER_OPENAI_KEY =
+  "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+// OpenAI 클라이언트 초기화 (위에서 루트+server .env 모두 로드됨)
+const resolvedOpenAiKey =
+  (process.env.OPENAI_API_KEY && String(process.env.OPENAI_API_KEY).trim()) ||
+  PLACEHOLDER_OPENAI_KEY;
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 실제 키 필요
+  apiKey: resolvedOpenAiKey,
 });
+
+function hasUsableOpenAiKey() {
+  const k = process.env.OPENAI_API_KEY;
+  if (!k || typeof k !== "string") return false;
+  const t = k.trim();
+  // sk-… 실키는 길이만 대략 검사 (플레이스홀더만 제외). 연속 x 정규식은 실키에 x가 많으면 오탐.
+  if (t.length < 20) return false;
+  if (!t.startsWith("sk-")) return false;
+  if (t === PLACEHOLDER_OPENAI_KEY) return false;
+  return true;
+}
+
+const _openAiKeyPreview = hasUsableOpenAiKey()
+  ? `${resolvedOpenAiKey.slice(0, 10)}…${resolvedOpenAiKey.slice(-4)}`
+  : "없음/플레이스홀더";
+console.log("🔍 OPENAI_API_KEY:", hasUsableOpenAiKey() ? `사용 가능 (${_openAiKeyPreview})` : "미설정·무효");
+console.log(
+  "🔍 place_blog_insights 캐시:",
+  isPlaceBlogCacheEnabled() ? "Supabase service role 사용" : "비활성(SUPABASE_URL+SUPABASE_SERVICE_ROLE_KEY 필요)"
+);
+
+const BLOG_LLM_MAX_PLACES = 5;
+const BLOG_LLM_MAX_CHARS_SNIPPET = 2800;
+const BLOG_LLM_TIMEOUT_MS = 12000;
+
+function buildBlogSnippetsForLlm(posts, maxChars) {
+  let buf = "";
+  for (const p of posts) {
+    const title = String(p.title || "").slice(0, 200);
+    const body = String(p.content || "").slice(0, 950);
+    const chunk = `[제목] ${title}\n[본문] ${body}\n\n`;
+    if (buf.length + chunk.length > maxChars) break;
+    buf += chunk;
+  }
+  return buf.trim();
+}
+
+async function summarizeBlogsOneLine({ placeName, searchQuery, posts }) {
+  if (!hasUsableOpenAiKey() || !Array.isArray(posts) || posts.length === 0) {
+    return null;
+  }
+  const snippets = buildBlogSnippetsForLlm(posts, BLOG_LLM_MAX_CHARS_SNIPPET);
+  if (!snippets) return null;
+
+  const name = String(placeName || "장소").trim() || "장소";
+  const ctx = String(searchQuery || "").trim().slice(0, 120);
+
+  try {
+    const completion = await Promise.race([
+      openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "너는 한국 로컬 술집·음식점 네이버 블로그 후기를 한 줄로 압축하는 편집자다. " +
+              "출력은 요약 문장 한 줄만. 따옴표·불릿·'요약:' 같은 접두어 금지. " +
+              "블로그 발췌에 없는 사실·평가는 쓰지 마라. 애매하면 '블로그에 묘사가 짧음' 수준으로만.",
+          },
+          {
+            role: "user",
+            content:
+              `상호: ${name}\n` +
+              `검색 맥락(참고만): ${ctx}\n\n` +
+              `블로그 발췌:\n${snippets}\n\n` +
+              `위 발췌에 근거해 분위기·메뉴·술·가격·상황 중 실제로 언급된 것만 골라 75자 이내 한 문장 한국어로.`,
+          },
+        ],
+        max_tokens: 110,
+        temperature: 0.35,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("llm_timeout")), BLOG_LLM_TIMEOUT_MS)
+      ),
+    ]);
+
+    let one = (completion.choices[0]?.message?.content || "").trim();
+    if (
+      (one.startsWith('"') && one.endsWith('"')) ||
+      (one.startsWith("'") && one.endsWith("'"))
+    ) {
+      one = one.slice(1, -1).trim();
+    }
+    one = one.replace(/\s+/g, " ").slice(0, 120);
+    return one || null;
+  } catch (e) {
+    console.warn("summarizeBlogsOneLine:", name, e?.message || e);
+    return null;
+  }
+}
 
 // 카카오 로컬 API 모듈 추가
 const kakaoLocalAPI = {
@@ -227,6 +335,146 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+/** 5단계: AI는 장소를 발명하지 않고, 검색·지도 파이프라인을 보조하는 구조화 힌트만 반환 */
+app.post("/api/search-intent-assist", async (req, res) => {
+  const raw = req.body?.query;
+  const query = typeof raw === "string" ? raw.trim() : "";
+  if (!query) {
+    return res.status(400).json({ error: "query가 비어 있습니다." });
+  }
+
+  const emptyHints = () => ({
+    vibe: "",
+    situation: "",
+    purpose: "",
+    alcoholScope: "",
+    foodOrSnackWeight: "",
+    regionHint: "",
+  });
+
+  const fallback = () => ({
+    queryCorrected: query,
+    intentSummary: "",
+    filterHints: emptyHints(),
+    kakaoKeywordHint: query,
+    broadKakaoKeyword: "",
+    fallbackSearchIdeas: [],
+  });
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || apiKey.startsWith("sk-proj-xxxx")) {
+    return res.json(fallback());
+  }
+
+  const intentSchema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      queryCorrected: { type: "string" },
+      intentSummary: { type: "string" },
+      filterHints: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          vibe: { type: "string" },
+          situation: { type: "string" },
+          purpose: { type: "string" },
+          alcoholScope: { type: "string" },
+          foodOrSnackWeight: { type: "string" },
+          regionHint: { type: "string" },
+        },
+        required: [
+          "vibe",
+          "situation",
+          "purpose",
+          "alcoholScope",
+          "foodOrSnackWeight",
+          "regionHint",
+        ],
+      },
+      kakaoKeywordHint: { type: "string" },
+      broadKakaoKeyword: {
+        type: "string",
+        description: "가장 넓은 카카오 키워드(지역+술집 등). 상호명 금지.",
+      },
+      fallbackSearchIdeas: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+    required: [
+      "queryCorrected",
+      "intentSummary",
+      "filterHints",
+      "kakaoKeywordHint",
+      "broadKakaoKeyword",
+      "fallbackSearchIdeas",
+    ],
+  };
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text:
+                "너는 지도·로컬 검색(카카오 등) 앞단에 붙는 ‘의도 파서’다. 출력은 JSON 스키마뿐이다.\n\n" +
+                "[금지] 구체 상호명·주소·전화·‘여기 가봐’ 같은 장소 추천. 실제 존재를 단정하는 문장. 챗봇식 잡담.\n" +
+                "[허용] 오타·표현 정리, 무드/목적/상황/주종/안주 무게/지역 단서를 짧은 한국어 태그로 정리, " +
+                "카카오 키워드 검색용 짧은 kakaoKeywordHint, " +
+                "broadKakaoKeyword는 조건을 최대한 넓힌 한 줄(예: 강남 술집, 압구정 술집, 서울 이자카야). 상호명·주소 금지. " +
+                "결과가 비었을 때 쓸 짧은 대체 검색어 fallbackSearchIdeas(2~4개).\n" +
+                "모르는 필드는 빈 문자열. 장소 이름은 출력하지 마라.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `사용자 검색어:\n${query}`,
+            },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "judo_search_intent_assist",
+          strict: true,
+          schema: intentSchema,
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.output_text);
+    return res.json({
+      queryCorrected: String(parsed.queryCorrected ?? query).trim() || query,
+      intentSummary: String(parsed.intentSummary ?? ""),
+      filterHints: {
+        ...emptyHints(),
+        ...(typeof parsed.filterHints === "object" && parsed.filterHints
+          ? parsed.filterHints
+          : {}),
+      },
+      kakaoKeywordHint:
+        String(parsed.kakaoKeywordHint ?? "").trim() || query,
+      broadKakaoKeyword: String(parsed.broadKakaoKeyword ?? "").trim(),
+      fallbackSearchIdeas: Array.isArray(parsed.fallbackSearchIdeas)
+        ? parsed.fallbackSearchIdeas.map(String).slice(0, 4)
+        : [],
+    });
+  } catch (e) {
+    console.error("search-intent-assist error:", e?.message || e);
+    return res.json(fallback());
+  }
+});
+
 // 네이버 지역 검색 API
 async function searchNaverLocal(query) {
   const clientId = process.env.NAVER_CLIENT_ID;
@@ -341,8 +589,12 @@ function convertKatechToWGS84(mapx, mapy) {
   const boundedLat = Math.max(37.4, Math.min(37.7, lat));
   const boundedLng = Math.max(126.8, Math.min(127.2, lng));
   
-  console.log(`좌표 변환: KATECH(${mapx}, ${mapy}) → WGS84(${boundedLat}, ${boundedLng})`);
-  
+  if (process.env.DEBUG_KATECH === "1") {
+    console.log(
+      `좌표 변환: KATECH(${mapx}, ${mapy}) → WGS84(${boundedLat}, ${boundedLng})`
+    );
+  }
+
   return {
     lat: boundedLat,
     lng: boundedLng
@@ -565,12 +817,14 @@ app.post("/api/ai-search", async (req, res) => {
     const systemPrompt = blogReviews.length > 0
       ? `너는 한국 술집 추천 큐레이터다. 사용자 검색어와 관련된 네이버 블로그 실제 리뷰 정보를 제공받았다.
 
+[역할 제한] 주도는 지도/API 후보 목록이다. 너는 목록 밖의 장소를 지어내거나 존재를 단정하지 마라. 챗봇처럼 잡담하지 마라. 반드시 제공된 id만 recommendedPlaceIds에 넣는다.
+
 실제 블로그 리뷰 데이터:
 ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
 
 블로그 리뷰에 언급된 장소와 네이버 지도 검색된 장소를 모두 고려하여 추천해라. 네이버 지도에서 검색된 최신 장소 정보를 우선적으로 고려하되, 블로그 리뷰에 실제로 언급된 장소가 있다면 가중치를 높여 추천해라.
 추천 형식: 상호명 - 추천이유 (한줄)`
-      : "너는 한국 술집 추천 큐레이터다. 네이버 지도에서 검색된 최신 장소 정보를 우선적으로 고려하여 추천해라. 추천 형식: 상호명 - 추천이유 (한줄)";
+      : "너는 한국 술집 추천 큐레이터다. [역할 제한] 주도는 지도/API 후보 목록이다. 목록 밖 장소를 발명하지 말고, 제공된 id만 사용하라. 네이버 지도에서 검색된 최신 장소 정보를 우선적으로 고려하여 추천해라. 추천 형식: 상호명 - 추천이유 (한줄)";
     // 네이버 API로 외부 데이터 검색
     console.log("🔍 네이버 API 검색 시작:", query);
     const naverResults = await searchNaverLocal(query);
@@ -601,7 +855,8 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
                 "tags, comment, curators, savedCount, aiText를 적극 활용해라. " +
                 "savedCount가 높다고 무조건 우선하지 말고, 요청 적합성을 더 우선하되 동점이면 savedCount가 높은 곳을 선호해라. " +
                 "comment에 적힌 문맥을 중요하게 보아라. 예: 소주 한잔, 분위기 좋은, 심야, 안주가 탄탄 같은 표현을 해석해라. " +
-                "추천 이유는 짧지만 구체적으로 써라. 예: 을지로에서 노포·소주·2차 조건에 가장 잘 맞음 같은 식으로.",
+                "추천 이유는 짧지만 구체적으로 써라. 예: 을지로에서 노포·소주·2차 조건에 가장 잘 맞음 같은 식으로. " +
+                "근거 없는 칭찬 금지. 후보 JSON에 없는 장소는 언급하지 마라.",
             },
           ],
         },
@@ -715,8 +970,8 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
       : parsed.summary;
 
     res.json({
-      summary: finalSummary,
       summary:
+        finalSummary ||
         parsed.summary ||
         "요청 조건에 맞는 후보를 네이버 검색 결과에서 골라봤어요.",
       recommendedPlaceIds,
@@ -746,6 +1001,1128 @@ ${JSON.stringify(blogReviews.slice(0, 5), null, 2)}
     res.status(500).json({
       error: message,
     });
+  }
+});
+
+// --- 블로그 키워드 매칭 (SearchBar 주변 검색 `/api/nearby-with-blog`) ---
+function extractKeywordsFromBlogs(blogPosts) {
+  const keywords = {
+    atmosphere: [],
+    menu: [],
+    purpose: [],
+    drink: [],
+  };
+  const allText = blogPosts
+    .map((post) =>
+      `${post.title || ""} ${post.description || post.content || ""}`.toLowerCase()
+    )
+    .join(" ");
+
+  /** 블로그 본문 substring 매칭 — 짧은 한 글자(회·술 등)는 오탐 방지로 제외 */
+  const atmosphereKeywords = [
+    "조용한",
+    "시끄러운",
+    "활기찬",
+    "아늑한",
+    "아늑함",
+    "포근한",
+    "모던한",
+    "빈티지",
+    "레트로",
+    "감성",
+    "감성적인",
+    "감성충만",
+    "힙한",
+    "힙플레이스",
+    "세련된",
+    "편안한",
+    "고급스러운",
+    "럭셔리",
+    "캐주얼한",
+    "로맨틱",
+    "담백한",
+    "깔끔한",
+    "넓은",
+    "아담한",
+    "아기자기한",
+    "따뜻한",
+    "차분한",
+    "화려한",
+    "미니멀",
+    "인더스트리얼",
+    "고즈넉한",
+    "답답하지 않은",
+    "루프탑",
+    "야외테라스",
+    "야외 테라스",
+    "테라스",
+    "야장",
+    "통창",
+    "통유리",
+    "야경",
+    "한강뷰",
+    "한강 뷰",
+    "전망",
+    "뷰맛집",
+    "어두운",
+    "밝은",
+    "무드",
+    "조명",
+    "인스타",
+    "인스타감성",
+    "인스타 감성",
+    "포토존",
+    "사진맛집",
+    "사진 잘 나오",
+    "북적",
+    "북적이는",
+    "한산",
+    "한적",
+    "웨이팅",
+    "줄서는",
+    "줄 서는",
+    "예쁜",
+    "이쁜",
+    "분위기있는",
+    "분위기 있는",
+    "분위기 야무진",
+    "숨은맛집",
+    "숨은 맛집",
+    "노포",
+    "오래된",
+    "올드",
+    "신상",
+    "뉴오픈",
+    "그랜드오픈",
+    "오픈한지",
+    "코지",
+    "아늑",
+  ];
+  const menuKeywords = [
+    "피자",
+    "파스타",
+    "스테이크",
+    "햄버거",
+    "버거",
+    "안주",
+    "치킨",
+    "후라이드",
+    "양념치킨",
+    "간장치킨",
+    "해산물",
+    "해산물모둠",
+    "조개구이",
+    "샐러드",
+    "타코",
+    "라멘",
+    "라면",
+    "우동",
+    "스시",
+    "초밥",
+    "사시미",
+    "모둠회",
+    "생선회",
+    "물회",
+    "꼬치",
+    "꼬치구이",
+    "야키토리",
+    "이자카야",
+    "삼겹살",
+    "목살",
+    "갈비",
+    "LA갈비",
+    "곱창",
+    "대창",
+    "막창",
+    "양갈비",
+    "소갈비",
+    "돼지갈비",
+    "순두부",
+    "김치찌개",
+    "부대찌개",
+    "된장찌개",
+    "순두부찌개",
+    "전골",
+    "샤브샤브",
+    "떡볶이",
+    "튀김",
+    "모둠튀김",
+    "순대",
+    "오뎅",
+    "어묵",
+    "막국수",
+    "비빔국수",
+    "물냉면",
+    "비빔냉면",
+    "쫄면",
+    "닭발",
+    "무뼈닭발",
+    "곱도리탕",
+    "닭도리탕",
+    "치즈볼",
+    "치즈",
+    "감자튀김",
+    "감튀",
+    "오징어",
+    "한치",
+    "버터구이",
+    "과일",
+    "과일안주",
+    "치즈플래터",
+    "모둠안주",
+    "한우",
+    "육회",
+    "육사시미",
+    "말이",
+    "전",
+    "파전",
+    "해물파전",
+    "떡갈비",
+    "불고기",
+    "제육",
+    "보쌈",
+    "족발",
+    "맥앤치즈",
+    "나초",
+    "감바스",
+    "에다마메",
+    "타코야끼",
+    "가라아게",
+    "돈카츠",
+    "돈까스",
+    "함박",
+    "리조또",
+    "리조토",
+  ];
+  const purposeKeywords = [
+    "데이트",
+    "2차",
+    "이차",
+    "3차",
+    "회식",
+    "회식장소",
+    "혼술",
+    "혼술맛집",
+    "혼밥",
+    "친구",
+    "지인",
+    "단체",
+    "단체모임",
+    "기념일",
+    "생일",
+    "생일파티",
+    "기념파티",
+    "분위기 좋은",
+    "맛있는",
+    "가성비",
+    "가성비좋",
+    "뷰 좋은",
+    "소개팅",
+    "처음만남",
+    "부모님",
+    "가족",
+    "가족모임",
+    "아이동반",
+    "키즈",
+    "브런치",
+    "야식",
+    "새벽까지",
+    "늦게까지",
+    "밤늦게",
+    "밤샘",
+    "점심약속",
+    "점심 약속",
+    "퇴근후",
+    "퇴근 후",
+    "금요일",
+    "불금",
+    "주말나들이",
+    "주말 나들이",
+    "손님접대",
+    "접대",
+    "미팅",
+    "비즈니스",
+    "워크샵",
+    "팀다짐",
+    "신입환영",
+    "여행",
+    "관광",
+    "관광객",
+    "여행중",
+    "들렀",
+    "들르기",
+    "들림",
+    "1인",
+    "1인석",
+    "수다",
+    "수다떨기",
+    "대화하기",
+    "대화하기좋",
+    "조용히",
+    "프라이빗",
+    "개별룸",
+    "룸술집",
+    "프로포즈",
+    "커플",
+    "우정",
+    "우정여행",
+    "예약",
+    "당일예약",
+    "예약필수",
+    "노키즈",
+    "애견동반",
+    "반려견",
+    "반려동물",
+    "뒷풀이",
+    "엠티",
+    "동창회",
+    "동호회",
+    "첫방문",
+    "재방문",
+    "단골",
+  ];
+  const drinkKeywords = [
+    "맥주",
+    "생맥",
+    "생맥주",
+    "수제맥주",
+    "크래프트",
+    "드래프트",
+    "IPA",
+    "에일",
+    "라들러",
+    "흑맥주",
+    "소주",
+    "맥소",
+    "소맥",
+    "와인",
+    "와인바",
+    "하우스와인",
+    "와인페어링",
+    "내추럴와인",
+    "내추럴 와인",
+    "오렌지와인",
+    "샴페인",
+    "스파클링",
+    "프로세코",
+    "하이볼",
+    "자몽하이볼",
+    "얼그레이하이볼",
+    "레몬사워",
+    "하이볼바",
+    "칵테일",
+    "시그니처칵테일",
+    "모히또",
+    "마가리타",
+    "올드패션드",
+    "위스키",
+    "싱글몰트",
+    "싱 몰트",
+    "버번",
+    "사케",
+    "일본주",
+    "청주",
+    "보드카",
+    "진토닉",
+    "다크럼",
+    "화이트럼",
+    "데킬라",
+    "테킬라",
+    "브랜디",
+    "막걸리",
+    "탁주",
+    "전통주",
+    "과실주",
+    "매실주",
+    "복분자",
+    "약주",
+    "하이트",
+    "카스",
+    "테라",
+    "클라우드",
+    "기네스",
+    "하우스 바텐",
+    "바텐더",
+    "페어링",
+    "무알콜",
+    "논알콜",
+    "음료무한",
+    "무한리필",
+    "셀프주류",
+    "셀프맥주",
+    "냉장고",
+    "냉장콜",
+  ];
+
+  atmosphereKeywords.forEach((kw) => {
+    if (allText.includes(kw)) keywords.atmosphere.push(kw);
+  });
+  menuKeywords.forEach((kw) => {
+    if (allText.includes(kw)) keywords.menu.push(kw);
+  });
+  purposeKeywords.forEach((kw) => {
+    if (allText.includes(kw)) keywords.purpose.push(kw);
+  });
+  drinkKeywords.forEach((kw) => {
+    if (allText.includes(kw)) keywords.drink.push(kw);
+  });
+
+  keywords.atmosphere = [...new Set(keywords.atmosphere)];
+  keywords.menu = [...new Set(keywords.menu)];
+  keywords.purpose = [...new Set(keywords.purpose)];
+  keywords.drink = [...new Set(keywords.drink)];
+  return keywords;
+}
+
+function normalizeInsightBlob(s) {
+  return String(s || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+/**
+ * 블로그 제목·본문에 상호가 언급된 글만 해당 장소에 묶고,
+ * extractKeywordsFromBlogs로 태그 생성 + (선택) LLM 한 줄 요약
+ */
+async function enrichPlacesWithBlogInsights(places, blogReviews, searchQuery) {
+  const q0 = String(searchQuery || "").trim();
+  if (!Array.isArray(places) || places.length === 0) {
+    return {
+      places: places || [],
+      blogInsightPlaces: 0,
+      llmSummaryCount: 0,
+      blogInsightCacheHits: 0,
+    };
+  }
+  if (!Array.isArray(blogReviews) || blogReviews.length === 0) {
+    return {
+      places: places.map((p) => ({ ...p })),
+      blogInsightPlaces: 0,
+      llmSummaryCount: 0,
+      blogInsightCacheHits: 0,
+    };
+  }
+
+  const sortedByNameLen = [...places].sort(
+    (a, b) =>
+      String(b.place_name || "").length - String(a.place_name || "").length
+  );
+
+  const postsByPlaceId = new Map();
+  for (const p of places) postsByPlaceId.set(String(p.id), []);
+
+  for (const review of blogReviews) {
+    const blobRaw = `${review.title || ""} ${review.content || ""} ${review.place_name || ""}`;
+    const blobN = normalizeInsightBlob(blobRaw);
+    let best = null;
+    let bestLen = 0;
+    for (const p of sortedByNameLen) {
+      const name = String(p.place_name || "").trim();
+      if (name.length < 2) continue;
+      const nameN = normalizeInsightBlob(name);
+      if (nameN.length < 3 && name.length < 4) continue;
+      const hit =
+        (nameN.length >= 3 && blobN.includes(nameN)) || blobRaw.includes(name);
+      if (hit && name.length > bestLen) {
+        best = p;
+        bestLen = name.length;
+      }
+    }
+    if (best) {
+      const id = String(best.id);
+      postsByPlaceId.get(id).push(review);
+    }
+  }
+
+  const externalIds = [];
+  for (const p of places) {
+    const posts = postsByPlaceId.get(String(p.id)) || [];
+    if (posts.length === 0) continue;
+    const key = stableExternalPlaceId(p);
+    if (key) externalIds.push(key);
+  }
+
+  const cacheMap = isPlaceBlogCacheEnabled()
+    ? await fetchPlaceBlogInsightsBatch(externalIds)
+    : new Map();
+
+  const placeMeta = new Map();
+  let blogInsightCacheHits = 0;
+  for (const p of places) {
+    const posts = postsByPlaceId.get(String(p.id)) || [];
+    if (posts.length === 0) continue;
+    const key = stableExternalPlaceId(p);
+    const fp = fingerprintFromPosts(posts);
+    const row = key ? cacheMap.get(key) : null;
+    const cacheHit = Boolean(
+      key &&
+        row &&
+        String(row.content_fingerprint || "") === fp
+    );
+    if (cacheHit) blogInsightCacheHits += 1;
+    placeMeta.set(String(p.id), { key, posts, fp, cacheHit, row });
+  }
+
+  const withPostsForLlm = places
+    .map((p) => {
+      const m = placeMeta.get(String(p.id));
+      if (!m || m.cacheHit) return null;
+      const chars = m.posts.reduce(
+        (a, x) =>
+          a +
+          String(x.content || "").length +
+          String(x.title || "").length,
+        0
+      );
+      return { p, posts: m.posts, chars };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.chars - a.chars)
+    .slice(0, BLOG_LLM_MAX_PLACES);
+
+  const summaryByPlaceId = new Map();
+  if (hasUsableOpenAiKey() && withPostsForLlm.length > 0) {
+    await Promise.all(
+      withPostsForLlm.map(async ({ p, posts }) => {
+        const line = await summarizeBlogsOneLine({
+          placeName: p.place_name,
+          searchQuery: q0,
+          posts,
+        });
+        if (line) summaryByPlaceId.set(String(p.id), line);
+      })
+    );
+  }
+
+  let blogInsightPlaces = 0;
+  let llmSummaryCount = 0;
+  const upsertPromises = [];
+
+  const out = places.map((p) => {
+    const posts = postsByPlaceId.get(String(p.id)) || [];
+    if (posts.length === 0) return { ...p };
+
+    blogInsightPlaces += 1;
+    const m = placeMeta.get(String(p.id));
+    if (!m) {
+      const kw = extractKeywordsFromBlogs(posts);
+      const summary = summaryByPlaceId.get(String(p.id)) || null;
+      if (summary) llmSummaryCount += 1;
+      return {
+        ...p,
+        blogInsight: {
+          atmosphere: kw.atmosphere,
+          menu: kw.menu,
+          purpose: kw.purpose,
+          drink: kw.drink,
+          reviewCount: posts.length,
+          source: "naver_blog",
+          ...(summary ? { summary } : {}),
+        },
+      };
+    }
+
+    if (m.cacheHit) {
+      const insight = blogInsightFromCacheRow(m.row, posts.length);
+      return { ...p, blogInsight: insight };
+    }
+
+    const kw = extractKeywordsFromBlogs(posts);
+    const summary = summaryByPlaceId.get(String(p.id)) || null;
+    if (summary) llmSummaryCount += 1;
+
+    if (m.key && m.fp) {
+      upsertPromises.push(
+        upsertPlaceBlogInsight({
+          externalPlaceId: m.key,
+          placeNameSnapshot: p.place_name,
+          reviewCount: posts.length,
+          keywords: kw,
+          summary,
+          contentFingerprint: m.fp,
+        })
+      );
+    }
+
+    return {
+      ...p,
+      blogInsight: {
+        atmosphere: kw.atmosphere,
+        menu: kw.menu,
+        purpose: kw.purpose,
+        drink: kw.drink,
+        reviewCount: posts.length,
+        source: "naver_blog",
+        ...(summary ? { summary } : {}),
+      },
+    };
+  });
+
+  await Promise.all(upsertPromises);
+
+  return {
+    places: out,
+    blogInsightPlaces,
+    llmSummaryCount,
+    blogInsightCacheHits,
+  };
+}
+
+function calculateMatchScore(keywords, userQuery) {
+  if (!userQuery) return 0;
+  const query = userQuery.toLowerCase();
+  let score = 0;
+  const allKeywords = [
+    ...keywords.atmosphere,
+    ...keywords.menu,
+    ...keywords.purpose,
+    ...keywords.drink,
+  ];
+  allKeywords.forEach((keyword) => {
+    if (query.includes(keyword.toLowerCase())) {
+      score += 1;
+    }
+  });
+  if (query.includes("술집") || query.includes("bar") || query.includes("pub")) {
+    score += 0.5;
+  }
+  return score;
+}
+
+// ——— 통합 지도 검색: 네이버 지역 + 카카오 키워드 + 블로그 크롤(타임아웃) ———
+
+function normalizeUnifiedPlaceName(name) {
+  return String(name || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+function kakaoDocToUnifiedPlace(d) {
+  return {
+    id: String(d.id),
+    place_name: d.place_name,
+    y: d.y,
+    x: d.x,
+    category_name: d.category_name || "",
+    address_name: d.address_name || "",
+    road_address_name: d.road_address_name || "",
+    phone: d.phone || "",
+    place_url: d.place_url || "",
+    source: "kakao",
+    kakao_place_id: String(d.id),
+  };
+}
+
+function naverItemToUnifiedPlace(item, salt) {
+  const mx = parseInt(String(item.mapx || "0"), 10);
+  const my = parseInt(String(item.mapy || "0"), 10);
+  const coords = convertKatechToWGS84(mx, my);
+  const name = String(item.title || "").replace(/<[^>]*>/g, "").trim();
+  const slug =
+    normalizeUnifiedPlaceName(name)
+      .slice(0, 24)
+      .replace(/[^a-z0-9가-힣]/g, "") || "p";
+  return {
+    id: `naver_${salt}_${slug}`,
+    place_name: name,
+    y: String(coords.lat),
+    x: String(coords.lng),
+    category_name: item.category || "",
+    address_name: item.address || "",
+    road_address_name: item.roadAddress || item.address || "",
+    phone: item.telephone || "",
+    place_url: item.link || "",
+    source: "naver",
+    kakao_place_id: null,
+  };
+}
+
+async function fetchKakaoPlacesForPhrases(phrases) {
+  const key =
+    process.env.KAKAO_REST_API_KEY || process.env.VITE_KAKAO_REST_API_KEY;
+  if (!key) {
+    console.warn(
+      "⚠️ unified-map-search: KAKAO_REST_API_KEY(또는 VITE_KAKAO_REST_API_KEY) 없음 — 카카오 후보 생략"
+    );
+    return [];
+  }
+  const byId = new Map();
+  await Promise.all(
+    phrases.map(async (query) => {
+      try {
+        const { data } = await axios.get(
+          "https://dapi.kakao.com/v2/local/search/keyword.json",
+          {
+            params: { query, size: 12, sort: "accuracy" },
+            headers: { Authorization: `KakaoAK ${key}` },
+          }
+        );
+        for (const d of data.documents || []) {
+          const id = String(d.id || "");
+          if (id && !byId.has(id)) byId.set(id, kakaoDocToUnifiedPlace(d));
+        }
+      } catch (e) {
+        console.warn("unified-map-search kakao:", query, e.message);
+      }
+    })
+  );
+  return [...byId.values()];
+}
+
+async function fetchNaverPlacesForPhrases(phrases) {
+  const arrays = await Promise.all(phrases.map((q) => searchNaverLocal(q)));
+  const byName = new Map();
+  let salt = 0;
+  for (const items of arrays) {
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const u = naverItemToUnifiedPlace(item, salt++);
+      const nk = normalizeUnifiedPlaceName(u.place_name);
+      if (!nk) continue;
+      if (!byName.has(nk)) byName.set(nk, u);
+    }
+  }
+  return [...byName.values()];
+}
+
+function mergeKakaoNaverPlaces(kakaoList, naverList) {
+  const kakaoNames = new Set(
+    kakaoList.map((p) => normalizeUnifiedPlaceName(p.place_name)).filter(Boolean)
+  );
+  const extra = naverList.filter(
+    (p) => !kakaoNames.has(normalizeUnifiedPlaceName(p.place_name))
+  );
+  return [...kakaoList, ...extra].slice(0, 80);
+}
+
+const UNIFIED_MAP_SEARCH_DEFAULT_BLOG_MS = 14000;
+
+app.post("/api/unified-map-search", async (req, res) => {
+  try {
+    const {
+      query: qRaw,
+      searchPhrases,
+      includeBlog = true,
+      blogTimeoutMs,
+    } = req.body ?? {};
+    const q0 = typeof qRaw === "string" ? qRaw.trim() : "";
+    if (!q0) {
+      return res.status(400).json({
+        ok: false,
+        error: "query가 필요합니다.",
+        places: [],
+        blogReviews: [],
+      });
+    }
+    let phrases = Array.isArray(searchPhrases)
+      ? [...new Set(searchPhrases.map((s) => String(s || "").trim()).filter(Boolean))]
+      : [];
+    if (phrases.length === 0) phrases = [q0];
+    phrases = phrases.slice(0, 10);
+
+    const blogMs = Math.min(
+      Math.max(
+        Number(blogTimeoutMs) || UNIFIED_MAP_SEARCH_DEFAULT_BLOG_MS,
+        4000
+      ),
+      90000
+    );
+
+    const placesPromise = (async () => {
+      const [kList, nList] = await Promise.all([
+        fetchKakaoPlacesForPhrases(phrases),
+        fetchNaverPlacesForPhrases(phrases),
+      ]);
+      return mergeKakaoNaverPlaces(kList, nList);
+    })();
+
+    const blogPromise =
+      includeBlog === false
+        ? Promise.resolve({ success: false })
+        : Promise.race([
+            runNaverCrawler(`${q0} 후기`),
+            new Promise((resolve) =>
+              setTimeout(
+                () => resolve({ success: false, error: "blog_timeout" }),
+                blogMs
+              )
+            ),
+          ]);
+
+    const [places, crawlerResult] = await Promise.all([
+      placesPromise,
+      blogPromise,
+    ]);
+
+    let blogReviews = [];
+    if (crawlerResult.success && Array.isArray(crawlerResult.data)) {
+      blogReviews = crawlerResult.data.slice(0, 15);
+    }
+
+    const {
+      places: placesEnriched,
+      blogInsightPlaces,
+      llmSummaryCount,
+      blogInsightCacheHits,
+    } = await enrichPlacesWithBlogInsights(places, blogReviews, q0);
+
+    res.json({
+      ok: true,
+      places: placesEnriched,
+      blogReviews,
+      meta: {
+        phraseCount: phrases.length,
+        placeCount: places.length,
+        blogCount: blogReviews.length,
+        blogOk: crawlerResult.success === true,
+        blogInsightPlaces,
+        llmSummaryCount,
+        blogInsightCacheHits,
+      },
+    });
+  } catch (error) {
+    console.error("unified-map-search:", error);
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+      places: [],
+      blogReviews: [],
+    });
+  }
+});
+
+/** 검색어 기준 네이버 블로그 크롤만 (프론트 리뷰 패널용, OpenAI/네이버 로컬 생략) */
+app.post("/api/blog-reviews", async (req, res) => {
+  try {
+    const { query: q } = req.body ?? {};
+    if (!q || typeof q !== "string" || !q.trim()) {
+      return res.status(400).json({ error: "query가 비어 있습니다.", blogReviews: [] });
+    }
+    const queryTrim = q.trim();
+    const crawlerResult = await Promise.race([
+      runNaverCrawler(`${queryTrim} 후기`),
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve({ success: false, error: "크롤러 시간 초과" }),
+          90000
+        )
+      ),
+    ]);
+    if (!crawlerResult.success) {
+      return res.json({
+        ok: false,
+        blogReviews: [],
+        blogSummary: crawlerResult.error || "크롤링 실패",
+      });
+    }
+    const list = Array.isArray(crawlerResult.data) ? crawlerResult.data : [];
+    res.json({
+      ok: true,
+      blogReviews: list.slice(0, 15),
+      blogSummary:
+        list.length > 0
+          ? `네이버 블로그 ${list.length}개`
+          : "블로그 결과 없음",
+    });
+  } catch (error) {
+    console.error("blog-reviews error:", error);
+    res.status(500).json({ error: error.message, blogReviews: [] });
+  }
+});
+
+app.post("/api/nearby-with-blog", async (req, res) => {
+  try {
+    const { places, userQuery, location } = req.body ?? {};
+    if (!places || !Array.isArray(places) || places.length === 0) {
+      return res.status(400).json({ error: "가게 목록이 필요합니다." });
+    }
+    console.log(`🔍 주변 가게 ${places.length}개 블로그 분석 시작...`);
+    console.log(`📝 사용자 검색어: "${userQuery || "주변 술집"}"`);
+
+    const placesWithKeywords = await Promise.all(
+      places.slice(0, 20).map(async (place) => {
+        try {
+          const placeName = place.place_name || place.name;
+          const neighborhood =
+            place.address_name?.split(" ")?.[1] || location || "";
+          const searchQuery = `${neighborhood} ${placeName}`.trim();
+          const crawlerResult = await Promise.race([
+            runNaverCrawler(searchQuery),
+            new Promise((resolve) =>
+              setTimeout(
+                () => resolve({ success: false, error: "timeout" }),
+                45000
+              )
+            ),
+          ]);
+          if (crawlerResult.success && crawlerResult.data?.length > 0) {
+            const keywords = extractKeywordsFromBlogs(crawlerResult.data);
+            return {
+              ...place,
+              blogKeywords: keywords,
+              blogReviewCount: crawlerResult.data.length,
+              matchScore: calculateMatchScore(keywords, userQuery),
+            };
+          }
+          return {
+            ...place,
+            blogKeywords: [],
+            blogReviewCount: 0,
+            matchScore: 0,
+          };
+        } catch (error) {
+          console.error(
+            `❌ ${place.place_name || place.name} 크롤링 실패:`,
+            error.message
+          );
+          return {
+            ...place,
+            blogKeywords: [],
+            blogReviewCount: 0,
+            matchScore: 0,
+          };
+        }
+      })
+    );
+
+    const MIN_MATCH_SCORE = 1;
+    const filteredPlaces = placesWithKeywords
+      .filter((place) => place.matchScore >= MIN_MATCH_SCORE)
+      .sort((a, b) => b.matchScore - a.matchScore);
+    const topPlaces = filteredPlaces.slice(0, 15);
+
+    console.log(`✅ 필터링 완료: ${places.length}개 → ${topPlaces.length}개`);
+
+    res.json({
+      success: true,
+      totalSearched: places.length,
+      filteredCount: topPlaces.length,
+      userQuery: userQuery || "주변 술집",
+      places: topPlaces,
+    });
+  } catch (error) {
+    console.error("❌ 주변 가게 블로그 분석 API 오류:", error);
+    res.status(500).json({
+      error: "서버 오류가 발생했습니다.",
+      message: error.message,
+    });
+  }
+});
+
+app.post("/api/kakao/place-details", async (req, res) => {
+  try {
+    const key = process.env.KAKAO_REST_API_KEY;
+    if (!key) {
+      return res
+        .status(503)
+        .json({ error: "KAKAO_REST_API_KEY가 server/.env에 없습니다." });
+    }
+    const { placeId } = req.body ?? {};
+    if (!placeId) {
+      return res.status(400).json({ error: "placeId가 필요합니다." });
+    }
+    const response = await axios.get(
+      "https://dapi.kakao.com/v2/local/search/detail.json",
+      {
+        params: { id: placeId },
+        headers: { Authorization: `KakaoAK ${key}` },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("kakao place-details:", error.message);
+    res.status(500).json({ error: "카카오 API 호출 실패" });
+  }
+});
+
+app.post("/api/kakao/search", async (req, res) => {
+  try {
+    const key = process.env.KAKAO_REST_API_KEY;
+    if (!key) {
+      return res
+        .status(503)
+        .json({ error: "KAKAO_REST_API_KEY가 server/.env에 없습니다." });
+    }
+    const { query: kw } = req.body ?? {};
+    if (!kw) {
+      return res.status(400).json({ error: "query가 필요합니다." });
+    }
+    const response = await axios.get(
+      "https://dapi.kakao.com/v2/local/search/keyword.json",
+      {
+        params: { query: kw },
+        headers: { Authorization: `KakaoAK ${key}` },
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    console.error("kakao search:", error.message);
+    res.status(500).json({ error: "카카오 검색 API 호출 실패" });
+  }
+});
+
+/** Google Places API (New) — 장소명·좌표로 사진 후보 (API 키·과금 필요) */
+function isValidGooglePhotoResourceName(name) {
+  if (typeof name !== "string" || name.includes("..")) return false;
+  if (!name.startsWith("places/") || !name.includes("/photos/")) return false;
+  const segs = name.split("/");
+  return segs.length >= 4 && segs[0] === "places" && segs[2] === "photos";
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+app.get("/api/google-place-photos", async (req, res) => {
+  const key = process.env.GOOGLE_PLACES_API_KEY;
+  if (!key) {
+    return res.status(503).json({
+      ok: false,
+      error: "GOOGLE_PLACES_API_KEY 없음",
+      imageUrls: [],
+      attributions: [],
+    });
+  }
+  const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
+  if (!name) {
+    return res.status(400).json({
+      ok: false,
+      error: "name 쿼리 필요",
+      imageUrls: [],
+      attributions: [],
+    });
+  }
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+
+  try {
+    const body = {
+      textQuery: name,
+      pageSize: 8,
+      regionCode: "KR",
+    };
+    if (hasCoords) {
+      body.locationBias = {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius: 400,
+        },
+      };
+      body.rankPreference = "DISTANCE";
+    }
+
+    const { data } = await axios.post(
+      "https://places.googleapis.com/v1/places:searchText",
+      body,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask":
+            "places.displayName,places.location,places.photos",
+        },
+        timeout: 12000,
+      }
+    );
+
+    const places = Array.isArray(data?.places) ? data.places : [];
+    if (places.length === 0) {
+      return res.json({ ok: true, imageUrls: [], attributions: [] });
+    }
+
+    let chosen = places[0];
+    if (hasCoords && places.length > 1) {
+      let best = places[0];
+      let bestD = Infinity;
+      for (const p of places) {
+        const plat = p.location?.latitude;
+        const plng = p.location?.longitude;
+        if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
+        const d = haversineKm(lat, lng, plat, plng);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+      chosen = best;
+    }
+
+    const photos = Array.isArray(chosen.photos) ? chosen.photos : [];
+    const imageUrls = [];
+    const attributions = new Set();
+    const maxPhotos = 4;
+    for (let i = 0; i < Math.min(photos.length, maxPhotos); i++) {
+      const photoName = photos[i]?.name;
+      if (!isValidGooglePhotoResourceName(photoName)) continue;
+      imageUrls.push(
+        `/api/google-place-photo-media?photoName=${encodeURIComponent(photoName)}`
+      );
+      const aa = photos[i].authorAttributions;
+      if (Array.isArray(aa)) {
+        for (const a of aa) {
+          if (a?.displayName) attributions.add(String(a.displayName));
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      imageUrls,
+      attributions: [...attributions],
+      source: "google_places",
+    });
+  } catch (error) {
+    console.warn("google-place-photos:", error.response?.data || error.message);
+    res.status(200).json({
+      ok: false,
+      error: error.message,
+      imageUrls: [],
+      attributions: [],
+    });
+  }
+});
+
+app.get("/api/google-place-photo-media", async (req, res) => {
+  const key = process.env.GOOGLE_PLACES_API_KEY;
+  if (!key) {
+    return res.status(503).send("GOOGLE_PLACES_API_KEY 없음");
+  }
+  const photoName =
+    typeof req.query.photoName === "string" ? req.query.photoName.trim() : "";
+  if (!isValidGooglePhotoResourceName(photoName)) {
+    return res.status(400).send("잘못된 photoName");
+  }
+  try {
+    const pathEnc = photoName
+      .split("/")
+      .map((s) => encodeURIComponent(s))
+      .join("/");
+    const url = `https://places.googleapis.com/v1/${pathEnc}/media`;
+    const { data, headers } = await axios.get(url, {
+      params: { maxWidthPx: 960, skipHttpRedirect: false },
+      headers: { "X-Goog-Api-Key": key },
+      responseType: "arraybuffer",
+      maxRedirects: 5,
+      timeout: 15000,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    const ctype = headers["content-type"] || "image/jpeg";
+    res.setHeader("Content-Type", ctype);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(Buffer.from(data));
+  } catch (error) {
+    console.warn("google-place-photo-media:", error.message);
+    res.status(502).send("이미지 로드 실패");
   }
 });
 

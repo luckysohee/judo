@@ -167,7 +167,7 @@ const CheckinRanking = ({ position = 'sidebar' }) => {
         <div style={styles.header}>
           <h3 style={styles.title}>
             <span style={styles.fireIcon}>🔥</span>
-            실시간 체크인 랭킹
+            지금 핫한 가게
           </h3>
         </div>
         <div style={styles.emptyState}>
@@ -186,7 +186,7 @@ const CheckinRanking = ({ position = 'sidebar' }) => {
       <div style={styles.header}>
         <h3 style={styles.title}>
           <span style={styles.fireIcon}>🔥</span>
-          실시간 체크인 랭킹
+          지금 핫한 가게
         </h3>
         <span style={{ fontSize: '12px', color: '#666' }}>
           TOP {checkinRanking.length}

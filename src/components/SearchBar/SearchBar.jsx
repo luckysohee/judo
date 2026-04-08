@@ -1,3 +1,7 @@
+/**
+ * 주도 검색바: 채팅 UI가 아니라 자연어 1줄 → 파싱·지도 후보·스코어·확장 제안.
+ * 최종 형태·구현 매핑: `src/utils/searchPhase8SearchBar.js`
+ */
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
@@ -25,6 +29,8 @@ export default function SearchBar({
   rightActions = null,
   mapRef = null,
   placeholder = 'Search for places...',
+  /** 검색 중 하단 GPT 스타일 상태 문구 */
+  loadingStatusText = "",
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -36,6 +42,28 @@ export default function SearchBar({
   const [showKakaoResults, setShowKakaoResultsState] = useState(false);
   const [selectedKakaoIndex, setSelectedKakaoIndex] = useState(-1); // 키보드 내비게이션을 위한 선택된 인덱스
   const searchTimeoutRef = useRef(null);
+  /** Enter/제출 후 늦게 도착하는 카카오 콜백이 바텀시트를 다시 열지 않게 함 */
+  const kakaoSearchTokenRef = useRef(0);
+  const [thinkDots, setThinkDots] = useState(".");
+
+  useEffect(() => {
+    if (!isLoading) {
+      setThinkDots(".");
+      return;
+    }
+    const id = setInterval(() => {
+      setThinkDots((d) => (d === "." ? ".." : d === ".." ? "..." : "."));
+    }, 420);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
+  const cancelPendingKakaoSearch = () => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    kakaoSearchTokenRef.current += 1;
+  };
 
   // 주변 검색 관련 상태
   const [nearbyResults, setNearbyResults] = useState([]);
@@ -54,6 +82,7 @@ export default function SearchBar({
       return;
     }
 
+    const token = ++kakaoSearchTokenRef.current;
     setIsKakaoLoading(true);
     setSelectedKakaoIndex(-1); // 새로운 검색 시작 시 선택된 인덱스 초기화
 
@@ -62,6 +91,10 @@ export default function SearchBar({
     ps.keywordSearch(
       keyword,
       (data, status) => {
+        if (token !== kakaoSearchTokenRef.current) {
+          setIsKakaoLoading(false);
+          return;
+        }
         if (status === window.kakao.maps.services.Status.OK) {
           setKakaoResults(data);
           setShowKakaoResultsState(true);
@@ -111,6 +144,7 @@ export default function SearchBar({
 
   // 카카오 장소 선택
   const handleKakaoPlaceSelect = (place) => {
+    cancelPendingKakaoSearch();
     // 지도 이동 처리
     console.log('장소 선택 (지도 이동):', place);
     
@@ -135,6 +169,7 @@ export default function SearchBar({
 
   const handleSubmit = () => {
     if (query.trim()) {
+      cancelPendingKakaoSearch();
       setIsSearching(true); // 검색 상태로 변경
       
       onSubmit(query);
@@ -186,7 +221,9 @@ export default function SearchBar({
 
     const searchQuery = contextQueries[contextKey] || contextName;
     setQuery(searchQuery);
-    
+
+    cancelPendingKakaoSearch();
+
     // 태그 클릭 시 즉시 검색 실행
     onSubmit(searchQuery);
     
@@ -206,7 +243,9 @@ export default function SearchBar({
     if (event.key === "Enter") {
       event.preventDefault();
       console.log('🔑 Enter 키 감지!'); // 디버깅용
-      
+
+      cancelPendingKakaoSearch();
+
       // 엔터키 시 모든 자동완성 카드 즉시 숨김
       setShowSuggestions(false);
       setShowKakaoResultsState(false);
@@ -244,6 +283,7 @@ export default function SearchBar({
   };
 
   const handleClear = () => {
+    cancelPendingKakaoSearch();
     setQuery("");
     setKakaoResults([]);
     setShowKakaoResultsState(false);
@@ -579,7 +619,14 @@ export default function SearchBar({
           </motion.span>
         </motion.button>
 
-        <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+        <div
+          style={{
+            position: "relative",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+          }}
+        >
           <motion.input
             value={query}
             onChange={handleInputChange}
@@ -588,6 +635,8 @@ export default function SearchBar({
             onFocus={() => showKakaoSearch && setShowKakaoResults(true)}
             style={{
               ...styles.input,
+              width: "100%",
+              minWidth: 0,
               ...(rightActions ? styles.inputWithRightActions : {}),
             }}
             disabled={isLoading}
@@ -648,6 +697,25 @@ export default function SearchBar({
         ) : null}
       </div>
 
+      {isLoading ? (
+        <div
+          style={styles.thinkingRow}
+          role="status"
+          aria-live="polite"
+        >
+          <motion.span
+            style={styles.thinkingDot}
+            animate={{ opacity: [0.35, 1, 0.35], scale: [0.88, 1.06, 0.88] }}
+            transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
+            aria-hidden
+          />
+          <span style={styles.thinkingText}>
+            {loadingStatusText || "검색하는 중"}
+            {thinkDots}
+          </span>
+        </div>
+      ) : null}
+
       {query.trim() && visibleSuggestions.length > 0 ? (
         <div style={styles.suggestionBox}>
           {visibleSuggestions.map((item) => (
@@ -689,6 +757,31 @@ export default function SearchBar({
 const styles = {
   section: {
     width: "100%",
+    minWidth: 0,
+  },
+
+  thinkingRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginTop: "10px",
+    padding: "0 4px 2px",
+    minHeight: "20px",
+  },
+  thinkingDot: {
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    background: "rgba(46, 204, 113, 0.95)",
+    flexShrink: 0,
+    boxShadow: "0 0 10px rgba(46, 204, 113, 0.45)",
+    display: "inline-block",
+  },
+  thinkingText: {
+    fontSize: "13px",
+    color: "rgba(255,255,255,0.72)",
+    lineHeight: 1.35,
+    letterSpacing: "-0.01em",
   },
 
   searchWrap: {
@@ -702,6 +795,8 @@ const styles = {
     padding: "0 12px",
     backdropFilter: "blur(10px)",
     boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+    minWidth: 0,
+    width: "100%",
   },
 
   iconButton: {
@@ -735,7 +830,7 @@ const styles = {
   },
 
   inputWithRightActions: {
-    paddingRight: "100px",
+    paddingRight: "6px",
   },
 
   clearButton: {
@@ -753,8 +848,9 @@ const styles = {
   rightActions: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "6px",
     flexShrink: 0,
+    flexWrap: "nowrap",
   },
 
   exampleRow: {

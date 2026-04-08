@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { markSearchSessionBookmarked } from "../../utils/searchAnalytics";
 
 // 시스템 폴더 설정
 const SYSTEM_FOLDERS = [
@@ -17,7 +18,8 @@ export default function SaveModal({
   isOpen, 
   onClose, 
   onSaveComplete,
-  firstSavedFrom = 'home'
+  firstSavedFrom = 'home',
+  searchSessionIdRef,
 }) {
   const [selectedFolders, setSelectedFolders] = useState([]);
   const [recommendedFolders, setRecommendedFolders] = useState([]);
@@ -121,13 +123,19 @@ export default function SaveModal({
 
       // 임시: RPC 함수 없이 직접 저장
       // 1. 장소 저장 (UPSERT)
+      const sessionId = searchSessionIdRef?.current ?? null;
+      const upsertPayload = {
+        user_id: user.id,
+        place_id: place.id,
+        first_saved_from: firstSavedFrom,
+      };
+      if (sessionId) {
+        upsertPayload.search_session_id = sessionId;
+      }
+
       const { data: savedPlace, error: saveError } = await supabase
         .from('user_saved_places')
-        .upsert({
-          user_id: user.id,
-          place_id: place.id,
-          first_saved_from: firstSavedFrom
-        })
+        .upsert(upsertPayload)
         .select()
         .single();
 
@@ -157,6 +165,14 @@ export default function SaveModal({
         console.error('폴더 연결 실패:', folderError);
         alert('폴더 연결에 실패했습니다.');
         return;
+      }
+
+      if (sessionId) {
+        await markSearchSessionBookmarked({
+          sessionId,
+          placeId: place.id,
+          user,
+        });
       }
 
       onSaveComplete?.();

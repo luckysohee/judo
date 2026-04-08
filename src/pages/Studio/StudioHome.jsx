@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { uploadCuratorPlacePhoto } from "../../utils/curatorPlacePhotos";
+import {
+  isAcceptableRasterImageFile,
+  prepareImageFileForUpload,
+} from "../../utils/prepareImageFileForUpload";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
@@ -1150,6 +1155,7 @@ export default function StudioHome() {
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
   const [filterType, setFilterType] = useState("all"); // 필터 타입: all, public, private, curator
+  const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
   
   // 변경사항 감지 상태
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1258,8 +1264,10 @@ export default function StudioHome() {
         tags: [],
         latitude: null,
         longitude: null,
+        kakao_place_id: null,
         is_public: true
       });
+      setAddPlacePhotoFiles([]);
       
       // 검색 관련 상태도 초기화
       setSearchSuggestions([]);
@@ -1282,8 +1290,12 @@ export default function StudioHome() {
     tags: [],
     latitude: null,
     longitude: null,
+    kakao_place_id: null,
     is_public: true
   });
+
+  /** 잔 올리기: 저장 시 함께 올릴 사진 (큐레이터 전용 탭이라 동일 권한) */
+  const [addPlacePhotoFiles, setAddPlacePhotoFiles] = useState([]);
 
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
@@ -1359,7 +1371,8 @@ export default function StudioHome() {
           address_name: doc.address_name || doc.road_address_name,
           category_name: doc.category_name,
           lat: parseFloat(doc.y),
-          lng: parseFloat(doc.x)
+          lng: parseFloat(doc.x),
+          kakao_place_id: doc.id != null ? String(doc.id) : null,
         }));
         
         setSearchSuggestions(suggestions);
@@ -1514,11 +1527,17 @@ export default function StudioHome() {
 
   // 자동완성 선택
   const handleSuggestionClick = (suggestion) => {
+    const sid =
+      suggestion?.kakao_place_id ||
+      (suggestion?.id != null ? String(suggestion.id) : null);
+    const kid =
+      sid && /^\d+$/.test(String(sid)) ? String(sid) : null;
     setFormData(prev => ({ 
       ...prev, 
       name_address: suggestion.place_name || suggestion,
       latitude: suggestion.lat || null,
-      longitude: suggestion.lng || null
+      longitude: suggestion.lng || null,
+      kakao_place_id: kid,
     }));
     setSearchSuggestions([]);
     setShowSuggestions(false);
@@ -2071,7 +2090,8 @@ export default function StudioHome() {
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
-            comment: formData.menu_reason || null
+            comment: formData.menu_reason || null,
+            kakao_place_id: formData.kakao_place_id || null,
           };
           
           console.log("📝 수정할 데이터:", updateData);
@@ -2110,7 +2130,8 @@ export default function StudioHome() {
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
-            category: "미분류"
+            category: "미분류",
+            kakao_place_id: formData.kakao_place_id || null,
           };
           
           console.log("📝 저장할 장소 데이터:", newPlaceData);
@@ -2158,6 +2179,46 @@ export default function StudioHome() {
             }
             
             console.log("✅ curator_places 저장 성공:", curatorData);
+
+            const insertedRow = placeData.data[0];
+            const insertedPlaceUuid = insertedRow?.id;
+            const kakaoForPhotos =
+              insertedRow?.kakao_place_id || formData.kakao_place_id || null;
+            if (
+              insertedPlaceUuid &&
+              addPlacePhotoFiles.length > 0 &&
+              user?.id
+            ) {
+              let photoFail = 0;
+              for (const file of addPlacePhotoFiles) {
+                try {
+                  if (!isAcceptableRasterImageFile(file)) continue;
+                  const fileToUpload = await prepareImageFileForUpload(file);
+                  await uploadCuratorPlacePhoto({
+                    file: fileToUpload,
+                    curatorId: user.id,
+                    kakaoPlaceId: kakaoForPhotos,
+                    placeId: insertedPlaceUuid,
+                  });
+                } catch (photoErr) {
+                  photoFail += 1;
+                  console.error("큐레이터 사진 업로드 실패:", photoErr);
+                }
+              }
+              if (photoFail > 0) {
+                showToast(
+                  `사진 ${photoFail}장 업로드 실패 — 콘솔·Supabase Storage/RLS 확인`,
+                  "error",
+                  6000
+                );
+              } else {
+                showToast(
+                  `사진 ${addPlacePhotoFiles.length}장을 등록했습니다.`,
+                  "success"
+                );
+              }
+            }
+            setAddPlacePhotoFiles([]);
             
             // 3. myPlaces에 새 장소 추가 (curator_places 데이터 기준)
             const newPlaceForList = {
@@ -2176,7 +2237,7 @@ export default function StudioHome() {
               is_public: true, // 기본 공개
               is_archived: false, // curator_places 기준
               created_at: new Date().toISOString().split('T')[0],
-              places: placeData[0] // places 테이블 데이터 포함
+              places: placeData.data[0],
             };
             
             console.log("📝 myPlaces에 추가할 데이터:", newPlaceForList);
@@ -2198,8 +2259,10 @@ export default function StudioHome() {
             tags: [],
             latitude: null,
             longitude: null,
+            kakao_place_id: null,
             is_public: true
           });
+          setAddPlacePhotoFiles([]);
           
           setSearchedPlaces([]);
           setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
@@ -2693,7 +2756,8 @@ export default function StudioHome() {
           ...prev,
           name_address: firstResult.address_name || formData.name_address,
           latitude: lat,
-          longitude: lng
+          longitude: lng,
+          kakao_place_id: null,
         }));
         
         setMapCenter({ lat, lng });
@@ -2703,7 +2767,8 @@ export default function StudioHome() {
           place_name: firstResult.address_name || formData.name_address,
           address_name: firstResult.address_name,
           y: lat.toString(),
-          x: lng.toString()
+          x: lng.toString(),
+          kakao_place_id: null,
         }]);
         
       } else {
@@ -2733,11 +2798,16 @@ export default function StudioHome() {
           console.log("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
           
           // 상태 업데이트
+          const kpId =
+            firstResult.id != null && /^\d+$/.test(String(firstResult.id))
+              ? String(firstResult.id)
+              : null;
           setFormData(prev => ({
             ...prev,
             name_address: firstResult.place_name,
             latitude: lat,
-            longitude: lng
+            longitude: lng,
+            kakao_place_id: kpId,
           }));
           
           setMapCenter({ lat, lng });
@@ -2747,7 +2817,8 @@ export default function StudioHome() {
             place_name: firstResult.place_name,
             address_name: firstResult.address_name,
             y: lat.toString(),
-            x: lng.toString()
+            x: lng.toString(),
+            kakao_place_id: kpId,
           }];
           
           console.log("🔍 검색 결과 데이터:", searchResult);
@@ -2765,11 +2836,17 @@ export default function StudioHome() {
   };
 
   const handleSelectPlace = (place) => {
+    const kp =
+      place?.kakao_place_id ||
+      (place?.id != null && /^\d+$/.test(String(place.id))
+        ? String(place.id)
+        : null);
     setFormData(prev => ({
       ...prev,
       name_address: place.place_name,
       latitude: parseFloat(place.y),
-      longitude: parseFloat(place.x)
+      longitude: parseFloat(place.x),
+      kakao_place_id: kp || prev.kakao_place_id,
     }));
     setSearchedPlaces([]);
     setMapCenter({ lat: parseFloat(place.y), lng: parseFloat(place.x) });
@@ -3437,6 +3514,75 @@ export default function StudioHome() {
             )}
           </div>
 
+          {/* 장소 사진 (저장 시 업로드) */}
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>
+              장소 사진 (선택, 최대 8장)
+            </label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+              multiple
+              onChange={(e) => {
+                const picked = Array.from(e.target.files || []).filter((f) =>
+                  isAcceptableRasterImageFile(f)
+                );
+                setAddPlacePhotoFiles((prev) =>
+                  [...prev, ...picked].slice(0, 8)
+                );
+                e.target.value = "";
+              }}
+              style={{ color: "#ccc", fontSize: "13px", maxWidth: "100%" }}
+            />
+            {addPlacePhotoFiles.length > 0 ? (
+              <ul
+                style={{
+                  fontSize: "12px",
+                  color: "#aaa",
+                  margin: "10px 0 0 0",
+                  paddingLeft: "18px",
+                  listStyle: "disc",
+                }}
+              >
+                {addPlacePhotoFiles.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}-${f.size}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {f.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAddPlacePhotoFiles((p) => p.filter((_, j) => j !== i))
+                      }
+                      style={{
+                        background: "#444",
+                        border: "none",
+                        color: "#fff",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        padding: "2px 8px",
+                      }}
+                    >
+                      제거
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p style={{ fontSize: "11px", color: "#888", marginTop: "8px", marginBottom: 0 }}>
+              「저장」 시 함께 올라갑니다. 검색으로 고른 카카오 장소면 같은 ID로 지도 카드에서도 보입니다.
+            </p>
+          </div>
+
           {/* 버튼들 */}
           <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
             <button
@@ -3480,6 +3626,26 @@ export default function StudioHome() {
           margin: "0 20px",
           width: "calc(100% - 40px)"
         }}>
+          {/* 잔 리스트 검색 */}
+          <div style={{ marginBottom: "14px" }}>
+            <input
+              type="text"
+              value={listSearchQuery}
+              onChange={(e) => setListSearchQuery(e.target.value)}
+              placeholder="잔리스트 검색 (장소명/카테고리/주소)"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: "1px solid #3a3a3a",
+                backgroundColor: "#1f1f1f",
+                color: "#fff",
+                fontSize: "14px",
+                outline: "none",
+              }}
+            />
+          </div>
+
           {/* 필터 버튼 */}
           <div style={{ 
             display: "flex", 
@@ -3554,6 +3720,7 @@ export default function StudioHome() {
             {/* 필터링된 myPlaces 데이터 표시 */}
             {(() => {
               let filteredPlaces = myPlaces;
+              const normalizedQuery = listSearchQuery.trim().toLowerCase();
               
               if (filterType === "public") {
                 filteredPlaces = myPlaces.filter(place => place.is_public);
@@ -3562,6 +3729,19 @@ export default function StudioHome() {
               } else if (filterType === "curator") {
                 // 큐레이터 필터 - 현재 큐레이터의 장소만 표시
                 filteredPlaces = myPlaces; // 현재는 모든 장소가 큐레이터의 장소라고 가정
+              }
+
+              if (normalizedQuery) {
+                filteredPlaces = filteredPlaces.filter((place) => {
+                  const name = (place?.name || "").toLowerCase();
+                  const category = (place?.category || "").toLowerCase();
+                  const address = (place?.address || "").toLowerCase();
+                  return (
+                    name.includes(normalizedQuery) ||
+                    category.includes(normalizedQuery) ||
+                    address.includes(normalizedQuery)
+                  );
+                });
               }
               
               return filteredPlaces.length === 0 ? (

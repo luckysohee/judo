@@ -38,9 +38,28 @@ function getFolderInfo(folders = []) {
   };
 }
 
+/** 앱에 등록된 큐레이터 추천 장소 → 마커 안내(단일/공동/프리미엄) 등급 표시 */
+function isCuratorListedPlace(place) {
+  if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
+    return true;
+  }
+  if (Array.isArray(place?.curatorPlaces) && place.curatorPlaces.length > 0) {
+    return true;
+  }
+  if (Array.isArray(place?.curators) && place.curators.length > 0) {
+    return true;
+  }
+  return false;
+}
+
 // 큐레이터 등급 마커 (기존 로직 유지)
 function getMarkerTier(place) {
-  const curatorCount = Array.isArray(place?.curators) ? place.curators.length : 1;
+  let curatorCount = 1;
+  if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
+    curatorCount = place.curatorCount;
+  } else if (Array.isArray(place?.curators) && place.curators.length > 0) {
+    curatorCount = place.curators.length;
+  }
 
   if (curatorCount >= 3) {
     return {
@@ -125,7 +144,23 @@ function getFolderMarkerColor(place, userFolders) {
   return getMarkerTier(place);
 }
 
-function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders) {
+function checkinMarkerDecorations(size, checkinMeta) {
+  const cc = Number(checkinMeta?.checkinCount) || 0;
+  const showFlame = Boolean(checkinMeta?.showHotFlame);
+  const flame = showFlame
+    ? `<text x="${size - 1}" y="17" text-anchor="end" font-size="14" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
+    : "";
+  if (cc <= 0) return flame;
+  const label = cc > 99 ? "99+" : String(cc);
+  const pill = `
+    <g>
+      <rect x="${size / 2 - 15}" y="${size - 17}" width="30" height="14" rx="7" fill="#E11D48" stroke="#ffffff" stroke-width="1.2"/>
+      <text x="${size / 2}" y="${size - 9}" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-size="9" font-weight="800" font-family="Arial, sans-serif">${label}</text>
+    </g>`;
+  return flame + pill;
+}
+
+function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
   // 폴더 기반 마커 정보 우선 사용
   const markerInfo = getFolderMarkerColor(place, userFolders);
   const tier = markerInfo.level === 'folder' ? markerInfo : getMarkerTier(place);
@@ -274,18 +309,31 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders) {
           ${tier.emoji}
         </text>
         ${liveBadge}
+        ${checkinMarkerDecorations(size, checkinMeta)}
       </g>
     </svg>
   `;
 }
 
-function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
-  // 카카오 장소는 카카오 기본 마커 + 상호명 라벨
-  if (place.isKakaoPlace) {
+function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
+  const meta = {
+    checkinCount: Number(checkinMeta?.checkinCount) || 0,
+    showHotFlame: Boolean(checkinMeta?.showHotFlame),
+  };
+
+  // 검색·카카오 API 전용 핀 (DB 큐레이터 추천은 아래 등급 마커 사용)
+  if (place.isKakaoPlace && !isCuratorListedPlace(place)) {
     const name = place.name || place.place_name || '알 수 없는 장소';
     const nameWidth = Math.min(name.length * 8 + 10, 120);
     const totalWidth = Math.max(30, nameWidth);
     const totalHeight = 35 + 25; // 핀 + 상호명 라벨
+    const kakaoFlame = meta.showHotFlame
+      ? `<text x="${totalWidth - 2}" y="15" text-anchor="end" font-size="13" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
+      : "";
+    const kakaoCount =
+      meta.checkinCount > 0
+        ? `<g><circle cx="${totalWidth - 10}" cy="${totalHeight * 0.22}" r="9" fill="#E11D48" stroke="#fff" stroke-width="1.5"/><text x="${totalWidth - 10}" y="${totalHeight * 0.22 + 1}" dominant-baseline="middle" text-anchor="middle" fill="#fff" font-size="8" font-weight="800" font-family="Arial,sans-serif">${meta.checkinCount > 99 ? "99+" : meta.checkinCount}</text></g>`
+        : "";
     
     // 카카오 기본 핀 + 상호명 라벨 SVG
     const svgString = `
@@ -295,7 +343,8 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
             <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
           </filter>
         </defs>
-        
+        ${kakaoFlame}
+        ${kakaoCount}
         <!-- 상호명 라벨 (블랙 박스 + 흰 글씨) -->
         <rect
           x="${(totalWidth - nameWidth) / 2}"
@@ -360,7 +409,7 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders) {
   }
 
   // 기존 큐레이터 마커 로직
-  const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders);
+  const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, meta);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 64 : 50;
 
@@ -380,12 +429,18 @@ export default function createMarker({
   isLive = false,
   savedColor = null,
   userFolders = null, // 추가
+  /** @type {{ checkinCount?: number, showHotFlame?: boolean }} */
+  checkinMeta,
   onClick,
 }) {
+  const meta = {
+    checkinCount: Number(checkinMeta?.checkinCount) || 0,
+    showHotFlame: Boolean(checkinMeta?.showHotFlame),
+  };
   const marker = new window.kakao.maps.Marker({
     map,
     position: new window.kakao.maps.LatLng(place.lat, place.lng),
-    image: createMarkerImage(place, isSelected, savedColor, isLive, userFolders),
+    image: createMarkerImage(place, isSelected, savedColor, isLive, userFolders, meta),
     zIndex: isSelected ? 20 : 1,
   });
 

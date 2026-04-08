@@ -3,8 +3,134 @@ import { useAuth } from "../../context/AuthContext";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
+import { fetchKakaoCoordsByPlaceId } from "../../utils/kakaoPlaceCoords";
 
-export default function CheckinButton({ placeId, placeName, placeAddress }) {
+function parseCoord(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function readGeoOnce(options) {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("geolocation_not_supported"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) =>
+        resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracyM:
+            typeof pos.coords.accuracy === "number" && Number.isFinite(pos.coords.accuracy)
+              ? pos.coords.accuracy
+              : null,
+        }),
+      (err) => reject(err),
+      options
+    );
+  });
+}
+
+/** 엄격 체크인용: 먼저 빠른 저정확도(실내 성공률↑) → 실패 시 고정확도 */
+async function getGeoForStrictCheckin() {
+  try {
+    return await readGeoOnce({
+      enableHighAccuracy: false,
+      timeout: 12000,
+      maximumAge: 45000,
+    });
+  } catch {
+    return await readGeoOnce({
+      enableHighAccuracy: true,
+      timeout: 22000,
+      maximumAge: 0,
+    });
+  }
+}
+
+/** 거리 초과 재시도용: 최신·고정확도 한 번 */
+function getGeoHighAccuracyFresh() {
+  return readGeoOnce({
+    enableHighAccuracy: true,
+    timeout: 22000,
+    maximumAge: 0,
+  });
+}
+
+function messageForCheckinError(err) {
+  const msg = [err?.message, err?.details, err?.hint, err?.code]
+    .filter(Boolean)
+    .join(" ");
+  if (msg.includes("checkin_too_far_from_place")) {
+    return "가게 근처에 있을 때만 체크인할 수 있습니다. 지도에서 위치를 확인해 주세요.";
+  }
+  if (msg.includes("checkin_place_coordinates_required")) {
+    return "이 장소에는 좌표 정보가 없어 체크인할 수 없습니다.";
+  }
+  if (msg.includes("checkin_user_coordinates_required")) {
+    return "위치 정보를 가져오지 못했습니다. 위치 권한을 허용해 주세요.";
+  }
+  if (msg.includes("checkin_place_coordinates_invalid")) {
+    return "장소 위치 정보가 올바르지 않습니다.";
+  }
+  if (msg.includes("checkin_location_accuracy_too_poor")) {
+    return "GPS 정확도가 너무 낮습니다. 실외에서 다시 시도해 주세요.";
+  }
+  if (msg.includes("checkin_not_authenticated")) {
+    return "로그인이 필요합니다.";
+  }
+  if (msg.includes("geolocation_not_supported")) {
+    return "이 기기에서는 위치를 사용할 수 없습니다.";
+  }
+  if (err?.code === 1 || msg.includes("denied") || msg.includes("PERMISSION_DENIED")) {
+    return "위치 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.";
+  }
+  if (err?.code === 3 || msg.includes("TIMEOUT")) {
+    return "위치 확인 시간이 초과되었습니다. 다시 시도해 주세요.";
+  }
+  if (msg.includes("checkin_no_row")) {
+    return "체크인 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (
+    msg.includes("perform_check_in_nearby") ||
+    msg.includes("42883") ||
+    msg.includes("PGRST202")
+  ) {
+    return "체크인 서버 설정이 필요합니다. (perform_check_in_nearby 마이그레이션 확인)";
+  }
+  return "체크인에 실패했습니다.";
+}
+
+function isGeoTimeoutOrDenied(err) {
+  const msg = [err?.message, err?.details, String(err?.code ?? "")]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    err?.code === 1 ||
+    err?.code === 3 ||
+    msg.includes("TIMEOUT") ||
+    msg.includes("denied") ||
+    msg.includes("PERMISSION_DENIED")
+  );
+}
+
+function isTooFarRpcError(err) {
+  const msg = [err?.message, err?.details, err?.hint]
+    .filter(Boolean)
+    .join(" ");
+  return msg.includes("checkin_too_far_from_place");
+}
+
+export default function CheckinButton({
+  placeId,
+  placeName,
+  placeAddress,
+  placeLat,
+  placeLng,
+  kakaoPlaceId,
+}) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceCheckinCount, placeCheckinCounts } = useRealtimeCheckins();
   const { showToast } = useToast();
@@ -75,34 +201,168 @@ export default function CheckinButton({ placeId, placeName, placeAddress }) {
     );
 
     if (confirmed) {
-      executeCheckin();
+      // 클릭 핸들러에서 await하지 않고, 메인 스레드 반환을 먼저 끝내 Violation·멈춤 체감 완화
+      queueMicrotask(() => {
+        void executeCheckin();
+      });
     }
+  };
+
+  const runCheckinRpc = async ({
+    plat,
+    plng,
+    userLat,
+    userLng,
+    accuracyM,
+    skipDistanceCheck,
+  }) => {
+    const nickname = getUserNickname();
+    await performCheckin({
+      userNickname: nickname,
+      placeId,
+      placeName,
+      placeAddress: placeAddress || "",
+      placeLat: plat,
+      placeLng: plng,
+      userLat,
+      userLng,
+      accuracyM,
+      skipDistanceCheck,
+    });
+    setIsCheckedIn(true);
+    showToast(
+      skipDistanceCheck
+        ? "체크인했습니다. (위치 미검증)"
+        : "체크인이 완료되었습니다!",
+      "success"
+    );
   };
 
   // 실제 체크인 실행
   const executeCheckin = async () => {
     setLoading(true);
-    
+
     try {
-      const nickname = getUserNickname();
-      
-      await performCheckin(
-        nickname,
-        placeId,
-        placeName,
-        placeAddress || ''
-      );
-      
-      setIsCheckedIn(true);
-      showToast("체크인이 완료되었습니다!", "success");
-      
-      // 체크인 수 업데이트
+      let plat = parseCoord(placeLat);
+      let plng = parseCoord(placeLng);
+      if (plat == null || plng == null) {
+        const fromKakao = await fetchKakaoCoordsByPlaceId({
+          kakaoPlaceId,
+          name: placeName,
+          address: placeAddress,
+        });
+        if (fromKakao) {
+          plat = fromKakao.lat;
+          plng = fromKakao.lng;
+        }
+      }
+      if (plat == null || plng == null) {
+        const looseOnly =
+          window.confirm(
+            "장소 좌표를 찾지 못했습니다.\n\n위치 검증 없이 체크인할까요? (다른 사용자에게는 동일하게 보이며, 거리 검증은 되지 않습니다.)"
+          );
+        if (looseOnly) {
+          await runCheckinRpc({
+            plat: null,
+            plng: null,
+            userLat: null,
+            userLng: null,
+            accuracyM: null,
+            skipDistanceCheck: true,
+          });
+          const newCount = await fetchPlaceCheckinCount(placeId);
+          setCurrentCheckinCount(newCount);
+        }
+        return;
+      }
+
+      let userLat;
+      let userLng;
+      let accuracyM = null;
+      try {
+        const g = await getGeoForStrictCheckin();
+        userLat = g.lat;
+        userLng = g.lng;
+        accuracyM = g.accuracyM;
+      } catch (geoErr) {
+        if (isGeoTimeoutOrDenied(geoErr)) {
+          const loose = window.confirm(
+            `${messageForCheckinError(geoErr)}\n\n위치 검증 없이 체크인할까요? (현장 여부는 확인되지 않습니다.)`
+          );
+          if (loose) {
+            await runCheckinRpc({
+              plat,
+              plng,
+              userLat: null,
+              userLng: null,
+              accuracyM: null,
+              skipDistanceCheck: true,
+            });
+            const newCount = await fetchPlaceCheckinCount(placeId);
+            setCurrentCheckinCount(newCount);
+          }
+          return;
+        }
+        showToast(messageForCheckinError(geoErr), "warning");
+        return;
+      }
+
+      try {
+        await runCheckinRpc({
+          plat,
+          plng,
+          userLat,
+          userLng,
+          accuracyM,
+          skipDistanceCheck: false,
+        });
+      } catch (rpcErr) {
+        if (isTooFarRpcError(rpcErr)) {
+          let strictRecovered = false;
+          try {
+            const gRetry = await getGeoHighAccuracyFresh();
+            await runCheckinRpc({
+              plat,
+              plng,
+              userLat: gRetry.lat,
+              userLng: gRetry.lng,
+              accuracyM: gRetry.accuracyM,
+              skipDistanceCheck: false,
+            });
+            strictRecovered = true;
+          } catch (retryErr) {
+            if (!isTooFarRpcError(retryErr)) throw retryErr;
+          }
+          if (strictRecovered) {
+            const newCount = await fetchPlaceCheckinCount(placeId);
+            setCurrentCheckinCount(newCount);
+            return;
+          }
+          const loose = window.confirm(
+            "위치를 다시 받아도 거리가 멀리 잡혔습니다.\n\n위치 검증 없이 체크인할까요? (현장 여부는 확인되지 않습니다.)"
+          );
+          if (loose) {
+            await runCheckinRpc({
+              plat,
+              plng,
+              userLat: null,
+              userLng: null,
+              accuracyM: null,
+              skipDistanceCheck: true,
+            });
+          } else {
+            throw rpcErr;
+          }
+        } else {
+          throw rpcErr;
+        }
+      }
+
       const newCount = await fetchPlaceCheckinCount(placeId);
       setCurrentCheckinCount(newCount);
-      
     } catch (error) {
       console.error("체크인 에러:", error);
-      showToast("체크인에 실패했습니다.", "error");
+      showToast(messageForCheckinError(error), "error");
     } finally {
       setLoading(false);
     }

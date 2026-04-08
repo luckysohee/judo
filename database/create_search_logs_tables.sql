@@ -42,6 +42,15 @@ CREATE INDEX IF NOT EXISTS idx_place_click_logs_place_id ON place_click_logs(cli
 ALTER TABLE search_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE place_click_logs ENABLE ROW LEVEL SECURITY;
 
+-- 재실행 시 42710 방지: 기존 정책 제거 후 생성
+DROP POLICY IF EXISTS "Users can view own search logs" ON search_logs;
+DROP POLICY IF EXISTS "Users can insert own search logs" ON search_logs;
+DROP POLICY IF EXISTS "Anonymous users can insert search logs" ON search_logs;
+
+DROP POLICY IF EXISTS "Users can view own place click logs" ON place_click_logs;
+DROP POLICY IF EXISTS "Users can insert own place click logs" ON place_click_logs;
+DROP POLICY IF EXISTS "Anonymous users can insert place click logs" ON place_click_logs;
+
 -- 모든 사용자가 자신의 로그만 볼 수 있도록 정책
 CREATE POLICY "Users can view own search logs" ON search_logs
   FOR SELECT USING (auth.uid()::text = user_id);
@@ -71,8 +80,10 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_search_logs_updated_at ON search_logs;
 CREATE TRIGGER update_search_logs_updated_at BEFORE UPDATE ON search_logs
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_place_click_logs_updated_at ON place_click_logs;
 CREATE TRIGGER update_place_click_logs_updated_at BEFORE UPDATE ON place_click_logs
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

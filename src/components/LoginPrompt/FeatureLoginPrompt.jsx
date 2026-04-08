@@ -35,13 +35,13 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
         ]
       },
       ai: {
-        title: 'AI 추천',
-        description: '개인화된 AI 추천으로\n최적의 장소를 발견하세요!',
-        icon: '🤖',
+        title: '주도 검색',
+        description: '검색어와 거리로 후보를 골라\n주변에 맞는 장소를 찾아보세요!',
+        icon: '🔎',
         benefits: [
-          '맞춤형 장소 추천',
-          '검색 기록 기반 학습',
-          '스마트 필터링'
+          '자연어 한 줄 검색',
+          '거리·키워드 기반 순위',
+          '결과가 적을 때 확장 제안'
         ]
       },
       checkin: {

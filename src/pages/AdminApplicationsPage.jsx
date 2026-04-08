@@ -320,6 +320,20 @@ export default function AdminApplicationsPage() {
 
         <div style={styles.title}>큐레이터 신청 내역</div>
 
+        {!loading && isAdmin ? (
+          <button
+            type="button"
+            onClick={() => navigate("/admin/search-insights")}
+            style={{
+              ...styles.refreshButton,
+              marginRight: 8,
+              backgroundColor: "#2c3e50",
+            }}
+          >
+            검색 인사이트
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={fetchApplications}

@@ -32,8 +32,16 @@ export default function MarkerLegend({
           ...styles.savedOnlyButton,
           ...(savedOnly ? styles.savedOnlyButtonActive : null),
         }}
-        aria-label={savedOnly ? "저장한 곳만 보기 해제" : "저장한 곳만 보기"}
-        title={savedOnly ? "저장한 곳만 보기 해제" : "저장한 곳만 보기"}
+        aria-label={
+          savedOnly
+            ? "내가 저장한 장소만 보기 해제"
+            : "내가 저장한 장소만 보기 (큐레이터는 비공개 추천 포함)"
+        }
+        title={
+          savedOnly
+            ? "내가 저장한 장소만 보기 해제"
+            : "내가 저장한 장소만 보기 · 큐레이터는 내 비공개 추천까지 표시"
+        }
       >
         ★
       </button>
