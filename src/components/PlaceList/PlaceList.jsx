@@ -1,4 +1,5 @@
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
+import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 
 export default function PlaceList({
   places,
@@ -111,7 +112,7 @@ export default function PlaceList({
                 <div style={styles.comment}>{place.comment}</div>
 
                 <div style={styles.tagRow}>
-                  {place.tags.map((tag) => (
+                  {filterPlaceTagsForDisplay(place.tags || []).map((tag) => (
                     <span key={tag} style={styles.tag}>
                       {tag}
                     </span>

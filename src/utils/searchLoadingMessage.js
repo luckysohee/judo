@@ -7,10 +7,13 @@ const MAX_LEN = 46;
  */
 export function getSearchLoadingMessage(rawQuery = "") {
   const q = rawQuery.trim().replace(/\s+/g, " ");
-  if (!q) return "조건에 맞는 장소 찾는 중";
+  if (!q) return "주도 검색 — 조건에 맞는 장소 찾는 중";
 
   const p = parseNaturalQuery(q).facets;
-  if (!p) return `${q} 찾는 중`;
+  if (!p) {
+    const head = q.length > MAX_LEN ? `${q.slice(0, MAX_LEN)}…` : q;
+    return `${head} · 전체 검색 중`;
+  }
   const bits = [];
   if (p.region) bits.push(p.region);
   if (p.vibe) bits.push(p.vibe);
@@ -25,9 +28,9 @@ export function getSearchLoadingMessage(rawQuery = "") {
   }
 
   if (bits.length >= 2) {
-    return `${bits.join(" ")} 찾는 중`;
+    return `${bits.join(" ")} · 전체 검색 중`;
   }
 
   const head = q.length > MAX_LEN ? `${q.slice(0, MAX_LEN)}…` : q;
-  return `${head} 찾는 중`;
+  return `${head} · 전체 검색 중`;
 }

@@ -100,7 +100,17 @@ export function findCuratorCatalogMatch(picked, catalog) {
 export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
   if (!picked || typeof picked !== "object") return picked;
   const canonical = findCuratorCatalogMatch(picked, catalog);
-  if (!canonical) return picked;
+  if (!canonical) {
+    const w = resolvePlaceWgs84(picked);
+    if (!w) return picked;
+    return {
+      ...picked,
+      lat: w.lat,
+      lng: w.lng,
+      x: picked.x != null && picked.x !== "" ? picked.x : String(w.lng),
+      y: picked.y != null && picked.y !== "" ? picked.y : String(w.lat),
+    };
+  }
 
   const wP = resolvePlaceWgs84(picked);
   const wC = resolvePlaceWgs84(canonical);

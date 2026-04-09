@@ -10,7 +10,7 @@ const SYSTEM_FOLDERS = [
   { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
   { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
   { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
-  { key: 'terrace', name: '야외/뷰', color: '#2C3E50', icon: '🌅' }
+  { key: 'terrace', name: '야외/뷰', color: '#5DADE2', icon: '🌅' }
 ];
 
 export default function SaveModal({ 
@@ -20,21 +20,19 @@ export default function SaveModal({
   onSaveComplete,
   firstSavedFrom = 'home',
   searchSessionIdRef,
+  /** true: 장소 미리보기 카드 안에만 채움(전체 화면 X) */
+  embeddedInPlaceCard = false,
 }) {
   const [selectedFolders, setSelectedFolders] = useState([]);
-  const [recommendedFolders, setRecommendedFolders] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
 
-  // 폴더 추천 로직
+  // 폴더 추천: 첫 번째를 기본 선택(표시는 다른 칸과 동일 스타일)
   useEffect(() => {
     if (!place) return;
-    
+
     const recommendations = calculateFolderRecommendations(place);
-    setRecommendedFolders(recommendations.slice(0, 3)); // 상위 3개만
-    
-    // 추천 폴더 중 첫 번째를 기본 선택
     if (recommendations.length > 0) {
       setSelectedFolders([recommendations[0].key]);
     }
@@ -197,9 +195,22 @@ export default function SaveModal({
 
   if (!isOpen) return null;
 
+  const shellStyle = embeddedInPlaceCard
+    ? styles.placeCardShell
+    : styles.overlay;
+  const modalStyle = embeddedInPlaceCard
+    ? styles.placeCardModal
+    : styles.modal;
+
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
+    <div style={shellStyle}>
+      <div
+        style={modalStyle}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         {/* X 버튼을 header 밖으로 이동 */}
         <button 
           onClick={onClose} 
@@ -214,101 +225,100 @@ export default function SaveModal({
           ×
         </button>
         
-        <div style={styles.header}>
-          {/* [폴더 선택] 글씨 삭제 */}
-          {/* header 안의 X 버튼 제거 */}
-        </div>
+        <div
+          style={
+            embeddedInPlaceCard ? styles.placeCardHeaderSpacer : styles.header
+          }
+        />
 
-        <div style={styles.content}>
-          {/* 가게 제목 제거 */}
-
-          {/* 추천 폴더 */}
-          {recommendedFolders.length > 0 && (
-            <div style={styles.section}>
-              {/* [추천 폴더] 글씨 삭제 */}
-              <div style={styles.folderGrid}>
-                {recommendedFolders.map(folder => (
+        <div
+          style={
+            embeddedInPlaceCard
+              ? { ...styles.content, ...styles.placeCardContent }
+              : styles.content
+          }
+        >
+          {/* 7개 시스템 폴더 + 새 폴더 = 4×2 고정 그리드 */}
+          <div style={styles.section}>
+            <div style={styles.folderGrid2x4}>
+              {SYSTEM_FOLDERS.map((folder) => {
+                const selected = selectedFolders.includes(folder.key);
+                return (
                   <button
                     key={folder.key}
+                    type="button"
                     onClick={() => handleFolderToggle(folder.key)}
                     style={{
                       ...styles.folderButton,
-                      ...(selectedFolders.includes(folder.key) ? styles.folderButtonSelected : {}),
+                      ...(selected ? styles.folderButtonSelected : {}),
                       borderColor: folder.color,
-                      backgroundColor: selectedFolders.includes(folder.key) ? folder.color : 'transparent'
+                      backgroundColor: selected ? folder.color : "transparent",
                     }}
                   >
                     <span style={styles.folderIcon}>{folder.icon}</span>
-                    <span style={{
-                      ...styles.folderName,
-                      color: selectedFolders.includes(folder.key) ? 'white' : folder.color
-                    }}>
+                    <span
+                      style={{
+                        ...styles.folderName,
+                        color: selected ? "white" : folder.color,
+                      }}
+                    >
                       {folder.name}
                     </span>
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 전체 폴더 */}
-          <div style={styles.section}>
-            {/* [전체폴더] 글씨 삭제 */}
-            <div style={styles.folderGrid}>
-              {SYSTEM_FOLDERS.filter(folder => !recommendedFolders.find(r => r.key === folder.key)).map(folder => (
+                );
+              })}
+              {!showNewFolderInput ? (
                 <button
-                  key={folder.key}
-                  onClick={() => handleFolderToggle(folder.key)}
-                  style={{
-                    ...styles.folderButton,
-                    ...(selectedFolders.includes(folder.key) ? styles.folderButtonSelected : {}),
-                    borderColor: folder.color,
-                    backgroundColor: selectedFolders.includes(folder.key) ? folder.color : 'transparent'
-                  }}
-                >
-                  <span style={styles.folderIcon}>{folder.icon}</span>
-                  <span style={{
-                    ...styles.folderName,
-                    color: selectedFolders.includes(folder.key) ? 'white' : folder.color
-                  }}>
-                    {folder.name}
-                  </span>
-                </button>
-              ))}
-              
-              {/* 새 폴더 추가 버튼 */}
-              {showNewFolderInput ? (
-                <div style={styles.newFolderInput}>
-                  <input
-                    type="text"
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    placeholder="폴더 이름"
-                    style={styles.input}
-                    autoFocus
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddNewFolder()}
-                  />
-                  <button onClick={handleAddNewFolder} style={styles.addButton}>
-                    ✓
-                  </button>
-                  <button onClick={() => setShowNewFolderInput(false)} style={styles.cancelButton}>
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <button
+                  type="button"
                   onClick={() => setShowNewFolderInput(true)}
                   style={styles.addFolderButton}
                 >
                   <span style={styles.addFolderIcon}>+</span>
                   <span style={styles.addFolderText}>새 폴더</span>
                 </button>
-              )}
+              ) : null}
             </div>
+            {showNewFolderInput ? (
+              <div style={styles.newFolderInputBelow}>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="폴더 이름"
+                  style={styles.input}
+                  autoFocus
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleAddNewFolder()
+                  }
+                />
+                <div style={styles.newFolderInputActions}>
+                  <button
+                    type="button"
+                    onClick={handleAddNewFolder}
+                    style={styles.addButton}
+                  >
+                    ✓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewFolderInput(false)}
+                    style={styles.cancelButton}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div style={styles.footer}>
+        <div
+          style={
+            embeddedInPlaceCard
+              ? { ...styles.footer, ...styles.placeCardFooter }
+              : styles.footer
+          }
+        >
           <div style={styles.selectionInfo}>
             {selectedFolders.length > 0 && (
               <span style={styles.selectionText}>
@@ -317,11 +327,13 @@ export default function SaveModal({
             )}
           </div>
           <button
+            type="button"
             onClick={handleSave}
             disabled={selectedFolders.length === 0 || isLoading}
             style={styles.saveButton(selectedFolders, isLoading)}
+            aria-label={isLoading ? "저장 중" : "저장"}
           >
-            {isLoading ? '⏳' : '💾'}
+            {isLoading ? "⏳" : "💾"}
           </button>
         </div>
       </div>
@@ -330,29 +342,73 @@ export default function SaveModal({
 }
 
 const styles = {
+  /** 장소 카드 내부 전용: 부모가 flex column + minHeight 0 일 것 */
+  placeCardShell: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+  },
+  placeCardModal: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    backgroundColor: 'transparent',
+    border: 'none',
+    boxShadow: 'none',
+    borderRadius: 0,
+    overflow: 'hidden',
+  },
+  placeCardHeaderSpacer: {
+    flexShrink: 0,
+    height: '36px',
+  },
+  placeCardContent: {
+    padding: '4px 12px 10px',
+    gap: '12px',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeCardFooter: {
+    padding: '10px 12px',
+  },
   overlay: {
-    position: 'absolute', // fixed 대신 absolute로 변경
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    position: 'fixed',
+    inset: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000
+    justifyContent: 'flex-start',
+    paddingLeft: '12px',
+    paddingRight: '12px',
+    paddingTop: 'max(12px, env(safe-area-inset-top, 0px))',
+    paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))',
+    zIndex: 12000,
+    overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
+    overscrollBehavior: 'contain',
+    boxSizing: 'border-box',
   },
   modal: {
     backgroundColor: 'rgba(18, 18, 18, 0.96)', // 마커 모달과 동일한 배경색
     backdropFilter: 'blur(12px)', // 마커 모달과 동일한 블러
     WebkitBackdropFilter: 'blur(12px)',
     borderRadius: '20px', // 마커 모달과 동일한 둥근 모서리
-    width: '92%', // 마커 모달과 동일한 너비
+    width: 'min(92vw, 400px)', // 마커 모달과 동일한 너비
     height: 'auto', // 높이는 자동
-    maxHeight: '80vh', // 최대 높이만 제한
-    overflow: 'visible', // 플로팅을 위해 visible
+    maxHeight: 'min(78vh, 640px)', // 최대 높이만 제한
+    marginTop: 'min(6vh, 40px)', // 폰에서 열자마자 상단 영역에 보이도록
+    overflow: 'hidden',
+    flexShrink: 0,
     border: '1px solid rgba(255, 255, 255, 0.08)', // 마커 모달과 동일한 경계
     boxShadow: '0 14px 30px rgba(0, 0, 0, 0.32)', // 마커 모달과 동일한 그림자
     position: 'relative',
@@ -402,9 +458,13 @@ const styles = {
   content: {
     padding: '20px',
     flex: 1,
-    overflow: 'visible',
+    minHeight: 0,
+    overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
     display: 'flex',
     flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: '20px' // 섹션 간 간격
   },
   placeInfo: {
@@ -426,6 +486,8 @@ const styles = {
   section: {
     display: 'flex',
     flexDirection: 'column',
+    alignItems: 'center',
+    width: '100%',
     gap: '10px' // 폴더들 간 간격
   },
   sectionTitle: {
@@ -435,16 +497,24 @@ const styles = {
     marginBottom: '12px',
     textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
   },
-  folderGrid: {
-    display: 'grid', // 그리드로 다시 변경
-    gridTemplateColumns: 'repeat(4, 1fr)', // 4개씩 2층으로
-    gap: '12px',
-    justifyContent: 'center'
+  /** 시스템 7 + 새 폴더 1 = 4열 × 2행, 카드·모달 안에서 가운데 */
+  folderGrid2x4: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gridTemplateRows: 'repeat(2, auto)',
+    gap: '10px',
+    alignItems: 'stretch',
+    width: '100%',
+    maxWidth: '320px',
+    marginLeft: 'auto',
+    marginRight: 'auto',
+    justifyItems: 'stretch',
   },
   folderButton: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: '10px 6px',
     border: '2px solid',
     borderRadius: '8px',
@@ -455,8 +525,11 @@ const styles = {
     transition: 'all 0.2s ease',
     minHeight: '55px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-    position: 'relative', // 플로팅을 위한 상대 위치
-    zIndex: 10 // 플로팅 효과를 위한 z-index
+    position: 'relative',
+    zIndex: 10,
+    boxSizing: 'border-box',
+    minWidth: 0,
+    width: '100%',
   },
   folderButtonSelected: {
     transform: 'scale(0.95)'
@@ -470,14 +543,25 @@ const styles = {
     fontWeight: 'bold',
     textAlign: 'center'
   },
-  newFolderInput: {
+  newFolderInputBelow: {
+    marginTop: '10px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
-    padding: '8px',
+    gap: '8px',
+    padding: '10px',
     border: '2px solid #3498DB',
-    borderRadius: '6px',
-    backgroundColor: '#1a1a1a'
+    borderRadius: '8px',
+    backgroundColor: '#1a1a1a',
+    boxSizing: 'border-box',
+    width: '100%',
+    maxWidth: '320px',
+    marginLeft: 'auto',
+    marginRight: 'auto',
+  },
+  newFolderInputActions: {
+    display: 'flex',
+    gap: '6px',
+    justifyContent: 'flex-end',
   },
   input: {
     padding: '6px 8px',
@@ -510,6 +594,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: '10px 6px',
     border: '2px dashed rgba(255, 255, 255, 0.3)',
     borderRadius: '8px',
@@ -521,8 +606,11 @@ const styles = {
     minHeight: '55px',
     color: 'rgba(255, 255, 255, 0.6)',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-    position: 'relative', // 플로팅을 위한 상대 위치
-    zIndex: 10 // 플로팅 효과를 위한 z-index
+    position: 'relative',
+    zIndex: 10,
+    boxSizing: 'border-box',
+    minWidth: 0,
+    width: '100%',
   },
   addFolderIcon: {
     fontSize: '16px',
@@ -550,24 +638,23 @@ const styles = {
     color: '#999'
   },
   saveButton: (selectedFolders, isLoading) => ({
-    backgroundColor: 'rgba(52, 152, 219, 0.2)', 
+    backgroundColor: 'rgba(52, 152, 219, 0.2)',
     border: '1px solid rgba(52, 152, 219, 0.4)',
     color: '#3498DB',
-    borderRadius: '8px', 
-    padding: '0',
-    width: '32px', 
-    height: '32px', 
+    borderRadius: '8px',
+    padding: 0,
+    width: '32px',
+    height: '32px',
     fontSize: '14px',
     fontWeight: 'bold',
-    cursor: 'pointer',
     transition: 'all 0.2s ease',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backdropFilter: 'blur(10px)', 
+    backdropFilter: 'blur(10px)',
     WebkitBackdropFilter: 'blur(10px)',
-    boxShadow: '0 2px 8px rgba(52, 152, 219, 0.3)', 
+    boxShadow: '0 2px 8px rgba(52, 152, 219, 0.3)',
     opacity: selectedFolders.length === 0 || isLoading ? 0.5 : 1,
-    cursor: selectedFolders.length === 0 || isLoading ? 'not-allowed' : 'pointer'
+    cursor: selectedFolders.length === 0 || isLoading ? 'not-allowed' : 'pointer',
   }),
 };

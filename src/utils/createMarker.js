@@ -168,6 +168,9 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
   const size = isSelected ? 64 : 50;
   const circleRadius = isSelected ? 22 : 18;
   const emojiFontSize = isSelected ? 18 : 15;
+  /** 컬러 이모지 글리프가 원 중심보다 왼쪽으로 치우침 → 3시 방향으로 시각 보정 */
+  const emojiOpticalX = isSelected ? 3 : 2;
+  const emojiOpticalY = isSelected ? -1 : -0.5;
   const stroke = isSelected ? "#ffffff" : "#f3f3f3";
   const shadowOpacity = isSelected ? 0.34 : 0.2;
 
@@ -298,16 +301,22 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
         ${premiumGlow}
         ${savedDot}
         ${overlapBadge}
-        <text
-          x="50%"
-          y="50%"
-          dominant-baseline="central"
-          text-anchor="middle"
-          font-size="${emojiFontSize}"
-          font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
+        <g
+          transform="translate(${size / 2 + emojiOpticalX}, ${
+            size / 2 + emojiOpticalY
+          })"
         >
-          ${tier.emoji}
-        </text>
+          <text
+            x="0"
+            y="0"
+            dominant-baseline="central"
+            text-anchor="middle"
+            font-size="${emojiFontSize}"
+            font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
+          >
+            ${tier.emoji}
+          </text>
+        </g>
         ${liveBadge}
         ${checkinMarkerDecorations(size, checkinMeta)}
       </g>

@@ -210,6 +210,17 @@ const TypingState = ({
           scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1) !important', // Firefox
         }}
       >
+        <div
+          style={{
+            padding: "4px 10px 6px",
+            fontSize: "9px",
+            color: "rgba(255,255,255,0.45)",
+            lineHeight: 1.35,
+            pointerEvents: "none",
+          }}
+        >
+          가게 이름 제안(카카오) — 엔터는 전체 검색
+        </div>
         {/* 장소 리스트 - 플로팅 한줄씩 */}
         {kakaoResults.map((place, index) => (
           <div
@@ -226,7 +237,7 @@ const TypingState = ({
                 ? '2px solid rgba(59, 130, 246, 0.8)' 
                 : '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '12px',
-              padding: '8px 12px',
+              padding: '6px 10px',
               marginBottom: index < kakaoResults.length - 1 ? '4px' : '0',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
@@ -252,9 +263,9 @@ const TypingState = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: '16px',
-                height: '16px',
-                fontSize: '9px',
+                width: '14px',
+                height: '14px',
+                fontSize: '8px',
                 fontWeight: 'bold',
                 borderRadius: '50%',
                 flexShrink: 0,
@@ -271,33 +282,35 @@ const TypingState = ({
               }}>
                 {/* 장소명 */}
                 <div style={{
-                  fontSize: '12px',
+                  fontSize: '10px',
                   fontWeight: '600',
                   marginBottom: '2px',
                   color: '#ffffff',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.3,
                 }}>
                   {place.place_name}
                 </div>
                 
                 {/* 주소 */}
                 <div style={{
-                  fontSize: '10px',
+                  fontSize: '9px',
                   color: '#cccccc',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.3,
                 }}>
                   {place.road_address_name || place.address_name}
                 </div>
               </div>
-              
+
               {/* 선택 표시 */}
               {selectedKakaoIndex === index && (
                 <div style={{
-                  fontSize: '10px',
+                  fontSize: '9px',
                   color: '#93c5fd',
                   fontWeight: '500',
                   flexShrink: 0
@@ -305,6 +318,19 @@ const TypingState = ({
                   선택됨
                 </div>
               )}
+
+              {Number.isFinite(Number(place.distance)) ? (
+                <div style={{
+                  fontSize: '8px',
+                  color: '#999999',
+                  lineHeight: 1.3,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  textAlign: 'right',
+                }}>
+                  {Math.round(Number(place.distance))}m
+                </div>
+              ) : null}
             </div>
           </div>
         ))}
@@ -326,7 +352,7 @@ const TypingState = ({
         }}
       >
         <div style={{
-          fontSize: '13px',
+          fontSize: '11px',
           color: '#ffffff',
           fontWeight: '500'
         }}>검색 중...</div>

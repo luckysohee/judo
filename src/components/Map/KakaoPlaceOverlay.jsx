@@ -190,13 +190,19 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
                 backgroundColor: '#2ecc71',
                 color: '#fff',
                 border: 'none',
-                padding: '12px 16px',
+                padding: '10px 12px',
                 borderRadius: '8px',
-                fontSize: '14px',
+                fontSize: '11px',
                 fontWeight: '700',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
-                boxShadow: '0 4px 12px rgba(46, 204, 113, 0.3)'
+                boxShadow: '0 4px 12px rgba(46, 204, 113, 0.3)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '2px',
+                lineHeight: 1.15,
               }}
               onMouseEnter={(e) => {
                 e.target.style.backgroundColor = '#27ae60';
@@ -209,7 +215,8 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
                 e.target.style.boxShadow = '0 4px 12px rgba(46, 204, 113, 0.3)';
               }}
             >
-              쾌속 잔 채우기
+              <span style={{ fontWeight: 800 }}>⚡쾌속⚡</span>
+              <span>잔채우기</span>
             </button>
           </>
         ) : (

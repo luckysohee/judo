@@ -323,8 +323,33 @@ const CheckInToast = () => {
     return `${Math.floor(diffMins / 1440)}일 전`;
   };
 
+  const rowBase = {
+    fontSize: "12px",
+    lineHeight: 1.35,
+    color: "#4b5563",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    WebkitBackdropFilter: "blur(8px)",
+    backdropFilter: "blur(8px)",
+    padding: "3px 8px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.45)",
+    whiteSpace: "nowrap",
+    textAlign: "left",
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  };
+
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 space-y-1 max-h-14 overflow-hidden">
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        maxHeight: "56px",
+        overflow: "hidden",
+      }}
+    >
       <AnimatePresence>
         {displayCheckins.map((checkIn, index) => (
           <motion.div
@@ -332,31 +357,39 @@ const CheckInToast = () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10, transition: { duration: 0.3 } }}
-            className="text-[6px] text-gray-600 bg-white/60 backdrop-blur-sm px-1 py-0.5 rounded-full border border-white/30 whitespace-nowrap text-left"
             style={{
+              ...rowBase,
               transform: `translateY(${index * 14}px)`,
-              opacity: 1 - (index * 0.2) // 위로 갈수록 투명하게
+              opacity: 1 - index * 0.2,
             }}
           >
-            {checkIn.type === 'single' ? (
-              // 단일 체크인
+            {checkIn.type === "single" ? (
               <>
-                <span className="mr-0.5">{checkIn.emoji}</span>
-                <span className="font-medium text-gray-800 text-[6px]">{checkIn.user}</span>
-                <span className="text-gray-600 text-[6px]">님이 </span>
-                <span className="font-medium text-blue-600 text-[6px]">{checkIn.place}</span>
-                <span className="text-gray-600 text-[6px]">에 체크인 ({checkIn.time})</span>
+                <span style={{ marginRight: "4px" }}>{checkIn.emoji}</span>
+                <span style={{ fontWeight: 600, color: "#1f2937" }}>
+                  {checkIn.user}
+                </span>
+                <span>님이 </span>
+                <span style={{ fontWeight: 600, color: "#2563eb" }}>
+                  {checkIn.place}
+                </span>
+                <span>에 체크인 ({checkIn.time})</span>
               </>
             ) : (
-              // 다중 체크인
               <>
-                <span className="mr-0.5">{checkIn.emoji}</span>
-                <span className="font-medium text-gray-800 text-[6px]">{checkIn.user}</span>
-                <span className="text-gray-600 text-[6px]">님 외 </span>
-                <span className="font-medium text-orange-600 text-[6px]">{checkIn.otherCount}명</span>
-                <span className="text-gray-600 text-[6px]">이 </span>
-                <span className="font-medium text-blue-600 text-[6px]">{checkIn.place}</span>
-                <span className="text-gray-600 text-[6px]">에 체크인 ({checkIn.time})</span>
+                <span style={{ marginRight: "4px" }}>{checkIn.emoji}</span>
+                <span style={{ fontWeight: 600, color: "#1f2937" }}>
+                  {checkIn.user}
+                </span>
+                <span>님 외 </span>
+                <span style={{ fontWeight: 600, color: "#ea580c" }}>
+                  {checkIn.otherCount}명
+                </span>
+                <span>이 </span>
+                <span style={{ fontWeight: 600, color: "#2563eb" }}>
+                  {checkIn.place}
+                </span>
+                <span>에 체크인 ({checkIn.time})</span>
               </>
             )}
           </motion.div>

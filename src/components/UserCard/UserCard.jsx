@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from '../../lib/supabase';
 
 // CSS 애니메이션 추가
@@ -15,13 +15,40 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+/**
+ * 유리 느낌은 블러 없이 (지도 선명 유지) — 블랙 베이스 + 상단 광택 + 얇은 테두리.
+ */
+const userCardGlass = {
+  overlay: {
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+  },
+  sheet: {
+    background:
+      "linear-gradient(175deg, rgba(52,54,68,0.96) 0%, rgba(22,24,32,0.98) 32%, rgba(6,7,11,0.99) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.14)",
+    boxShadow:
+      "0 -18px 56px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+  },
+  hairline: {
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  panel: {
+    background:
+      "linear-gradient(150deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 50%, rgba(0,0,0,0.2) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.11)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.3)",
+  },
+};
+
 // 팔로우 큐레이터 컴팩트 스타일
 const curatorCardStyles = {
   card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    borderRadius: '8px',
-    padding: '8px 12px',
+    background:
+      "linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.14)",
+    borderRadius: "8px",
+    padding: "6px 8px",
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     display: 'flex',
@@ -68,16 +95,16 @@ const curatorCardStyles = {
     textOverflow: 'ellipsis'
   },
   unfollowButton: {
-    padding: '4px 8px',
-    backgroundColor: '#e74c3c',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '10px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    flexShrink: 0
-  }
+    padding: "4px 8px",
+    backgroundColor: "rgba(231, 76, 60, 0.5)",
+    color: "white",
+    border: "1px solid rgba(255,255,255,0.2)",
+    borderRadius: "8px",
+    fontSize: "10px",
+    fontWeight: "600",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
 };
 
 // SaveModal 스타일 동일하게 적용
@@ -85,27 +112,26 @@ const modalStyles = {
   section: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '10px'
+    gap: '6px'
   },
   folderGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: '12px',
+    gap: '8px',
     justifyContent: 'center'
   },
   folderButton: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: '8px 4px',
+    padding: '5px 3px',
     border: '2px solid',
     borderRadius: '8px',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
+    background:
+      "linear-gradient(160deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.03) 100%)",
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    minHeight: '45px',
+    minHeight: '36px',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
     position: 'relative',
     zIndex: 10
@@ -114,21 +140,48 @@ const modalStyles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: '8px 4px',
-    border: '2px dashed rgba(255, 255, 255, 0.3)',
+    padding: '5px 3px',
+    border: '2px dashed rgba(255, 255, 255, 0.28)',
     borderRadius: '8px',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    minHeight: '45px',
+    minHeight: '36px',
     color: 'rgba(255, 255, 255, 0.6)',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
     position: 'relative',
     zIndex: 10
   }
 };
+
+/** Supabase `places (*)` 조인은 `places`, 스튜디오 드래프트 형태는 `place` */
+function getSavedPlaceDisplayFields(item) {
+  if (!item || typeof item !== "object") {
+    return { name: "", address: "" };
+  }
+  const row = item.places ?? item.place;
+  const name =
+    row?.name ??
+    row?.place_name ??
+    row?.title ??
+    item.place_name ??
+    item.name ??
+    "";
+  const address =
+    row?.address ??
+    row?.road_address ??
+    row?.road_address_name ??
+    row?.address_name ??
+    item.address ??
+    "";
+  return {
+    name: String(name || "").trim() || "이름 없음",
+    address: String(address || "").trim(),
+  };
+}
+
+const SWIPE_CLOSE_PX = 88;
+const SWIPE_MAX_DRAG_PX = 280;
 
 const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
   const [activeTab, setActiveTab] = useState('saved');
@@ -142,6 +195,89 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
   const [showFolderEditModal, setShowFolderEditModal] = useState(false); // 폴더 수정 모달 상태
   const [editingPlace, setEditingPlace] = useState(null); // 수정 중인 장소
   const [selectedFolders, setSelectedFolders] = useState([]); // 선택된 폴더들
+
+  const swipeHeaderRef = useRef(null);
+  const tabScrollRef = useRef(null);
+  const sheetDragYRef = useRef(0);
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      sheetDragYRef.current = 0;
+      setSheetDragY(0);
+    }
+  }, [isVisible]);
+
+  const attachSwipeDownClose = useCallback((touchEl, scrollContainer) => {
+    if (!touchEl) return () => {};
+    let startY = null;
+    let pulling = false;
+    let scrollTopAtStart = 0;
+
+    const touchStart = (e) => {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      pulling = false;
+      scrollTopAtStart = scrollContainer?.scrollTop ?? 0;
+    };
+
+    const touchMove = (e) => {
+      if (startY == null || e.touches.length !== 1) return;
+      if (
+        scrollContainer != null &&
+        (scrollTopAtStart > 0 || scrollContainer.scrollTop > 0)
+      ) {
+        return;
+      }
+      const y = e.touches[0].clientY;
+      const dy = y - startY;
+      if (dy > 12) {
+        pulling = true;
+        e.preventDefault();
+        const next = Math.min(dy, SWIPE_MAX_DRAG_PX);
+        sheetDragYRef.current = next;
+        setSheetDragY(next);
+      }
+    };
+
+    const touchEnd = () => {
+      if (pulling && sheetDragYRef.current >= SWIPE_CLOSE_PX) {
+        onCloseRef.current?.();
+      }
+      sheetDragYRef.current = 0;
+      setSheetDragY(0);
+      startY = null;
+      pulling = false;
+    };
+
+    touchEl.addEventListener("touchstart", touchStart, { passive: true });
+    touchEl.addEventListener("touchmove", touchMove, { passive: false });
+    touchEl.addEventListener("touchend", touchEnd);
+    touchEl.addEventListener("touchcancel", touchEnd);
+
+    return () => {
+      touchEl.removeEventListener("touchstart", touchStart);
+      touchEl.removeEventListener("touchmove", touchMove);
+      touchEl.removeEventListener("touchend", touchEnd);
+      touchEl.removeEventListener("touchcancel", touchEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return undefined;
+    const header = swipeHeaderRef.current;
+    const scroll = tabScrollRef.current;
+    const unbindHeader = attachSwipeDownClose(header, null);
+    const unbindScroll = attachSwipeDownClose(scroll, scroll);
+    return () => {
+      unbindHeader();
+      unbindScroll();
+    };
+  }, [isVisible, attachSwipeDownClose]);
 
   useEffect(() => {
     console.log('🔄 UserCard useEffect 호출:', { isVisible, user });
@@ -185,7 +321,8 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
 
   // 장소 삭제 핸들러
   const handleDeletePlace = async (placeItem) => {
-    if (!window.confirm(`${placeItem.place?.name}을(를) 삭제하시겠습니까?`)) {
+    const delName = getSavedPlaceDisplayFields(placeItem).name;
+    if (!window.confirm(`${delName}을(를) 삭제하시겠습니까?`)) {
       return;
     }
 
@@ -204,13 +341,13 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           updatedDrafts = existingDrafts.filter(draft => draft.kakao_place_id !== placeItem.kakao_place_id);
         } else {
           // place_name으로 찾기
-          updatedDrafts = existingDrafts.filter(draft => 
-            draft.place_name !== placeItem.place?.name
+          updatedDrafts = existingDrafts.filter(
+            (draft) => draft.place_name !== getSavedPlaceDisplayFields(placeItem).name
           );
         }
         
         localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
-        console.log('✅ localStorage 장소 삭제 완료:', placeItem.place?.name);
+        console.log("✅ localStorage 장소 삭제 완료:", delName);
       } else if (placeItem.id && !placeItem.id.startsWith('kakao_') && !placeItem.id.startsWith('local_')) {
         // Supabase 데이터 삭제 (UUID 형식인 경우만)
         const { error } = await supabase
@@ -224,7 +361,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           return;
         }
         
-        console.log('✅ Supabase 장소 삭제 완료:', placeItem.place?.name);
+        console.log("✅ Supabase 장소 삭제 완료:", delName);
       } else {
         console.warn('알 수 없는 장소 데이터 형식:', placeItem);
         alert('삭제할 수 없는 장소입니다.');
@@ -312,7 +449,10 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
         });
         
         localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
-        console.log('✅ localStorage 폴더 수정 완료:', editingPlace.place?.name);
+        console.log(
+          "✅ localStorage 폴더 수정 완료:",
+          getSavedPlaceDisplayFields(editingPlace).name
+        );
       } else {
         // Supabase 데이터 수정 - 기존 폴더 관계 삭제 후 새로 추가
         const { error: deleteError } = await supabase
@@ -342,7 +482,10 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           return;
         }
         
-        console.log('✅ Supabase 폴더 수정 완료:', editingPlace.place?.name);
+        console.log(
+          "✅ Supabase 폴더 수정 완료:",
+          getSavedPlaceDisplayFields(editingPlace).name
+        );
       }
 
       // 데이터 다시 로드
@@ -468,7 +611,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
         { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
         { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
         { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
-        { key: 'terrace', name: '야외/뷰', color: '#2C3E50', icon: '🌅' }
+        { key: 'terrace', name: '야외/뷰', color: '#5DADE2', icon: '🌅' }
       ];
       
       const groupedByFolder = {};
@@ -527,8 +670,10 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
       
       // 각 폴더별 장소 수 확인
       Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
-        console.log(`📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`, 
-          folderData.places.map(p => p.place?.name || p.name));
+        console.log(
+          `📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`,
+          folderData.places.map((p) => getSavedPlaceDisplayFields(p).name)
+        );
       });
       
       // 전체 장소 수 확인
@@ -662,75 +807,81 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
 
   return (
     <>
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: '0'
-      }}>
-        <div style={{
-          backgroundColor: '#222',
-          borderRadius: '16px 16px 0 0',
-          width: '100%',
-          maxWidth: '500px',
-          height: 'auto',
-          overflow: 'hidden',
-          position: 'relative',
-          animation: 'slideUp 0.3s ease-out'
-        }}>
-          {/* 드래그 핸들 */}
-          <div style={{
-            width: '40px',
-            height: '4px',
-            backgroundColor: '#666',
-            borderRadius: '2px',
-            margin: '12px auto 8px',
-            cursor: 'grab'
-          }} />
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: 0,
+          ...userCardGlass.overlay,
+        }}
+      >
+        <div
+          style={{
+            borderRadius: "16px 16px 0 0",
+            width: "100%",
+            maxWidth: "500px",
+            height: "auto",
+            overflow: "hidden",
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            animation: "slideUp 0.3s ease-out",
+            transform:
+              sheetDragY > 0 ? `translateY(${sheetDragY}px)` : undefined,
+            transition:
+              sheetDragY > 0
+                ? "none"
+                : "transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)",
+            touchAction: "pan-y",
+            ...userCardGlass.sheet,
+          }}
+        >
+          <div ref={swipeHeaderRef}>
+            {/* 드래그 핸들 */}
+            <div
+              style={{
+                width: "42px",
+                height: "5px",
+                backgroundColor: "rgba(255, 255, 255, 0.35)",
+                borderRadius: "100px",
+                margin: "8px auto 4px",
+                cursor: "grab",
+                touchAction: "none",
+                boxShadow:
+                  "0 0 0 1px rgba(255,255,255,0.15), 0 1px 8px rgba(0,0,0,0.2)",
+              }}
+            />
 
-          {/* 닫기 버튼 */}
-          <button
-            onClick={onClose}
+            {/* 프로필 정보 */}
+            <div
             style={{
-              position: 'absolute',
-              top: '16px',
-              right: '20px',
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: '#999',
-              fontSize: '20px',
-              cursor: 'pointer',
-              zIndex: 10
+              padding: "10px 14px 8px",
+              paddingRight: "48px",
+              borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
             }}
           >
-            ×
-          </button>
-
-          {/* 프로필 정보 */}
-          <div style={{
-            padding: '20px 30px 10px',
-            borderBottom: '1px solid #333'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{
-                width: '50px',
-                height: '50px',
+                width: '40px',
+                height: '40px',
                 borderRadius: '50%',
-                backgroundColor: '#3498DB',
+                background: 'linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '20px',
+                fontSize: '16px',
                 color: 'white',
                 overflow: 'hidden',
-                flexShrink: 0
+                flexShrink: 0,
+                boxShadow: '0 2px 10px rgba(52, 152, 219, 0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
               }}>
                 {user.user_metadata?.image ? (
                   <img src={user.user_metadata.image} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -739,14 +890,14 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {user.user_metadata?.display_name || user.user_metadata?.username || '사용자'}
                 </div>
-                <div style={{ fontSize: '14px', color: '#3498DB', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '12px', color: '#3498DB', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   @{user.user_metadata?.username || user.email?.split('@')[0]}
                 </div>
                 {user.user_metadata?.bio && (
-                  <div style={{ fontSize: '12px', color: '#ccc', lineHeight: '1.3', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '11px', color: '#ccc', lineHeight: '1.25', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user.user_metadata.bio}
                   </div>
                 )}
@@ -755,42 +906,63 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           </div>
 
           {/* 탭 버튼 */}
-          <div style={{
-            display: 'flex',
-            borderBottom: '1px solid #333'
-          }}>
+          <div
+            style={{
+              display: "flex",
+              borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
+              backgroundColor: "rgba(0, 0, 0, 0.28)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
             <button
+              type="button"
               onClick={() => handleTabChange('saved')}
               style={{
                 flex: 1,
-                padding: '14px',
-                backgroundColor: activeTab === 'saved' ? '#3498DB' : 'transparent',
-                color: activeTab === 'saved' ? 'white' : '#999',
+                padding: '9px 8px',
+                background:
+                  activeTab === "saved"
+                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                    : "transparent",
+                color: activeTab === 'saved' ? 'white' : 'rgba(255, 255, 255, 0.55)',
                 border: 'none',
-                fontSize: '14px',
+                fontSize: '12px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                boxShadow:
+                  activeTab === "saved"
+                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                    : "none",
               }}
             >
               ❤️ 내 저장 ({getTotalPlacesCount()})
             </button>
             <button
+              type="button"
               onClick={() => handleTabChange('following')}
               style={{
                 flex: 1,
-                padding: '14px',
-                backgroundColor: activeTab === 'following' ? '#3498DB' : 'transparent',
-                color: activeTab === 'following' ? 'white' : '#999',
+                padding: '9px 8px',
+                background:
+                  activeTab === "following"
+                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                    : "transparent",
+                color: activeTab === 'following' ? 'white' : 'rgba(255, 255, 255, 0.55)',
                 border: 'none',
-                fontSize: '14px',
+                borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                fontSize: '12px',
                 fontWeight: '600',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '6px'
+                gap: '4px',
+                boxShadow:
+                  activeTab === "following"
+                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                    : "none",
               }}
             >
               🤝 팔로우 큐레이터 ({followingCurators.length})
@@ -808,8 +980,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                     padding: '2px 6px',
                     fontSize: '12px',
                     cursor: 'pointer',
-                    backdropFilter: 'blur(10px)',
-                    WebkitBackdropFilter: 'blur(10px)'
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
                   }}
                 >
                   🔍
@@ -817,64 +988,118 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               )}
             </button>
           </div>
+          </div>
+
+          {/* 닫기 버튼 — 스와이프 영역 밖 (탭·검색 클릭과 분리) */}
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              position: "absolute",
+              top: "6px",
+              right: "10px",
+              width: "32px",
+              height: "32px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              color: "rgba(255, 255, 255, 0.85)",
+              fontSize: "18px",
+              lineHeight: 1,
+              cursor: "pointer",
+              zIndex: 10,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
+            }}
+          >
+            ×
+          </button>
 
           {/* 탭 내용 */}
-          <div style={{
-            padding: '20px',
-            height: '150px', // 300px에서 150px로 50% 축소
-            overflowY: 'auto'
-          }}>
+          <div
+            ref={tabScrollRef}
+            style={{
+              padding: "10px 12px 14px",
+              maxHeight: "min(34vh, 168px)",
+              minHeight: 0,
+              overflowY: "auto",
+              WebkitOverflowScrolling: "touch",
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 40%)",
+            }}
+          >
             {loading ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+              <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                 로딩 중...
               </div>
             ) : activeTab === 'saved' ? (
               Object.keys(savedPlaces).length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                   아직 저장한 장소가 없습니다.
                 </div>
               ) : (
                 selectedFolder ? (
                   // 선택된 폴더의 상세 리스트 UI
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <div style={{ 
-                      display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px',
-                      paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                      display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px',
+                      paddingBottom: '6px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
                     }}>
                       <button 
                         onClick={() => handleFolderClick(null, null)}
                         style={{ 
                           background: 'none', border: 'none', color: '#3498DB', 
-                          cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' 
+                          cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' 
                         }}
                       > 
                         ← 뒤로 
                       </button>
-                      <span style={{ fontSize: '16px' }}>{selectedFolder.info?.icon}</span>
+                      <span style={{ fontSize: '14px' }}>{selectedFolder.info?.icon}</span>
                       <span style={{ color: 'white', fontWeight: 'bold' }}>{selectedFolder.info?.name}</span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                       {selectedFolder.places.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#666', fontSize: '13px' }}>
+                        <div style={{ textAlign: 'center', padding: '10px', color: '#666', fontSize: '12px' }}>
                           이 폴더에 저장된 장소가 없습니다.
                         </div>
                       ) : (
-                        selectedFolder.places.map((item, index) => (
+                        selectedFolder.places.map((item, index) => {
+                          const { name: placeName, address: placeAddress } =
+                            getSavedPlaceDisplayFields(item);
+                          return (
                           <div key={item.id || `place-${index}`} style={{
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                              padding: '12px', borderRadius: '8px',
-                              border: '1px solid rgba(255, 255, 255, 0.1)'
+                              padding: '8px 10px',
+                              borderRadius: '10px',
+                              ...userCardGlass.panel,
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ color: 'white', fontSize: '14px', fontWeight: 'bold' }}>
-                                  {item.place?.name}
+                                <div style={{
+                                  color: 'white',
+                                  fontSize: '13px',
+                                  fontWeight: 'bold',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {placeName}
                                 </div>
-                                <div style={{ color: '#999', fontSize: '12px', marginTop: '4px' }}>
-                                  {item.place?.address}
+                                {placeAddress ? (
+                                <div style={{
+                                  color: '#999',
+                                  fontSize: '11px',
+                                  marginTop: '2px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                  {placeAddress}
                                 </div>
+                                ) : null}
                               </div>
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                 <button
@@ -884,14 +1109,15 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                                     handleEditPlace(item);
                                   }}
                                   style={{
-                                    backgroundColor: '#3498DB',
+                                    backgroundColor: 'rgba(52, 152, 219, 0.55)',
                                     color: 'white',
-                                    border: 'none',
-                                    borderRadius: '4px',
+                                    border: '1px solid rgba(255,255,255,0.22)',
+                                    borderRadius: '8px',
                                     padding: '4px 8px',
                                     fontSize: '10px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s ease'
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
                                   }}
                                 >
                                   수정
@@ -903,14 +1129,15 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                                     handleDeletePlace(item);
                                   }}
                                   style={{
-                                    backgroundColor: '#e74c3c',
+                                    backgroundColor: 'rgba(231, 76, 60, 0.55)',
                                     color: 'white',
-                                    border: 'none',
-                                    borderRadius: '4px',
+                                    border: '1px solid rgba(255,255,255,0.18)',
+                                    borderRadius: '8px',
                                     padding: '4px 8px',
                                     fontSize: '10px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s ease'
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
                                   }}
                                 >
                                   삭제
@@ -918,7 +1145,8 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                               </div>
                             </div>
                           </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -937,7 +1165,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                               `${folderData.folderInfo?.color}20` : 'transparent'
                           }}
                         >
-                          <span style={{ fontSize: '14px', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '12px', marginBottom: '1px' }}>
                             {folderData.folderInfo?.icon}
                           </span>
                           <span style={{ 
@@ -979,10 +1207,10 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                 )
               )
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {/* 검색 입력창 */}
                 {showSearch && (
-                  <div style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <div style={{ paddingBottom: '6px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
                     <input
                       type="text"
                       value={searchQuery}
@@ -990,14 +1218,15 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                       placeholder="팔로우한 큐레이터 검색..."
                       style={{
                         width: '100%',
-                        padding: '8px 12px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '6px',
+                        padding: '6px 10px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                        border: '1px solid rgba(255, 255, 255, 0.22)',
+                        borderRadius: '10px',
                         color: 'white',
-                        fontSize: '13px',
+                        fontSize: '12px',
                         outline: 'none',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
                       }}
                       autoFocus
                     />
@@ -1005,9 +1234,9 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                 )}
                 
                 {/* 큐레이터 리스트 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {getFilteredCurators().length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                    <div style={{ textAlign: 'center', padding: '10px', color: '#999', fontSize: '12px' }}>
                       {searchQuery ? '검색 결과가 없습니다' : '아직 팔로우한 큐레이터가 없습니다.'}
                     </div>
                   ) : (
@@ -1053,46 +1282,49 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               </div>
             )}
           </div>
-
-          {/* 하단 버튼 */}
-          <div style={{
-            padding: '16px 20px',
-            borderTop: '1px solid #333',
-            display: 'flex',
-            gap: '12px',
-            backgroundColor: '#222'
-          }}>
-            {/* 하단 버튼 없음 - 탭에 돋보기 버튼으로 이동 */}
-          </div>
+          {/* 홈 인디케이터·여백: 반투명 틈 없이 시트로 완전 덮음 */}
+          <div
+            aria-hidden
+            style={{
+              width: "100%",
+              minHeight: "14px",
+              height: "max(14px, env(safe-area-inset-bottom, 0px))",
+              flexShrink: 0,
+              backgroundColor: "#05060a",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+            }}
+          />
         </div>
       </div>
 
       {/* 큐레이터 프로필 모달 */}
       {selectedCurator && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            backgroundColor: 'rgba(18, 18, 18, 0.96)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            borderRadius: '20px',
-            width: '90%',
-            maxWidth: '500px',
-            maxHeight: '80vh',
-            overflow: 'hidden',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            boxShadow: '0 14px 30px rgba(0, 0, 0, 0.32)'
-          }}>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 2000,
+            ...userCardGlass.overlay,
+          }}
+        >
+          <div
+            style={{
+              borderRadius: "22px",
+              width: "90%",
+              maxWidth: "500px",
+              maxHeight: "80vh",
+              overflow: "hidden",
+              ...userCardGlass.sheet,
+              boxShadow:
+                "0 28px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+            }}
+          >
             {/* 큐레이터 프로필 헤더 */}
             <div style={{
               display: 'flex',
@@ -1105,13 +1337,22 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                 큐레이터 프로필
               </h3>
               <button
+                type="button"
                 onClick={() => setSelectedCurator(null)}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'white',
-                  fontSize: '24px',
-                  cursor: 'pointer'
+                  width: "40px",
+                  height: "40px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(255, 255, 255, 0.1)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  borderRadius: "50%",
+                  color: "rgba(255, 255, 255, 0.9)",
+                  fontSize: "22px",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
                 }}
               >
                 ×
@@ -1149,15 +1390,17 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               </div>
 
               {selectedCurator.bio && (
-                <div style={{ 
-                  fontSize: '14px', 
-                  color: '#ccc', 
-                  lineHeight: '1.4', 
-                  marginBottom: '20px',
-                  padding: '12px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  borderRadius: '8px'
-                }}>
+                <div
+                  style={{
+                    fontSize: "14px",
+                    color: "#e8eaef",
+                    lineHeight: "1.45",
+                    marginBottom: "20px",
+                    padding: "12px 14px",
+                    borderRadius: "12px",
+                    ...userCardGlass.panel,
+                  }}
+                >
                   {selectedCurator.bio}
                 </div>
               )}
@@ -1183,10 +1426,9 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                       <div
                         key={saved.id}
                         style={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          borderRadius: '8px',
-                          padding: '12px'
+                          padding: "12px",
+                          borderRadius: "12px",
+                          ...userCardGlass.panel,
                         }}
                       >
                         <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
@@ -1207,21 +1449,33 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
 
       {/* 폴더 수정 모달 */}
       {showFolderEditModal && editingPlace && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            backgroundColor: '#222',
-            borderRadius: '12px',
-            width: '90%', maxWidth: '400px',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            padding: '20px'
-          }}>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2100,
+            ...userCardGlass.overlay,
+          }}
+        >
+          <div
+            style={{
+              borderRadius: "18px",
+              width: "90%",
+              maxWidth: "400px",
+              maxHeight: "80vh",
+              overflow: "auto",
+              padding: "20px",
+              ...userCardGlass.sheet,
+              boxShadow:
+                "0 24px 56px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
+            }}
+          >
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -1249,13 +1503,36 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               </button>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ color: 'white', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>
-                장소: {editingPlace.place?.name}
-              </div>
-              <div style={{ color: '#999', fontSize: '12px', marginBottom: '16px' }}>
-                {editingPlace.place?.address}
-              </div>
+            <div style={{ marginBottom: "16px" }}>
+              {(() => {
+                const { name: editName, address: editAddr } =
+                  getSavedPlaceDisplayFields(editingPlace);
+                return (
+                  <>
+                    <div
+                      style={{
+                        color: "white",
+                        fontSize: "14px",
+                        fontWeight: "bold",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      장소: {editName}
+                    </div>
+                    {editAddr ? (
+                      <div
+                        style={{
+                          color: "#999",
+                          fontSize: "12px",
+                          marginBottom: "16px",
+                        }}
+                      >
+                        {editAddr}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
 
             <div style={{ marginBottom: '20px' }}>

@@ -138,15 +138,16 @@ const styles = {
   chip: {
     flexShrink: 0,
     height: "34px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(18,18,18,0.88)",
-    color: "#ffffff",
+    border: "1px solid rgba(0,0,0,0.08)",
+    backgroundColor: "#ffffff",
+    color: "#111111",
     borderRadius: "999px",
     padding: "0 12px",
     fontSize: "12px",
     fontWeight: 700,
     backdropFilter: "blur(10px)",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
+    WebkitBackdropFilter: "blur(10px)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
     whiteSpace: "nowrap",
   },
 
@@ -222,9 +223,14 @@ const styles = {
   },
 
   chipActive: {
-    backgroundColor: "#ffffff",
-    color: "#111111",
-    borderColor: "#ffffff",
+    backgroundColor: "rgba(14, 16, 22, 0.8)",
+    color: "#f5f5f5",
+    border: "1px solid rgba(255,255,255,0.26)",
+    backdropFilter: "blur(22px) saturate(165%)",
+    WebkitBackdropFilter: "blur(22px) saturate(165%)",
+    boxShadow:
+      "0 8px 26px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.2)",
+    textShadow: "0 1px 2px rgba(0,0,0,0.28)",
   },
 
   curatorChipActive: {

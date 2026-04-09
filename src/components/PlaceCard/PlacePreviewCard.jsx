@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { motion, useDragControls } from "framer-motion";
 import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
+
+const MotionCard = motion.div;
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
@@ -17,13 +20,15 @@ import {
 } from "../../utils/prepareImageFileForUpload";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
+import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 export default function PlacePreviewCard({
   place,
   isSaved,
   savedFolderColor,
   liveCuratorNameSet,
   selectedCurators = [],
-  onSave,
+  /** SaveModal(Supabase) 저장 성공 후 부모에서 목록 갱신 등 */
+  onSavedToSupabase,
   onOpenCurator,
   onClose,
   getUserRole,
@@ -42,6 +47,26 @@ export default function PlacePreviewCard({
   const [googlePhotoAttributions, setGooglePhotoAttributions] = useState([]);
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
   const { showToast } = useToast();
+  const dragControls = useDragControls();
+  const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const apply = () => setSheetSwipeEnabled(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  const onSheetDragEnd = useCallback(
+    (_, info) => {
+      if (info.offset.y > 88 || info.velocity.y > 420) {
+        onClose?.();
+      }
+    },
+    [onClose]
+  );
+
   const extractedPlaceIdFromUrl = place?.place_url?.match(/\/place\/(\d+)/)?.[1] || null;
   const idAsKakao =
     place?.id != null &&
@@ -250,10 +275,29 @@ export default function PlacePreviewCard({
     return parts[parts.length - 1];
   };
 
-  // 카카오 장소 주소 정보 (place 값이 없으면 API 상세값 fallback)
-  const displayAddress = isKakaoPlace
-    ? (place.road_address_name || place.address_name || kakaoDetails?.address || place.address)
-    : (kakaoDetails?.address || place.address);
+  /** 도로명·지번 분리 표시, 없으면 단일 address 문자열 (긴 주소는 줄바꿈 허용) */
+  const addressBlockLines = useMemo(() => {
+    const road = String(
+      place?.road_address_name || kakaoDetails?.road_address_name || ""
+    ).trim();
+    const jibun = String(
+      place?.address_name || kakaoDetails?.address_name || ""
+    ).trim();
+    if (road && jibun && road !== jibun) return [road, jibun];
+    if (road) return [road];
+    if (jibun) return [jibun];
+    const single = String(
+      kakaoDetails?.address || place?.address || ""
+    ).trim();
+    return single ? [single] : [];
+  }, [
+    place?.road_address_name,
+    place?.address_name,
+    place?.address,
+    kakaoDetails?.road_address_name,
+    kakaoDetails?.address_name,
+    kakaoDetails?.address,
+  ]);
 
   // 상호명만 추출하는 함수
   const extractDisplayName = (fullName) => {
@@ -275,10 +319,12 @@ export default function PlacePreviewCard({
     return withoutDistrict.trim();
   };
 
-  // 카카오 장소 전화번호 (place 값이 없으면 API 상세값 fallback)
-  const displayPhone = isKakaoPlace
-    ? (place.phone || kakaoDetails?.phone || place.contact)
-    : (kakaoDetails?.phone || place.contact);
+  const displayPhone = useMemo(() => {
+    const raw = place?.phone ?? place?.contact ?? kakaoDetails?.phone ?? "";
+    const s =
+      typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
+    return s || null;
+  }, [place?.phone, place?.contact, kakaoDetails?.phone]);
 
   // 카카오맵 상세보기 URL
   const handleKakaoView = () => {
@@ -800,7 +846,7 @@ export default function PlacePreviewCard({
         },
         alcohol_type: '소주',
         draft_status: 'draft',
-        tags: ['쾌속 잔 채우기'] // AI 학습을 위한 태그
+        tags: []
       };
       
       // 4. localStorage에 저장
@@ -853,18 +899,63 @@ export default function PlacePreviewCard({
 
   if (!place) return null;
 
+  const cardBaseStyle = {
+    ...styles.card,
+    ...(showSaveModal
+      ? {
+          maxHeight: "min(72vh, 520px)",
+          minHeight: "min(46vh, 340px)",
+          overflow: "hidden",
+          overflowX: "hidden",
+          overflowY: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }
+      : {}),
+  };
+
+  const swipeOn =
+    sheetSwipeEnabled && !showSaveModal && typeof onClose === "function";
+
   return (
     <div style={styles.wrap}>
-      <div style={{
-        ...styles.card,
-        border: showSaveModal ? "none" : styles.card.border,
-        borderRadius: showSaveModal ? "0" : styles.card.borderRadius,
-        boxShadow: showSaveModal ? "none" : styles.card.boxShadow
-      }}>
+      <MotionCard
+        style={cardBaseStyle}
+        drag={swipeOn ? "y" : false}
+        dragControls={dragControls}
+        dragListener={false}
+        dragConstraints={{ top: 0, bottom: 300 }}
+        dragElastic={{ top: 0, bottom: 0.38 }}
+        dragMomentum={false}
+        onDragEnd={swipeOn ? onSheetDragEnd : undefined}
+      >
+        {showSaveModal ? (
+          <SaveModal
+            embeddedInPlaceCard
+            place={place}
+            isOpen={showSaveModal}
+            onClose={() => setShowSaveModal(false)}
+            onSaveComplete={() => {
+              setShowSaveModal(false);
+              onSavedToSupabase?.();
+            }}
+            firstSavedFrom="home"
+            searchSessionIdRef={searchSessionIdRef}
+          />
+        ) : (
+          <>
+        {swipeOn ? (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            title="아래로 밀어 닫기"
+            style={styles.sheetDragHandle}
+            onPointerDown={(e) => dragControls.start(e)}
+          >
+            <span style={styles.sheetDragHandleBar} aria-hidden />
+          </div>
+        ) : null}
         <div style={styles.header}>
-          <h3 style={styles.placeName}>
-            {extractDisplayName(place?.name || place?.place_name || "")}
-          </h3>
           <div style={styles.headerRight}>
             {/* 카카오맵 상세보기 링크 */}
             {(isKakaoPlace || kakaoDetails) && (
@@ -886,7 +977,7 @@ export default function PlacePreviewCard({
               <span style={styles.loadingText}>로딩 중...</span>
             )}
             {canCuratorUploadPhoto ? (
-              <>
+              <div style={styles.headerPhotoCloseCluster}>
                 <input
                   ref={curatorPhotoInputRef}
                   type="file"
@@ -902,11 +993,27 @@ export default function PlacePreviewCard({
                 >
                   {curatorPhotoUploading ? "업로드 중…" : "사진 올리기"}
                 </button>
-              </>
-            ) : null}
-            <button type="button" onClick={onClose} style={styles.closeButton}>
-              &times;
-            </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={styles.closeButtonInline}
+                  aria-label="닫기"
+                  title="닫기"
+                >
+                  <FaTimes size={14} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                style={styles.closeButtonInline}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <FaTimes size={14} />
+              </button>
+            )}
           </div>
         </div>
         {allPreviewUrls.length > 0 && heroPreviewUrl ? (
@@ -1157,11 +1264,25 @@ export default function PlacePreviewCard({
                     )}
                   </span>
                 )}
-                {displayAddress && (
-                  <span style={styles.address}>📍 {displayAddress}</span>
+                {addressBlockLines.length > 0 && (
+                  <div style={styles.addressBlock}>
+                    {addressBlockLines.map((line, idx) => (
+                      <div
+                        key={idx}
+                        style={
+                          idx === 0
+                            ? styles.addressLineFirst
+                            : styles.addressLineCont
+                        }
+                      >
+                        {idx === 0 ? "📍 " : ""}
+                        {line}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {displayPhone && (
-                  <span style={styles.phone}>📞 {displayPhone}</span>
+                  <div style={styles.phoneLine}>📞 {displayPhone}</div>
                 )}
                 {Number.isFinite(place?.distance) && (
                   <span style={styles.distance}>🚶 {place.distance}m</span>
@@ -1191,7 +1312,29 @@ export default function PlacePreviewCard({
             ) : (
               <>
                 {/* 일반 장소 정보 */}
-                {place.region} · 저장 {place.savedCount}
+                <div>
+                  {place.region} · 저장 {place.savedCount}
+                </div>
+                {addressBlockLines.length > 0 && (
+                  <div style={styles.addressBlock}>
+                    {addressBlockLines.map((line, idx) => (
+                      <div
+                        key={idx}
+                        style={
+                          idx === 0
+                            ? styles.addressLineFirst
+                            : styles.addressLineCont
+                        }
+                      >
+                        {idx === 0 ? "📍 " : ""}
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {displayPhone && (
+                  <div style={styles.phoneLine}>📞 {displayPhone}</div>
+                )}
                 {/* 큐레이터 추천 코멘트 추가 - DB 데이터 사용 */}
                 {featuredCuratorPlace && (
                   <div style={styles.curatorComment}>
@@ -1213,11 +1356,13 @@ export default function PlacePreviewCard({
           )}
 
           <div style={styles.tagRow}>
-            {(place.tags || []).slice(0, 4).map((tag) => (
-              <span key={tag} style={styles.tag}>
-                #{tag}
-              </span>
-            ))}
+            {filterPlaceTagsForDisplay(place.tags || [])
+              .slice(0, 4)
+              .map((tag) => (
+                <span key={tag} style={styles.tag}>
+                  #{tag}
+                </span>
+              ))}
           </div>
 
           <div style={styles.curatorRow}>
@@ -1258,6 +1403,7 @@ export default function PlacePreviewCard({
 
           <div style={styles.actionRow}>
             <CheckinButton
+              compact
               place={place}
               placeId={place.id}
               placeName={place.name}
@@ -1285,7 +1431,8 @@ export default function PlacePreviewCard({
                 onClick={handleQuickSaveClick}
                 style={styles.curatorSaveButton}
               >
-                쾌속 잔 채우기
+                <span style={styles.curatorQuickSaveLine1}>⚡쾌속⚡</span>
+                <span style={styles.curatorQuickSaveLine2}>잔채우기</span>
               </button>
             ) : (
               /* 일반 사용자용 버튼 */
@@ -1306,21 +1453,10 @@ export default function PlacePreviewCard({
               공유하기
             </button>
           </div>
-
-          {/* 저장 모달 */}
-          <SaveModal
-            place={place}
-            isOpen={showSaveModal}
-            onClose={() => setShowSaveModal(false)}
-            onSaveComplete={() => {
-              setShowSaveModal(false);
-              onSave?.(place);
-            }}
-            firstSavedFrom="home"
-            searchSessionIdRef={searchSessionIdRef}
-          />
         </div>
-      </div>
+          </>
+        )}
+        </MotionCard>
     </div>
   );
 }
@@ -1334,8 +1470,8 @@ const styles = {
   },
   card: {
     width: "92%",
-    maxWidth: "420px",
-    maxHeight: "min(62vh, 480px)",
+    maxWidth: "400px",
+    maxHeight: "min(50vh, 360px)",
     overflowX: "hidden",
     overflowY: "auto",
     WebkitOverflowScrolling: "touch",
@@ -1348,24 +1484,56 @@ const styles = {
     position: "relative",
     transition: "all 0.3s ease"
   },
-  closeButton: {
-    position: "absolute",
-    right: "10px",
-    top: "10px",
+  sheetDragHandle: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "6px",
+    paddingBottom: "2px",
+    touchAction: "none",
+    cursor: "grab",
+    flexShrink: 0,
+  },
+  sheetDragHandleBar: {
+    width: "40px",
+    height: "4px",
+    borderRadius: "999px",
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: "6px",
+    padding: "4px 6px 6px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+  },
+  headerPhotoCloseCluster: {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+    flexShrink: 0,
+  },
+  closeButtonInline: {
     border: "none",
-    backgroundColor: "rgba(0,0,0,0.58)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     color: "#fff",
     borderRadius: "999px",
-    width: "30px",
-    height: "30px",
-    fontSize: "13px",
-    zIndex: 2,
+    width: "28px",
+    height: "28px",
+    padding: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+    lineHeight: 1,
   },
   /** 프레임 높이 고정 + img는 cover로 채워 비율 유지(버튼 내부 img 찌그러짐 방지) */
   imageFrame: {
     position: "relative",
     width: "100%",
-    height: "clamp(96px, 26vw, 140px)",
+    height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
     borderRadius: "10px",
     backgroundColor: "#242424",
@@ -1373,7 +1541,7 @@ const styles = {
   imageFrameStandalone: {
     position: "relative",
     width: "100%",
-    height: "clamp(96px, 26vw, 140px)",
+    height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
     backgroundColor: "#242424",
   },
@@ -1389,7 +1557,7 @@ const styles = {
   },
   imageFallback: {
     width: "100%",
-    height: "clamp(96px, 26vw, 140px)",
+    height: "clamp(104px, 36vw, 168px)",
     backgroundColor: "#242424",
     color: "#8a8a8a",
     display: "flex",
@@ -1532,7 +1700,7 @@ const styles = {
   },
   kakaoPreviewLoading: {
     width: "100%",
-    height: "clamp(96px, 26vw, 140px)",
+    height: "clamp(104px, 36vw, 168px)",
     backgroundColor: "#242424",
     color: "#8a8a8a",
     display: "flex",
@@ -1542,7 +1710,7 @@ const styles = {
     borderBottom: "1px solid rgba(255,255,255,0.06)",
   },
   body: {
-    padding: "10px 12px 12px",
+    padding: "8px 10px 10px",
   },
   titleRow: {
     display: "flex",
@@ -1703,8 +1871,11 @@ const styles = {
   },
   headerRight: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: "8px",
+    justifyContent: "flex-end",
+    gap: "6px",
+    flexShrink: 0,
   },
   kakaoLink: {
     background: "none",
@@ -1734,14 +1905,37 @@ const styles = {
     fontWeight: "500",
     marginRight: "8px",
   },
-  address: {
-    fontSize: "12px",
-    color: "#999",
-    marginRight: "8px",
+  addressBlock: {
+    display: "block",
+    width: "100%",
+    marginTop: "4px",
+    marginBottom: "4px",
   },
-  phone: {
+  addressLineFirst: {
     fontSize: "12px",
     color: "#999",
+    lineHeight: 1.45,
+    whiteSpace: "pre-wrap",
+    wordBreak: "keep-all",
+    overflowWrap: "break-word",
+  },
+  addressLineCont: {
+    fontSize: "12px",
+    color: "#999",
+    lineHeight: 1.45,
+    whiteSpace: "pre-wrap",
+    wordBreak: "keep-all",
+    overflowWrap: "break-word",
+    paddingLeft: "1.35em",
+    marginTop: "3px",
+  },
+  phoneLine: {
+    display: "block",
+    width: "100%",
+    fontSize: "12px",
+    color: "#999",
+    lineHeight: 1.45,
+    marginBottom: "2px",
   },
   rating: {
     fontSize: "12px",
@@ -1769,13 +1963,30 @@ const styles = {
   },
   curatorSaveButton: {
     flex: 1,
-    height: "36px",
+    minHeight: "40px",
+    minWidth: 0,
+    padding: "5px 6px",
     borderRadius: "10px",
-    border: "1px solid #343434",
+    border: "1px solid #2a8f55",
     backgroundColor: "#2ECC71",
     color: "#ffffff",
-    fontSize: "13px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "1px",
+    lineHeight: 1.15,
+    cursor: "pointer",
+  },
+  curatorQuickSaveLine1: {
+    fontSize: "11px",
+    fontWeight: "800",
+    letterSpacing: "-0.02em",
+  },
+  curatorQuickSaveLine2: {
+    fontSize: "11px",
     fontWeight: "700",
+    letterSpacing: "-0.01em",
   },
   curatorChip: {
     fontSize: "11px",
@@ -1801,7 +2012,7 @@ const styles = {
     marginTop: "10px",
     display: "flex",
     gap: "8px",
-    alignItems: "center",
+    alignItems: "stretch",
   },
   saveButton: {
     flex: 1,
@@ -1815,22 +2026,36 @@ const styles = {
   },
   quickSaveButton: {
     flex: 1,
-    height: "36px",
+    minWidth: 0,
+    minHeight: "40px",
     borderRadius: "10px",
     border: "1px solid #343434",
     backgroundColor: "#2ECC71",
     color: "#ffffff",
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    cursor: "pointer",
+    boxSizing: "border-box",
   },
   shareButton: {
     flex: 1,
-    height: "36px",
+    minWidth: 0,
+    minHeight: "40px",
     borderRadius: "10px",
     border: "none",
     backgroundColor: "#3498DB",
     color: "#ffffff",
-    fontSize: "13px",
-    fontWeight: 800,
+    fontSize: "12px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    cursor: "pointer",
+    boxSizing: "border-box",
   },
 };

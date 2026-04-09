@@ -7,6 +7,26 @@ import { motion, AnimatePresence } from "framer-motion";
 import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
 import ContextTags from './ContextTags';
+import { formatKakaoKeywordHitsForMap } from "../../utils/formatKakaoKeywordHitsForMap";
+import {
+  filterKakaoKeywordRowsForMealIntent,
+  isMealFocusedKakaoQuery,
+} from "../../utils/filterKakaoKeywordResultsForMealIntent";
+
+/** 카카오 자동완성·주변 검색 공통 — 미터 */
+function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLng = (lng2 - lng1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 1000);
+}
 
 export default function SearchBar({
   query,
@@ -27,10 +47,14 @@ export default function SearchBar({
   onNearbySearch = null,
   onNearbyPlacesFound = null,
   rightActions = null,
+  /** 좁은 화면에서 검색 입력 폭 확보 (우측 버튼 간격 축소) */
+  compactRightActions = false,
   mapRef = null,
   placeholder = 'Search for places...',
   /** 검색 중 하단 GPT 스타일 상태 문구 */
   loadingStatusText = "",
+  /** 타이핑 자동완성 후보를 지도 마커로 올릴 때 부모에 전달 (빈 배열이면 제거) */
+  onKakaoTypingPreviewPlacesChange = null,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -42,6 +66,8 @@ export default function SearchBar({
   const [showKakaoResults, setShowKakaoResultsState] = useState(false);
   const [selectedKakaoIndex, setSelectedKakaoIndex] = useState(-1); // 키보드 내비게이션을 위한 선택된 인덱스
   const searchTimeoutRef = useRef(null);
+  /** 카카오 키워드 검색 디바운스 (AI 실시간 검색 타이머와 분리) */
+  const kakaoSearchDebounceRef = useRef(null);
   /** Enter/제출 후 늦게 도착하는 카카오 콜백이 바텀시트를 다시 열지 않게 함 */
   const kakaoSearchTokenRef = useRef(0);
   const [thinkDots, setThinkDots] = useState(".");
@@ -61,6 +87,10 @@ export default function SearchBar({
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
       searchTimeoutRef.current = null;
+    }
+    if (kakaoSearchDebounceRef.current) {
+      clearTimeout(kakaoSearchDebounceRef.current);
+      kakaoSearchDebounceRef.current = null;
     }
     kakaoSearchTokenRef.current += 1;
   };
@@ -88,6 +118,36 @@ export default function SearchBar({
 
     const ps = new window.kakao.maps.services.Places();
 
+    let origin = null;
+    if (
+      userLocation?.lat != null &&
+      userLocation?.lng != null &&
+      Number.isFinite(Number(userLocation.lat)) &&
+      Number.isFinite(Number(userLocation.lng))
+    ) {
+      origin = { lat: Number(userLocation.lat), lng: Number(userLocation.lng) };
+    } else {
+      const c = mapRef?.current?.getCenter?.();
+      if (c && typeof c.getLat === "function") {
+        const lat = c.getLat();
+        const lng = c.getLng();
+        if (Number.isFinite(lat) && Number.isFinite(lng)) origin = { lat, lng };
+      }
+    }
+
+    const mealFocusedQuery = isMealFocusedKakaoQuery(keyword);
+    const searchOptions = {
+      category_group_code: "FD6",
+      size: mealFocusedQuery ? 30 : 15,
+      ...(origin
+        ? {
+            location: new window.kakao.maps.LatLng(origin.lat, origin.lng),
+            radius: 20000,
+            sort: window.kakao.maps.services.SortBy.DISTANCE,
+          }
+        : {}),
+    };
+
     ps.keywordSearch(
       keyword,
       (data, status) => {
@@ -96,7 +156,40 @@ export default function SearchBar({
           return;
         }
         if (status === window.kakao.maps.services.Status.OK) {
-          setKakaoResults(data);
+          let rows = data;
+          if (origin) {
+            rows = data
+              .map((place) => {
+                const plat = parseFloat(place.y);
+                const plng = parseFloat(place.x);
+                const dist =
+                  Number.isFinite(plat) && Number.isFinite(plng)
+                    ? haversineDistanceMeters(
+                        origin.lat,
+                        origin.lng,
+                        plat,
+                        plng
+                      )
+                    : null;
+                return dist != null ? { ...place, distance: dist } : place;
+              })
+              .sort(
+                (a, b) =>
+                  (Number(a.distance) || 1e12) - (Number(b.distance) || 1e12)
+              );
+          } else {
+            rows = data.map((place) => {
+              const d = Number(place.distance);
+              if (!Number.isFinite(d) || d <= 0) {
+                const { distance: _drop, ...rest } = place;
+                return rest;
+              }
+              return place;
+            });
+          }
+          rows = filterKakaoKeywordRowsForMealIntent(keyword, rows);
+          rows = rows.slice(0, 15);
+          setKakaoResults(rows);
           setShowKakaoResultsState(true);
         } else {
           setKakaoResults([]);
@@ -104,11 +197,7 @@ export default function SearchBar({
         }
         setIsKakaoLoading(false);
       },
-      {
-        category_group_code: 'FD6', // 음식점
-        // location: mapRef?.current?.getCenter(), // 임시로 주석 처리
-        radius: 5000
-      }
+      searchOptions
     );
   };
 
@@ -132,11 +221,11 @@ export default function SearchBar({
     }
 
     if (showKakaoSearch) {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
+      if (kakaoSearchDebounceRef.current) {
+        clearTimeout(kakaoSearchDebounceRef.current);
       }
-
-      searchTimeoutRef.current = setTimeout(() => {
+      kakaoSearchDebounceRef.current = setTimeout(() => {
+        kakaoSearchDebounceRef.current = null;
         searchKakaoPlaces(value);
       }, 300);
     }
@@ -291,26 +380,34 @@ export default function SearchBar({
     onClear?.();
   };
 
+  // 타이핑 자동완성 → 지도 후보 동기화
+  useEffect(() => {
+    if (typeof onKakaoTypingPreviewPlacesChange !== "function") return;
+    if (!showKakaoSearch || !showKakaoResults || kakaoResults.length === 0) {
+      onKakaoTypingPreviewPlacesChange([]);
+      return;
+    }
+    onKakaoTypingPreviewPlacesChange(formatKakaoKeywordHitsForMap(kakaoResults));
+  }, [
+    kakaoResults,
+    showKakaoResults,
+    showKakaoSearch,
+    onKakaoTypingPreviewPlacesChange,
+  ]);
+
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
       }
+      if (kakaoSearchDebounceRef.current) {
+        clearTimeout(kakaoSearchDebounceRef.current);
+      }
     };
   }, []);
 
-  // 거리 계산 함수 (Haversine formula)
-  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371; // 지구 반지름 (km)
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return Math.round(R * c * 1000); // 미터 단위로 반환
-  };
+  const calculateDistance = haversineDistanceMeters;
 
   // 주변 술집 검색 함수 (블로그 필터링 포함)
   const searchNearbyBars = async (location) => {
@@ -547,6 +644,18 @@ export default function SearchBar({
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                fontSize: "9px",
+                color: "rgba(255,255,255,0.48)",
+                lineHeight: 1.35,
+                flexShrink: 0,
+              }}
+            >
+              타이핑 · 카카오 음식점 이름 매칭 — 지도에 후보 전부 표시됨 · 엔터는 전체 검색
+            </div>
             {kakaoResults.map((place, index) => (
               <motion.button
                 key={place.id}
@@ -555,10 +664,13 @@ export default function SearchBar({
                 style={{
                   ...styles.suggestionItem,
                   textAlign: 'left',
-                  padding: '12px',
+                  padding: '8px 10px',
                   backgroundColor: selectedKakaoIndex === index ? '#2c3e50' : 'transparent',
                   border: selectedKakaoIndex === index ? '1px solid #3498db' : '1px solid transparent',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
                 }}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -566,31 +678,42 @@ export default function SearchBar({
                 whileHover={{ backgroundColor: '#34495e', x: 5 }}
                 whileTap={{ scale: 0.98 }}
               >
-              <div style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#fff',
-                marginBottom: '4px'
-              }}>
-                {place.place_name}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#fff',
+                  marginBottom: '2px',
+                  lineHeight: 1.3,
+                }}>
+                  {place.place_name}
+                </div>
+                <div style={{
+                  fontSize: '10px',
+                  color: '#999',
+                  lineHeight: 1.3,
+                }}>
+                  {place.road_address_name || place.address_name}
+                </div>
               </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#999',
-                marginBottom: '2px'
-              }}>
-                {place.road_address_name || place.address_name}
-              </div>
-              <div style={{
-                fontSize: '11px',
-                color: '#666',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <span>{place.category_name}</span>
-                {place.distance && <span>• {Math.round(place.distance)}m</span>}
-              </div>
+              {Number.isFinite(Number(place.distance)) ? (
+                <div style={{
+                  fontSize: '9px',
+                  color: '#888',
+                  lineHeight: 1.3,
+                  flexShrink: 0,
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {Math.round(Number(place.distance))}m
+                </div>
+              ) : null}
               </motion.button>
             ))}
           </motion.div>
@@ -632,6 +755,7 @@ export default function SearchBar({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder=""  // placeholder 비우기
+            title="타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 주도 전체 검색."
             onFocus={() => showKakaoSearch && setShowKakaoResults(true)}
             style={{
               ...styles.input,
@@ -693,7 +817,14 @@ export default function SearchBar({
         ) : null}
 
         {rightActions ? (
-          <div style={styles.rightActions}>{rightActions}</div>
+          <div
+            style={{
+              ...styles.rightActions,
+              ...(compactRightActions ? styles.rightActionsNarrow : {}),
+            }}
+          >
+            {rightActions}
+          </div>
         ) : null}
       </div>
 
@@ -851,6 +982,10 @@ const styles = {
     gap: "6px",
     flexShrink: 0,
     flexWrap: "nowrap",
+  },
+
+  rightActionsNarrow: {
+    gap: "4px",
   },
 
   exampleRow: {

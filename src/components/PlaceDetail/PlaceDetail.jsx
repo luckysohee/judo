@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 // import CheckinButton from "../CheckinButton/CheckinButton";
 
 // 기본 이미지 폴백 시스템
@@ -10,7 +11,7 @@ const getPlaceImage = (place) => {
   }
   
   // 이미지가 없으면 태그 기반 기본 이미지 반환
-  const tag = place.tags?.[0] || 'default';
+  const tag = filterPlaceTagsForDisplay(place.tags || [])[0] || "default";
   const imageMap = {
     '노포': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&crop=entropy',
     '소주': 'https://images.unsplash.com/photo-1572126662658-73807ffb52d5?w=800&h=500&fit=crop&crop=entropy',
@@ -59,7 +60,8 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
   const { user } = useAuth();
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
-  
+  const displayTags = filterPlaceTagsForDisplay(place.tags || []);
+
   // 이미지 로딩 상태
   const [imageLoaded, setImageLoaded] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -189,16 +191,18 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
               </div>
             </section>
 
-            <section style={styles.section}>
-              <div style={styles.sectionTitle}>태그</div>
-              <div style={styles.chipRow}>
-                {(place.tags || []).map((tag) => (
-                  <span key={tag} style={styles.tagChip}>
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            </section>
+            {displayTags.length > 0 ? (
+              <section style={styles.section}>
+                <div style={styles.sectionTitle}>태그</div>
+                <div style={styles.chipRow}>
+                  {displayTags.map((tag) => (
+                    <span key={tag} style={styles.tagChip}>
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <section style={styles.section}>
               <div style={styles.sectionTitle}>위치 정보</div>

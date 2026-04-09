@@ -151,6 +151,8 @@ export default function CheckinButton({
   kakaoPlaceId,
   /** 있으면 y/x vs lat/lng 불일치 시 사용자 GPS에 맞는 좌표로 체크인 */
   place = null,
+  /** 장소 카드 등에서 한 줄 액션과 맞출 때 작은 버튼 */
+  compact = false,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceCheckinCount, placeCheckinCounts } = useRealtimeCheckins();
@@ -406,37 +408,86 @@ export default function CheckinButton({
     }
   };
 
-  const buttonStyles = {
-    checkinButton: {
-      padding: '8px 16px',
-      border: '2px solid #FF6B6B',
-      borderRadius: '20px',
-      backgroundColor: isCheckedIn ? '#FF6B6B' : 'white',
-      color: isCheckedIn ? 'white' : '#FF6B6B',
-      fontSize: '14px',
-      fontWeight: 'bold',
-      cursor: loading ? 'not-allowed' : 'pointer',
-      transition: 'all 0.3s ease',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '6px',
-      minWidth: '120px',
-      justifyContent: 'center'
-    },
-    checkinButtonHover: {
-      backgroundColor: isCheckedIn ? '#FF5252' : '#FFF5F5',
-      transform: 'scale(1.05)'
-    },
-    checkinCount: {
-      fontSize: '12px',
-      color: '#666',
-      marginTop: '4px',
-      textAlign: 'center'
-    }
-  };
+  const buttonStyles = compact
+    ? {
+        checkinButton: {
+          padding: "5px 10px",
+          border: "1px solid #FF6B6B",
+          borderRadius: "999px",
+          backgroundColor: isCheckedIn ? "#FF6B6B" : "rgba(255,255,255,0.96)",
+          color: isCheckedIn ? "white" : "#FF6B6B",
+          fontSize: "12px",
+          fontWeight: "700",
+          cursor: loading ? "not-allowed" : "pointer",
+          transition: "all 0.2s ease",
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          minWidth: "0",
+          minHeight: "40px",
+          width: "100%",
+          boxSizing: "border-box",
+          justifyContent: "center",
+          whiteSpace: "nowrap",
+        },
+        checkinButtonHover: {
+          backgroundColor: isCheckedIn ? "#FF5252" : "#FFF5F5",
+          transform: "scale(1.02)",
+        },
+        checkinCount: {
+          fontSize: "10px",
+          color: "rgba(255,255,255,0.45)",
+          marginTop: "2px",
+          textAlign: "center",
+          lineHeight: 1.2,
+          width: "100%",
+        },
+      }
+    : {
+        checkinButton: {
+          padding: "8px 16px",
+          border: "2px solid #FF6B6B",
+          borderRadius: "20px",
+          backgroundColor: isCheckedIn ? "#FF6B6B" : "white",
+          color: isCheckedIn ? "white" : "#FF6B6B",
+          fontSize: "14px",
+          fontWeight: "bold",
+          cursor: loading ? "not-allowed" : "pointer",
+          transition: "all 0.3s ease",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          minWidth: "120px",
+          justifyContent: "center",
+        },
+        checkinButtonHover: {
+          backgroundColor: isCheckedIn ? "#FF5252" : "#FFF5F5",
+          transform: "scale(1.05)",
+        },
+        checkinCount: {
+          fontSize: "12px",
+          color: "#666",
+          marginTop: "4px",
+          textAlign: "center",
+        },
+      };
 
   return (
-    <div style={{ textAlign: 'center' }}>
+    <div
+      style={
+        compact
+          ? {
+              textAlign: "left",
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              gap: "2px",
+            }
+          : { textAlign: "center", flexShrink: 0 }
+      }
+    >
       <button
         style={buttonStyles.checkinButton}
         onClick={handleCheckin}

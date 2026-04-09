@@ -78,6 +78,10 @@ import {
   findCuratorCatalogMatch,
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
+import {
+  filterPlaceTagsForDisplay,
+  isHiddenInternalPlaceTag,
+} from "../../utils/placeUiTags";
 import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
@@ -102,6 +106,35 @@ function applyLegendCategoryFilter(places, legendCategory) {
   }
 
   return places;
+}
+
+/** localStorage(savedMap) + Supabase(user_saved_places → userSavedPlaces) 저장 키 합집합 */
+function buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces) {
+  const set = new Set();
+  if (savedMap && typeof savedMap === "object") {
+    for (const [placeId, folderIds] of Object.entries(savedMap)) {
+      if (Array.isArray(folderIds) && folderIds.length > 0) {
+        set.add(String(placeId));
+      }
+    }
+  }
+  if (userSavedPlaces && typeof userSavedPlaces === "object") {
+    for (const [placeId, folders] of Object.entries(userSavedPlaces)) {
+      if (Array.isArray(folders) && folders.length > 0) {
+        set.add(String(placeId));
+      }
+    }
+  }
+  return set;
+}
+
+/** 미리보기 카드와 동일하게 UUID·카카오 id 등으로 저장 키와 매칭 */
+function placeMatchesSavedKeySet(place, savedKeySet) {
+  if (!place || !savedKeySet?.size) return false;
+  const keys = [place.id, place.place_id, place.kakao_place_id, place.kakaoId]
+    .filter((x) => x != null && x !== "")
+    .map((x) => String(x));
+  return keys.some((k) => savedKeySet.has(k));
 }
 
 const SEARCH_INTENT_ASSIST_MS = 5500;
@@ -426,7 +459,9 @@ export default function Home() {
     }
 
     try {
-      console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", place.name);
+      if (import.meta.env.DEV) {
+        console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", place.name);
+      }
 
       const py = parseFloat(place.lat ?? place.y);
       const px = parseFloat(place.lng ?? place.x);
@@ -471,7 +506,9 @@ export default function Home() {
       }
 
       if (kakaoPlace) {
-        console.log('✅ 카카오 장소 정보 찾음:', kakaoPlace.place_name);
+        if (import.meta.env.DEV) {
+          console.log("✅ 카카오 장소 정보 찾음:", kakaoPlace.place_name);
+        }
 
         const ky = parseFloat(kakaoPlace.y);
         const kx = parseFloat(kakaoPlace.x);
@@ -519,15 +556,21 @@ export default function Home() {
             })
             .eq('id', place.id);
           
-          console.log('🔄 Supabase 장소 정보 업데이트 완료');
+          if (import.meta.env.DEV) {
+            console.log("🔄 Supabase 장소 정보 업데이트 완료");
+          }
         } catch (updateError) {
-          console.log('⚠️ Supabase 업데이트 실패:', updateError.message);
+          if (import.meta.env.DEV) {
+            console.log("⚠️ Supabase 업데이트 실패:", updateError.message);
+          }
         }
 
         return enrichedPlace;
       }
     } catch (error) {
-      console.log('⚠️ 카카오 장소 정보 조회 오류:', error.message);
+      if (import.meta.env.DEV) {
+        console.log("⚠️ 카카오 장소 정보 조회 오류:", error.message);
+      }
     }
 
     return place;
@@ -870,6 +913,8 @@ export default function Home() {
   const [folders, setFolders] = useState([]);
   const [savedMap, setSavedMap] = useState({});
   const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
+  /** 카카오 키워드 자동완성 후보 — 리스트와 동일하게 지도에 전부 표시 */
+  const [kakaoTypingPreviewPlaces, setKakaoTypingPreviewPlaces] = useState([]);
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
@@ -897,6 +942,26 @@ export default function Home() {
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
+
+  /** 검색바 우측 @ / 로그아웃 등이 모바일에서 입력칸을 잡아먹지 않게 */
+  const [compactSearchBarAuth, setCompactSearchBarAuth] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 520px)").matches
+      : false
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 520px)");
+    const onChange = () => setCompactSearchBarAuth(mq.matches);
+    onChange();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
 
   // 로그인 유도 모달 훅
   const { showLoginPrompt, requiredFeature, requireLogin, closeLoginPrompt } = useLoginRequired();
@@ -1324,47 +1389,10 @@ export default function Home() {
     
     loadCurators();
     
-    // 모든 장소 데이터 가져오기 (공개 추천만)
-    const loadPlaces = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("curator_places")
-          .select(`
-            *,
-            places (*),
-            curators!curator_places_curator_id_fkey (username, display_name)
-          `)
-          .eq("is_archived", false) // 비공개 추천 제외
-          .order("created_at", { ascending: false });
-        
-        console.log("📋 curator_places 데이터:", { data, error, length: data?.length });
-          
-        if (error) {
-          console.error("❌ 추천 로드 오류:", error);
-          setDbPlaces([]);
-          return;
-        }
-        
-        // 장소별로 큐레이터 수 집계
+    /** Supabase JOIN 행 → 지도용 장소 배열 (카카오 API 대기 없이 동기 집계) */
+    const buildFormattedPlacesFromJoin = (joinRows) => {
         const placeMap = new Map();
-        
-        // 각 장소에 카카오 정보 추가 (병렬 처리)
-        const enrichedPlaces = await Promise.all(
-          data.map(async (curatorPlace) => {
-            const place = curatorPlace.places;
-            if (!place) return curatorPlace;
-            
-            // 카카오 정보로 장소 확장
-            const enrichedPlace = await enrichPlaceWithKakaoInfo(place);
-            
-            return {
-              ...curatorPlace,
-              places: enrichedPlace
-            };
-          })
-        );
-        
-        enrichedPlaces.forEach(curatorPlace => {
+        (joinRows || []).forEach((curatorPlace) => {
           const place = curatorPlace.places;
           if (!place) return;
           
@@ -1396,19 +1424,9 @@ export default function Home() {
           place.curatorPlaces.forEach(curatorPlace => {
             // JOIN된 curators 테이블에서 display_name 가져오기
             const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
-            // CuratorFilterBar와 통일하기 위해 username도 같이 저장
-            const curatorUsername = curatorPlace.curators?.username || curatorPlace.curator_id;
-            
+
             curatorNames.push(curatorName);
             curatorReasons[curatorName] = curatorPlace.one_line_reason || "";
-            
-            console.log(`🔍 큐레이터 데이터 처리:`, {
-              curatorName,
-              curatorUsername,
-              one_line_reason: curatorPlace.one_line_reason,
-              curators_display_name: curatorPlace.curators?.display_name,
-              curators_username: curatorPlace.curators?.username
-            });
           });
           
           const wgs = resolvePlaceWgs84(place);
@@ -1419,7 +1437,7 @@ export default function Home() {
             if (!Array.isArray(arr)) return;
             for (const t of arr) {
               const s = typeof t === "string" ? t.trim() : "";
-              if (s) tagSet.add(s);
+              if (s && !isHiddenInternalPlaceTag(s)) tagSet.add(s);
             }
           };
           addStrTags(place.tags);
@@ -1482,21 +1500,86 @@ export default function Home() {
               : true,
           };
         });
-        
-        console.log("🔍 중복 처리된 장소 (새 구조):", formattedPlaces.map(p => ({
-          name: p.name,
-          curatorCount: p.curatorCount,
-          curators: p.curators
-        })));
-        
-        setDbPlaces(formattedPlaces);
-        console.log("✅ 추천 목록 로드:", formattedPlaces.length, "개 (중복 처리됨)");
+
+        if (import.meta.env.DEV) {
+          console.log("🔍 지도 집계 장소 수:", formattedPlaces.length);
+        }
+        return formattedPlaces;
+    };
+
+    const enrichJoinRowsPooled = async (joinRows, poolSize) => {
+      const rows = joinRows || [];
+      const n = rows.length;
+      if (n === 0) return rows;
+      const out = new Array(n);
+      let cursor = 0;
+      const worker = async () => {
+        while (true) {
+          if (cancelled) return;
+          const i = cursor++;
+          if (i >= n) return;
+          const curatorPlace = rows[i];
+          const place = curatorPlace?.places;
+          if (!place) {
+            out[i] = curatorPlace;
+            continue;
+          }
+          out[i] = {
+            ...curatorPlace,
+            places: await enrichPlaceWithKakaoInfo(place),
+          };
+        }
+      };
+      const workers = Math.min(poolSize, n);
+      await Promise.all(Array.from({ length: workers }, () => worker()));
+      return out;
+    };
+
+    const loadPlaces = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("curator_places")
+          .select(`
+            *,
+            places (*),
+            curators!curator_places_curator_id_fkey (username, display_name)
+          `)
+          .eq("is_archived", false)
+          .order("created_at", { ascending: false });
+
+        if (import.meta.env.DEV) {
+          console.log("📋 curator_places:", data?.length ?? 0, error?.message ?? "");
+        }
+
+        if (error) {
+          console.error("❌ 추천 로드 오류:", error);
+          setDbPlaces([]);
+          return;
+        }
+
+        const rows = data || [];
+        if (rows.length === 0) {
+          setDbPlaces([]);
+          return;
+        }
+
+        setDbPlaces(buildFormattedPlacesFromJoin(rows));
+
+        void (async () => {
+          try {
+            const enriched = await enrichJoinRowsPooled(rows, 5);
+            if (cancelled) return;
+            setDbPlaces(buildFormattedPlacesFromJoin(enriched));
+          } catch (e) {
+            console.error("카카오 장소 보강 중 오류:", e);
+          }
+        })();
       } catch (error) {
         console.error("❌ 추천 로드 실패:", error);
         setDbPlaces([]);
       }
     };
-    
+
     checkAdmin();
     checkCurator();
     loadPlaces();
@@ -1649,20 +1732,21 @@ export default function Home() {
     }
   };
 
-  // 페이지 로드 시 데이터 로드
+  // 페이지 로드 시 UI 초기화
   useEffect(() => {
     console.log("🔄 페이지 로드 - 데이터 초기화");
     setSelectedCurators([]);
-    setShowAll(true); // 항상 전체 선택으로 시작
-    
-    // 사용자 저장 장소 로드
-    loadUserSavedPlaces();
-    
-    // 큐레이터 데이터 확인
+    setShowAll(true);
+
     setTimeout(() => {
       console.log("🔍 dbCurators 데이터:", dbCurators.map(c => ({ id: c.id, name: c.name })));
     }, 1000);
   }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    loadUserSavedPlaces();
+  }, [authLoading, user?.id]);
 
   // 상태 변화 감지
   useEffect(() => {
@@ -1766,13 +1850,11 @@ export default function Home() {
         return myPlaces;
       }
 
-      const savedSet = new Set(
-        Object.entries(savedMap)
-          .filter(([, folderIds]) => Array.isArray(folderIds) && folderIds.length > 0)
-          .map(([placeId]) => String(placeId))
+      const savedKeySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
+      const folderSaved = dbPlaces.filter((p) =>
+        placeMatchesSavedKeySet(p, savedKeySet)
       );
-      const folderSaved = dbPlaces.filter((p) => savedSet.has(String(p.id)));
-      console.log("⭐ 저장만 보기(일반·폴더 저장):", folderSaved.length);
+      console.log("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
       return folderSaved;
     }
     
@@ -1836,6 +1918,7 @@ export default function Home() {
     isCurator,
     curatorProfile?.id,
     savedMap,
+    userSavedPlaces,
   ]);
 
   const curatorSpotlightPlaces = useMemo(() => {
@@ -1879,7 +1962,9 @@ export default function Home() {
     // 외부 데이터 우선, 내부 데이터 보조, 네이버 장소 추가
     const finalPlaces = [...externalRecommendedPlaces, ...internalRecommendedPlaces, ...naverPlaces];
     
-    console.log("🔍 displayedPlaces 최종:", finalPlaces.length, finalPlaces);
+    if (import.meta.env.DEV) {
+      console.log("🔍 displayedPlaces:", finalPlaces.length);
+    }
     return finalPlaces;
   }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
 
@@ -1897,10 +1982,12 @@ export default function Home() {
 
     // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
     if (showSavedOnly) {
-      console.log("⭐ mapDisplayedPlacesWithLegend - 모든 장소 표시 (큐레이터용):", displayedPlaces.length);
+      if (import.meta.env.DEV) {
+        console.log("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
+      }
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return applyLegendCategoryFilter(
-        mergePlaces(kakaoPlaces, displayedPlaces),
+        mergePlaces(mergePlaces(kakaoPlaces, displayedPlaces), kakaoTypingPreviewPlaces),
         legendCategory
       );
     }
@@ -1908,11 +1995,16 @@ export default function Home() {
     // AI/검색 결과가 있어도 기존 마커는 유지하고 검색 마커를 추가 표시
     if (aiRecommendedIds.length > 0 || query) {
       const filteredBase = displayedPlaces.filter((place) => place.is_public !== false);
-      const merged = mergePlaces(kakaoPlaces, filteredBase);
-      console.log("🔍 AI 검색 + 기존 마커 병합 표시:", merged.length, {
-        base: filteredBase.length,
-        kakao: kakaoPlaces.length,
-      });
+      const merged = mergePlaces(
+        mergePlaces(kakaoPlaces, filteredBase),
+        kakaoTypingPreviewPlaces
+      );
+      if (import.meta.env.DEV) {
+        console.log("🔍 AI+기존 마커 병합:", merged.length, {
+          base: filteredBase.length,
+          kakao: kakaoPlaces.length,
+        });
+      }
       return applyLegendCategoryFilter(merged, legendCategory);
     }
     
@@ -1925,10 +2017,17 @@ export default function Home() {
       // 일반 사용자는 공개 장소만 볼 수 있음
       return place.is_public !== false;
     });
-    console.log("🗺️ 일반 모드 - 지도에 표시될 장소 (비공개 필터링):", filtered.length);
-    
-    const result = mergePlaces(kakaoPlaces, filtered); // 동일 id면 검색 마커(빨간 핀) 우선
-    console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length, result);
+    if (import.meta.env.DEV) {
+      console.log("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
+    }
+
+    const result = mergePlaces(
+      mergePlaces(kakaoPlaces, filtered),
+      kakaoTypingPreviewPlaces
+    ); // 동일 id면 kakaoPlaces·DB가 타이핑 미리보기보다 우선
+    if (import.meta.env.DEV) {
+      console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
+    }
 
     return applyLegendCategoryFilter(result, legendCategory);
   }, [
@@ -1936,10 +2035,19 @@ export default function Home() {
     showSavedOnly,
     isCurator,
     kakaoPlaces,
+    kakaoTypingPreviewPlaces,
     aiRecommendedIds,
     query,
     legendCategory,
   ]);
+
+  useEffect(() => {
+    if (kakaoTypingPreviewPlaces.length === 0) return;
+    const t = window.setTimeout(() => {
+      mapRef.current?.fitToPlaces?.(kakaoTypingPreviewPlaces);
+    }, 140);
+    return () => window.clearTimeout(t);
+  }, [kakaoTypingPreviewPlaces]);
 
 const topReasonMap = useMemo(() => {
   const map = {};
@@ -2031,6 +2139,7 @@ const handleClearSearch = () => {
   setQuery("");
   setSelectedPlace(null);
   setKakaoPlaces([]); // 카카오 장소들도 정리
+  setKakaoTypingPreviewPlaces([]);
   setAiError("");
   setAiSummary("");
   setAiReasons([]);
@@ -2106,7 +2215,10 @@ const handleClearSearch = () => {
     const explicitNearMe =
       /내\s*위치|내\s*근처|내\s*주변|여기\s*근처|현재\s*위치/i.test(nextQuery);
     const vagueNear = /근처|주변/.test(nextQuery);
-    const walkIntent = /걸어서|도보/.test(nextQuery);
+    /** `parseNaturalQuery`의 도보 의도(걸어·가까운 등) + 문장형(걸어가기 좋은) */
+    const walkIntent =
+      Boolean(naturalQ.wantsWalkingDistance) ||
+      /걸어서|도보|걸어가기|걸어갈|걸어다니기/i.test(nextQuery);
 
     const shouldUseLocationSearch =
       !namesGeographicArea &&
@@ -2129,6 +2241,7 @@ const handleClearSearch = () => {
     // 이전 검색 결과 강제 초기화
     setExternalPlaces([]);
     setKakaoPlaces([]);
+    setKakaoTypingPreviewPlaces([]);
     setBlogReviews([]);
     setSearchExpandUX(null);
     setYajangFallbackBanner(null);
@@ -2160,12 +2273,33 @@ const handleClearSearch = () => {
       if (shouldUseLocationSearch) {
         // 내 위치 중심 검색 (빨강 핀 클릭 후) - 위치 기반 검색
         console.log("🔍 내 위치 중심 검색 시작:", nextQuery);
-        
+
+        const resolveNearbySearchOrigin = async () => {
+          const clat = currentLocation?.lat;
+          const clng = currentLocation?.lng;
+          if (
+            clat != null &&
+            clng != null &&
+            Number.isFinite(Number(clat)) &&
+            Number.isFinite(Number(clng))
+          ) {
+            return { lat: Number(clat), lng: Number(clng) };
+          }
+          return getCurrentUserLocation();
+        };
+
         const [userLocation, intentAssist] = await Promise.all([
-          getCurrentUserLocation(),
+          resolveNearbySearchOrigin(),
           intentAssistPromise,
         ]);
-        console.log('📍 사용자 현재 위치:', userLocation);
+        console.log("📍 주변 검색 기준 좌표:", userLocation, {
+          fromPinnedMap: Boolean(
+            currentLocation?.lat != null &&
+              currentLocation?.lng != null &&
+              Number.isFinite(Number(currentLocation.lat)) &&
+              Number.isFinite(Number(currentLocation.lng))
+          ),
+        });
         setSearchDistanceOrigin({
           lat: userLocation.lat,
           lng: userLocation.lng,
@@ -3277,7 +3411,6 @@ const handleClearSearch = () => {
 
         <MapView
           ref={mapRef}
-          closePlacePreviewOnMapClick={false}
           showFloatingLocationButton={false}
           onMyLocationLoadingChange={setMapLocationLoading}
           places={mapDisplayedPlacesWithLegend}
@@ -3378,8 +3511,12 @@ const handleClearSearch = () => {
             onToggleSavedOnly={() => {
               setShowSavedOnly((prev) => {
                 const next = !prev;
-                if (next) {
-                  if (selectedPlace && !isPlaceSaved(selectedPlace.id)) {
+                if (next && selectedPlace) {
+                  const savedKeySet = buildMergedSavedPlaceKeySet(
+                    savedMap,
+                    userSavedPlaces
+                  );
+                  if (!placeMatchesSavedKeySet(selectedPlace, savedKeySet)) {
                     setSelectedPlace(null);
                   }
                 }
@@ -3408,12 +3545,12 @@ const handleClearSearch = () => {
               <span style={styles.legendMyLocationSpinner} aria-hidden />
             ) : (
               <svg
-                width="14"
-                height="14"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2.2"
+                strokeWidth="2"
                 strokeLinecap="round"
                 aria-hidden
               >
@@ -3424,13 +3561,12 @@ const handleClearSearch = () => {
           </button>
         </div>
 
-        <div style={styles.bottomBarContainer}>
+        {!selectedPlace ? (
+          <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
               <CuratorPicksStrip
                 places={curatorSpotlightPlaces}
-                visible={
-                  !selectedPlace && !query.trim() && !isAiSearching
-                }
+                visible={!query.trim() && !isAiSearching}
                 onPick={(place) => {
                   setSelectedPlaceWithAnalytics(place, "curator_spotlight");
                   if (
@@ -3452,8 +3588,10 @@ const handleClearSearch = () => {
                 isLoading={isAiSearching}
                 loadingStatusText={searchLoadingLabel}
                 mapRef={mapRef}
+                compactRightActions={compactSearchBarAuth}
                 showKakaoSearch={true}
                 onKakaoPlaceSelect={handleKakaoPlaceSelect}
+                onKakaoTypingPreviewPlacesChange={setKakaoTypingPreviewPlaces}
                 userLocation={currentLocation}
                 onNearbySearch={(location) => {
                   console.log('📍 내 주변 검색:', location);
@@ -3510,16 +3648,36 @@ const handleClearSearch = () => {
                   console.log('🔍 위치기반 검색 모드:', isLocationBased);
                 }}
                 rightActions={
-                  <div style={styles.authRowInline}>
+                  <div
+                    style={{
+                      ...styles.authRowInline,
+                      ...(compactSearchBarAuth ? styles.authRowInlineNarrow : {}),
+                    }}
+                  >
                     {/* 모든 사용자 @아이디 버튼 */}
                     {!authLoading && user && (
                       <button
                         style={
-                          getUserRole() === "admin" 
-                            ? styles.adminInlineButton 
+                          getUserRole() === "admin"
+                            ? {
+                                ...styles.adminInlineButton,
+                                ...(compactSearchBarAuth
+                                  ? styles.inlineRoleButtonNarrow
+                                  : {}),
+                              }
                             : getUserRole() === "curator"
-                              ? styles.curatorInlineButton 
-                              : styles.userInlineButton
+                              ? {
+                                  ...styles.curatorInlineButton,
+                                  ...(compactSearchBarAuth
+                                    ? styles.inlineRoleButtonNarrow
+                                    : {}),
+                                }
+                              : {
+                                  ...styles.userInlineButton,
+                                  ...(compactSearchBarAuth
+                                    ? styles.inlineRoleButtonNarrow
+                                    : {}),
+                                }
                         }
                         onClick={() => {
                           const userRole = getUserRole();
@@ -3544,13 +3702,19 @@ const handleClearSearch = () => {
                     
                     {/* 일반 유저에게만 큐레이터 신청 버튼 표시 */}
                     {!authLoading && user && getUserRole() === "user" && (
-                      <CuratorApplicationButton />
+                      <CuratorApplicationButton compact={compactSearchBarAuth} />
                     )}
                     
                     {authLoading ? null : user ? (
                       <button
                         type="button"
-                        style={styles.authInlineButton}
+                        style={{
+                          ...styles.authInlineButton,
+                          ...(compactSearchBarAuth
+                            ? styles.authInlineButtonNarrow
+                            : {}),
+                        }}
+                        title="로그아웃"
                         onClick={() => {
                           signOut().catch((error) => {
                             console.error("signOut error:", error);
@@ -3558,7 +3722,7 @@ const handleClearSearch = () => {
                           });
                         }}
                       >
-                        로그아웃
+                        {compactSearchBarAuth ? "나가기" : "로그아웃"}
                       </button>
                     ) : (
                       <>
@@ -3603,12 +3767,14 @@ const handleClearSearch = () => {
               />
             </div>
           </div>
+        ) : null}
 
         <div
           style={{
             ...styles.mapCardOverlay,
-            // 하단 검색바를 항상 두므로 카드·피크바는 검색 위로 올림
-            bottom: styles.mapCardOverlay.bottom,
+            bottom: selectedPlace
+              ? "18px"
+              : styles.mapCardOverlay.bottom,
           }}
         >
           {selectedPlace ? (
@@ -3621,7 +3787,7 @@ const handleClearSearch = () => {
                   savedColorMap[selectedPlace.id]
                 }
                 selectedCurators={selectedCurators}
-                onSave={setSaveTargetPlace}
+                onSavedToSupabase={loadUserSavedPlaces}
                 onClose={() => setSelectedPlace(null)}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
@@ -3790,6 +3956,9 @@ const handleClearSearch = () => {
                         place.curatorCount > 0
                           ? place.curatorCount
                           : null;
+                      const sheetTags = filterPlaceTagsForDisplay(
+                        place.tags || []
+                      );
 
                       return (
                       <button
@@ -3864,9 +4033,9 @@ const handleClearSearch = () => {
                               </div>
                             ) : null}
 
-                            {(place.tags || []).length > 0 ? (
+                            {sheetTags.length > 0 ? (
                               <div style={styles.aiSheetTags}>
-                                {(place.tags || []).slice(0, 4).map((tag) => (
+                                {sheetTags.slice(0, 4).map((tag) => (
                                   <span key={tag} style={styles.aiSheetTag}>
                                     #{tag}
                                   </span>
@@ -4113,15 +4282,15 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
-    gap: "10px",
+    gap: "8px",
     pointerEvents: "auto",
   },
 
   legendMyLocationButton: {
     pointerEvents: "auto",
-    width: "30px",
-    height: "30px",
-    borderRadius: "10px",
+    width: "28px",
+    height: "28px",
+    borderRadius: "9px",
     border: "1px solid rgba(255,255,255,0.28)",
     background: "rgba(22, 24, 28, 0.38)",
     backdropFilter: "blur(16px)",
@@ -4138,8 +4307,8 @@ const styles = {
   },
 
   legendMyLocationSpinner: {
-    width: "13px",
-    height: "13px",
+    width: "11px",
+    height: "11px",
     border: "2px solid rgba(255,255,255,0.2)",
     borderTopColor: "rgba(125, 180, 255, 0.95)",
     borderRadius: "50%",
@@ -4193,6 +4362,23 @@ const styles = {
     gap: "8px",
   },
 
+  authRowInlineNarrow: {
+    gap: "4px",
+  },
+
+  /** @핸들 등 역할 버튼 — 좁은 화면에서 검색 입력 폭 확보 */
+  inlineRoleButtonNarrow: {
+    minWidth: 0,
+    maxWidth: "78px",
+    height: "32px",
+    padding: "0 5px",
+    fontSize: "11px",
+    marginRight: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
   authInlineButton: {
     border: "1px solid rgba(255,255,255,0.16)",
     backgroundColor: "rgba(17, 17, 17, 0.74)",
@@ -4204,6 +4390,13 @@ const styles = {
     fontWeight: 800,
     cursor: "pointer",
     pointerEvents: "auto",
+  },
+
+  authInlineButtonNarrow: {
+    height: "32px",
+    padding: "0 6px",
+    fontSize: "10px",
+    fontWeight: 800,
   },
 
   authIconButton: {

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 
-export default function CuratorApplicationButton() {
+export default function CuratorApplicationButton({ compact = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [applicationStatus, setApplicationStatus] = useState(null);
@@ -73,16 +73,20 @@ export default function CuratorApplicationButton() {
           backdropFilter: "blur(8px)",
           color: "#ffffff",
           borderRadius: "999px",
-          height: "34px",
-          padding: "0 10px",
-          fontSize: "12px",
+          height: compact ? "32px" : "34px",
+          padding: compact ? "0 6px" : "0 10px",
+          fontSize: compact ? "10px" : "12px",
           fontWeight: "800",
           cursor: "not-allowed",
-          transition: "all 0.2s ease"
+          transition: "all 0.2s ease",
+          maxWidth: compact ? "64px" : undefined,
+          overflow: compact ? "hidden" : undefined,
+          textOverflow: compact ? "ellipsis" : undefined,
+          whiteSpace: compact ? "nowrap" : undefined,
         }}
         disabled
       >
-        확인 중...
+        {compact ? "…" : "확인 중..."}
       </button>
     );
   }
@@ -90,12 +94,20 @@ export default function CuratorApplicationButton() {
   const getButtonStyle = () => {
     const baseStyle = {
       borderRadius: "999px",
-      height: "34px",
-      padding: "0 10px",
-      fontSize: "12px",
+      height: compact ? "32px" : "34px",
+      padding: compact ? "0 6px" : "0 10px",
+      fontSize: compact ? "10px" : "12px",
       fontWeight: "800",
       transition: "all 0.2s ease",
-      cursor: "pointer"
+      cursor: "pointer",
+      ...(compact
+        ? {
+            maxWidth: "64px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }
+        : {}),
     };
 
     switch (applicationStatus) {
@@ -143,9 +155,9 @@ export default function CuratorApplicationButton() {
       case "approved":
         return null; // 승인된 큐레이터는 버튼 표시 안함
       case "rejected":
-        return "큐레이터 신청";
+        return compact ? "신청" : "큐레이터 신청";
       default:
-        return "큐레이터 신청";
+        return compact ? "신청" : "큐레이터 신청";
     }
   };
 
@@ -181,6 +193,13 @@ export default function CuratorApplicationButton() {
     <button
       type="button"
       style={getButtonStyle()}
+      title={
+        compact
+          ? applicationStatus === "pending"
+            ? "큐레이터 심사 진행 중"
+            : "큐레이터 신청"
+          : undefined
+      }
       onMouseOver={handleMouseOver}
       onMouseOut={handleMouseOut}
       onClick={handleClick}

@@ -18,6 +18,7 @@ import {
   findCoSavedPlaces,
   calculateCuratorLevel
 } from "../../utils/recommendationEngine";
+import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 
 // 섹션 컴포넌트들
 const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
@@ -2684,7 +2685,7 @@ export default function StudioHome() {
         atmosphere: draft.atmosphere || "",
         recommended_menu: draft.recommended_menu || "",
         menu_reason: draft.menu_reason || "",
-        tags: draft.tags || [],
+        tags: filterPlaceTagsForDisplay(draft.tags || []),
         latitude: draft.latitude || null,
         longitude: draft.longitude || null,
         is_public: draft.publishInfo?.is_public || true
