@@ -77,6 +77,8 @@ const MapView = forwardRef(({
    * false: 지도 탭으로는 닫지 않음(X·스와이프 등만).
    */
   closePlacePreviewOnMapClick = true,
+  /** 지도 빈 곳 클릭 시(미리보기 닫기와 동일 타이밍) — 마커 안내 패널 닫기 등 */
+  onMapBackgroundClick,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -98,6 +100,11 @@ const MapView = forwardRef(({
   useEffect(() => {
     onViewportChangeRef.current = onMapViewportChange;
   }, [onMapViewportChange]);
+
+  const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
+  useEffect(() => {
+    onMapBackgroundClickRef.current = onMapBackgroundClick;
+  }, [onMapBackgroundClick]);
 
   const runWithIgnoredViewportEvents = useCallback((fn, clearMs = 450) => {
     ignoreViewportEventRef.current = true;
@@ -543,6 +550,11 @@ const MapView = forwardRef(({
 
               window.kakao.maps.event.addListener(map, "click", () => {
                 if (ignoreMapClickRef.current) return;
+                try {
+                  onMapBackgroundClickRef.current?.();
+                } catch (e) {
+                  console.error("onMapBackgroundClick:", e);
+                }
                 if (closePlacePreviewOnMapClickRef.current) {
                   setSelectedPlace(null);
                 }

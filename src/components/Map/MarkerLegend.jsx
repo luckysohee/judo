@@ -8,6 +8,8 @@ export default function MarkerLegend({
   onSelectCategory,
   activeCategory,
   closeSignal,
+  /** Home에서 지도 빈 곳 클릭 시 증가 → 패널 닫기(0이면 초기 마운트에서 무시) */
+  mapCloseTick = 0,
 }) {
   const [open, setOpen] = useState(false);
 
@@ -15,6 +17,11 @@ export default function MarkerLegend({
     if (!closeSignal) return;
     setOpen(false);
   }, [closeSignal]);
+
+  useEffect(() => {
+    if (mapCloseTick === 0) return;
+    setOpen(false);
+  }, [mapCloseTick]);
 
   const items = [
     { key: "basic", label: "단일 추천", color: "#10b981", icon: "🟢" },
@@ -72,7 +79,10 @@ export default function MarkerLegend({
             <button
               type="button"
               style={styles.closeButton}
-              onClick={() => setOpen(false)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+              }}
               aria-label="마커 안내 닫기"
               title="닫기"
             >
@@ -112,12 +122,14 @@ const styles = {
     width: "28px",
     height: "28px",
     borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.28)",
-    backgroundColor: "transparent",
-    color: "#ffffff",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    boxShadow: "0 3px 12px rgba(0,0,0,0.14)",
+    border: "1px solid rgba(255,255,255,0.32)",
+    backgroundColor: "rgba(22, 24, 28, 0.38)",
+    color: "#FFFFFF",
+    textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 14px rgba(0,0,0,0.2)",
     cursor: "pointer",
     padding: 0,
     fontSize: "14px",
@@ -126,15 +138,19 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    transition:
+      "color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, text-shadow 0.2s ease",
   },
   savedOnlyButtonActive: {
-    border: "1px solid rgba(255,213,79,0.42)",
-    backgroundColor: "rgba(8, 8, 8, 0.58)",
-    color: "#FFD54F",
-    backdropFilter: "blur(22px) saturate(160%)",
-    WebkitBackdropFilter: "blur(22px) saturate(160%)",
+    border: "1px solid rgba(255, 235, 59, 0.55)",
+    backgroundColor: "rgba(22, 24, 28, 0.42)",
+    color: "#FFEB3B",
+    textShadow:
+      "0 0 12px rgba(255, 235, 59, 0.45), 0 1px 2px rgba(0,0,0,0.5)",
+    backdropFilter: "blur(16px) saturate(165%)",
+    WebkitBackdropFilter: "blur(16px) saturate(165%)",
     boxShadow:
-      "0 10px 28px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.35), 0 0 20px rgba(255,193,7,0.12)",
+      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 18px rgba(0,0,0,0.22), 0 0 16px rgba(255, 235, 59, 0.2)",
   },
   collapsedButton: {
     width: "28px",

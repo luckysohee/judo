@@ -939,6 +939,8 @@ export default function Home() {
   const [isLocationBasedSearch, setIsLocationBasedSearch] = useState(false); // 위치기반 검색 여부
 
   const [legendCategory, setLegendCategory] = useState(null);
+  /** 지도 빈 곳 클릭 시 증가 → MarkerLegend 패널 닫기 */
+  const [markerGuideMapCloseTick, setMarkerGuideMapCloseTick] = useState(0);
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
@@ -3433,6 +3435,9 @@ const handleClearSearch = () => {
           onMapViewportChange={onMapViewportChange}
           checkinCountByPlaceId={placeCheckinCounts}
           hotRankTopPlaceIds={hotRankTopPlaceIds}
+          onMapBackgroundClick={() =>
+            setMarkerGuideMapCloseTick((t) => t + 1)
+          }
         />
 
         {showSearchHereButton ? (
@@ -3507,6 +3512,7 @@ const handleClearSearch = () => {
 
         <div style={styles.legendOverlay}>
           <MarkerLegend
+            mapCloseTick={markerGuideMapCloseTick}
             savedOnly={showSavedOnly}
             onToggleSavedOnly={() => {
               setShowSavedOnly((prev) => {
