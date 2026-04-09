@@ -6,9 +6,104 @@ import dotenv from "dotenv";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 루트 .env → server/.env 순 (같은 키는 server가 덮어씀). 키가 루트에만 있어도 로드됨.
+// 루트 .env 먼저, server/.env는 override로 덮어씀 (기본 dotenv는 이미 있는 키를 안 바꿔서
+// 루트에 GOOGLE_PLACES_API_KEY(리퍼러용)만 있으면 server/.env 서버용 키가 무시되던 문제 방지)
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
-dotenv.config({ path: path.join(__dirname, ".env") });
+dotenv.config({
+  path: path.join(__dirname, ".env"),
+  override: true,
+});
+
+function getKakaoRestApiKey() {
+  return (
+    process.env.KAKAO_REST_API_KEY ||
+    process.env.VITE_KAKAO_REST_API_KEY ||
+    ""
+  ).trim();
+}
+
+/** Kakao Local keyword 등 비-200 응답 시 원인 안내 */
+function kakaoDetailHint(httpStatus, kakaoBody) {
+  const msg =
+    kakaoBody &&
+    typeof kakaoBody === "object" &&
+    typeof kakaoBody.message === "string"
+      ? kakaoBody.message
+      : "";
+  if (httpStatus === 401) {
+    return "카카오 401: REST API 키가 잘못되었거나 헤더 형식이 맞지 않습니다. developers.kakao.com 앱의 REST API 키를 확인하고 server/.env의 KAKAO_REST_API_KEY를 맞추세요.";
+  }
+  if (httpStatus === 403) {
+    return "카카오 403: 이 REST 키로 dapi.kakao.com Local API 사용이 막혔을 수 있습니다. 카카오 개발자 콘솔에서 앱·플랫폼(Web 등)·Local(지도·로컬) API 사용 설정을 확인하세요.";
+  }
+  if (httpStatus === 400) {
+    return "카카오 400: keyword 검색 파라미터가 맞지 않습니다(query·좌표 등). 장소명이 비었거나 좌표가 잘못됐을 수 있습니다.";
+  }
+  if (httpStatus === 429) {
+    return "카카오 429: 일일/초당 호출 한도를 초과했습니다.";
+  }
+  if (httpStatus != null && httpStatus >= 500) {
+    return "카카오 서버 5xx 오류입니다. 잠시 후 다시 시도하세요.";
+  }
+  if (httpStatus != null) {
+    return msg
+      ? `카카오 HTTP ${httpStatus}: ${msg}`
+      : `카카오가 HTTP ${httpStatus}을(를) 반환했습니다.`;
+  }
+  return "";
+}
+
+/** 서버→Places(New)는 반드시 이 이름만 사용. VITE_ 키는 거의 항상 리퍼러 제한이라 대체하면 403 남 */
+function getGooglePlacesApiKey() {
+  return (process.env.GOOGLE_PLACES_API_KEY || "").trim();
+}
+
+/** 서버→places.googleapis.com 403 등에 대한 안내 (콘솔/API 응답용) */
+function googlePlacesBackendHint(httpStatus, googleBody) {
+  const errObj =
+    googleBody && typeof googleBody === "object" ? googleBody.error : null;
+  const statusStr =
+    errObj && typeof errObj === "object" && typeof errObj.status === "string"
+      ? errObj.status
+      : "";
+  const detailReason =
+    errObj &&
+    typeof errObj === "object" &&
+    Array.isArray(errObj.details) &&
+    typeof errObj.details[0]?.reason === "string"
+      ? errObj.details[0].reason
+      : "";
+  const perm =
+    httpStatus === 403 ||
+    statusStr === "PERMISSION_DENIED" ||
+    /PERMISSION_DENIED/i.test(String(errObj?.message || ""));
+  if (!perm) return "";
+
+  if (detailReason === "API_KEY_SERVICE_BLOCKED") {
+    return [
+      "API_KEY_SERVICE_BLOCKED: 프로젝트에 Places API (New)가 켜져 있지 않거나, 이 키의「API 제한」목록에 Places API (New)가 없습니다.",
+      "콘솔 → API 및 서비스 → 라이브러리 →「Places API (New)」사용 설정 → 같은 키 편집 → API 제한에「Places API (New)」추가(개발 중엔 제한 없음으로 테스트 가능). 구「Places API」만 허용돼 있으면 places.googleapis.com(New) 호출은 막힐 수 있습니다.",
+    ].join(" ");
+  }
+  if (detailReason === "API_KEY_HTTP_REFERRER_BLOCKED") {
+    return "API_KEY_HTTP_REFERRER_BLOCKED: 서버(Node) 요청에는 리퍼러 제한 키를 쓸 수 없습니다. server/.env의 GOOGLE_PLACES_API_KEY를 앱 제한 없음 또는 IP 키로 바꾸세요.";
+  }
+
+  return [
+    "PERMISSION_DENIED/403: 이 키는 Node 서버에서 호출됩니다.",
+    "API 키「애플리케이션 제한」이 HTTP 리퍼러(웹사이트)만 허용이면 서버 요청이 막힙니다 → 백엔드용 키(제한 없음 또는 서버 IP)를 쓰거나 별도 키를 만드세요.",
+    "「API 제한」에는 Places API (New)가 포함돼야 합니다(구 Places API만 켜도 New 엔드포인트는 거절될 수 있음).",
+    detailReason ? `(detail: ${detailReason})` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isApiKeyServiceBlocked(googleBody) {
+  const details = googleBody?.error?.details;
+  if (!Array.isArray(details)) return false;
+  return details.some((d) => d?.reason === "API_KEY_SERVICE_BLOCKED");
+}
 
 // 환경 변수 로깅
 console.log("🔍 환경 변수 확인:");
@@ -17,6 +112,38 @@ console.log("🔍 env (루트):", path.join(__dirname, "..", ".env"));
 console.log("🔍 env (서버):", path.join(__dirname, ".env"));
 console.log("🔍 NAVER_CLIENT_ID:", process.env.NAVER_CLIENT_ID ? "설정됨" : "설정안됨");
 console.log("🔍 NAVER_CLIENT_SECRET:", process.env.NAVER_CLIENT_SECRET ? "설정됨" : "설정안됨");
+console.log(
+  "🔍 KAKAO REST (프록시·추천장소 보강):",
+  getKakaoRestApiKey() ? "설정됨" : "미설정 — 큐레이터 분류(미분류) 보강 실패"
+);
+{
+  const gOk = Boolean(getGooglePlacesApiKey());
+  const vOnly =
+    !gOk && Boolean((process.env.VITE_GOOGLE_PLACES_API_KEY || "").trim());
+  console.log(
+    "🔍 GOOGLE_PLACES (장소카드 사진, 서버):",
+    gOk
+      ? "GOOGLE_PLACES_API_KEY 사용"
+      : vOnly
+        ? "미설정 — VITE_만 있음(서버에서 무시됨)"
+        : "미설정"
+  );
+  if (vOnly) {
+    console.warn(
+      "⚠️ server/.env에 GOOGLE_PLACES_API_KEY=... 를 넣으세요. VITE_GOOGLE_PLACES_API_KEY는 지도(브라우저)용이라 서버 프록시에 쓰면 API_KEY_HTTP_REFERRER_BLOCKED가 납니다."
+    );
+  }
+  if (gOk) {
+    const k = getGooglePlacesApiKey();
+    const n = k.length;
+    const fp =
+      n >= 12 ? `${k.slice(0, 8)}...${k.slice(-4)} (${n}자)` : "(키 문자열 이상)";
+    console.log(
+      "🔍 GOOGLE_PLACES 키 지문 — Cloud Console「키 표시」값과 앞 8자·끝 4자가 같은지 비교:",
+      fp
+    );
+  }
+}
 
 import express from "express";
 import cors from "cors";
@@ -32,6 +159,7 @@ import {
   stableExternalPlaceId,
   upsertPlaceBlogInsight,
 } from "./placeBlogInsightsCache.js";
+import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
 
 const app = express();
 app.use(cors());
@@ -147,9 +275,9 @@ const kakaoLocalAPI = {
   // 장소 검색
   async searchPlaces(query) {
     try {
-      const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY;
+      const kakaoRestApiKey = getKakaoRestApiKey();
       if (!kakaoRestApiKey) {
-        console.log('⚠️ 카카오 REST API 키가 없습니다.');
+        console.log("⚠️ 카카오 REST API 키가 없습니다. (KAKAO_REST_API_KEY 또는 VITE_KAKAO_REST_API_KEY)");
         return [];
       }
 
@@ -330,6 +458,55 @@ function runNaverCrawler(query) {
     });
   });
 }
+
+app.post("/api/search/curator-places", async (req, res) => {
+  try {
+    const {
+      query,
+      curatorId,
+      limit,
+      maxDistanceM,
+      originLat,
+      originLng,
+      mode,
+    } = req.body ?? {};
+
+    const asFinite = (v) => {
+      if (v == null || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const limitN =
+      limit != null && limit !== "" && Number.isFinite(Number(limit))
+        ? Number(limit)
+        : undefined;
+
+    const result = await searchCuratorPlaces({
+      openai,
+      hasOpenAi: hasUsableOpenAiKey(),
+      query,
+      curatorId: curatorId || null,
+      limit: limitN,
+      maxDistanceM: asFinite(maxDistanceM),
+      originLat: asFinite(originLat),
+      originLng: asFinite(originLng),
+      mode: typeof mode === "string" ? mode : "auto",
+    });
+
+    if (!result.ok && result.reason === "supabase_service_unavailable") {
+      return res.status(503).json({
+        error: "Supabase 서비스 키가 없어 큐레이터 DB 검색을 할 수 없습니다.",
+        ...result,
+      });
+    }
+
+    return res.json(result);
+  } catch (e) {
+    console.error("/api/search/curator-places", e);
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -1911,48 +2088,259 @@ app.post("/api/nearby-with-blog", async (req, res) => {
   }
 });
 
+/**
+ * 공식 Local API에 detail.json 라우트가 없어 404(not matched)가 남 → keyword 검색 후 id 매칭.
+ * body: { placeId, query(장소명), x(경도 WGS84), y(위도) } — x,y 있으면 반경·거리 정렬로 정확도 보강
+ */
 app.post("/api/kakao/place-details", async (req, res) => {
   try {
-    const key = process.env.KAKAO_REST_API_KEY;
+    const key = getKakaoRestApiKey();
     if (!key) {
-      return res
-        .status(503)
-        .json({ error: "KAKAO_REST_API_KEY가 server/.env에 없습니다." });
+      return res.status(503).json({
+        error:
+          "카카오 REST 키 없음: KAKAO_REST_API_KEY 또는 VITE_KAKAO_REST_API_KEY를 .env에 설정하세요.",
+      });
     }
-    const { placeId } = req.body ?? {};
+    const { placeId, query, x, y } = req.body ?? {};
     if (!placeId) {
       return res.status(400).json({ error: "placeId가 필요합니다." });
     }
-    const response = await axios.get(
-      "https://dapi.kakao.com/v2/local/search/detail.json",
-      {
-        params: { id: placeId },
-        headers: { Authorization: `KakaoAK ${key}` },
+    const pid = String(placeId).trim();
+    const q = typeof query === "string" ? query.trim() : "";
+    if (!q) {
+      return res.status(400).json({
+        error: "장소명 query가 필요합니다.",
+        hint: "카카오는 id만으로 상세 조회하는 공개 API가 없어 키워드 검색으로 매칭합니다.",
+      });
+    }
+    const lngNum = parseFloat(x);
+    const latNum = parseFloat(y);
+    const hasCoords =
+      Number.isFinite(latNum) &&
+      Number.isFinite(lngNum) &&
+      latNum >= 31 &&
+      latNum <= 45 &&
+      lngNum >= 122 &&
+      lngNum <= 136;
+
+    /** 카카오 keyword API: size 최대 15 (초과 시 400) — id 매칭 위해 최대 3페이지까지 조회 */
+    const baseParams = {
+      query: q.slice(0, 100),
+      size: 15,
+    };
+    if (hasCoords) {
+      baseParams.x = String(lngNum);
+      baseParams.y = String(latNum);
+      baseParams.radius = 3000;
+      baseParams.sort = "distance";
+    }
+
+    const mergedDocs = [];
+    let lastResponse = null;
+    for (let page = 1; page <= 3; page++) {
+      const response = await axios.get(
+        "https://dapi.kakao.com/v2/local/search/keyword.json",
+        {
+          params: { ...baseParams, page },
+          headers: { Authorization: `KakaoAK ${key}` },
+          timeout: 12000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        }
+      );
+      lastResponse = response;
+      if (response.status !== 200) {
+        const hint = kakaoDetailHint(response.status, response.data);
+        console.error(
+          "kakao place-details keyword HTTP",
+          response.status,
+          page,
+          hint || response.data
+        );
+        return res.status(502).json({
+          error: "카카오 키워드 검색 비정상 응답",
+          status: response.status,
+          kakao: response.data,
+          hint: hint || undefined,
+        });
       }
-    );
-    res.json(response.data);
+      const pageDocs = Array.isArray(response.data?.documents)
+        ? response.data.documents
+        : [];
+      mergedDocs.push(...pageDocs);
+      const hit = pageDocs.find((d) => d && String(d.id) === pid);
+      if (hit) {
+        return res.json({
+          documents: [hit],
+          meta: response.data?.meta,
+        });
+      }
+      if (response.data?.meta?.is_end || pageDocs.length === 0) break;
+    }
+
+    const docs = mergedDocs;
+    const byId = docs.find((d) => d && String(d.id) === pid);
+    let chosen = byId;
+    if (!chosen && hasCoords && docs.length > 0) {
+      const sorted = [...docs].sort((a, b) => {
+        const ay = parseFloat(a.y);
+        const ax = parseFloat(a.x);
+        const by_ = parseFloat(b.y);
+        const bx = parseFloat(b.x);
+        if (
+          !Number.isFinite(ay) ||
+          !Number.isFinite(ax) ||
+          !Number.isFinite(by_) ||
+          !Number.isFinite(bx)
+        ) {
+          return 0;
+        }
+        const da = haversineKm(latNum, lngNum, ay, ax);
+        const db = haversineKm(latNum, lngNum, by_, bx);
+        return da - db;
+      });
+      chosen = sorted[0];
+    }
+
+    res.json({
+      documents: chosen ? [chosen] : [],
+      meta: lastResponse?.data?.meta,
+    });
   } catch (error) {
-    console.error("kakao place-details:", error.message);
-    res.status(500).json({ error: "카카오 API 호출 실패" });
+    const st = error.response?.status;
+    const body = error.response?.data;
+    const hint = kakaoDetailHint(st, body);
+    console.error(
+      "kakao place-details:",
+      st || error.code,
+      hint || body || error.message
+    );
+    res.status(502).json({
+      error: "카카오 API 호출 실패",
+      status: st,
+      kakao: body,
+      message: error.message,
+      hint: hint || undefined,
+    });
+  }
+});
+
+/** 브라우저 직접 dapi staticmap 호출은 도메인 제한으로 자주 깨짐 → 서버에서 받아 전달 */
+function getKakaoJavaScriptKeyForServer() {
+  return (
+    process.env.KAKAO_JAVASCRIPT_KEY ||
+    process.env.VITE_KAKAO_JAVASCRIPT_KEY ||
+    ""
+  ).trim();
+}
+
+app.get("/api/kakao/static-map", async (req, res) => {
+  const restKey = getKakaoRestApiKey();
+  const jsKey = getKakaoJavaScriptKeyForServer();
+  if (!restKey && !jsKey) {
+    return res
+      .status(503)
+      .type("text/plain")
+      .send(
+        "카카오 키 없음: KAKAO_REST_API_KEY(또는 VITE_KAKAO_REST_API_KEY) 또는 KAKAO_JAVASCRIPT_KEY(VITE_)"
+      );
+  }
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).type("text/plain").send("lat, lng 필요");
+  }
+  if (lat < 31 || lat > 45 || lng < 122 || lng > 136) {
+    return res.status(400).type("text/plain").send("좌표 범위 초과");
+  }
+  let w = parseInt(String(req.query.w), 10) || 400;
+  let h = parseInt(String(req.query.h), 10) || 400;
+  let level = parseInt(String(req.query.level), 10) || 3;
+  w = Math.min(800, Math.max(50, w));
+  h = Math.min(800, Math.max(50, h));
+  level = Math.min(14, Math.max(1, level));
+  const center = `${lng},${lat}`;
+  const markers = `${lng},${lat}`;
+  const url = "https://dapi.kakao.com/v2/maps/staticmap";
+  const commonParams = { center, level, w, h, markers };
+
+  const trySend = (buf, ctype) => {
+    const len = Buffer.isBuffer(buf)
+      ? buf.length
+      : buf?.byteLength ?? 0;
+    if (len < 80) return false;
+    res.setHeader("Content-Type", ctype || "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.send(Buffer.from(buf));
+    return true;
+  };
+
+  try {
+    if (restKey) {
+      const r = await axios.get(url, {
+        params: commonParams,
+        headers: { Authorization: `KakaoAK ${restKey}` },
+        responseType: "arraybuffer",
+        timeout: 15000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (r.status === 200 && trySend(r.data, r.headers["content-type"])) {
+        return;
+      }
+    }
+    if (jsKey) {
+      const r = await axios.get(url, {
+        params: { ...commonParams, appkey: jsKey },
+        responseType: "arraybuffer",
+        timeout: 15000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (r.status === 200 && trySend(r.data, r.headers["content-type"])) {
+        return;
+      }
+      console.warn(
+        "kakao static-map: js appkey 요청 실패",
+        r.status,
+        r.headers["content-type"]
+      );
+    }
+    res.status(502).type("text/plain").send("정적 지도를 가져오지 못했습니다");
+  } catch (error) {
+    console.warn("kakao static-map:", error.message);
+    res.status(502).type("text/plain").send("정적 지도 오류");
   }
 });
 
 app.post("/api/kakao/search", async (req, res) => {
   try {
-    const key = process.env.KAKAO_REST_API_KEY;
+    const key = getKakaoRestApiKey();
     if (!key) {
-      return res
-        .status(503)
-        .json({ error: "KAKAO_REST_API_KEY가 server/.env에 없습니다." });
+      return res.status(503).json({
+        error:
+          "카카오 REST 키 없음: KAKAO_REST_API_KEY 또는 VITE_KAKAO_REST_API_KEY를 .env에 설정하세요.",
+      });
     }
-    const { query: kw } = req.body ?? {};
+    const { query: kw, x, y, radius, size } = req.body ?? {};
     if (!kw) {
       return res.status(400).json({ error: "query가 필요합니다." });
+    }
+    const params = {
+      query: kw,
+      size: Number(size) > 0 ? Math.min(Number(size), 15) : 15,
+    };
+    const nx = x != null ? Number(x) : NaN;
+    const ny = y != null ? Number(y) : NaN;
+    if (Number.isFinite(nx) && Number.isFinite(ny)) {
+      params.x = nx;
+      params.y = ny;
+      const r = radius != null ? Number(radius) : 500;
+      if (Number.isFinite(r) && r > 0) {
+        params.radius = Math.min(r, 20000);
+      }
     }
     const response = await axios.get(
       "https://dapi.kakao.com/v2/local/search/keyword.json",
       {
-        params: { query: kw },
+        params,
         headers: { Authorization: `KakaoAK ${key}` },
       }
     );
@@ -1982,8 +2370,133 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Text Search(New)만으로는 photos가 비는 경우가 많아 Place Details(New)로 보강 */
+async function fetchGooglePlacePhotosForDetail(key, chosen) {
+  const name =
+    typeof chosen?.name === "string" && chosen.name.startsWith("places/")
+      ? chosen.name
+      : typeof chosen?.id === "string" && chosen.id
+        ? `places/${chosen.id}`
+        : null;
+  if (!name) return [];
+  const placeId = name.replace(/^places\//, "");
+  const { data } = await axios.get(
+    `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
+    {
+      headers: {
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": "photos",
+      },
+      timeout: 12000,
+    }
+  );
+  return Array.isArray(data?.photos) ? data.photos : [];
+}
+
+/** 상위 후보 여러 곳을 보며 사진이 있는 첫 장소를 모음 (첫 결과만 보면 빈 경우가 많음) */
+async function collectGooglePhotoUrlsFromSearchResults(key, places, maxPlaces) {
+  const cap = Math.min(
+    Math.max(1, maxPlaces),
+    Array.isArray(places) ? places.length : 0
+  );
+  const mergedUrls = [];
+  const attributions = new Set();
+  const seenPhoto = new Set();
+  for (let pi = 0; pi < cap && mergedUrls.length < 4; pi++) {
+    const p = places[pi];
+    let photos = Array.isArray(p?.photos) ? p.photos : [];
+    if (photos.length === 0) {
+      try {
+        const fromDetail = await fetchGooglePlacePhotosForDetail(key, p);
+        if (fromDetail.length > 0) photos = fromDetail;
+      } catch (detailErr) {
+        console.warn(
+          "google-place-photos (detail 보강 실패):",
+          detailErr.response?.data || detailErr.message
+        );
+      }
+    }
+    for (const ph of photos) {
+      const photoName = ph?.name;
+      if (!isValidGooglePhotoResourceName(photoName)) continue;
+      if (seenPhoto.has(photoName)) continue;
+      seenPhoto.add(photoName);
+      mergedUrls.push(
+        `/api/google-place-photo-media?photoName=${encodeURIComponent(photoName)}`
+      );
+      const aa = ph.authorAttributions;
+      if (Array.isArray(aa)) {
+        for (const a of aa) {
+          if (a?.displayName) attributions.add(String(a.displayName));
+        }
+      }
+      if (mergedUrls.length >= 4) break;
+    }
+  }
+  return { imageUrls: mergedUrls, attributions: [...attributions] };
+}
+
+/** 키에 Places(New)만 없고 구 Places API만 열려 있을 때 SERVICE_BLOCKED → 레거시 textsearch+photo */
+async function fetchGooglePlacePhotosLegacy(key, textQuery, lat, lng, hasCoords) {
+  const params = { query: textQuery, key };
+  if (hasCoords) {
+    params.location = `${lat},${lng}`;
+    params.radius = 2000;
+  }
+  const { data } = await axios.get(
+    "https://maps.googleapis.com/maps/api/place/textsearch/json",
+    { params, timeout: 12000 }
+  );
+  const st = data?.status;
+  if (st === "REQUEST_DENIED" || st === "INVALID_REQUEST") {
+    throw new Error(data?.error_message || st || "legacy textsearch 거절");
+  }
+  if (st !== "OK" && st !== "ZERO_RESULTS") {
+    throw new Error(data?.error_message || st || "legacy textsearch 실패");
+  }
+  let results = Array.isArray(data.results) ? data.results : [];
+  if (hasCoords && results.length > 1) {
+    results = [...results].sort((a, b) => {
+      const alat = a.geometry?.location?.lat;
+      const alng = a.geometry?.location?.lng;
+      const blat = b.geometry?.location?.lat;
+      const blng = b.geometry?.location?.lng;
+      if (
+        !Number.isFinite(alat) ||
+        !Number.isFinite(alng) ||
+        !Number.isFinite(blat) ||
+        !Number.isFinite(blng)
+      ) {
+        return 0;
+      }
+      return (
+        haversineKm(lat, lng, alat, alng) - haversineKm(lat, lng, blat, blng)
+      );
+    });
+  }
+  const imageUrls = [];
+  const attributionSet = new Set();
+  for (const r of results) {
+    for (const ph of r.photos || []) {
+      const ref = ph.photo_reference;
+      if (typeof ref === "string" && ref.trim() && imageUrls.length < 4) {
+        imageUrls.push(
+          `/api/google-place-photo-legacy?photoReference=${encodeURIComponent(ref.trim())}`
+        );
+        for (const h of ph.html_attributions || []) {
+          const t = String(h).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+          if (t) attributionSet.add(t);
+        }
+      }
+      if (imageUrls.length >= 4) break;
+    }
+    if (imageUrls.length >= 4) break;
+  }
+  return { imageUrls, attributions: [...attributionSet] };
+}
+
 app.get("/api/google-place-photos", async (req, res) => {
-  const key = process.env.GOOGLE_PLACES_API_KEY;
+  const key = getGooglePlacesApiKey();
   if (!key) {
     return res.status(503).json({
       ok: false,
@@ -2001,76 +2514,92 @@ app.get("/api/google-place-photos", async (req, res) => {
       attributions: [],
     });
   }
+  const addr =
+    typeof req.query.address === "string" ? req.query.address.trim() : "";
+  const textQuery =
+    addr && addr.length > 0 ? `${name} ${addr.slice(0, 120)}` : name;
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
 
   try {
-    const body = {
-      textQuery: name,
-      pageSize: 8,
-      regionCode: "KR",
-    };
-    if (hasCoords) {
-      body.locationBias = {
-        circle: {
-          center: { latitude: lat, longitude: lng },
-          radius: 400,
-        },
+    const runSearch = async (withBias) => {
+      const body = {
+        textQuery,
+        pageSize: 8,
+        regionCode: "KR",
       };
-      body.rankPreference = "DISTANCE";
+      if (withBias && hasCoords) {
+        body.locationBias = {
+          circle: {
+            center: { latitude: lat, longitude: lng },
+            radius: 2000,
+          },
+        };
+        body.rankPreference = "DISTANCE";
+      }
+      const { data } = await axios.post(
+        "https://places.googleapis.com/v1/places:searchText",
+        body,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": key,
+            "X-Goog-FieldMask":
+              "places.id,places.name,places.displayName,places.location,places.photos",
+          },
+          timeout: 12000,
+        }
+      );
+      return Array.isArray(data?.places) ? data.places : [];
+    };
+
+    let places = await runSearch(true);
+    if (places.length === 0 && hasCoords) {
+      places = await runSearch(false);
     }
 
-    const { data } = await axios.post(
-      "https://places.googleapis.com/v1/places:searchText",
-      body,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": key,
-          "X-Goog-FieldMask":
-            "places.displayName,places.location,places.photos",
-        },
-        timeout: 12000,
-      }
-    );
-
-    const places = Array.isArray(data?.places) ? data.places : [];
     if (places.length === 0) {
       return res.json({ ok: true, imageUrls: [], attributions: [] });
     }
 
-    let chosen = places[0];
     if (hasCoords && places.length > 1) {
-      let best = places[0];
-      let bestD = Infinity;
-      for (const p of places) {
-        const plat = p.location?.latitude;
-        const plng = p.location?.longitude;
-        if (!Number.isFinite(plat) || !Number.isFinite(plng)) continue;
-        const d = haversineKm(lat, lng, plat, plng);
-        if (d < bestD) {
-          bestD = d;
-          best = p;
+      places = [...places].sort((a, b) => {
+        const alat = a.location?.latitude;
+        const alng = a.location?.longitude;
+        const blat = b.location?.latitude;
+        const blng = b.location?.longitude;
+        if (
+          !Number.isFinite(alat) ||
+          !Number.isFinite(alng) ||
+          !Number.isFinite(blat) ||
+          !Number.isFinite(blng)
+        ) {
+          return 0;
         }
-      }
-      chosen = best;
+        const da = haversineKm(lat, lng, alat, alng);
+        const db = haversineKm(lat, lng, blat, blng);
+        return da - db;
+      });
     }
 
-    const photos = Array.isArray(chosen.photos) ? chosen.photos : [];
-    const imageUrls = [];
-    const attributions = new Set();
-    const maxPhotos = 4;
-    for (let i = 0; i < Math.min(photos.length, maxPhotos); i++) {
-      const photoName = photos[i]?.name;
-      if (!isValidGooglePhotoResourceName(photoName)) continue;
-      imageUrls.push(
-        `/api/google-place-photo-media?photoName=${encodeURIComponent(photoName)}`
-      );
-      const aa = photos[i].authorAttributions;
-      if (Array.isArray(aa)) {
-        for (const a of aa) {
-          if (a?.displayName) attributions.add(String(a.displayName));
+    let { imageUrls, attributions } = await collectGooglePhotoUrlsFromSearchResults(
+      key,
+      places,
+      6
+    );
+
+    if (imageUrls.length === 0 && hasCoords) {
+      const wide = await runSearch(false);
+      if (wide.length > 0) {
+        const second = await collectGooglePhotoUrlsFromSearchResults(
+          key,
+          wide,
+          6
+        );
+        if (second.imageUrls.length > 0) {
+          imageUrls = second.imageUrls;
+          attributions = second.attributions;
         }
       }
     }
@@ -2078,22 +2607,108 @@ app.get("/api/google-place-photos", async (req, res) => {
     res.json({
       ok: true,
       imageUrls,
-      attributions: [...attributions],
+      attributions,
       source: "google_places",
     });
   } catch (error) {
-    console.warn("google-place-photos:", error.response?.data || error.message);
+    const st = error.response?.status;
+    const ge = error.response?.data;
+    if (isApiKeyServiceBlocked(ge)) {
+      try {
+        const leg = await fetchGooglePlacePhotosLegacy(
+          key,
+          textQuery,
+          lat,
+          lng,
+          hasCoords
+        );
+        if (leg.imageUrls.length > 0) {
+          console.warn(
+            "google-place-photos: Places(New) SERVICE_BLOCKED → 레거시 Places 사진 사용"
+          );
+          return res.json({
+            ok: true,
+            imageUrls: leg.imageUrls,
+            attributions: leg.attributions,
+            source: "google_places_legacy",
+            hint:
+              "키에 Places API (New)가 없어 레거시 Places로 조회했습니다. 가능하면 콘솔에서 Places API (New)를 키 제한·라이브러리에 추가하세요.",
+          });
+        }
+      } catch (legErr) {
+        console.warn("google-place-photos legacy 폴백 실패:", legErr.message);
+      }
+    }
+    const hint = googlePlacesBackendHint(st, ge);
+    console.warn(
+      "google-place-photos:",
+      st || "",
+      hint || ge || error.message
+    );
     res.status(200).json({
       ok: false,
       error: error.message,
+      googleApiError: ge && typeof ge === "object" ? ge : undefined,
+      googleHttpStatus: st,
+      hint: hint || undefined,
       imageUrls: [],
       attributions: [],
     });
   }
 });
 
+app.get("/api/google-place-photo-legacy", async (req, res) => {
+  const key = getGooglePlacesApiKey();
+  if (!key) {
+    return res.status(503).send("GOOGLE_PLACES_API_KEY 없음");
+  }
+  const photoReference =
+    typeof req.query.photoReference === "string"
+      ? req.query.photoReference.trim()
+      : "";
+  if (!photoReference || photoReference.length > 512) {
+    return res.status(400).send("잘못된 photoReference");
+  }
+  try {
+    const { data, headers, status } = await axios.get(
+      "https://maps.googleapis.com/maps/api/place/photo",
+      {
+        params: {
+          maxwidth: 960,
+          photo_reference: photoReference,
+          key,
+        },
+        responseType: "arraybuffer",
+        maxRedirects: 8,
+        timeout: 20000,
+        validateStatus: () => true,
+      }
+    );
+    if (status < 200 || status >= 400) {
+      const snippet =
+        typeof data === "object" && data != null && "byteLength" in data
+          ? Buffer.from(data).toString("utf8").slice(0, 200)
+          : String(data).slice(0, 200);
+      console.warn("google-place-photo-legacy HTTP", status, snippet);
+      return res.status(502).type("text/plain").send("이미지 로드 실패");
+    }
+    const len = Buffer.isBuffer(data) ? data.length : data?.byteLength ?? 0;
+    if (len < 80) {
+      console.warn("google-place-photo-legacy: 응답 너무 짧음", len);
+      return res.status(502).type("text/plain").send("이미지 로드 실패");
+    }
+    const ctype = headers["content-type"] || "image/jpeg";
+    res.setHeader("Content-Type", ctype);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(Buffer.from(data));
+  } catch (error) {
+    console.warn("google-place-photo-legacy:", error.message);
+    res.status(502).send("이미지 로드 실패");
+  }
+});
+
 app.get("/api/google-place-photo-media", async (req, res) => {
-  const key = process.env.GOOGLE_PLACES_API_KEY;
+  const key = getGooglePlacesApiKey();
   if (!key) {
     return res.status(503).send("GOOGLE_PLACES_API_KEY 없음");
   }
@@ -2108,14 +2723,33 @@ app.get("/api/google-place-photo-media", async (req, res) => {
       .map((s) => encodeURIComponent(s))
       .join("/");
     const url = `https://places.googleapis.com/v1/${pathEnc}/media`;
-    const { data, headers } = await axios.get(url, {
-      params: { maxWidthPx: 960, skipHttpRedirect: false },
+    const { data, headers, status } = await axios.get(url, {
+      params: { maxWidthPx: 960, maxHeightPx: 960, skipHttpRedirect: false },
       headers: { "X-Goog-Api-Key": key },
       responseType: "arraybuffer",
-      maxRedirects: 5,
-      timeout: 15000,
-      validateStatus: (s) => s >= 200 && s < 400,
+      maxRedirects: 8,
+      timeout: 20000,
+      validateStatus: () => true,
     });
+    if (status < 200 || status >= 400) {
+      const snippet =
+        typeof data === "object" && data != null && "byteLength" in data
+          ? Buffer.from(data).toString("utf8").slice(0, 200)
+          : String(data).slice(0, 200);
+      const hint = googlePlacesBackendHint(status, null);
+      console.warn(
+        "google-place-photo-media HTTP",
+        status,
+        hint || snippet
+      );
+      return res.status(502).type("text/plain").send("이미지 로드 실패");
+    }
+    const len =
+      Buffer.isBuffer(data) ? data.length : data?.byteLength ?? 0;
+    if (len < 80) {
+      console.warn("google-place-photo-media: 응답 너무 짧음", len);
+      return res.status(502).type("text/plain").send("이미지 로드 실패");
+    }
     const ctype = headers["content-type"] || "image/jpeg";
     res.setHeader("Content-Type", ctype);
     res.setHeader("Cache-Control", "public, max-age=86400");

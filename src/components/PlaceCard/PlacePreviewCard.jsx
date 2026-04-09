@@ -4,7 +4,7 @@ import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
-import { getKakaoPlaceBasicInfoJSONP } from "../../utils/kakaoAPIJSONP"; // JSONP로 변경
+import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import {
   curatorPhotoPublicUrl,
   deleteCuratorPlacePhoto,
@@ -16,6 +16,7 @@ import {
   prepareImageFileForUpload,
 } from "../../utils/prepareImageFileForUpload";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -70,15 +71,35 @@ export default function PlacePreviewCard({
       ? place.id
       : null;
 
-  console.log("🔍 PlacePreviewCard place 데이터:", place);
-  console.log("🔍 isKakaoPlace:", place?.isKakaoPlace);
-  console.log("🔍 place_id:", place?.place_id);
-
   const isKakaoPlace = place?.isKakaoPlace || false;
   const userRole = getUserRole?.() || "user";
   const isCurator = userRole === "curator" || userRole === "admin";
 
   const checkinWgs = useMemo(() => resolvePlaceWgs84(place), [place]);
+
+  /** 검색·AI 리스트는 place_name만 있고 name이 비는 경우가 많음 → 카카오 keyword / 구글 사진 공통 */
+  const kakaoKeywordQuery = useMemo(() => {
+    if (!place) return "";
+    const n =
+      (typeof place.name === "string" && place.name.trim()) ||
+      (typeof place.place_name === "string" && place.place_name.trim()) ||
+      "";
+    if (n) return n;
+    const addr =
+      (typeof place.address === "string" && place.address.trim()) ||
+      (typeof place.road_address_name === "string" &&
+        place.road_address_name.trim()) ||
+      (typeof place.address_name === "string" && place.address_name.trim()) ||
+      "";
+    if (addr) return addr.split(/\s+/).filter(Boolean).slice(0, 8).join(" ");
+    return "";
+  }, [
+    place?.name,
+    place?.place_name,
+    place?.address,
+    place?.road_address_name,
+    place?.address_name,
+  ]);
 
   // 장소가 바뀔 때 이전 카카오 상세 데이터 초기화
   useEffect(() => {
@@ -113,33 +134,57 @@ export default function PlacePreviewCard({
     };
   }, [place, kakaoPlaceId, internalPlaceIdForPhotos]);
 
-  // 카카오 place id가 있으면 기본정보 조회
+  // 카카오 place id가 있으면 기본정보 조회 (공식 REST에 detail.json 없음 → 서버에서 keyword 검색 후 id 매칭)
   useEffect(() => {
-    console.log('🔍 useEffect 실행:', {
-      place_id: kakaoPlaceId,
-      isKakaoPlace: place.isKakaoPlace,
-      kakaoDetails: kakaoDetails,
-      place_name: place.name,
-      place_data: place
-    });
-
     if (kakaoPlaceId && !kakaoDetails) {
-      console.log("🔍 카카오 장소 상세 정보 조회 시작 (JSONP):", kakaoPlaceId);
+      if (!kakaoKeywordQuery.trim()) {
+        setKakaoDetails({
+          place_name: place?.place_name || place?.name || "",
+          address:
+            place?.address ||
+            place?.road_address_name ||
+            place?.address_name ||
+            "",
+          phone: place?.phone || place?.contact,
+          category_name: place?.category_name || place?.category || "정보 없음",
+        });
+        return;
+      }
       setIsLoadingKakao(true);
-      
-      getKakaoPlaceBasicInfoJSONP(kakaoPlaceId)
-        .then(details => {
-          console.log("✅ 카카오 장소 상세 정보 조회 성공 (JSONP):", details);
-          setKakaoDetails(details);
+      const lookupLat =
+        checkinWgs?.lat ??
+        (Number.isFinite(Number(place?.lat)) ? Number(place.lat) : null) ??
+        (Number.isFinite(Number(place?.y)) ? Number(place.y) : null);
+      const lookupLng =
+        checkinWgs?.lng ??
+        (Number.isFinite(Number(place?.lng)) ? Number(place.lng) : null) ??
+        (Number.isFinite(Number(place?.x)) ? Number(place.x) : null);
+
+      getKakaoPlaceBasicInfoViaProxy(kakaoPlaceId, {
+        query: kakaoKeywordQuery,
+        x: lookupLng ?? undefined,
+        y: lookupLat ?? undefined,
+      })
+        .then((details) => {
+          if (details) {
+            setKakaoDetails(details);
+          } else {
+            console.warn("⚠️ 카카오 상세 응답 없음 — place 기본값 사용");
+            setKakaoDetails({
+              place_name: place?.place_name || place?.name,
+              address: place?.address,
+              phone: place?.phone || place?.contact,
+              category_name: place?.category_name || place?.category || "정보 없음",
+            });
+          }
         })
-        .catch(error => {
-          console.error('❌ 카카오 장소 정보 로딩 실패 (JSONP):', error);
-          // 에러 발생 시 기본 정보라도 표시
+        .catch((error) => {
+          console.error("❌ 카카오 장소 정보 로딩 실패 (프록시):", error);
           setKakaoDetails({
-            place_name: place.name,
-            address: place.address,
-            phone: place.contact,
-            category_name: '정보 없음'
+            place_name: place?.place_name || place?.name,
+            address: place?.address,
+            phone: place?.phone || place?.contact,
+            category_name: place?.category_name || place?.category || "정보 없음",
           });
         })
         .finally(() => {
@@ -154,21 +199,28 @@ export default function PlacePreviewCard({
         place_url: place?.place_url,
       });
     }
-  }, [kakaoPlaceId, place.isKakaoPlace, place.name, place.address, place.contact, kakaoDetails]);
+  }, [
+    kakaoPlaceId,
+    place,
+    kakaoDetails,
+    kakaoKeywordQuery,
+    checkinWgs?.lat,
+    checkinWgs?.lng,
+  ]);
 
   // 카카오 place id가 없는 저장 장소는 장소명으로 기본정보 보강 조회
   useEffect(() => {
-    if (kakaoPlaceId || kakaoDetails || !place?.name) return;
+    if (kakaoPlaceId || kakaoDetails || !kakaoKeywordQuery.trim()) return;
     if (!window.kakao?.maps?.services) return;
 
     const placesService = new window.kakao.maps.services.Places();
-    const keyword = `${place.name} ${place.address || ""}`.trim();
+    const keyword = `${kakaoKeywordQuery} ${place?.address || ""}`.trim();
 
     placesService.keywordSearch(keyword, (data, status) => {
       if (status !== window.kakao.maps.services.Status.OK || !data?.length) return;
       const best = data[0];
       setKakaoDetails({
-        place_name: best.place_name || place.name,
+        place_name: best.place_name || place?.place_name || place?.name,
         place_id: best.id,
         address: best.road_address_name || best.address_name || place.address,
         phone: best.phone || place.contact || place.phone,
@@ -178,7 +230,18 @@ export default function PlacePreviewCard({
         place_url: best.place_url,
       });
     });
-  }, [kakaoPlaceId, kakaoDetails, place?.name, place?.address, place?.contact, place?.phone, place?.category_name, place?.category]);
+  }, [
+    kakaoPlaceId,
+    kakaoDetails,
+    kakaoKeywordQuery,
+    place?.address,
+    place?.contact,
+    place?.phone,
+    place?.category_name,
+    place?.category,
+    place?.name,
+    place?.place_name,
+  ]);
 
   // 카카오 장소 카테고리 정제
   const cleanCategory = (categoryName) => {
@@ -224,16 +287,19 @@ export default function PlacePreviewCard({
       window.open(placeUrl, '_blank');
     }
   };
-  const displayLat = place?.lat ?? (kakaoDetails?.y ? Number(kakaoDetails.y) : null);
-  const displayLng = place?.lng ?? (kakaoDetails?.x ? Number(kakaoDetails.x) : null);
-  const kakaoJsKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
-
-  const buildStaticMapUrl = (w, h, level) => {
-    if (!kakaoJsKey || displayLat == null || displayLng == null) return null;
-    return `https://dapi.kakao.com/v2/maps/staticmap?appkey=${encodeURIComponent(
-      kakaoJsKey
-    )}&center=${displayLng},${displayLat}&level=${level}&w=${w}&h=${h}&markers=${displayLng},${displayLat}`;
-  };
+  /** DB·지도에서 온 좌표 (큐레이터 전용 장소는 kakaoDetails 없어도 lat/lng만으로 구글 편향 가능) */
+  const displayLat =
+    checkinWgs?.lat ??
+    (kakaoDetails?.y != null ? Number(kakaoDetails.y) : null) ??
+    (Number.isFinite(Number(place?.lat)) ? Number(place.lat) : null) ??
+    (Number.isFinite(Number(place?.y)) ? Number(place.y) : null);
+  const displayLng =
+    checkinWgs?.lng ??
+    (kakaoDetails?.x != null ? Number(kakaoDetails.x) : null) ??
+    (Number.isFinite(Number(place?.lng)) ? Number(place.lng) : null) ??
+    (Number.isFinite(Number(place?.x)) ? Number(place.x) : null);
+  const buildStaticMapUrl = (w, h, level) =>
+    buildKakaoStaticMapUrl(displayLat, displayLng, { w, h, level });
 
   /** 카카오 장소: API·저장소에서 온 사진 URL만 (지도 타일 제외) */
   const kakaoPreviewPhotoUrls = useMemo(() => {
@@ -308,74 +374,180 @@ export default function PlacePreviewCard({
       : kakaoDetails?.place_url
     : null;
 
-  /** 큐레이터 스토리지 사진 클릭 시 카카오맵으로 보내지 않음 */
+  /** 서버 프록시 구글 장소 사진 — 클릭 시 카카오맵으로 보내지 않음 */
+  const isGoogleProxyPhotoUrl = (url) =>
+    typeof url === "string" &&
+    (url.includes("/api/google-place-photo-media") ||
+      url.includes("/api/google-place-photo-legacy"));
+
+  /** 큐레이터·구글 프록시 사진은 카카오맵 링크로 열지 않음 */
   const photoClickOpensKakao = (url) =>
     Boolean(
       kakaoPlacePageUrl &&
         typeof url === "string" &&
-        !curatorPhotoUrlSet.has(url)
+        !curatorPhotoUrlSet.has(url) &&
+        !isGoogleProxyPhotoUrl(url)
     );
 
-  const previewPhotoUrls =
-    mergedKakaoCuratorPhotos.length > 0
-      ? mergedKakaoCuratorPhotos
-      : googlePhotoUrls;
+  /** 카카오·큐레이터 우선, 이어서 구글(카카오 썸네일만 있어도 구글 병렬 로드) */
+  const allPreviewUrls = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const add = (u) => {
+      if (typeof u === "string" && u && !seen.has(u)) {
+        seen.add(u);
+        out.push(u);
+      }
+    };
+    mergedKakaoCuratorPhotos.forEach(add);
+    googlePhotoUrls.forEach(add);
+    return out;
+  }, [mergedKakaoCuratorPhotos, googlePhotoUrls]);
+
+  const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
+  useEffect(() => {
+    setHeroPreviewIndex(0);
+  }, [place?.id, place?.place_id, kakaoPlaceId]);
+
+  const heroPreviewUrl = allPreviewUrls[heroPreviewIndex] ?? allPreviewUrls[0];
+  const stripPreviewUrls = allPreviewUrls.filter(
+    (_, i) => i !== heroPreviewIndex
+  );
 
   const previewHasKakaoOpenablePhoto = useMemo(
-    () =>
-      previewPhotoUrls.some(
-        (u) =>
-          kakaoPlacePageUrl &&
-          typeof u === "string" &&
-          !curatorPhotoUrlSet.has(u)
-      ),
-    [previewPhotoUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+    () => allPreviewUrls.some((u) => photoClickOpensKakao(u)),
+    [allPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
   );
 
   const showGooglePhotoCredit =
-    googlePhotoUrls.length > 0 && mergedKakaoCuratorPhotos.length === 0;
+    googlePhotoUrls.length > 0 &&
+    (mergedKakaoCuratorPhotos.length === 0 ||
+      heroPreviewIndex >= mergedKakaoCuratorPhotos.length);
   const showCuratorPhotoBadge = curatorPhotoUrls.length > 0;
 
+  /** 구글 장소 검색 보강용 주소 한 줄 */
+  const resolvedPlaceAddressLine = useMemo(() => {
+    if (typeof place?.address === "string" && place.address.trim()) {
+      return place.address.trim();
+    }
+    if (
+      typeof place?.road_address_name === "string" &&
+      place.road_address_name.trim()
+    ) {
+      return place.road_address_name.trim();
+    }
+    if (typeof place?.address_name === "string" && place.address_name.trim()) {
+      return place.address_name.trim();
+    }
+    if (typeof place?.region === "string" && place.region.trim()) {
+      return place.region.trim();
+    }
+    return "";
+  }, [
+    place?.address,
+    place?.road_address_name,
+    place?.address_name,
+    place?.region,
+  ]);
+
+  /**
+   * 큐레이터 사진 로딩으로 curatorPhotoUrls.length만 바뀌어도 이 효과가 돌면
+   * 매번 setGooglePhotoUrls([])로 구글 URL이 지워져 사진이 안 뜨는 현상이 난다.
+   * 장소·이름·주소·좌표가 바뀔 때만 다시 불러온다.
+   */
+  const googlePlacePhotosFetchKey = useMemo(
+    () =>
+      [
+        String(place?.id ?? ""),
+        String(place?.place_id ?? ""),
+        String(kakaoKeywordQuery ?? "").trim(),
+        resolvedPlaceAddressLine,
+        displayLat != null && Number.isFinite(Number(displayLat))
+          ? String(displayLat)
+          : "",
+        displayLng != null && Number.isFinite(Number(displayLng))
+          ? String(displayLng)
+          : "",
+      ].join("\u001f"),
+    [
+      place?.id,
+      place?.place_id,
+      kakaoKeywordQuery,
+      resolvedPlaceAddressLine,
+      displayLat,
+      displayLng,
+    ]
+  );
+
   useEffect(() => {
-    if (!(isKakaoPlace || kakaoDetails)) {
-      setGooglePhotoUrls([]);
-      setGooglePhotoAttributions([]);
-      return;
-    }
-    if (isLoadingKakao) return;
-    if (kakaoPreviewPhotoUrls.length > 0 || curatorPhotoUrls.length > 0) {
-      setGooglePhotoUrls([]);
-      setGooglePhotoAttributions([]);
-      return;
-    }
-    if (displayLat == null || displayLng == null) return;
-    const q = place?.name?.trim();
+    const q = kakaoKeywordQuery.trim();
     if (!q) return;
 
+    setGooglePhotoUrls([]);
+    setGooglePhotoAttributions([]);
     const ac = new AbortController();
     setGooglePhotosLoading(true);
 
     const base = (
       import.meta.env.VITE_AI_API_BASE_URL ||
       import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_API_URL ||
       ""
     )
       .toString()
       .replace(/\/$/, "");
 
-    const params = new URLSearchParams({
-      name: q,
-      lat: String(displayLat),
-      lng: String(displayLng),
-    });
+    const params = new URLSearchParams({ name: q });
+    if (resolvedPlaceAddressLine) {
+      params.set("address", resolvedPlaceAddressLine.slice(0, 120));
+    }
+    if (
+      displayLat != null &&
+      displayLng != null &&
+      Number.isFinite(Number(displayLat)) &&
+      Number.isFinite(Number(displayLng))
+    ) {
+      params.set("lat", String(displayLat));
+      params.set("lng", String(displayLng));
+    }
 
     fetch(`${base}/api/google-place-photos?${params}`, { signal: ac.signal })
-      .then((r) => r.json())
+      .then(async (r) => {
+        const text = await r.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          if (import.meta.env.DEV) {
+            console.warn("[google-place-photos] JSON 아님", r.status, text.slice(0, 200));
+          }
+          return { ok: false, imageUrls: [] };
+        }
+      })
       .then((data) => {
+        if (import.meta.env.DEV) {
+          const n = Array.isArray(data?.imageUrls) ? data.imageUrls.length : 0;
+          if (!data?.ok || n === 0) {
+            console.warn("[google-place-photos]", {
+              ok: data?.ok,
+              count: n,
+              error: data?.error,
+              hint: data?.hint,
+              googleHttpStatus: data?.googleHttpStatus,
+              googleApiError: data?.googleApiError,
+              requestUrl: `${base || "(same-origin)"}/api/google-place-photos?${params}`,
+            });
+          }
+        }
         if (!data?.ok || !Array.isArray(data.imageUrls)) return;
         const urls = data.imageUrls
-          .filter((u) => typeof u === "string" && u.startsWith("/"))
-          .map((path) => (base ? `${base}${path}` : path));
+          .filter(
+            (u) =>
+              typeof u === "string" &&
+              (u.startsWith("/") || /^https?:\/\//i.test(u))
+          )
+          .map((path) =>
+            path.startsWith("/") && base ? `${base}${path}` : path
+          );
         if (urls.length > 0) {
           setGooglePhotoUrls(urls);
           setGooglePhotoAttributions(
@@ -383,7 +555,12 @@ export default function PlacePreviewCard({
           );
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+        if (import.meta.env.DEV) {
+          console.warn("google-place-photos fetch 실패:", err?.message || err);
+        }
+      })
       .finally(() => {
         if (!ac.signal.aborted) setGooglePhotosLoading(false);
       });
@@ -391,27 +568,14 @@ export default function PlacePreviewCard({
     return () => {
       ac.abort();
     };
-  }, [
-    isKakaoPlace,
-    kakaoDetails,
-    isLoadingKakao,
-    kakaoPreviewPhotoUrls.length,
-    curatorPhotoUrls.length,
-    displayLat,
-    displayLng,
-    place?.name,
-    place?.id,
-    place?.place_id,
-  ]);
+    // 키에 이름·주소·좌표·장소 id가 모두 들어 있음 (curator 길이 제외)
+  }, [googlePlacePhotosFetchKey]);
 
   const showKakaoPhotoLoading =
-    previewPhotoUrls.length === 0 &&
-    (((isKakaoPlace || kakaoDetails) &&
-      (isLoadingKakao || googlePhotosLoading || curatorPhotosLoading)) ||
-      (!isKakaoPlace &&
-        !kakaoDetails &&
-        internalPlaceIdForPhotos &&
-        curatorPhotosLoading));
+    allPreviewUrls.length === 0 &&
+    (googlePhotosLoading ||
+      curatorPhotosLoading ||
+      ((isKakaoPlace || kakaoDetails) && isLoadingKakao));
 
   const canCuratorUploadPhoto =
     isCurator &&
@@ -698,7 +862,9 @@ export default function PlacePreviewCard({
         boxShadow: showSaveModal ? "none" : styles.card.boxShadow
       }}>
         <div style={styles.header}>
-          <h3 style={styles.placeName}>{extractDisplayName(place.name)}</h3>
+          <h3 style={styles.placeName}>
+            {extractDisplayName(place?.name || place?.place_name || "")}
+          </h3>
           <div style={styles.headerRight}>
             {/* 카카오맵 상세보기 링크 */}
             {(isKakaoPlace || kakaoDetails) && (
@@ -743,10 +909,10 @@ export default function PlacePreviewCard({
             </button>
           </div>
         </div>
-        {previewPhotoUrls.length > 0 ? (
+        {allPreviewUrls.length > 0 && heroPreviewUrl ? (
           <div style={styles.kakaoPreviewSection}>
             <div style={styles.photoHeroWrap}>
-              {photoClickOpensKakao(previewPhotoUrls[0]) ? (
+              {photoClickOpensKakao(heroPreviewUrl) ? (
                 <button
                   type="button"
                   onClick={handleKakaoView}
@@ -755,10 +921,17 @@ export default function PlacePreviewCard({
                 >
                   <div style={styles.imageFrame}>
                     <img
-                      src={previewPhotoUrls[0]}
+                      key={heroPreviewUrl}
+                      src={heroPreviewUrl}
                       alt=""
                       style={styles.imageFill}
                       loading="eager"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        setHeroPreviewIndex((i) =>
+                          i + 1 < allPreviewUrls.length ? i + 1 : i
+                        );
+                      }}
                     />
                   </div>
                 </button>
@@ -770,22 +943,29 @@ export default function PlacePreviewCard({
                 >
                   <div style={styles.imageFrame}>
                     <img
-                      src={previewPhotoUrls[0]}
+                      key={heroPreviewUrl}
+                      src={heroPreviewUrl}
                       alt=""
                       style={styles.imageFill}
                       loading="eager"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        setHeroPreviewIndex((i) =>
+                          i + 1 < allPreviewUrls.length ? i + 1 : i
+                        );
+                      }}
                     />
                   </div>
                 </div>
               )}
-              {canUserDeleteCuratorPhotoUrl(previewPhotoUrls[0]) ? (
+              {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
                 <button
                   type="button"
                   style={styles.curatorPhotoDeleteOverlay}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const row = curatorRowByPublicUrl.get(previewPhotoUrls[0]);
+                    const row = curatorRowByPublicUrl.get(heroPreviewUrl);
                     if (row) handleDeleteCuratorPhoto(row);
                   }}
                   disabled={curatorPhotoDeletingId != null}
@@ -796,12 +976,12 @@ export default function PlacePreviewCard({
                 </button>
               ) : null}
             </div>
-            {previewPhotoUrls.length > 1 ? (
+            {stripPreviewUrls.length > 0 ? (
               <div
                 style={{ ...styles.kakaoPreviewStrip, marginTop: 8 }}
                 aria-label="장소 사진"
               >
-                {previewPhotoUrls.slice(1).map((src, i) => (
+                {stripPreviewUrls.map((src, i) => (
                   <div
                     key={`${src.slice(0, 48)}-${i}`}
                     style={styles.previewThumbWrap}
@@ -896,7 +1076,9 @@ export default function PlacePreviewCard({
 
         <div style={styles.body}>
           <div style={styles.titleRow}>
-            <div style={styles.title}>{extractDisplayName(place.name)}</div>
+            <div style={styles.title}>
+              {extractDisplayName(place?.name || place?.place_name || "")}
+            </div>
 
             <div style={styles.titleRight}>
               {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}
@@ -964,9 +1146,15 @@ export default function PlacePreviewCard({
             {(isKakaoPlace || kakaoDetails) ? (
               <>
                 {/* 카카오 장소 정보 */}
-                {(kakaoDetails?.category_name || place.category_name) && (
+                {(kakaoDetails?.category_name ||
+                  place.category_name ||
+                  (place.category && place.category !== "미분류")) && (
                   <span style={styles.category}>
-                    {cleanCategory(kakaoDetails?.category_name || place.category_name)}
+                    {cleanCategory(
+                      kakaoDetails?.category_name ||
+                        place.category_name ||
+                        place.category
+                    )}
                   </span>
                 )}
                 {displayAddress && (
@@ -1039,14 +1227,7 @@ export default function PlacePreviewCard({
                 const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
                 const curatorReason = curatorPlace.one_line_reason || "";
                 const isLast = index === place.curatorPlaces.length - 1;
-                
-                console.log(`🔍 큐레이터 ${curatorName}:`, { 
-                curatorReason, 
-                curatorPlace,
-                curatorPlacesLength: place.curatorPlaces?.length,
-                curatorPlaceKeys: Object.keys(curatorPlace || {})
-              });
-                
+
                 return (
                   <div 
                     key={curatorPlace.id || curatorName} 
@@ -1077,6 +1258,7 @@ export default function PlacePreviewCard({
 
           <div style={styles.actionRow}>
             <CheckinButton
+              place={place}
               placeId={place.id}
               placeName={place.name}
               placeAddress={

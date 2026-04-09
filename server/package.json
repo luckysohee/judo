@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "backfill:curator-embeddings": "node scripts/backfill-curator-place-embeddings.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

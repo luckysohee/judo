@@ -20,7 +20,6 @@ export default function MarkerLegend({
     { key: "basic", label: "단일 추천", color: "#10b981", icon: "🟢" },
     { key: "hot", label: "공동 추천", color: "#8b5cf6", icon: "🟣" },
     { key: "premium", label: "프리미엄 스팟", color: "#f59e0b", icon: "🟠" },
-    { key: "saved", label: "저장한 곳", color: "#fff", icon: "⚪" },
   ];
 
   return (

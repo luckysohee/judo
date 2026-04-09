@@ -4,6 +4,7 @@ import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchKakaoCoordsByPlaceId } from "../../utils/kakaoPlaceCoords";
+import { pickCheckinPlaceCoordsNearUser } from "../../utils/placeCoords";
 
 function parseCoord(v) {
   if (v == null || v === "") return null;
@@ -39,7 +40,7 @@ async function getGeoForStrictCheckin() {
     return await readGeoOnce({
       enableHighAccuracy: false,
       timeout: 12000,
-      maximumAge: 45000,
+      maximumAge: 10000,
     });
   } catch {
     return await readGeoOnce({
@@ -59,12 +60,30 @@ function getGeoHighAccuracyFresh() {
   });
 }
 
+function messageForTooFarFromPlace(err) {
+  const details = err?.details;
+  if (typeof details === "string" && details.includes("distance_m=")) {
+    const dm = details.match(/distance_m=([\d.]+)/);
+    if (dm) {
+      const d = parseFloat(dm[1]);
+      if (Number.isFinite(d) && d >= 0) {
+        const distLabel =
+          d >= 1000
+            ? `약 ${(d / 1000).toFixed(1)}km`
+            : `약 ${Math.round(d)}m`;
+        return `서버 기준 이 장소와 ${distLabel} 떨어져 있습니다. 실제로 가게 근처인지, 지도 핀 좌표가 맞는지 확인해 주세요. (집·다른 동네에서 시도하면 이렇게 나올 수 있어요.)`;
+      }
+    }
+  }
+  return "가게 근처에 있을 때만 체크인할 수 있습니다. 지도에서 위치를 확인해 주세요.";
+}
+
 function messageForCheckinError(err) {
   const msg = [err?.message, err?.details, err?.hint, err?.code]
     .filter(Boolean)
     .join(" ");
   if (msg.includes("checkin_too_far_from_place")) {
-    return "가게 근처에 있을 때만 체크인할 수 있습니다. 지도에서 위치를 확인해 주세요.";
+    return messageForTooFarFromPlace(err);
   }
   if (msg.includes("checkin_place_coordinates_required")) {
     return "이 장소에는 좌표 정보가 없어 체크인할 수 없습니다.";
@@ -130,6 +149,8 @@ export default function CheckinButton({
   placeLat,
   placeLng,
   kakaoPlaceId,
+  /** 있으면 y/x vs lat/lng 불일치 시 사용자 GPS에 맞는 좌표로 체크인 */
+  place = null,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceCheckinCount, placeCheckinCounts } = useRealtimeCheckins();
@@ -307,6 +328,12 @@ export default function CheckinButton({
         return;
       }
 
+      const picked = pickCheckinPlaceCoordsNearUser(place, userLat, userLng);
+      if (picked) {
+        plat = picked.lat;
+        plng = picked.lng;
+      }
+
       try {
         await runCheckinRpc({
           plat,
@@ -321,9 +348,20 @@ export default function CheckinButton({
           let strictRecovered = false;
           try {
             const gRetry = await getGeoHighAccuracyFresh();
+            let platR = plat;
+            let plngR = plng;
+            const pickedR = pickCheckinPlaceCoordsNearUser(
+              place,
+              gRetry.lat,
+              gRetry.lng
+            );
+            if (pickedR) {
+              platR = pickedR.lat;
+              plngR = pickedR.lng;
+            }
             await runCheckinRpc({
-              plat,
-              plng,
+              plat: platR,
+              plng: plngR,
               userLat: gRetry.lat,
               userLng: gRetry.lng,
               accuracyM: gRetry.accuracyM,

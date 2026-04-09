@@ -39,7 +39,7 @@ function getFolderInfo(folders = []) {
 }
 
 /** 앱에 등록된 큐레이터 추천 장소 → 마커 안내(단일/공동/프리미엄) 등급 표시 */
-function isCuratorListedPlace(place) {
+export function isCuratorListedPlace(place) {
   if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
     return true;
   }
@@ -53,7 +53,7 @@ function isCuratorListedPlace(place) {
 }
 
 // 큐레이터 등급 마커 (기존 로직 유지)
-function getMarkerTier(place) {
+export function getMarkerTier(place) {
   let curatorCount = 1;
   if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
     curatorCount = place.curatorCount;

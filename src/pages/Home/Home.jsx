@@ -52,6 +52,9 @@ import {
   kakaoQueryHasGeographicAnchor,
   queryWantsSeafoodFocus,
   isObviousNonSeafoodKakaoPlace,
+  queryWantsYajangFocus,
+  YAJANG_PLACE_HINT_RE,
+  placeSignalsYajangCuratorMeta,
 } from "../../utils/searchParser";
 import { buildCuratorSearchHighlights } from "../../utils/searchCuratorHighlights";
 import { getSearchLoadingMessage } from "../../utils/searchLoadingMessage";
@@ -61,13 +64,45 @@ import { insertSearchLog, insertPlaceClickLog } from "../../utils/searchAnalytic
 import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
-import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import {
+  fetchCuratorPlaceDbSearch,
+  mergeDbPlaceIdsFirst,
+} from "../../utils/fetchCuratorPlaceDbSearch";
+import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
+import {
+  getKakaoPlaceDetailsViaProxy,
+  searchKakaoKeywordViaProxy,
+} from "../../utils/kakaoAPIProxy";
+import {
+  mergePickedPlaceWithCuratorCatalog,
+  findCuratorCatalogMatch,
+} from "../../utils/mergePickedPlaceWithCuratorCatalog";
+import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
 import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
+import { getMarkerTier, isCuratorListedPlace } from "../../utils/createMarker";
 
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(/\/$/, "");
+
+/** 우측 마커 안내(단일·공동·프리미엄) 선택 시 지도에 표시할 장소만 남김 */
+function applyLegendCategoryFilter(places, legendCategory) {
+  if (!legendCategory || !Array.isArray(places)) return places;
+
+  if (
+    legendCategory === "basic" ||
+    legendCategory === "hot" ||
+    legendCategory === "premium"
+  ) {
+    return places.filter((p) => {
+      if (!isCuratorListedPlace(p)) return false;
+      return getMarkerTier(p).level === legendCategory;
+    });
+  }
+
+  return places;
+}
 
 const SEARCH_INTENT_ASSIST_MS = 5500;
 
@@ -175,8 +210,22 @@ export default function Home() {
       ];
       const matchedFoodKeyword = foodKeywords.find((k) => kwIn.includes(k)) || null;
       const barKeywords = [
-        "포장마차", "술집", "포차", "펍", "주점", "호프", "이자카야", "와인바", "칵테일바",
-        "맥주", "소주", "하이볼", "위스키", "칵테일",
+        "야장술집",
+        "야장",
+        "포장마차",
+        "술집",
+        "포차",
+        "펍",
+        "주점",
+        "호프",
+        "이자카야",
+        "와인바",
+        "칵테일바",
+        "맥주",
+        "소주",
+        "하이볼",
+        "위스키",
+        "칵테일",
       ];
       const matchedBarKeyword = barKeywords.find((k) => kwIn.includes(k)) || null;
       const vagueNightOut =
@@ -269,6 +318,23 @@ export default function Home() {
                         const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
                         return /주점|술집|이자카야|호프|bar|pub|요리주점/i.test(haystack);
                       });
+              } else if (queryWantsYajangFocus(kwIn, parseSearchQuery(kwIn))) {
+                const yStrict = nearbyPlaces.filter((place) => {
+                  const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
+                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
+                  if (
+                    Array.isArray(curatorPlaceCatalogForMerge) &&
+                    curatorPlaceCatalogForMerge.length
+                  ) {
+                    const m = findCuratorCatalogMatch(
+                      place,
+                      curatorPlaceCatalogForMerge
+                    );
+                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
+                  }
+                  return false;
+                });
+                if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
 
               console.log(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
@@ -306,6 +372,29 @@ export default function Home() {
               } else {
                 nearbyPlaces = placesWithDistance;
               }
+
+              if (
+                !isPojangmacha &&
+                queryWantsYajangFocus(kwIn, parseSearchQuery(kwIn))
+              ) {
+                const yStrict = nearbyPlaces.filter((place) => {
+                  const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
+                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
+                  if (
+                    Array.isArray(curatorPlaceCatalogForMerge) &&
+                    curatorPlaceCatalogForMerge.length
+                  ) {
+                    const m = findCuratorCatalogMatch(
+                      place,
+                      curatorPlaceCatalogForMerge
+                    );
+                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
+                  }
+                  return false;
+                });
+                if (yStrict.length > 0) nearbyPlaces = yStrict;
+              }
+
               console.log(`🍺 ${searchKeyword} 근처 검색 결과:`, nearbyPlaces.length);
             }
             
@@ -323,36 +412,79 @@ export default function Home() {
   // 네이버 블로그 검색 함수
   // 카카오 API로 장소 추가 정보 가져오기
   const enrichPlaceWithKakaoInfo = async (place) => {
-    if (!place.name || place.isKakaoEnriched) {
-      return place; // 이미 카카오 정보가 있거나 이름이 없으면 패스
+    if (!place?.name) {
+      return place;
+    }
+    const hasUsefulCategory = Boolean(
+      (place.category_name && String(place.category_name).trim()) ||
+        (place.category &&
+          String(place.category).trim() &&
+          place.category !== "미분류")
+    );
+    if (place.isKakaoEnriched && hasUsefulCategory) {
+      return place;
     }
 
     try {
-      console.log('🔍 카카오 장소 정보 조회:', place.name);
-      
-      const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(place.name)}&size=1`, {
-        headers: {
-          'Authorization': `KakaoAK ${import.meta.env.VITE_KAKAO_REST_API_KEY}`
-        }
-      });
+      console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", place.name);
 
-      if (!response.ok) {
-        console.log('⚠️ 카카오 API 호출 실패');
-        return place;
+      const py = parseFloat(place.lat ?? place.y);
+      const px = parseFloat(place.lng ?? place.x);
+
+      const idCandidates = [
+        place.kakao_place_id,
+        place.place_id,
+        place.kakaoId,
+      ]
+        .map((x) => (x != null ? String(x).trim() : ""))
+        .filter((s) => /^\d+$/.test(s));
+
+      /** 브라우저에서 dapi.kakao.com 직접 호출은 CORS로 막히므로 백엔드 프록시 사용 */
+      let kakaoPlace = null;
+      for (const kid of idCandidates) {
+        kakaoPlace = await getKakaoPlaceDetailsViaProxy(kid, {
+          query: place.name,
+          x: Number.isFinite(px) ? px : undefined,
+          y: Number.isFinite(py) ? py : undefined,
+        });
+        if (kakaoPlace && (kakaoPlace.category_name || kakaoPlace.place_name)) {
+          break;
+        }
       }
 
-      const data = await response.json();
-      const kakaoPlace = data.documents?.[0];
+      if (!kakaoPlace) {
+        const { documents: docs } = await searchKakaoKeywordViaProxy({
+          query: place.name,
+          x: Number.isFinite(px) ? px : undefined,
+          y: Number.isFinite(py) ? py : undefined,
+          radius: 500,
+          size: 15,
+        });
+
+        for (const kid of idCandidates) {
+          kakaoPlace = docs.find((d) => String(d.id) === kid);
+          if (kakaoPlace) break;
+        }
+        if (!kakaoPlace && docs.length) {
+          kakaoPlace = docs[0];
+        }
+      }
 
       if (kakaoPlace) {
         console.log('✅ 카카오 장소 정보 찾음:', kakaoPlace.place_name);
-        
-        // 카카오 정보로 장소 업데이트
+
         const ky = parseFloat(kakaoPlace.y);
         const kx = parseFloat(kakaoPlace.x);
+        const catFromKakao =
+          kakaoPlace.category_name ||
+          place.category_name ||
+          place.category ||
+          "";
+
         const enrichedPlace = {
           ...place,
-          category_name: kakaoPlace.category_name || place.category,
+          category: catFromKakao || place.category,
+          category_name: catFromKakao || place.category_name,
           phone: kakaoPlace.phone || place.phone,
           road_address_name: kakaoPlace.road_address_name || place.address,
           address_name: kakaoPlace.address_name || place.address,
@@ -363,7 +495,7 @@ export default function Home() {
             ? { lat: ky, lng: kx }
             : {}),
           isKakaoEnriched: true,
-          kakaoId: kakaoPlace.id
+          kakaoId: kakaoPlace.id,
         };
 
         // Supabase에 업데이트 (선택적)
@@ -371,7 +503,7 @@ export default function Home() {
           await supabase
             .from('places')
             .update({
-              category_name: kakaoPlace.category_name,
+              category_name: kakaoPlace.category_name || place.category_name,
               phone: kakaoPlace.phone,
               road_address_name: kakaoPlace.road_address_name,
               address_name: kakaoPlace.address_name,
@@ -527,6 +659,7 @@ export default function Home() {
     const wantWalkable = /걸어|도보|근처|가까운|walking/i.test(kwSc);
     const parsedFacets = parseSearchQuery(keyword);
     const wantsSeafood = queryWantsSeafoodFocus(keyword, parsedFacets);
+    const wantsYajang = queryWantsYajangFocus(keyword, parsedFacets);
     const originForDistance = userLocation || sortOrigin || null;
 
     const metersForSort = (place) => {
@@ -579,6 +712,22 @@ export default function Home() {
 
       if (wantsSeafood && isObviousNonSeafoodKakaoPlace(place)) {
         score -= 120;
+      }
+
+      if (wantsYajang) {
+        const textHit = YAJANG_PLACE_HINT_RE.test(cat);
+        let curatorHit = placeSignalsYajangCuratorMeta(place);
+        if (
+          !curatorHit &&
+          Array.isArray(curatorPlaceCatalogForMerge) &&
+          curatorPlaceCatalogForMerge.length
+        ) {
+          const canon = findCuratorCatalogMatch(place, curatorPlaceCatalogForMerge);
+          curatorHit = canon ? placeSignalsYajangCuratorMeta(canon) : false;
+        }
+        if (textHit) score += 34;
+        if (curatorHit) score += 30;
+        if (!textHit && !curatorHit) score -= 26;
       }
 
       // 거리·도보는 파싱 축과 별도(위치기반 검색)
@@ -739,6 +888,8 @@ export default function Home() {
   const [loadingDots, setLoadingDots] = useState(".");
   const [searchLoadingLabel, setSearchLoadingLabel] = useState("");
   const [searchExpandUX, setSearchExpandUX] = useState(null);
+  /** 야장 검색 무결과 → 5km 큐레이터 폴백 안내 */
+  const [yajangFallbackBanner, setYajangFallbackBanner] = useState(null);
   const [searchDistanceOrigin, setSearchDistanceOrigin] = useState(null); // 추천 리스트 거리·도보 표시용 기준 좌표
   const [isLocationBasedSearch, setIsLocationBasedSearch] = useState(false); // 위치기반 검색 여부
 
@@ -777,6 +928,12 @@ export default function Home() {
   const hotRankTopPlaceIds = useMemo(
     () => new Set(rankingTop5.map((r) => String(r.place_id))),
     [rankingTop5]
+  );
+
+  /** 지도/검색으로 연 장소를 큐레이터 DB 카드와 병합할 때 사용 */
+  const curatorPlaceCatalogForMerge = useMemo(
+    () => [...dbPlaces, ...customPlaces],
+    [dbPlaces, customPlaces]
   );
 
   const showSearchHereButton = useMemo(() => {
@@ -824,18 +981,24 @@ export default function Home() {
 
   const setSelectedPlaceWithAnalytics = useCallback(
     (place, clickSource = "map_click") => {
-      if (place) {
+      const resolved = place
+        ? mergePickedPlaceWithCuratorCatalog(place, curatorPlaceCatalogForMerge)
+        : null;
+      if (resolved) {
         const sid = searchSessionIdRef.current;
         const placeId =
-          place.id ?? place.place_id ?? place.kakao_place_id ?? place.kakaoId;
-        const placeName = place.name || place.place_name || "";
-        let curatorId = place.curator_id ?? place.curatorId ?? null;
+          resolved.id ??
+          resolved.place_id ??
+          resolved.kakao_place_id ??
+          resolved.kakaoId;
+        const placeName = resolved.name || resolved.place_name || "";
+        let curatorId = resolved.curator_id ?? resolved.curatorId ?? null;
         if (
           !curatorId &&
-          Array.isArray(place.curatorPlaces) &&
-          place.curatorPlaces.length
+          Array.isArray(resolved.curatorPlaces) &&
+          resolved.curatorPlaces.length
         ) {
-          const cp = place.curatorPlaces[0];
+          const cp = resolved.curatorPlaces[0];
           curatorId = cp.curator_id ?? cp.curatorId ?? null;
         }
         if (sid && placeId != null && String(placeId) !== "") {
@@ -849,9 +1012,9 @@ export default function Home() {
           });
         }
       }
-      setSelectedPlace(place);
+      setSelectedPlace(resolved);
     },
-    [user]
+    [user, curatorPlaceCatalogForMerge]
   );
 
   const livePlaceIdsText = useMemo(() => {
@@ -1168,7 +1331,7 @@ export default function Home() {
           .from("curator_places")
           .select(`
             *,
-            places (id, name, lat, lng, place_id, category, created_at),
+            places (*),
             curators!curator_places_curator_id_fkey (username, display_name)
           `)
           .eq("is_archived", false) // 비공개 추천 제외
@@ -1249,6 +1412,32 @@ export default function Home() {
           });
           
           const wgs = resolvePlaceWgs84(place);
+          const kakaoNumId = kakaoNumericPlaceId(place);
+          const tagSet = new Set();
+          const vibeSet = new Set();
+          const addStrTags = (arr) => {
+            if (!Array.isArray(arr)) return;
+            for (const t of arr) {
+              const s = typeof t === "string" ? t.trim() : "";
+              if (s) tagSet.add(s);
+            }
+          };
+          addStrTags(place.tags);
+          if (Array.isArray(place.vibes)) {
+            for (const v of place.vibes) {
+              const s = typeof v === "string" ? v.trim() : "";
+              if (s) vibeSet.add(s);
+            }
+          }
+          place.curatorPlaces?.forEach((cp) => {
+            addStrTags(cp.tags);
+            if (Array.isArray(cp.moods)) {
+              for (const m of cp.moods) {
+                const s = typeof m === "string" ? m.trim() : "";
+                if (s) vibeSet.add(s);
+              }
+            }
+          });
           return {
             id: place.id,
             name: place.name,
@@ -1260,17 +1449,23 @@ export default function Home() {
                   y: String(wgs.lat),
                 }
               : {}),
-            category: place.category || "미분류",
-            category_name: place.category_name || place.category || "",
+            category:
+              (place.category_name && String(place.category_name).trim()) ||
+              (place.category && String(place.category).trim()) ||
+              "미분류",
+            category_name:
+              (place.category_name && String(place.category_name).trim()) ||
+              (place.category && String(place.category).trim()) ||
+              "",
             phone: place.phone || "",
             address: place.address || place.road_address_name || place.address_name || "",
             address_name: place.address_name || "",
             road_address_name: place.road_address_name || "",
             place_url: place.place_url || "",
-            place_id: place.place_id || place.kakao_place_id || place.kakaoId || null,
-            kakao_place_id: place.kakao_place_id || place.place_id || place.kakaoId || null,
-            kakaoId: place.kakaoId || place.kakao_place_id || place.place_id || null,
-            isKakaoPlace: Boolean(place.place_url || place.kakao_place_id || place.place_id || place.kakaoId),
+            place_id: kakaoNumId,
+            kakao_place_id: kakaoNumId,
+            kakaoId: kakaoNumId,
+            isKakaoPlace: Boolean(place.place_url || kakaoNumId),
             curatorCount: place.curatorCount, // 큐레이터 수
             curators: curatorNames, // 큐레이터 이름 목록 (display_name)
             curatorUsernames: place.curatorPlaces?.map(cp => cp.curators?.username || cp.curator_id), // username 목록 추가
@@ -1278,7 +1473,9 @@ export default function Home() {
             curatorPlaces: place.curatorPlaces, // 추천 정보
             comment: "",
             savedCount: 0,
-            tags: [],
+            tags: [...tagSet],
+            moods: [...vibeSet],
+            vibes: [...vibeSet],
             // 공개 추천이 하나라도 있으면 일반 지도에 표시 (전부 비공개면 false)
             is_public: Array.isArray(place.curatorPlaces)
               ? place.curatorPlaces.some((cp) => cp.is_archived !== true)
@@ -1521,6 +1718,28 @@ export default function Home() {
     return map;
   }, [allPlaces, folders]);
 
+  /** 병합 카드: UUID·카카오 id 등 여러 키로 저장 여부·폴더 색 조회 */
+  const previewSavedState = useMemo(() => {
+    if (!selectedPlace) return { isSaved: false, folderColor: undefined };
+    const keys = [
+      selectedPlace.id,
+      selectedPlace.place_id,
+      selectedPlace.kakao_place_id,
+      selectedPlace.kakaoId,
+    ]
+      .filter((x) => x != null && x !== "")
+      .map((x) => String(x));
+    const uniq = [...new Set(keys)];
+    let isSavedFlag = false;
+    let folderColor;
+    for (const k of uniq) {
+      if (isPlaceSaved(k)) isSavedFlag = true;
+      const c = getPrimarySavedFolderColor(k, folders);
+      if (c && !folderColor) folderColor = c;
+    }
+    return { isSaved: isSavedFlag, folderColor };
+  }, [selectedPlace, folders, savedMap]);
+
   const filteredByCuratorPlaces = useMemo(() => {
     // 노란별: 로그인 사용자 기준 «내가 저장한 장소만» (큐레이터=내 추천·비공개 포함 / 일반=폴더 저장)
     if (showSavedOnly) {
@@ -1680,9 +1899,12 @@ export default function Home() {
     if (showSavedOnly) {
       console.log("⭐ mapDisplayedPlacesWithLegend - 모든 장소 표시 (큐레이터용):", displayedPlaces.length);
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
-      return mergePlaces(kakaoPlaces, displayedPlaces);
+      return applyLegendCategoryFilter(
+        mergePlaces(kakaoPlaces, displayedPlaces),
+        legendCategory
+      );
     }
-    
+
     // AI/검색 결과가 있어도 기존 마커는 유지하고 검색 마커를 추가 표시
     if (aiRecommendedIds.length > 0 || query) {
       const filteredBase = displayedPlaces.filter((place) => place.is_public !== false);
@@ -1691,7 +1913,7 @@ export default function Home() {
         base: filteredBase.length,
         kakao: kakaoPlaces.length,
       });
-      return merged;
+      return applyLegendCategoryFilter(merged, legendCategory);
     }
     
     // 일반 모드에서는 비공개 필터링 적용
@@ -1707,9 +1929,17 @@ export default function Home() {
     
     const result = mergePlaces(kakaoPlaces, filtered); // 동일 id면 검색 마커(빨간 핀) 우선
     console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length, result);
-    
-    return result;
-  }, [displayedPlaces, showSavedOnly, isCurator, kakaoPlaces, aiRecommendedIds, query]);
+
+    return applyLegendCategoryFilter(result, legendCategory);
+  }, [
+    displayedPlaces,
+    showSavedOnly,
+    isCurator,
+    kakaoPlaces,
+    aiRecommendedIds,
+    query,
+    legendCategory,
+  ]);
 
 const topReasonMap = useMemo(() => {
   const map = {};
@@ -1809,6 +2039,7 @@ const handleClearSearch = () => {
   setIsAiSearching(false);
   setSearchLoadingLabel("");
   setSearchExpandUX(null);
+  setYajangFallbackBanner(null);
   setSearchDistanceOrigin(null);
   setMapViewportCenterFromUser(null);
 };
@@ -1900,6 +2131,7 @@ const handleClearSearch = () => {
     setKakaoPlaces([]);
     setBlogReviews([]);
     setSearchExpandUX(null);
+    setYajangFallbackBanner(null);
     setSearchDistanceOrigin(null);
     
     console.log('🧹 모든 검색 상태 초기화 완료');
@@ -1954,7 +2186,8 @@ const handleClearSearch = () => {
         nearbyPlaces = filterPlacesByParsedIntent(
           nearbyPlaces,
           naturalQ.facets || parseSearchQuery(nextQuery),
-          nextQuery
+          nextQuery,
+          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
         );
         console.log('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
           keyword: nearbyKeyword,
@@ -1978,7 +2211,8 @@ const handleClearSearch = () => {
             const npFiltered = filterPlacesByParsedIntent(
               np,
               naturalQ.facets || parseSearchQuery(nextQuery),
-              nextQuery
+              nextQuery,
+              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
             const sp = calculateLocalAIScores(npFiltered, nextQuery, userLocation);
             if (sp.length > 0) {
@@ -2010,6 +2244,24 @@ const handleClearSearch = () => {
           setSearchExpandUX(null);
         }
 
+        let yajangBannerPayloadNear = null;
+        if (scoredPlaces.length === 0) {
+          const fbNear = applyYajangCuratorFallbackIfEmpty(
+            userLocation,
+            curatorPlaceCatalogForMerge,
+            nextQuery,
+            scoredPlaces
+          );
+          if (fbNear.usedFallback) {
+            scoredPlaces = fbNear.scoredPlaces;
+            setSearchExpandUX(null);
+            yajangBannerPayloadNear = fbNear.banner;
+            setYajangFallbackBanner(fbNear.banner);
+          }
+        } else {
+          setYajangFallbackBanner(null);
+        }
+
         console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
 
         // 결과 설정 (리스트·병합 시에도 빨간 핀 플래그 유지)
@@ -2022,12 +2274,26 @@ const handleClearSearch = () => {
           return s.length > 42 ? `${s.slice(0, 42)}…` : s;
         })();
         setAiSummary(
-          intentLineNear
-            ? `주변 추천 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""} · ${intentLineNear}`
-            : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
+          yajangBannerPayloadNear
+            ? `5km 안 큐레이터 야장 ${scoredPlaces.length}곳 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""}`
+            : intentLineNear
+              ? `주변 추천 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""} · ${intentLineNear}`
+              : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
         );
         setAiReasons(["거리·검색어 점수", "카테고리 매칭", "의도 키워드 반영"]);
-        setAiRecommendedIds(scoredPlaces.map(p => p.id));
+        const dbSearchNear = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
+          query: nextQuery,
+          limit: 24,
+          mode: "auto",
+          maxDistanceM: 12000,
+          originLat: userLocation.lat,
+          originLng: userLocation.lng,
+        });
+        const kakaoIdsNear = scoredPlaces.map((p) => p.id);
+        const mergedNear = dbSearchNear.ok
+          ? mergeDbPlaceIdsFirst(dbSearchNear.rows, kakaoIdsNear)
+          : kakaoIdsNear;
+        setAiRecommendedIds(mergedNear);
         setBlogReviews([]);
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
 
@@ -2036,8 +2302,8 @@ const handleClearSearch = () => {
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
-          name: place.place_name,
-          place_name: place.place_name,
+          name: place.place_name || place.name,
+          place_name: place.place_name || place.name,
           address_name: place.address_name || place.road_address_name,
           category_name: place.category_name,
           phone: place.phone || "",
@@ -2049,7 +2315,7 @@ const handleClearSearch = () => {
         }));
         
         setKakaoPlaces(kakaoFormattedPlaces);
-        searchResultIdsForLog = scoredPlaces.map((p) => String(p.id));
+        searchResultIdsForLog = mergedNear.map((id) => String(id));
 
       } else {
         // 전체 지도 범용 검색 (바로 검색) - 미리보기 리스트 후 마커
@@ -2089,8 +2355,22 @@ const handleClearSearch = () => {
         const matchedFoodKeywordMap =
           foodKeywordsMap.find((k) => kwForMap.includes(k)) || null;
         const barKeywordsMap = [
-          "포장마차", "술집", "포차", "펍", "주점", "호프", "이자카야", "와인바", "칵테일바",
-          "맥주", "소주", "하이볼", "위스키", "칵테일",
+          "야장술집",
+          "야장",
+          "포장마차",
+          "술집",
+          "포차",
+          "펍",
+          "주점",
+          "호프",
+          "이자카야",
+          "와인바",
+          "칵테일바",
+          "맥주",
+          "소주",
+          "하이볼",
+          "위스키",
+          "칵테일",
         ];
         const matchedBarKeywordMap =
           barKeywordsMap.find((k) => kwForMap.includes(k)) || null;
@@ -2278,7 +2558,8 @@ const handleClearSearch = () => {
         mapPlaces = filterPlacesByParsedIntent(
           mapPlaces,
           facetsForFilter,
-          nextQuery
+          nextQuery,
+          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
         );
         console.log("🗺️ 전체 지도 검색 결과:", mapPlaces.length, {
           mapQuery,
@@ -2339,7 +2620,8 @@ const handleClearSearch = () => {
             const mpFiltered = filterPlacesByParsedIntent(
               mpViewport,
               facetsForFilter,
-              nextQuery
+              nextQuery,
+              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
             const sp = calculateLocalAIScores(
               mpFiltered,
@@ -2376,6 +2658,24 @@ const handleClearSearch = () => {
           setSearchExpandUX(null);
         }
 
+        let yajangBannerPayloadMap = null;
+        if (scoredPlaces.length === 0) {
+          const fbMap = applyYajangCuratorFallbackIfEmpty(
+            sortOrigin,
+            curatorPlaceCatalogForMerge,
+            nextQuery,
+            scoredPlaces
+          );
+          if (fbMap.usedFallback) {
+            scoredPlaces = fbMap.scoredPlaces;
+            setSearchExpandUX(null);
+            yajangBannerPayloadMap = fbMap.banner;
+            setYajangFallbackBanner(fbMap.banner);
+          }
+        } else {
+          setYajangFallbackBanner(null);
+        }
+
         console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
 
         setSearchDistanceOrigin({
@@ -2393,21 +2693,35 @@ const handleClearSearch = () => {
           return s.length > 36 ? `${s.slice(0, 36)}…` : s;
         })();
         setAiSummary(
-          intentLineMap
-            ? `${searchKeywordApi} 검색 · ${intentLineMap}`
-            : `${searchKeywordApi} 검색 결과`
+          yajangBannerPayloadMap
+            ? `5km 안 큐레이터 야장 ${scoredPlaces.length}곳 · ${searchKeywordApi}`
+            : intentLineMap
+              ? `${searchKeywordApi} 검색 · ${intentLineMap}`
+              : `${searchKeywordApi} 검색 결과`
         );
         setAiReasons([`${searchKeywordApi} 지역 검색`, `지도 이동 및 줌인`]);
-        setAiRecommendedIds(scoredPlaces.map((p) => p.id));
+        const dbSearchMap = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
+          query: nextQuery,
+          limit: 24,
+          mode: "auto",
+          maxDistanceM: null,
+          originLat: sortOrigin?.lat,
+          originLng: sortOrigin?.lng,
+        });
+        const kakaoIdsMap = scoredPlaces.map((p) => p.id);
+        const mergedMap = dbSearchMap.ok
+          ? mergeDbPlaceIdsFirst(dbSearchMap.rows, kakaoIdsMap)
+          : kakaoIdsMap;
+        setAiRecommendedIds(mergedMap);
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
 
         // 지도에도 실시간 마커 표시 + 지도 이동 (블로그 크롤 전에 먼저 반영 — 로딩 무한 방지)
         const kakaoFormattedPlaces = scoredPlaces.map((place) => ({
           ...place,
-          lat: parseFloat(place.y),
-          lng: parseFloat(place.x),
-          name: place.place_name,
-          place_name: place.place_name,
+          lat: parseFloat(place.y ?? place.lat),
+          lng: parseFloat(place.x ?? place.lng),
+          name: place.place_name || place.name,
+          place_name: place.place_name || place.name,
           address_name: place.address_name || place.road_address_name,
           category_name: place.category_name,
           phone: place.phone || "",
@@ -2418,11 +2732,11 @@ const handleClearSearch = () => {
           kakao_place_id:
             place.kakao_place_id ??
             (place.source === "kakao" ? place.id : null),
-          source: place.source || "kakao",
+          source: place.source || (place.isYajangCuratorFallback ? "curator_yajang_fallback" : "kakao"),
         }));
 
         setKakaoPlaces(kakaoFormattedPlaces);
-        searchResultIdsForLog = kakaoFormattedPlaces.map((p) => String(p.id));
+        searchResultIdsForLog = mergedMap.map((id) => String(id));
 
         // 검색 결과가 있으면 지도 이동 (「이 위치에서 검색」 시 현재 뷰 유지)
         if (kakaoFormattedPlaces.length > 0 && mapRef.current) {
@@ -2963,6 +3277,7 @@ const handleClearSearch = () => {
 
         <MapView
           ref={mapRef}
+          closePlacePreviewOnMapClick={false}
           showFloatingLocationButton={false}
           onMyLocationLoadingChange={setMapLocationLoading}
           places={mapDisplayedPlacesWithLegend}
@@ -3109,12 +3424,13 @@ const handleClearSearch = () => {
           </button>
         </div>
 
-        {!selectedPlace ? (
-          <div style={styles.bottomBarContainer}>
+        <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
               <CuratorPicksStrip
                 places={curatorSpotlightPlaces}
-                visible={!query.trim() && !isAiSearching}
+                visible={
+                  !selectedPlace && !query.trim() && !isAiSearching
+                }
                 onPick={(place) => {
                   setSelectedPlaceWithAnalytics(place, "curator_spotlight");
                   if (
@@ -3287,20 +3603,23 @@ const handleClearSearch = () => {
               />
             </div>
           </div>
-        ) : null}
 
         <div
           style={{
             ...styles.mapCardOverlay,
-            bottom: selectedPlace ? "18px" : styles.mapCardOverlay.bottom,
+            // 하단 검색바를 항상 두므로 카드·피크바는 검색 위로 올림
+            bottom: styles.mapCardOverlay.bottom,
           }}
         >
           {selectedPlace ? (
             <div style={styles.previewStack}>
               <PlacePreviewCard
                 place={selectedPlace}
-                isSaved={isPlaceSaved(selectedPlace.id)}
-                savedFolderColor={savedColorMap[selectedPlace.id]}
+                isSaved={previewSavedState.isSaved}
+                savedFolderColor={
+                  previewSavedState.folderColor ??
+                  savedColorMap[selectedPlace.id]
+                }
                 selectedCurators={selectedCurators}
                 onSave={setSaveTargetPlace}
                 onClose={() => setSelectedPlace(null)}
@@ -3430,6 +3749,26 @@ const handleClearSearch = () => {
                     <div style={styles.aiSheetHandle} />
                   </div>
 
+                  {yajangFallbackBanner ? (
+                    <div
+                      style={{
+                        margin: "0 16px 12px",
+                        padding: "12px 14px",
+                        borderRadius: 12,
+                        background: "rgba(46, 204, 113, 0.12)",
+                        border: "1px solid rgba(46, 204, 113, 0.35)",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        color: "#1a2e22",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                        {yajangFallbackBanner.title}
+                      </div>
+                      <div>{yajangFallbackBanner.body}</div>
+                    </div>
+                  ) : null}
+
                   <div style={styles.aiSheetList}>
                     {displayedPlaces.length > 0 ? (
                       <div style={styles.aiSheetSectionLabel}>추천 순서 · 장소</div>
@@ -3460,6 +3799,20 @@ const handleClearSearch = () => {
                         onClick={() => {
                           setSelectedPlaceWithAnalytics(place, "search_result");
                           setAiSheetOpen(false);
+                          const lat = parseFloat(place.y ?? place.lat);
+                          const lng = parseFloat(place.x ?? place.lng);
+                          if (
+                            Number.isFinite(lat) &&
+                            Number.isFinite(lng) &&
+                            mapRef?.current?.moveToLocation
+                          ) {
+                            mapRef.current.moveToLocation(lat, lng);
+                          }
+                          const doRelayout = () =>
+                            mapRef.current?.relayout?.();
+                          requestAnimationFrame(doRelayout);
+                          setTimeout(doRelayout, 100);
+                          setTimeout(doRelayout, 320);
                         }}
                       >
                         <div style={styles.aiSheetItemTop}>
@@ -3753,12 +4106,15 @@ const styles = {
     position: "absolute",
     top: "64px",
     right: "16px",
-    zIndex: 45,
+    left: "auto",
+    width: "fit-content",
+    maxWidth: "min(200px, 42vw)",
+    zIndex: 55,
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
     gap: "10px",
-    pointerEvents: "none",
+    pointerEvents: "auto",
   },
 
   legendMyLocationButton: {
@@ -4282,8 +4638,14 @@ const styles = {
   },
 
   aiPeekArrow: {
+    flexShrink: 0,
+    fontSize: "12px",
+    lineHeight: 1,
+    color: "rgba(255,255,255,0.9)",
+    marginLeft: "6px",
+  },
 
-aiBottomSheet: {
+  aiBottomSheet: {
     marginTop: "10px",
     width: "100%",
     maxHeight: "24vh",
@@ -4293,16 +4655,15 @@ aiBottomSheet: {
     backdropFilter: "blur(12px)",
     WebkitBackdropFilter: "blur(12px)",
     overflow: "hidden",
-    pointerEvents: "auto", 
-    position: "relative", 
-    zIndex: 100, 
+    pointerEvents: "auto",
+    position: "relative",
+    zIndex: 100,
   },
 
-aiSheetHandleWrap: {
-display: "flex",
-justifyContent: "center",
-paddingTop: "10px",
-},
+  aiSheetHandleWrap: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "10px",
   },
 
   aiSheetHandle: {

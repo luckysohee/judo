@@ -2,6 +2,15 @@ import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallba
 import createMarker from "../../utils/createMarker";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
+
+function isSameVenueOnMap(selected, place) {
+  if (!selected || !place) return false;
+  if (String(selected.id) === String(place.id)) return true;
+  const a = normalizeKakaoPlaceId(selected);
+  const b = normalizeKakaoPlaceId(place);
+  return Boolean(a && b && a === b);
+}
 import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
 
 const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
@@ -51,6 +60,11 @@ const MapView = forwardRef(({
   /** false면 지도 우하단 내 위치 FAB 숨김(부모에서 다른 위치에 배치할 때) */
   showFloatingLocationButton = true,
   onMyLocationLoadingChange,
+  /**
+   * true(기본): 지도 빈 곳 클릭 시 미리보기 카드 닫기.
+   * false: 카드는 PlacePreviewCard의 닫기(X)로만 닫음. 다른 마커 클릭 시 해당 장소로 전환.
+   */
+  closePlacePreviewOnMapClick = true,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -59,6 +73,10 @@ const MapView = forwardRef(({
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
   const ignoreMapClickRef = useRef(false);
+  const closePlacePreviewOnMapClickRef = useRef(closePlacePreviewOnMapClick);
+  useEffect(() => {
+    closePlacePreviewOnMapClickRef.current = closePlacePreviewOnMapClick;
+  }, [closePlacePreviewOnMapClick]);
 
   const userInteractedRef = useRef(false);
   const ignoreViewportEventRef = useRef(false);
@@ -115,31 +133,79 @@ const MapView = forwardRef(({
   const saveTargetPlaceToSupabase = async (place) => {
     try {
       const { supabase } = await import("../../lib/supabase");
-      
-      // places 테이블에 upsert
-      const { data: savedPlace, error: placeError } = await supabase
-        .from('places')
-        .upsert({
-          kakao_place_id: place.id,
-          name: place.place_name,
-          address: place.road_address_name || place.address_name,
-          category: place.category_name,
-          phone: place.phone,
-          lat: place.y,
-          lng: place.x,
-          created_at: new Date().toISOString()
-        }, {
-          onConflict: 'kakao_place_id'
-        })
-        .select()
-        .single();
 
-      if (placeError) {
-        console.log('⚠️ 타겟 장소 저장 실패:', placeError.message);
+      const kakaoNumericId = (() => {
+        const cands = [
+          place?.kakao_place_id,
+          place?.place_id,
+          place?.kakaoId,
+          place?.id,
+        ];
+        for (const c of cands) {
+          if (c == null || c === "") continue;
+          const s = String(c).trim();
+          if (/^\d+$/.test(s)) return s;
+        }
+        return null;
+      })();
+
+      if (!kakaoNumericId) {
+        console.warn(
+          "⚠️ 타겟 장소 자동 저장 생략: 카카오 숫자 place id 없음",
+          place?.id,
+          place?.name
+        );
         return;
       }
 
-      console.log('✅ 타겟 장소 자동 저장 성공:', savedPlace);
+      const lat = parseFloat(place?.y ?? place?.lat);
+      const lng = parseFloat(place?.x ?? place?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        console.warn("⚠️ 타겟 장소 자동 저장 생략: 좌표 없음", place?.name);
+        return;
+      }
+
+      // kakao_place_id에 DB UNIQUE가 없으면 upsert onConflict가 400 — 조회 후 update | insert
+      const rowPayload = {
+        kakao_place_id: kakaoNumericId,
+        name: place.place_name || place.name || "",
+        address:
+          place.road_address_name ||
+          place.address_name ||
+          place.address ||
+          "",
+        category: place.category_name || place.category || "",
+        lat,
+        lng,
+      };
+
+      const { data: existingRows, error: selectError } = await supabase
+        .from("places")
+        .select("id")
+        .eq("kakao_place_id", kakaoNumericId)
+        .limit(1);
+
+      if (selectError) {
+        console.log("⚠️ 타겟 장소 조회 실패:", selectError.message);
+        return;
+      }
+
+      const existingId = existingRows?.[0]?.id;
+      const { data: savedPlace, error: placeError } = existingId
+        ? await supabase
+            .from("places")
+            .update(rowPayload)
+            .eq("id", existingId)
+            .select()
+            .single()
+        : await supabase.from("places").insert(rowPayload).select().single();
+
+      if (placeError) {
+        console.log("⚠️ 타겟 장소 저장 실패:", placeError.message);
+        return;
+      }
+
+      console.log("✅ 타겟 장소 자동 저장 성공:", savedPlace);
       
       // AI 학습을 위한 태그 추가 (나중에 활용)
       // 여기에 추가적인 AI 학습 데이터 로직을 구현할 수 있음
@@ -377,6 +443,14 @@ const MapView = forwardRef(({
       requestMyLocation: () => {
         requestMyLocationRef.current?.();
       },
+      /** 하단 시트·카드 열림 등 레이아웃 변화 후 타일 재계산 */
+      relayout: () => {
+        try {
+          mapRef.current?.relayout?.();
+        } catch {
+          /* ignore */
+        }
+      },
     }),
     [onCurrentLocationChange, runWithIgnoredViewportEvents]
   );
@@ -428,10 +502,11 @@ const MapView = forwardRef(({
               };
 
               window.kakao.maps.event.addListener(map, "click", () => {
-                if (!ignoreMapClickRef.current) {
+                if (ignoreMapClickRef.current) return;
+                if (closePlacePreviewOnMapClickRef.current) {
                   setSelectedPlace(null);
-                  closeOverlay(); // 커스텀 오버레이도 닫기
                 }
+                closeOverlay(); // KakaoPlaceOverlay만 지도 탭으로 닫기
               });
 
               window.kakao.maps.event.addListener(map, "dragend", () => {
@@ -514,7 +589,7 @@ const MapView = forwardRef(({
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
         place: { ...p, lat, lng }, // lat/lng 필드 추가
-        isSelected: selectedPlace?.id === p.id,
+        isSelected: isSameVenueOnMap(selectedPlace, p),
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달

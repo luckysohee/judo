@@ -5,6 +5,7 @@
 // (9단계) 당장 우선순위·나중 작업: `searchPhase9Priorities.js`
 
 import { SEARCH_DICTIONARY } from "./searchDictionary.js";
+import { findCuratorCatalogMatch } from "./mergePickedPlaceWithCuratorCatalog.js";
 
 function uniqConcat(priorityFirst, second) {
   const seen = new Set();
@@ -286,6 +287,14 @@ export function expandFoodKakaoQueries(keyword) {
       if (next && next !== k) out.add(next);
     }
   }
+  if (/야장|노천주점|야외술집|야외\s*테라스/i.test(k)) {
+    const withYajang = `${k} 야장`.replace(/\s+/g, " ").trim();
+    out.add(withYajang);
+    const compact = k.replace(/술집|주점|호프|펍/g, " ").replace(/\s+/g, " ").trim();
+    if (compact && compact.length >= 2) {
+      out.add(`${compact} 야장`.replace(/\s+/g, " ").trim());
+    }
+  }
   return [...out].slice(0, 10);
 }
 
@@ -318,6 +327,62 @@ const SEAFOOD_NEGATIVE_RE =
  * 원문·파싱 결과 기준으로 «해산물 쪽만» 보여줄지.
  * (지도/근처 검색 공통 — `filterPlacesByParsedIntent`에서 사용)
  */
+/** 상호·카테고리에 야외·노천 힌트 (랭킹·후보 축소 공통) */
+export const YAJANG_PLACE_HINT_RE =
+  /야장|노천|포장마차|포차|테라스|야외|루프탑|옥상|가로수|길가|실외|마당|노상|이동식/i;
+
+export function queryWantsYajangFocus(rawQuery, parsedResult) {
+  const q = String(rawQuery || "").toLowerCase();
+  if (
+    /야장|야장술집|노천주점|노천\s*술|야외\s*술|야외술집|야외\s*테라스|테라스\s*술집/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  const p = parsedResult || {};
+  const vibes = p.vibes?.length ? p.vibes : [p.vibe].filter(Boolean);
+  return vibes.includes("야장");
+}
+
+/** 큐레이터 `tags`·`vibes`에 야외·야장류가 있는지 (DB 병합 카드 기준) */
+const YAJANG_CURATOR_META_RE =
+  /야장|야외|테라스|루프탑|노천|옥상|포장마차|포차|가로수|노상|이동식|마당|실외/i;
+
+export function placeSignalsYajangCuratorMeta(place) {
+  if (!place || typeof place !== "object") return false;
+  const hit = (arr) =>
+    Array.isArray(arr) &&
+    arr.some(
+      (x) => typeof x === "string" && x.trim() && YAJANG_CURATOR_META_RE.test(x)
+    );
+  return hit(place.tags) || hit(place.vibes) || hit(place.moods);
+}
+
+export function filterPlacesByYajangFocus(
+  places,
+  rawQuery,
+  parsedResult,
+  curatorCatalog = null
+) {
+  if (!queryWantsYajangFocus(rawQuery, parsedResult)) {
+    return Array.isArray(places) ? places : [];
+  }
+  const list = Array.isArray(places) ? places : [];
+  const cat =
+    Array.isArray(curatorCatalog) && curatorCatalog.length ? curatorCatalog : null;
+
+  const narrowed = list.filter((pl) => {
+    if (YAJANG_PLACE_HINT_RE.test(placeHaystack(pl))) return true;
+    if (cat) {
+      const m = findCuratorCatalogMatch(pl, cat);
+      if (m && placeSignalsYajangCuratorMeta(m)) return true;
+    }
+    return false;
+  });
+  return narrowed.length > 0 ? narrowed : list;
+}
+
 export function queryWantsSeafoodFocus(rawQuery, parsedResult) {
   const q = String(rawQuery || "").toLowerCase();
   const p = parsedResult || {};
@@ -369,6 +434,14 @@ export function getKakaoKeywordSuffix(rawQuery) {
   else if (/감성|인스타|예쁜|아기자기/i.test(q)) add("감성");
   if (/조용|차분|한적/i.test(q)) add("조용");
   if (/루프탑|rooftop/i.test(q)) add("루프탑");
+  /** 야장 의도 — barKeywords가 «술집»만 잡아도 카카오 쿼리에 야장이 붙도록 */
+  if (
+    /야장|야장술집|노천주점|노천\s*술|야외\s*술|야외술집|야외\s*테라스|테라스\s*술집/i.test(
+      q
+    )
+  ) {
+    add("야장");
+  }
   if (/와인바|칵테일바|칵테일\s*바|펍(?!\w)/i.test(q)) add("바");
 
   const party = parsePartySize(q);
@@ -500,7 +573,15 @@ function placeHaystack(place) {
  * 파싱된 주종·쿼리와 카테고리가 어긋난 카카오 후보 제거.
  * 걸러낸 뒤 0건이면 원본을 돌려준다.
  */
-export function filterPlacesByParsedIntent(places, parsedResult, rawQuery) {
+/**
+ * @param {{ curatorCatalogForYajang?: object[] }} [options] 야장 의도 시 카카오 상호에 안 나와도 큐레이터 태그로 후보 유지
+ */
+export function filterPlacesByParsedIntent(
+  places,
+  parsedResult,
+  rawQuery,
+  options = {}
+) {
   const list = Array.isArray(places) ? places : [];
   if (list.length === 0) return list;
 
@@ -572,6 +653,15 @@ export function filterPlacesByParsedIntent(places, parsedResult, rawQuery) {
 
   if (queryWantsSeafoodFocus(rawQuery, p)) {
     return filterPlacesBySeafoodFocus(filtered, rawQuery, p);
+  }
+
+  if (queryWantsYajangFocus(rawQuery, p)) {
+    filtered = filterPlacesByYajangFocus(
+      filtered,
+      rawQuery,
+      p,
+      options.curatorCatalogForYajang ?? null
+    );
   }
 
   return filtered.length > 0 ? filtered : list;

@@ -12,7 +12,11 @@ function getSupabaseUrl() {
 }
 
 function getServiceKey() {
-  return (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  return (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    ""
+  ).trim();
 }
 
 export function isPlaceBlogCacheEnabled() {
@@ -21,7 +25,7 @@ export function isPlaceBlogCacheEnabled() {
 
 let _serviceClient = null;
 
-function getServiceClient() {
+export function getSupabaseServiceClient() {
   if (_serviceClient) return _serviceClient;
   const url = getSupabaseUrl();
   const key = getServiceKey();
@@ -68,7 +72,7 @@ export async function fetchPlaceBlogInsightsBatch(externalIds) {
   const map = new Map();
   const ids = [...new Set(externalIds.filter(Boolean))];
   if (ids.length === 0) return map;
-  const sb = getServiceClient();
+  const sb = getSupabaseServiceClient();
   if (!sb) return map;
 
   const nowIso = new Date().toISOString();
@@ -99,7 +103,7 @@ export async function upsertPlaceBlogInsight({
   contentFingerprint,
 }) {
   if (!externalPlaceId || !contentFingerprint) return;
-  const sb = getServiceClient();
+  const sb = getSupabaseServiceClient();
   if (!sb) return;
 
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS).toISOString();

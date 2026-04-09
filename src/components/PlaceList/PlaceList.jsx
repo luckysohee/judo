@@ -1,3 +1,5 @@
+import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
+
 export default function PlaceList({
   places,
   onSelectPlace,
@@ -25,6 +27,12 @@ export default function PlaceList({
       <div style={styles.list}>
         {places.map((place) => {
           const savedFolderColor = getSavedFolderColor(place.id);
+          const lat = Number(place.lat ?? place.y);
+          const lng = Number(place.lng ?? place.x);
+          const listThumb =
+            typeof place.image === "string" && place.image.trim()
+              ? place.image.trim()
+              : buildKakaoStaticMapUrl(lat, lng, { w: 192, h: 192, level: 4 });
 
           return (
             <button
@@ -33,7 +41,24 @@ export default function PlaceList({
               onClick={() => onSelectPlace(place)}
               style={styles.item}
             >
-              <img src={place.image} alt={place.name} style={styles.image} />
+              {listThumb ? (
+                <img
+                  src={listThumb}
+                  alt=""
+                  style={styles.image}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src =
+                      "data:image/svg+xml," +
+                      encodeURIComponent(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect fill="#2a2a2a" width="100%" height="100%"/></svg>'
+                      );
+                  }}
+                />
+              ) : (
+                <div style={styles.imagePlaceholder} aria-hidden />
+              )}
 
               <div style={styles.body}>
                 <div style={styles.topRow}>
@@ -151,6 +176,13 @@ const styles = {
     objectFit: "cover",
     borderRadius: "12px",
     flexShrink: 0,
+  },
+  imagePlaceholder: {
+    width: "96px",
+    height: "96px",
+    borderRadius: "12px",
+    flexShrink: 0,
+    backgroundColor: "#2a2a2a",
   },
   body: {
     minWidth: 0,
