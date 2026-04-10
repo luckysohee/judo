@@ -12,6 +12,7 @@ import CuratorManagementPage from "./pages/CuratorManagementPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
 import StudioHome from "./pages/Studio/StudioHome";
+import StudioFollowersPage from "./pages/Studio/StudioFollowersPage";
 import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
 
@@ -32,6 +33,7 @@ function App() {
       <Route path="/test-checkin" element={<CheckinTest />} />
       {/* 스튜디오 라우트 */}
       <Route path="/studio" element={<StudioHome />} />
+      <Route path="/studio/followers" element={<StudioFollowersPage />} />
       <Route path="/studio/new-place" element={<NewPlace />} />
       <Route path="/studio/place/:id/edit" element={<EditPlace />} />
     </Routes>

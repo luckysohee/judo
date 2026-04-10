@@ -54,7 +54,7 @@ export default function HotCheckinStrip({
       left: "50%",
       transform: "translateX(-50%)",
       width: "min(720px, calc(100% - 32px))",
-      bottom: "calc(88px + env(safe-area-inset-bottom, 0px))",
+      bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
       zIndex: 85,
       pointerEvents: "auto",
       boxSizing: "border-box",

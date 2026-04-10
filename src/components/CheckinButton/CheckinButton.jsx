@@ -5,6 +5,10 @@ import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchKakaoCoordsByPlaceId } from "../../utils/kakaoPlaceCoords";
 import { pickCheckinPlaceCoordsNearUser } from "../../utils/placeCoords";
+import {
+  checkinNicknameAliases,
+  resolveCheckinDisplayName,
+} from "../../utils/checkinDisplayName";
 
 function parseCoord(v) {
   if (v == null || v === "") return null;
@@ -160,12 +164,30 @@ export default function CheckinButton({
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentCheckinCount, setCurrentCheckinCount] = useState(0);
+  const [profileRow, setProfileRow] = useState(null);
 
-  // 사용자 닉네임 가져오기
-  const getUserNickname = () => {
-    if (!user) return "게스트";
-    return user.user_metadata?.nickname || user.email?.split('@')[0] || "사용자";
-  };
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setProfileRow(null);
+      return undefined;
+    }
+    (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("display_name, username")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!error && data) setProfileRow(data);
+      else setProfileRow(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const getUserNickname = () => resolveCheckinDisplayName(user, profileRow);
 
   // 체크인 상태 확인 (1시간 이내 체크인)
   useEffect(() => {
@@ -173,30 +195,31 @@ export default function CheckinButton({
 
     const checkUserCheckin = async () => {
       try {
-        // Supabase에서 사용자의 최근 체크인 확인
+        const aliases = checkinNicknameAliases(user, profileRow);
+        if (aliases.length === 0) return;
+
         const { data, error } = await supabase
-          .from('check_ins')
-          .select('*')
-          .eq('user_nickname', getUserNickname())
-          .eq('place_id', placeId)
-          .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
-          .order('created_at', { ascending: false })
+          .from("check_ins")
+          .select("id")
+          .in("user_nickname", aliases)
+          .eq("place_id", placeId)
+          .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString())
+          .order("created_at", { ascending: false })
           .limit(1);
 
         if (error) throw error;
-        setIsCheckedIn(data && data.length > 0);
+        setIsCheckedIn(Boolean(data?.length));
       } catch (error) {
         console.error("체크인 상태 확인 에러:", error);
       }
     };
 
     checkUserCheckin();
-    
-    // 5분마다 체크인 상태 확인
+
     const interval = setInterval(checkUserCheckin, 5 * 60 * 1000);
-    
+
     return () => clearInterval(interval);
-  }, [user?.id, placeId]);
+  }, [user?.id, placeId, user, profileRow]);
 
   // 장소 체크인 수 업데이트
   useEffect(() => {

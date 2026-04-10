@@ -22,7 +22,7 @@ const CheckinRanking = ({ position = 'sidebar' }) => {
           width: '280px',
           position: 'fixed',
           right: '20px',
-          top: '100px',
+          top: '76px',
           maxHeight: '400px',
           overflowY: 'auto'
         };

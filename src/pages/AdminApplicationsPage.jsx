@@ -20,6 +20,9 @@ export default function AdminApplicationsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   /** 신청자 앱 내 장소·저장 (admin_applicant_activity RPC) */
   const [activityModal, setActivityModal] = useState(null);
+  /** 반려 시 사유 입력 */
+  const [rejectModalApp, setRejectModalApp] = useState(null);
+  const [rejectReasonDraft, setRejectReasonDraft] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -119,34 +122,45 @@ export default function AdminApplicationsPage() {
     }
   };
 
-  const handleReject = async (application) => {
-    try {
-      // 반려 확인 알림
-      const confirmed = window.confirm(`${application.name}님의 큐레이터 신청을 반려하시겠습니까?\n\n반려 시 사용자는 다시 신청할 수 있습니다.`);
-      if (!confirmed) {
-        return; // 사용자가 취소하면 함수 종료
-      }
+  const openRejectModal = (application) => {
+    setRejectReasonDraft("");
+    setRejectModalApp(application);
+  };
 
+  const closeRejectModal = () => {
+    setRejectModalApp(null);
+    setRejectReasonDraft("");
+  };
+
+  const submitRejectWithReason = async () => {
+    if (!rejectModalApp?.id) return;
+    const application = rejectModalApp;
+    const trimmed = rejectReasonDraft.trim();
+
+    try {
       setProcessingId(application.id);
       setErrorMessage("");
 
       const { error } = await supabase.rpc("reject_curator_application", {
         application_id: application.id,
+        p_reason: trimmed || null,
       });
 
       if (error) throw error;
 
-      // 반려된 신청에 대한 localStorage 삭제 (다음 로그인시 알림 표시)
       if (application.user_id) {
         const rejectKey = `curator_rejected_${application.user_id}_${application.id}`;
         localStorage.removeItem(rejectKey);
-        console.log("🗑️ 반려 알림 localStorage 삭제:", rejectKey);
       }
 
+      closeRejectModal();
       await fetchApplications();
     } catch (error) {
       console.error("reject error:", error);
-      setErrorMessage(error?.message || "반려 처리 중 오류가 발생했습니다.");
+      setErrorMessage(
+        error?.message ||
+          "반려 처리 중 오류가 발생했습니다. DB에 `rejection_reason` 컬럼·RPC 갱신(20260416_curator_rejection_reason.sql)을 적용했는지 확인하세요."
+      );
     } finally {
       setProcessingId("");
     }
@@ -472,6 +486,13 @@ export default function AdminApplicationsPage() {
                     {new Date(item.created_at).toLocaleString("ko-KR")}
                   </div>
 
+                  {isRejected && item.rejection_reason ? (
+                    <div style={styles.rejectionReasonBox}>
+                      <span style={styles.rejectionReasonLabel}>반려 사유</span>
+                      <div style={styles.rejectionReasonText}>{item.rejection_reason}</div>
+                    </div>
+                  ) : null}
+
                   <div style={{ marginTop: "10px" }}>
                     <button
                       type="button"
@@ -499,7 +520,7 @@ export default function AdminApplicationsPage() {
 
                         <button
                           type="button"
-                          onClick={() => handleReject(item)}
+                          onClick={() => openRejectModal(item)}
                           disabled={isProcessing}
                           style={{
                             ...styles.rejectButton,
@@ -672,9 +693,13 @@ export default function AdminApplicationsPage() {
                       {Array.isArray(activityModal.summary.folders) &&
                       activityModal.summary.folders.length > 0 ? (
                         <div style={styles.modalSummaryFolders}>
-                          폴더별 저장{" "}
+                          <span style={{ color: "#bdbdbd" }}>폴더별</span>{" "}
                           {activityModal.summary.folders
-                            .map((f) => `${f.name} ${f.count}`)
+                            .map((f) => {
+                              const n = Number(f.count) || 0;
+                              const label = f.name || "—";
+                              return `${label} (${n})`;
+                            })
                             .join(" · ")}
                         </div>
                       ) : null}
@@ -726,6 +751,62 @@ export default function AdminApplicationsPage() {
             </div>
           </div>
         )
+      ) : null}
+
+      {rejectModalApp ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reject-modal-title"
+          style={styles.modalOverlay}
+          onClick={closeRejectModal}
+        >
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 id="reject-modal-title" style={styles.modalTitle}>
+                신청 반려 · {rejectModalApp.name}
+              </h2>
+              <button
+                type="button"
+                aria-label="닫기"
+                onClick={closeRejectModal}
+                style={styles.modalClose}
+              >
+                ×
+              </button>
+            </div>
+            <p style={styles.rejectModalHint}>
+              사유는 선택입니다. 입력 시 신청자 화면 알림에 포함됩니다. 비워 두면 안내 문구만
+              표시됩니다.
+            </p>
+            <textarea
+              value={rejectReasonDraft}
+              onChange={(e) => setRejectReasonDraft(e.target.value)}
+              placeholder="예: 샘플 장소 설명이 부족합니다. 활동 지역을 구체적으로 적어 주세요."
+              style={styles.rejectReasonTextarea}
+              rows={4}
+              disabled={processingId === rejectModalApp.id}
+            />
+            <div style={styles.rejectModalActions}>
+              <button
+                type="button"
+                onClick={closeRejectModal}
+                style={styles.rejectModalCancel}
+                disabled={processingId === rejectModalApp.id}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={submitRejectWithReason}
+                style={styles.rejectModalConfirm}
+                disabled={processingId === rejectModalApp.id}
+              >
+                {processingId === rejectModalApp.id ? "처리 중…" : "반려 확정"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -885,6 +966,67 @@ const styles = {
     marginTop: "10px",
     fontSize: "12px",
     color: "#bdbdbd",
+  },
+  rejectionReasonBox: {
+    marginTop: "10px",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    backgroundColor: "#221010",
+    border: "1px solid #4a2a2a",
+  },
+  rejectionReasonLabel: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#FF6B6B",
+    display: "block",
+    marginBottom: "6px",
+  },
+  rejectionReasonText: {
+    fontSize: "13px",
+    color: "#f0d0d0",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+  },
+  rejectModalHint: {
+    fontSize: "12px",
+    color: "#bdbdbd",
+    lineHeight: 1.5,
+    marginBottom: "10px",
+  },
+  rejectReasonTextarea: {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "1px solid #3a3a3a",
+    borderRadius: "12px",
+    padding: "12px",
+    backgroundColor: "#141414",
+    color: "#fff",
+    fontSize: "13px",
+    resize: "vertical",
+    minHeight: "100px",
+    marginBottom: "14px",
+  },
+  rejectModalActions: {
+    display: "flex",
+    gap: "10px",
+  },
+  rejectModalCancel: {
+    flex: 1,
+    border: "1px solid #444",
+    backgroundColor: "#1a1a1a",
+    color: "#fff",
+    borderRadius: "12px",
+    padding: "12px",
+    fontWeight: 700,
+  },
+  rejectModalConfirm: {
+    flex: 1,
+    border: "none",
+    backgroundColor: "#c0392b",
+    color: "#fff",
+    borderRadius: "12px",
+    padding: "12px",
+    fontWeight: 800,
   },
   buttonRow: {
     marginTop: "14px",

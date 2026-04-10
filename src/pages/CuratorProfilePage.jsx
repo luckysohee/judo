@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { useAuth } from "../context/AuthContext";
 
 export default function CuratorProfilePage() {
@@ -71,7 +72,11 @@ export default function CuratorProfilePage() {
       });
 
       if (error) throw error;
-      
+
+      if (rpc === "follow_curator") {
+        void syncAuthProviderToProfile(supabase, user).catch(() => {});
+      }
+
       setIsFollowing(!isFollowing);
     } catch (error) {
       console.error("follow error:", error);

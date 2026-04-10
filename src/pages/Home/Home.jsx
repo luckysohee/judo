@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
@@ -24,6 +24,7 @@ import { places as dummyPlaces } from "../../data/places";
 import { useAuth } from "../../context/AuthContext";
 
 import { supabase } from "../../lib/supabase";
+import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
 
 import {
   getFolders,
@@ -944,6 +945,8 @@ export default function Home() {
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
+  /** 일반 유저 공개 프로필(profiles) — 닉네임·핸들. 로그인 계정(이메일)과 UI 분리 */
+  const [mapUserProfile, setMapUserProfile] = useState(null);
   const [searchBarProfileImgFailed, setSearchBarProfileImgFailed] =
     useState(false);
 
@@ -1319,17 +1322,19 @@ export default function Home() {
         }, 1500);
       }
 
-      // 반려된 신청 확인 로직
+      // 반려된 신청 확인 로직 (Strict Mode 이중 effect·병렬 checkCurator 대비)
       const checkRejectedApplication = async () => {
         try {
-          const { data: rejectedApp, error } = await supabase
+          const { data: rejectedRows, error } = await supabase
             .from("curator_applications")
             .select("*")
             .eq("user_id", user.id)
             .eq("status", "rejected")
             .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(1);
+          const rejectedApp = Array.isArray(rejectedRows) ? rejectedRows[0] : null;
+
+          if (cancelled) return;
 
           if (error) {
             console.error("반려 신청 확인 오류:", error);
@@ -1338,14 +1343,23 @@ export default function Home() {
 
           if (rejectedApp) {
             const rejectKey = `curator_rejected_${user.id}_${rejectedApp.id}`;
-            const hasShownRejectAlert = localStorage.getItem(rejectKey);
+            if (localStorage.getItem(rejectKey)) return;
 
-            if (!hasShownRejectAlert) {
-              setTimeout(() => {
-                alert(`😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: 검토 후 부적합하다고 판단되었습니다.\n\n다시 신청하실 수 있습니다.`);
-                localStorage.setItem(rejectKey, 'shown');
-              }, 1500);
-            }
+            // setTimeout 전에 예약: 동시에 두 번 돌아온 호출이 둘 다 alert를 잡지 않도록
+            localStorage.setItem(rejectKey, "shown");
+
+            setTimeout(() => {
+              if (cancelled) return;
+              const customReason =
+                rejectedApp.rejection_reason &&
+                String(rejectedApp.rejection_reason).trim();
+              const reasonLine = customReason
+                ? customReason
+                : "검토 결과 큐레이터 신청 기준에 맞지 않아 반려되었습니다.";
+              alert(
+                `😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: ${reasonLine}\n\n내용을 보완한 뒤 다시 신청하실 수 있습니다.`
+              );
+            }, 1500);
           }
         } catch (error) {
           console.error("반려 확인 중 오류:", error);
@@ -1630,6 +1644,24 @@ export default function Home() {
     }
   }, [user, isCurator]);
 
+  const refreshMapUserProfile = useCallback(async () => {
+    if (!user?.id) {
+      setMapUserProfile(null);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("username, display_name, auth_provider")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!error && data) setMapUserProfile(data);
+    else setMapUserProfile(null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    refreshMapUserProfile();
+  }, [refreshMapUserProfile]);
+
   // Admin/큐레이터/일반 사용자에 따른 표시 로직
   const getDisplayUsername = () => {
     if (isAdmin) {
@@ -1638,11 +1670,40 @@ export default function Home() {
     if (isCurator && curatorProfile?.username) {
       return curatorProfile.username; // 큐레이터는 큐레이터 이름으로 표시
     }
-    // 일반 사용자: 이메일 앞자리 우선, 없으면 user_metadata, 없으면 "user"
-    if (user?.email) {
-      return user.email.split('@')[0]; // 이메일 앞자리로 표시
+    if (!isCurator && mapUserProfile) {
+      const nick = (mapUserProfile.display_name || "").trim();
+      if (nick) return nick;
+      const h = (mapUserProfile.username || "").trim();
+      if (h) return h;
     }
-    return user?.user_metadata?.username || "user"; // fallback
+    if (user?.email) {
+      return user.email.split("@")[0];
+    }
+    return user?.user_metadata?.username || "user";
+  };
+
+  const getProfileButtonHint = () => {
+    if (isAdmin) {
+      return { title: "관리자", aria: "관리자 메뉴" };
+    }
+    if (isCurator && curatorProfile?.username) {
+      const u = curatorProfile.username;
+      return { title: `@${u}`, aria: `큐레이터 스튜디오 @${u}` };
+    }
+    const h = (mapUserProfile?.username || "").trim();
+    const n = (mapUserProfile?.display_name || "").trim();
+    if (n && h) {
+      return {
+        title: `${n} (@${h})`,
+        aria: `프로필 ${n}, 핸들 @${h}`,
+      };
+    }
+    if (h) return { title: `@${h}`, aria: `프로필 @${h}` };
+    if (n) return { title: n, aria: `프로필 ${n}` };
+    return {
+      title: "프로필 (닉네임·핸들 설정)",
+      aria: "지도 프로필 · 닉네임과 핸들은 프로필에서 설정",
+    };
   };
 
   const searchBarProfilePhotoUrl = useMemo(() => {
@@ -3070,6 +3131,8 @@ const handleClearSearch = () => {
         }
         return;
       }
+
+      void syncAuthProviderToProfile(supabase, user).catch(() => {});
       
       showToast(`@${curatorName} 큐레이터를 팔로우했습니다!`, 'success', 3000);
       setShowFollowModal(false);
@@ -3414,7 +3477,7 @@ const handleClearSearch = () => {
         {/* 실시간 체크인 토스트 - 지도 좌측 */}
         <div style={{ 
           position: 'absolute', 
-          top: '80px', // 헤더 높이만큼 아래로
+          top: '62px', // 실시간 체크인 토스트 — 헤더에 더 붙이기
           left: '20px', // 좌측에 붙임
           transform: 'none', // 중앙 정렬 제거
           zIndex: 1000, // 헤더보다 낮게
@@ -3686,8 +3749,8 @@ const handleClearSearch = () => {
                     {!authLoading && user && (
                       <button
                         type="button"
-                        title={`@${getDisplayUsername()}`}
-                        aria-label={`프로필 @${getDisplayUsername()}`}
+                        title={getProfileButtonHint().title}
+                        aria-label={getProfileButtonHint().aria}
                         style={{
                           ...(getUserRole() === "admin"
                             ? styles.adminInlineButton
@@ -4236,6 +4299,7 @@ const handleClearSearch = () => {
         user={user}
         isVisible={showUserCard}
         onClose={() => setShowUserCard(false)}
+        onPublicProfileSaved={refreshMapUserProfile}
       />
 
     </div>

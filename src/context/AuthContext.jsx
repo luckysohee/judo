@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { supabase } from "../lib/supabase";
+import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 
 const AuthContext = createContext(null);
 
@@ -21,6 +22,10 @@ export function AuthProvider({ children }) {
         }
         setSession(data?.session ?? null);
         setUser(data?.session?.user ?? null);
+        const u = data?.session?.user;
+        if (u) {
+          syncAuthProviderToProfile(supabase, u).catch(() => {});
+        }
       })
       .finally(() => {
         if (!mounted) return;
@@ -31,6 +36,10 @@ export function AuthProvider({ children }) {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setLoading(false);
+      const u = nextSession?.user;
+      if (u) {
+        syncAuthProviderToProfile(supabase, u).catch(() => {});
+      }
     });
 
     return () => {

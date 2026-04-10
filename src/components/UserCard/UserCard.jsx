@@ -1,5 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from '../../lib/supabase';
+import {
+  formatAuthProviderForUi,
+  getAuthProviderLabel,
+} from "../../lib/syncAuthProviderToProfile";
+
+const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+
+function normalizePublicHandleInput(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 20);
+}
 
 // CSS 애니메이션 추가
 const style = document.createElement('style');
@@ -182,12 +195,18 @@ function getSavedPlaceDisplayFields(item) {
 
 const SWIPE_CLOSE_PX = 88;
 const SWIPE_MAX_DRAG_PX = 280;
+/** 홈 지도에서 JUDO 로고 줄만 남기고 시트가 올라갈 수 있는 상단 여백 */
+const PROFILE_MAP_TOP_RESERVE_PX = 64;
+/** 시트 안 핸들+프로필+탭바+하단 safe(대략, 탭 본문 제외) */
+const PROFILE_SHEET_CHROME_PX = 256;
 
 const UserCard = ({
   user,
   onClose,
   isVisible,
   onFolderSelect,
+  /** 지도 프로필 저장 후 Home 등에서 profiles 다시 읽기 */
+  onPublicProfileSaved = null,
   /** 관리자: RPC `usercard_saved_rows` — RLS로 타인 저장을 못 읽을 때 주입 */
   embeddedSavedRows = null,
   /** 관리자: RPC `following_curators` — 팔로우 탭 주입 */
@@ -212,10 +231,24 @@ const UserCard = ({
   const [editingPlace, setEditingPlace] = useState(null); // 수정 중인 장소
   const [selectedFolders, setSelectedFolders] = useState([]); // 선택된 폴더들
 
-  const swipeHeaderRef = useRef(null);
+  const [publicProfileRow, setPublicProfileRow] = useState(null);
+  const [profileFormOpen, setProfileFormOpen] = useState(false);
+  const [pfDisplayName, setPfDisplayName] = useState("");
+  const [pfUsername, setPfUsername] = useState("");
+  const [pfSaving, setPfSaving] = useState(false);
+  const [pfError, setPfError] = useState("");
+  /** 헤더 즉시 반영 (세션 메타 갱신 전) */
+  const [headerDisplayOverride, setHeaderDisplayOverride] = useState(null);
+
+  /** 핸들 제외: 프로필·탭바에서 아래로 스와이프 → 닫기 */
+  const headerSwipeDownRef = useRef(null);
+  const dragHandleRef = useRef(null);
   const tabScrollRef = useRef(null);
   const sheetDragYRef = useRef(0);
+  const sheetExpandPxRef = useRef(0);
   const [sheetDragY, setSheetDragY] = useState(0);
+  /** 핸들 위로 당겨 탭 영역 확장 (px). 맵에서는 로고 여백까지 */
+  const [sheetExpandPx, setSheetExpandPx] = useState(0);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -225,8 +258,28 @@ const UserCard = ({
     if (!isVisible) {
       sheetDragYRef.current = 0;
       setSheetDragY(0);
+      sheetExpandPxRef.current = 0;
+      setSheetExpandPx(0);
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    sheetExpandPxRef.current = sheetExpandPx;
+  }, [sheetExpandPx]);
+
+  const getTabBaseCss = useCallback(() => {
+    return adminTallSheet ? "min(58vh, 520px)" : "min(34vh, 168px)";
+  }, [adminTallSheet]);
+
+  const getMaxSheetExpandPx = useCallback(() => {
+    if (adminTallSheet) return 0;
+    if (typeof window === "undefined") return 0;
+    const vh = window.innerHeight;
+    const baseTab = Math.min(vh * 0.34, 168);
+    const maxTabBody =
+      vh - PROFILE_MAP_TOP_RESERVE_PX - PROFILE_SHEET_CHROME_PX;
+    return Math.max(0, Math.floor(maxTabBody - baseTab));
+  }, [adminTallSheet]);
 
   const attachSwipeDownClose = useCallback((touchEl, scrollContainer) => {
     if (!touchEl) return () => {};
@@ -283,17 +336,82 @@ const UserCard = ({
     };
   }, []);
 
+  /** 상단 핸들: 아래로 닫기 + 위로 탭 영역 확장 (맵 로고 여백까지) */
+  const attachHandlePull = useCallback(() => {
+    const handleEl = dragHandleRef.current;
+    if (!handleEl || adminTallSheet) return () => {};
+    let startTouchY = null;
+    let mode = null;
+    let expandAtStart = 0;
+
+    const touchStart = (e) => {
+      if (e.touches.length !== 1) return;
+      startTouchY = e.touches[0].clientY;
+      mode = null;
+      expandAtStart = sheetExpandPxRef.current;
+    };
+
+    const touchMove = (e) => {
+      if (startTouchY == null || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      const dy = y - startTouchY;
+      if (mode == null) {
+        if (dy > 12) mode = "down";
+        else if (dy < -12) mode = "up";
+        else return;
+      }
+      if (mode === "down") {
+        e.preventDefault();
+        const next = Math.min(Math.max(0, dy), SWIPE_MAX_DRAG_PX);
+        sheetDragYRef.current = next;
+        setSheetDragY(next);
+      } else if (mode === "up") {
+        e.preventDefault();
+        const lift = startTouchY - y;
+        const cap = getMaxSheetExpandPx();
+        setSheetExpandPx(() =>
+          Math.min(cap, Math.max(0, expandAtStart + lift))
+        );
+      }
+    };
+
+    const touchEnd = () => {
+      if (mode === "down" && sheetDragYRef.current >= SWIPE_CLOSE_PX) {
+        onCloseRef.current?.();
+      }
+      sheetDragYRef.current = 0;
+      setSheetDragY(0);
+      startTouchY = null;
+      mode = null;
+    };
+
+    handleEl.addEventListener("touchstart", touchStart, { passive: true });
+    handleEl.addEventListener("touchmove", touchMove, { passive: false });
+    handleEl.addEventListener("touchend", touchEnd);
+    handleEl.addEventListener("touchcancel", touchEnd);
+
+    return () => {
+      handleEl.removeEventListener("touchstart", touchStart);
+      handleEl.removeEventListener("touchmove", touchMove);
+      handleEl.removeEventListener("touchend", touchEnd);
+      handleEl.removeEventListener("touchcancel", touchEnd);
+    };
+  }, [adminTallSheet, getMaxSheetExpandPx]);
+
   useEffect(() => {
     if (!isVisible) return undefined;
-    const header = swipeHeaderRef.current;
     const scroll = tabScrollRef.current;
-    const unbindHeader = attachSwipeDownClose(header, null);
+    const headerSwipe = headerSwipeDownRef.current;
+    const unbindHandle = attachHandlePull();
+    const unbindHeaderDown =
+      headerSwipe != null ? attachSwipeDownClose(headerSwipe, null) : () => {};
     const unbindScroll = attachSwipeDownClose(scroll, scroll);
     return () => {
-      unbindHeader();
+      unbindHandle();
+      unbindHeaderDown();
       unbindScroll();
     };
-  }, [isVisible, attachSwipeDownClose]);
+  }, [isVisible, attachSwipeDownClose, attachHandlePull]);
 
   useEffect(() => {
     if (hideFollowingTab && activeTab === "following") {
@@ -308,6 +426,44 @@ const UserCard = ({
       loadUserData();
     }
   }, [isVisible, user, embeddedSavedRows, embeddedFollowingCurators]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      setHeaderDisplayOverride(null);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (!isVisible || !user?.id || embeddedAdminReadOnly) {
+      setPublicProfileRow(null);
+      setProfileFormOpen(false);
+      setPfError("");
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("username, display_name, auth_provider")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!error && data) {
+        setPublicProfileRow(data);
+        setPfDisplayName((data.display_name || "").trim());
+        setPfUsername((data.username || "").trim());
+      } else {
+        setPublicProfileRow(null);
+        setPfDisplayName(
+          (user.user_metadata?.display_name || user.user_metadata?.full_name || "").trim()
+        );
+        setPfUsername((user.user_metadata?.username || "").trim());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, user?.id, embeddedAdminReadOnly]);
 
   // 실제 장소 수를 계산하는 함수
   const getTotalPlacesCount = () => {
@@ -848,7 +1004,96 @@ const UserCard = ({
     }
   };
 
+  const savePublicProfile = async () => {
+    if (!user?.id || embeddedAdminReadOnly) return;
+    const nick = pfDisplayName.trim();
+    const raw = pfUsername.trim().toLowerCase();
+    setPfError("");
+    if (raw && !PUBLIC_HANDLE_RE.test(raw)) {
+      setPfError("핸들은 영문 소문자·숫자·_ 만 사용하고, 최소 3자~20자로 입력해 주세요.");
+      return;
+    }
+    if (!nick && !raw) {
+      setPfError("닉네임 또는 핸들 중 하나는 입력해 주세요.");
+      return;
+    }
+    setPfSaving(true);
+    try {
+      if (raw) {
+        const { data: taken } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("username", raw)
+          .neq("id", user.id)
+          .maybeSingle();
+        if (taken?.id) {
+          setPfError("이미 사용 중인 핸들이에요.");
+          setPfSaving(false);
+          return;
+        }
+      }
+      const payload = {
+        display_name: nick || null,
+        username: raw || null,
+        updated_at: new Date().toISOString(),
+      };
+      const { data: upd, error: upErr } = await supabase
+        .from("profiles")
+        .update(payload)
+        .eq("id", user.id)
+        .select("id");
+      if (upErr) throw upErr;
+      if (!upd?.length) {
+        const { error: insErr } = await supabase.from("profiles").insert({
+          id: user.id,
+          role: "user",
+          ...payload,
+        });
+        if (insErr) throw insErr;
+      }
+      await supabase.auth
+        .updateUser({
+          data: {
+            display_name: nick || undefined,
+            username: raw || undefined,
+            full_name: nick || undefined,
+          },
+        })
+        .catch(() => {});
+      setHeaderDisplayOverride({
+        display_name: nick,
+        username: raw,
+      });
+      setPublicProfileRow((prev) => ({ ...(prev || {}), ...payload }));
+      onPublicProfileSaved?.();
+      setProfileFormOpen(false);
+    } catch (e) {
+      setPfError(e?.message || "저장에 실패했습니다.");
+    } finally {
+      setPfSaving(false);
+    }
+  };
+
   if (!isVisible) return null;
+
+  const cardNick =
+    (
+      headerDisplayOverride?.display_name ||
+      publicProfileRow?.display_name ||
+      user?.user_metadata?.display_name ||
+      user?.user_metadata?.full_name ||
+      ""
+    ).trim() || null;
+  const cardHandle =
+    (
+      headerDisplayOverride?.username ||
+      publicProfileRow?.username ||
+      user?.user_metadata?.username ||
+      ""
+    ).trim() || null;
+  const loginProviderLabel = formatAuthProviderForUi(
+    publicProfileRow?.auth_provider || getAuthProviderLabel(user)
+  );
 
   return (
     <>
@@ -881,6 +1126,7 @@ const UserCard = ({
             borderRadius: "16px 16px 0 0",
             width: "100%",
             maxWidth: "500px",
+            maxHeight: `calc(100dvh - ${PROFILE_MAP_TOP_RESERVE_PX}px)`,
             height: "auto",
             overflow: "hidden",
             position: "relative",
@@ -897,22 +1143,33 @@ const UserCard = ({
             ...userCardGlass.sheet,
           }}
         >
-          <div ref={swipeHeaderRef}>
-            {/* 드래그 핸들 */}
+          <div>
+            {/* 드래그 핸들 — 위로 당겨 탭 영역 확장 (맵: 로고 줄까지) */}
             <div
+              ref={dragHandleRef}
               style={{
-                width: "42px",
-                height: "5px",
-                backgroundColor: "rgba(255, 255, 255, 0.35)",
-                borderRadius: "100px",
-                margin: "8px auto 4px",
+                padding: "10px 0 6px",
+                margin: "0 auto",
                 cursor: "grab",
                 touchAction: "none",
-                boxShadow:
-                  "0 0 0 1px rgba(255,255,255,0.15), 0 1px 8px rgba(0,0,0,0.2)",
+                display: "flex",
+                justifyContent: "center",
               }}
-            />
+              aria-label="시트 닫기(아래로) 또는 펼치기(위로)"
+            >
+              <div
+                style={{
+                  width: "42px",
+                  height: "5px",
+                  backgroundColor: "rgba(255, 255, 255, 0.35)",
+                  borderRadius: "100px",
+                  boxShadow:
+                    "0 0 0 1px rgba(255,255,255,0.15), 0 1px 8px rgba(0,0,0,0.2)",
+                }}
+              />
+            </div>
 
+            <div ref={headerSwipeDownRef}>
             {adminEmbedBanner ? (
               <div
                 style={{
@@ -959,10 +1216,10 @@ const UserCard = ({
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {user.user_metadata?.display_name || user.user_metadata?.username || '사용자'}
+                  {cardNick || cardHandle || "사용자"}
                 </div>
                 <div style={{ fontSize: '12px', color: '#3498DB', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  @{user.user_metadata?.username || user.email?.split('@')[0]}
+                  {cardHandle ? `@${cardHandle}` : "핸들 미설정 · 아래에서 추가"}
                 </div>
                 {user.user_metadata?.bio && (
                   <div style={{ fontSize: '11px', color: '#ccc', lineHeight: '1.25', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -972,6 +1229,153 @@ const UserCard = ({
               </div>
             </div>
           </div>
+
+          {!embeddedAdminReadOnly ? (
+            <div
+              style={{
+                padding: "8px 14px 10px",
+                borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
+                backgroundColor: "rgba(0, 0, 0, 0.2)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: "rgba(255,255,255,0.45)",
+                  marginBottom: "6px",
+                  lineHeight: 1.35,
+                }}
+              >
+                로그인: {loginProviderLabel} · 앱에서 보이는 이름은 카카오/구글 계정과
+                별도예요.
+              </div>
+              {!cardNick || !cardHandle ? (
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "rgba(255, 193, 7, 0.9)",
+                    marginBottom: "8px",
+                  }}
+                >
+                  큐레이터에게 팔로우 알림으로 이름이 갈 때 쓰여요. 부담 없이 한 번만
+                  설정해 주세요.
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileFormOpen((o) => !o);
+                  setPfError("");
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "10px",
+                  border: `1px solid ${userCardGlass.hairline.borderColor}`,
+                  background: "rgba(52, 152, 219, 0.2)",
+                  color: "#fff",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {profileFormOpen ? "접기" : "닉네임 · @핸들 설정"}
+              </button>
+              {profileFormOpen ? (
+                <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div>
+                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
+                      닉네임 (다른 사람에게 보이는 이름)
+                    </div>
+                    <input
+                      type="text"
+                      value={pfDisplayName}
+                      onChange={(e) => setPfDisplayName(e.target.value)}
+                      placeholder="예: 을지로호프"
+                      maxLength={40}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: "10px",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        background: "rgba(0,0,0,0.35)",
+                        color: "#fff",
+                        fontSize: "13px",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
+                      핸들 (앱 전용 ID, @ 없이 영문·숫자·_ 최소 3자~20자)
+                    </div>
+                    <input
+                      type="text"
+                      lang="en"
+                      inputMode="text"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={pfUsername}
+                      onChange={(e) => {
+                        if (e.nativeEvent?.isComposing) {
+                          setPfUsername(e.target.value);
+                          return;
+                        }
+                        setPfUsername(normalizePublicHandleInput(e.target.value));
+                      }}
+                      onCompositionEnd={(e) => {
+                        setPfUsername(normalizePublicHandleInput(e.currentTarget.value));
+                      }}
+                      placeholder="예: judo_sips"
+                      maxLength={20}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "8px 10px",
+                        borderRadius: "10px",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        background: "rgba(0,0,0,0.35)",
+                        color: "#fff",
+                        fontSize: "13px",
+                      }}
+                    />
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.45)",
+                        marginTop: "4px",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      한글 키보드면 <span style={{ color: "rgba(255,200,120,0.95)" }}>한/영</span> 전환 후 입력.
+                    </div>
+                  </div>
+                  {pfError ? (
+                    <div style={{ fontSize: "11px", color: "#ff8a8a" }}>{pfError}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={savePublicProfile}
+                    disabled={pfSaving}
+                    style={{
+                      padding: "10px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: "#2ECC71",
+                      color: "#111",
+                      fontWeight: 800,
+                      fontSize: "13px",
+                      cursor: pfSaving ? "wait" : "pointer",
+                      opacity: pfSaving ? 0.7 : 1,
+                    }}
+                  >
+                    {pfSaving ? "저장 중…" : "저장"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {Array.isArray(adminRecommends) && adminRecommends.length > 0 ? (
             <div
@@ -1134,6 +1538,7 @@ const UserCard = ({
               </button>
             )}
           </div>
+            </div>
           </div>
 
           {/* 닫기 버튼 — 스와이프 영역 밖 (탭·검색 클릭과 분리) */}
@@ -1168,12 +1573,21 @@ const UserCard = ({
             ref={tabScrollRef}
             style={{
               padding: "10px 12px 14px",
-              maxHeight: adminTallSheet
-                ? "min(58vh, 520px)"
-                : "min(34vh, 168px)",
-              minHeight: 0,
+              boxSizing: "border-box",
+              ...(adminTallSheet
+                ? {
+                    height: "min(58vh, 520px)",
+                    minHeight: "min(58vh, 520px)",
+                    maxHeight: "min(58vh, 520px)",
+                  }
+                : {
+                    height: `calc(${getTabBaseCss()} + ${sheetExpandPx}px)`,
+                    minHeight: `calc(${getTabBaseCss()} + ${sheetExpandPx}px)`,
+                    maxHeight: `calc(100dvh - ${PROFILE_MAP_TOP_RESERVE_PX}px - ${PROFILE_SHEET_CHROME_PX}px)`,
+                  }),
               overflowY: "auto",
               WebkitOverflowScrolling: "touch",
+              flexShrink: 0,
               background:
                 "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 40%)",
             }}

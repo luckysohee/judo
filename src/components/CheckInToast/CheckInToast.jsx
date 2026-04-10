@@ -21,11 +21,14 @@ const getUserDisplay = (userNickname) => {
     '술잔박사': { emoji: '🥃', display: '술잔박사' }
   };
   
-  // 기본 닉네임이나 이모지콘 할당
+  // 기본 닉네임이나 이모지콘 할당 (동일 닉네임은 항상 같은 이모지)
   if (!nicknameMap[userNickname]) {
     const emojis = ['🍻', '🍷', '🍶', '🍸', '🥃'];
-    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-    return { emoji: randomEmoji, display: userNickname || '음악가' };
+    const key = String(userNickname || '');
+    let h = 0;
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    const emoji = emojis[h % emojis.length];
+    return { emoji, display: userNickname || '음악가' };
   }
   
   return nicknameMap[userNickname];
@@ -105,22 +108,35 @@ const CheckInToast = () => {
     });
   };
 
+  /** Supabase check_ins 행 → 토스트용 (user_nickname / place_name) */
+  const enrichCheckinRow = (c) => {
+    const nick =
+      (c.user_nickname || c.user || "").trim() || "사용자";
+    const placeLabel = (c.place_name || c.place || "").trim();
+    const disp = getUserDisplay(nick);
+    return {
+      ...c,
+      user: nick,
+      place: placeLabel,
+      emoji: c.emoji || disp.emoji,
+    };
+  };
+
   // 체크인 그룹화 함수 (같은 시간대에 체크인한 사용자 묶기)
   const groupCheckins = (checkins) => {
     const groups = [];
-    const now = new Date();
-    
-    checkins.forEach(checkin => {
+
+    checkins.forEach((raw) => {
+      const checkin = enrichCheckinRow(raw);
       const checkinTime = new Date(checkin.timestamp || checkin.created_at);
-      const timeDiff = Math.abs(now - checkinTime);
-      
+
       // 10초 이내의 체크인은 같은 그룹으로 묶기
-      const existingGroup = groups.find(group => {
+      const existingGroup = groups.find((group) => {
         const groupTime = new Date(group.timestamp);
-        const timeDiff = Math.abs(groupTime - checkinTime);
-        return timeDiff < 10000; // 10초
+        const timeDiffG = Math.abs(groupTime - checkinTime);
+        return timeDiffG < 10000; // 10초
       });
-      
+
       if (existingGroup) {
         existingGroup.users.push(checkin);
       } else {
@@ -128,11 +144,11 @@ const CheckInToast = () => {
           id: checkin.id,
           users: [checkin],
           timestamp: checkin.timestamp || checkin.created_at,
-          place: checkin.place
+          place: checkin.place,
         });
       }
     });
-    
+
     return groups;
   };
 
@@ -338,6 +354,7 @@ const CheckInToast = () => {
     maxWidth: "100%",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    flexShrink: 0,
   };
 
   return (
@@ -345,9 +362,12 @@ const CheckInToast = () => {
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "4px",
-        maxHeight: "56px",
-        overflow: "hidden",
+        alignItems: "flex-start",
+        gap: "6px",
+        maxHeight: "min(168px, 36vh)",
+        overflowY: "auto",
+        overflowX: "hidden",
+        WebkitOverflowScrolling: "touch",
       }}
     >
       <AnimatePresence>
@@ -355,12 +375,13 @@ const CheckInToast = () => {
           <motion.div
             key={checkIn.id}
             initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+            animate={{
+              opacity: Math.max(0.55, 1 - index * 0.12),
+              y: 0,
+            }}
             exit={{ opacity: 0, y: -10, transition: { duration: 0.3 } }}
             style={{
               ...rowBase,
-              transform: `translateY(${index * 14}px)`,
-              opacity: 1 - index * 0.2,
             }}
           >
             {checkIn.type === "single" ? (

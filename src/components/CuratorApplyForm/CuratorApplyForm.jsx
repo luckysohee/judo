@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
@@ -14,6 +14,34 @@ export default function CuratorApplyForm() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** 최신 신청이 반려였을 때 관리자 사유 (재작성 참고) */
+  const [lastRejectionReason, setLastRejectionReason] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setLastRejectionReason("");
+      return undefined;
+    }
+    (async () => {
+      const { data, error } = await supabase
+        .from("curator_applications")
+        .select("status, rejection_reason")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled || error) return;
+      if (data?.status === "rejected" && data.rejection_reason?.trim()) {
+        setLastRejectionReason(data.rejection_reason.trim());
+      } else {
+        setLastRejectionReason("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const resetForm = () => {
     setName("");
@@ -48,15 +76,20 @@ export default function CuratorApplyForm() {
       setSubmitting(true);
 
       // 기존 신청 내역 확인
-      const { data: existingApplication, error: checkError } = await supabase
+      const { data: existingRows, error: checkError } = await supabase
         .from("curator_applications")
-        .select("id, status")
+        .select("id, status, rejection_reason")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .order("created_at", { ascending: false })
+        .limit(1);
 
       if (checkError) {
         console.error("기존 신청 확인 오류:", checkError);
       }
+
+      const existingApplication = Array.isArray(existingRows)
+        ? existingRows[0] ?? null
+        : null;
 
       // 이미 신청한 경우
       if (existingApplication) {
@@ -69,7 +102,7 @@ export default function CuratorApplyForm() {
         } else if (existingApplication.status === "rejected") {
           // 반려된 경우 새로운 신청 생성 (기존 신청은 그대로 둠)
           console.log("🔄 반려된 신청자 새로운 신청 생성 시도");
-          
+
           // 새로운 신청 생성 (기존 반려된 신청은 유지)
           const { data, error } = await supabase
             .from("curator_applications")
@@ -95,6 +128,7 @@ export default function CuratorApplyForm() {
           localStorage.removeItem(rejectKey);
           console.log("🗑️ 재신청 시 반려 알림 localStorage 삭제:", rejectKey);
 
+          setLastRejectionReason("");
           setMessage("큐레이터 신청서가 다시 제출되었습니다. 검토 후 결과를 알려드릴게요!");
           setName("");
           setContact("");
@@ -146,9 +180,33 @@ export default function CuratorApplyForm() {
     <div style={styles.overlay}>
       <div style={styles.modal}>
         <div style={styles.title}>큐레이터 신청</div>
-        <div style={styles.subtitle}>
-          초기에는 신청 후 승인 방식으로 운영됩니다.
+
+        <div style={styles.infoBox}>
+          <div style={styles.infoTitle}>심사 시 참고하는 점</div>
+          <ul style={styles.infoList}>
+            <li>샘플 술집과 큐레이션 스타일·지역을 구체적으로 적어 주세요.</li>
+            <li>연락 가능한 SNS 또는 이메일을 남겨 주시면 소통이 수월합니다.</li>
+            <li>
+              숫자로 된 &quot;최소 N건&quot; 같은 자동 기준은 두지 않았으며, 내용과 품질을
+              종합해 판단합니다.
+            </li>
+          </ul>
         </div>
+
+        <div style={styles.privacyNote}>
+          입력하신 연락처·SNS는 큐레이터 신청 검토·안내 목적으로만 사용되며, 제3자에게
+          제공하지 않습니다.
+        </div>
+
+        {lastRejectionReason ? (
+          <div style={styles.rejectionBanner}>
+            <div style={styles.rejectionBannerTitle}>이전 신청 반려 사유</div>
+            <div style={styles.rejectionBannerBody}>{lastRejectionReason}</div>
+            <div style={styles.rejectionBannerFoot}>
+              아래 양식을 보완해 다시 제출해 주세요.
+            </div>
+          </div>
+        ) : null}
 
         <div style={styles.field}>
           <div style={styles.label}>이름 / 활동명</div>
@@ -264,10 +322,55 @@ const styles = {
     fontWeight: 800,
     color: "#ffffff",
   },
-  subtitle: {
-    marginTop: "6px",
-    fontSize: "13px",
+  infoBox: {
+    marginTop: "14px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    backgroundColor: "#161616",
+    border: "1px solid #2e2e2e",
+  },
+  infoTitle: {
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "#e5e5e5",
+    marginBottom: "8px",
+  },
+  infoList: {
+    margin: 0,
+    paddingLeft: "18px",
+    fontSize: "12px",
     color: "#bdbdbd",
+    lineHeight: 1.55,
+  },
+  privacyNote: {
+    marginTop: "12px",
+    fontSize: "11px",
+    color: "#888",
+    lineHeight: 1.5,
+  },
+  rejectionBanner: {
+    marginTop: "14px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    backgroundColor: "#221010",
+    border: "1px solid #4a2a2a",
+  },
+  rejectionBannerTitle: {
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "#FF6B6B",
+    marginBottom: "8px",
+  },
+  rejectionBannerBody: {
+    fontSize: "13px",
+    color: "#f0d0d0",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+  },
+  rejectionBannerFoot: {
+    marginTop: "8px",
+    fontSize: "11px",
+    color: "#9f8f8f",
   },
   field: {
     marginTop: "14px",

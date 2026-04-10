@@ -1204,7 +1204,7 @@ export default function StudioHome() {
   const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
-  const [filterType, setFilterType] = useState("all"); // 필터 타입: all, public, private, curator
+  const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
   
   // 변경사항 감지 상태
@@ -1724,37 +1724,36 @@ export default function StudioHome() {
           if (unreadFollows && unreadFollows.length > 0) {
             // 팔로워 정보 가져오기
             const followerPromises = unreadFollows.map(async (follow) => {
-              // 먼저 profiles 테이블에서 조회
               const { data: profileData, error: profileError } = await supabase
-                .from('profiles')
-                .select('username, display_name')
-                .eq('id', follow.user_id)
+                .from("profiles")
+                .select("username, display_name")
+                .eq("id", follow.user_id)
                 .maybeSingle();
-              
-              // profiles에 없으면 users 테이블에서 이메일로 조회
+
               if (profileError || !profileData) {
-                const { data: userData, error: userError } = await supabase.auth.admin.getUserById(follow.user_id);
-                
-                if (userError || !userData?.user) {
-                  return {
-                    ...follow,
-                    username: '알 수 없는 사용자'
-                  };
-                }
-                
-                // 이메일에서 username 추출 (@앞부분)
-                const email = userData.user.email;
-                const emailUsername = email?.split('@')[0] || 'unknown';
-                
                 return {
                   ...follow,
-                  username: emailUsername
+                  toastLine: null,
+                  toastDetail: null,
                 };
               }
-              
+
+              const nick = (profileData.display_name || "").trim();
+              const handle = (profileData.username || "").trim();
+
+              let toastLine = null;
+              if (nick && handle) {
+                toastLine = `${nick} (@${handle})`;
+              } else if (nick) {
+                toastLine = nick;
+              } else if (handle) {
+                toastLine = `@${handle}`;
+              }
+
               return {
                 ...follow,
-                username: profileData.username || profileData.display_name || '알 수 없는 사용자'
+                toastLine,
+                toastDetail: null,
               };
             });
 
@@ -1763,9 +1762,23 @@ export default function StudioHome() {
             const firstFollower = followersWithData[0];
 
             // 메시지 생성
-            const message = count === 1 
-              ? `✨ @${firstFollower.username}님이 큐레이터님을 팔로우했습니다! 👤`
-              : `🚀 @${firstFollower.username}님 외 ${count - 1}명이 큐레이터님을 팔로우합니다!`;
+            const singleMsg = (() => {
+              const f = firstFollower;
+              if (f.toastDetail) {
+                return `✨ ${f.toastLine} — ${f.toastDetail}`;
+              }
+              if (!f.toastLine) {
+                return `✨ 새 팔로우가 생겼어요! 👤`;
+              }
+              return `✨ ${f.toastLine}님이 큐레이터님을 팔로우했습니다! 👤`;
+            })();
+
+            const message =
+              count === 1
+                ? singleMsg
+                : !firstFollower.toastLine
+                  ? `🚀 새 팔로우 ${count}건이 있어요. 👤`
+                  : `🚀 ${firstFollower.toastLine}님 외 ${count - 1}명이 큐레이터님을 팔로우합니다!`;
 
             // Toast 알림 표시
             showToast(message, 'info', 5000);
@@ -3750,15 +3763,27 @@ export default function StudioHome() {
       {/* 잔 리스트 섹션 */}
       {activeSection === "list" && (
         <div style={styles.studioSectionInner}>
-          {/* 잔 리스트 검색 */}
-          <div style={{ marginBottom: "14px" }}>
+          {/* 잔 리스트 검색 — flex 부모·긴 플레이스홀더로 가로 넘침 방지 */}
+          <div
+            style={{
+              marginBottom: "14px",
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
+            }}
+          >
             <input
               type="text"
               value={listSearchQuery}
               onChange={(e) => setListSearchQuery(e.target.value)}
               placeholder="잔리스트 검색 (장소명/카테고리/주소)"
               style={{
+                display: "block",
                 width: "100%",
+                maxWidth: "100%",
+                minWidth: 0,
+                boxSizing: "border-box",
                 padding: "10px 12px",
                 borderRadius: "8px",
                 border: "1px solid #3a3a3a",
@@ -3822,25 +3847,6 @@ export default function StudioHome() {
             >
               비공개
             </button>
-            
-            {/* 큐레이터 필터 */}
-            {curatorProfile && curatorProfile.username && (
-              <button
-                onClick={() => setFilterType("curator")}
-                style={{
-                  padding: "6px 12px",
-                  backgroundColor: filterType === "curator" ? "#F39C12" : "#444",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                }}
-              >
-                @{curatorProfile.username}
-              </button>
-            )}
           </div>
           
           {/* 장소 리스트 */}
@@ -3854,9 +3860,6 @@ export default function StudioHome() {
                 filteredPlaces = myPlaces.filter(place => place.is_public);
               } else if (filterType === "private") {
                 filteredPlaces = myPlaces.filter(place => !place.is_public);
-              } else if (filterType === "curator") {
-                // 큐레이터 필터 - 현재 큐레이터의 장소만 표시
-                filteredPlaces = myPlaces; // 현재는 모든 장소가 큐레이터의 장소라고 가정
               }
 
               if (normalizedQuery) {
@@ -3881,14 +3884,11 @@ export default function StudioHome() {
                   color: "#666",
                   fontSize: "13px",
                 }}>
-                  {filterType === "curator" 
-                    ? "큐레이터의 장소가 없습니다."
-                    : filterType === "public" 
+                  {filterType === "public"
                     ? "공개 장소가 없습니다."
                     : filterType === "private"
-                    ? "비공개 장소가 없습니다."
-                    : "저장된 장소가 없습니다."
-                  }
+                      ? "비공개 장소가 없습니다."
+                      : "저장된 장소가 없습니다."}
                 </div>
               ) : (
                 filteredPlaces.map(place => (
@@ -4589,11 +4589,27 @@ export default function StudioHome() {
               <div style={styles.archiveStatLabel}>잔 개수</div>
               <div style={styles.archiveStatSub}>내 공개 장소</div>
             </div>
-            <div style={styles.archiveStatCell} title="팔로워 수">
+            <button
+              type="button"
+              title="팔로워 목록 보기"
+              aria-label={`팔로워 ${curatorStats.followerCount || 0}명, 목록 보기`}
+              onClick={() => navigate("/studio/followers")}
+              style={{
+                ...styles.archiveStatCell,
+                cursor: "pointer",
+                width: "100%",
+                margin: 0,
+                font: "inherit",
+                color: "inherit",
+                textAlign: "center",
+                WebkitAppearance: "none",
+                appearance: "none",
+              }}
+            >
               <div style={styles.archiveStatValue}>{curatorStats.followerCount || 0}</div>
               <div style={styles.archiveStatLabel}>팔로워</div>
-              <div style={styles.archiveStatSub}>팔로우 수</div>
-            </div>
+              <div style={styles.archiveStatSub}>탭하여 목록</div>
+            </button>
           </div>
           
           {/* 📈 이번 주 성장 피드백 */}
@@ -5047,6 +5063,9 @@ const styles = {
     padding: "12px 12px 20px",
     textAlign: "center",
     minHeight: "100vh",
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
     backgroundColor: "#111111",
     color: "#ffffff",
     boxSizing: "border-box",
@@ -5057,6 +5076,8 @@ const styles = {
     textAlign: "left",
     margin: "0 auto",
     width: "min(920px, 100%)",
+    maxWidth: "100%",
+    minWidth: 0,
     padding: "0 4px",
     boxSizing: "border-box",
   },
