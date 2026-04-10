@@ -251,7 +251,7 @@ export default function SearchBar({
     }
 
     // 검색 결과 닫기 및 선택된 인덱스 초기화
-    setShowKakaoResults(false);
+    setShowKakaoResultsState(false);
     setSelectedKakaoIndex(-1);
     setQuery('');
   };
@@ -282,7 +282,7 @@ export default function SearchBar({
       
       // 검색 실행 후 모든 자동완성 UI 숨김
       setShowSuggestions(false);
-      setShowKakaoResults(false);
+      setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
       
       // 검색 완료 후 상태 복원 (시뮬레이션)
@@ -318,7 +318,7 @@ export default function SearchBar({
     
     // 모든 자동완성 UI 숨김
     setShowSuggestions(false);
-    setShowKakaoResults(false);
+    setShowKakaoResultsState(false);
     setSelectedKakaoIndex(-1);
     
     // 부모 컴포넌트에 알림
@@ -531,7 +531,7 @@ export default function SearchBar({
     } finally {
       setIsKakaoLoading(false);
       setKakaoResults([]);
-      setShowKakaoResults(false);
+      setShowKakaoResultsState(false);
     }
   };
 
@@ -756,7 +756,11 @@ export default function SearchBar({
             onKeyDown={handleKeyDown}
             placeholder=""  // placeholder 비우기
             title="타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 주도 전체 검색."
-            onFocus={() => showKakaoSearch && setShowKakaoResults(true)}
+            onFocus={() => {
+              if (!showKakaoSearch) return;
+              // 포커스만으로 showKakaoResults를 켜면 결과가 없을 때도 전체 화면 백드롭이 올라가 지도 터치 드래그가 막힘(모바일)
+              if (kakaoResults.length > 0) setShowKakaoResultsState(true);
+            }}
             style={{
               ...styles.input,
               width: "100%",
@@ -867,17 +871,18 @@ export default function SearchBar({
         </div>
       ) : null}
 
-      {/* 바깥 클릭 시 카카오 결과 닫기 */}
-      {showKakaoSearch && showKakaoResults && (
+      {/* 바깥 클릭 시 카카오 결과 닫기 — 결과 목록이 실제로 있을 때만(없으면 투명 레이어가 지도만 가림) */}
+      {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
         <div
-          onClick={() => setShowKakaoResults(false)}
+          role="presentation"
+          onClick={() => setShowKakaoResultsState(false)}
           style={{
-            position: 'fixed',
+            position: "fixed",
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            zIndex: 999
+            zIndex: 999,
           }}
         />
       )}

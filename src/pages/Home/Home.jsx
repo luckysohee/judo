@@ -3545,7 +3545,17 @@ const handleClearSearch = () => {
 
         <div style={styles.headerOverlay}>
           <div style={styles.logoStack}>
-            <h1 style={styles.logo}>JUDO</h1>
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/";
+              }}
+              style={styles.logoHomeButton}
+              title="홈(새로고침)"
+              aria-label="홈으로 이동하여 새로고침"
+            >
+              JUDO
+            </button>
           </div>
 
           <div style={styles.filterWrapper}>
@@ -4344,14 +4354,21 @@ const styles = {
     flexShrink: 0,
   },
 
-  logo: {
+  /** 로고 = 홈 전체 새로고침(상태 초기화) */
+  logoHomeButton: {
     margin: 0,
+    padding: 0,
+    border: "none",
+    background: "none",
+    font: "inherit",
     fontSize: "30px",
     fontWeight: 900,
     letterSpacing: "-1.5px",
     color: "#111",
     lineHeight: 1,
     flexShrink: 0,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
   },
 
   filterWrapper: {
