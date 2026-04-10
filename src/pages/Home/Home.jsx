@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
@@ -944,6 +944,8 @@ export default function Home() {
 
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
+  const [searchBarProfileImgFailed, setSearchBarProfileImgFailed] =
+    useState(false);
 
   /** 검색바 우측 @ / 로그아웃 등이 모바일에서 입력칸을 잡아먹지 않게 */
   const [compactSearchBarAuth, setCompactSearchBarAuth] = useState(() =>
@@ -1641,6 +1643,26 @@ export default function Home() {
       return user.email.split('@')[0]; // 이메일 앞자리로 표시
     }
     return user?.user_metadata?.username || "user"; // fallback
+  };
+
+  const searchBarProfilePhotoUrl = useMemo(() => {
+    if (!user) return null;
+    if (isCurator && curatorProfile?.image) {
+      return String(curatorProfile.image).trim() || null;
+    }
+    const m = user.user_metadata || {};
+    const raw = m.avatar_url || m.picture || m.image;
+    return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  }, [user, isCurator, curatorProfile?.image]);
+
+  useEffect(() => {
+    setSearchBarProfileImgFailed(false);
+  }, [searchBarProfilePhotoUrl]);
+
+  const getSearchBarProfileInitial = () => {
+    const name = getDisplayUsername();
+    if (!name || !String(name).length) return "?";
+    return String(name).slice(0, 1).toUpperCase();
   };
 
   const getUserRole = () => {
@@ -3663,28 +3685,20 @@ const handleClearSearch = () => {
                     {/* 모든 사용자 @아이디 버튼 */}
                     {!authLoading && user && (
                       <button
-                        style={
-                          getUserRole() === "admin"
-                            ? {
-                                ...styles.adminInlineButton,
-                                ...(compactSearchBarAuth
-                                  ? styles.inlineRoleButtonNarrow
-                                  : {}),
-                              }
+                        type="button"
+                        title={`@${getDisplayUsername()}`}
+                        aria-label={`프로필 @${getDisplayUsername()}`}
+                        style={{
+                          ...(getUserRole() === "admin"
+                            ? styles.adminInlineButton
                             : getUserRole() === "curator"
-                              ? {
-                                  ...styles.curatorInlineButton,
-                                  ...(compactSearchBarAuth
-                                    ? styles.inlineRoleButtonNarrow
-                                    : {}),
-                                }
-                              : {
-                                  ...styles.userInlineButton,
-                                  ...(compactSearchBarAuth
-                                    ? styles.inlineRoleButtonNarrow
-                                    : {}),
-                                }
-                        }
+                              ? styles.curatorInlineButton
+                              : styles.userInlineButton),
+                          ...styles.searchBarProfileButton,
+                          ...(compactSearchBarAuth
+                            ? styles.searchBarProfileButtonNarrow
+                            : {}),
+                        }}
                         onClick={() => {
                           const userRole = getUserRole();
                           console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
@@ -3700,9 +3714,19 @@ const handleClearSearch = () => {
                             setShowUserCard(true);
                           }
                         }}
-                        type="button"
                       >
-                        @{getDisplayUsername()}
+                        {searchBarProfilePhotoUrl && !searchBarProfileImgFailed ? (
+                          <img
+                            src={searchBarProfilePhotoUrl}
+                            alt=""
+                            style={styles.searchBarProfileImg}
+                            onError={() => setSearchBarProfileImgFailed(true)}
+                          />
+                        ) : (
+                          <span style={styles.searchBarProfileInitial}>
+                            {getSearchBarProfileInitial()}
+                          </span>
+                        )}
                       </button>
                     )}
                     
@@ -4297,12 +4321,12 @@ const styles = {
     width: "28px",
     height: "28px",
     borderRadius: "9px",
-    border: "1px solid rgba(255,255,255,0.28)",
-    background: "rgba(22, 24, 28, 0.38)",
+    border: "1px solid rgba(255,255,255,0.22)",
+    background: "rgba(22, 24, 28, 0.22)",
     backdropFilter: "blur(16px)",
     WebkitBackdropFilter: "blur(16px)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.14), 0 4px 16px rgba(0,0,0,0.18)",
+      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.14)",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
@@ -4345,8 +4369,9 @@ const styles = {
     left: "50%",
     transform: "translateX(-50%)",
     bottom: "18px",
-    width: "90%",
-    maxWidth: "600px",
+    /* 헤더(16px 인셋)와 동일한 좌우 여백 — 90%는 뷰포트마다 측면이 어긋남 */
+    width: "min(720px, calc(100% - 32px))",
+    boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -4576,6 +4601,39 @@ const styles = {
     transition: "all 0.2s ease",
     backdropFilter: "blur(12px)",
     WebkitBackdropFilter: "blur(12px)",
+  },
+
+  /** 검색바 우측 프로필 — 원형 사진(역할색 링은 위 버튼 스타일 유지) */
+  searchBarProfileButton: {
+    minWidth: "34px",
+    maxWidth: "34px",
+    width: "34px",
+    height: "34px",
+    padding: 0,
+    borderRadius: "50%",
+    overflow: "hidden",
+    flexShrink: 0,
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+  searchBarProfileButtonNarrow: {
+    minWidth: "28px",
+    maxWidth: "28px",
+    width: "28px",
+    height: "28px",
+    fontSize: "11px",
+  },
+  searchBarProfileImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+    pointerEvents: "none",
+  },
+  searchBarProfileInitial: {
+    lineHeight: 1,
+    userSelect: "none",
+    pointerEvents: "none",
   },
 
   sideFabContainer: {

@@ -183,7 +183,23 @@ function getSavedPlaceDisplayFields(item) {
 const SWIPE_CLOSE_PX = 88;
 const SWIPE_MAX_DRAG_PX = 280;
 
-const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
+const UserCard = ({
+  user,
+  onClose,
+  isVisible,
+  onFolderSelect,
+  /** 관리자: RPC `usercard_saved_rows` — RLS로 타인 저장을 못 읽을 때 주입 */
+  embeddedSavedRows = null,
+  /** 관리자: RPC `following_curators` — 팔로우 탭 주입 */
+  embeddedFollowingCurators = null,
+  embeddedAdminReadOnly = false,
+  hideFollowingTab = false,
+  adminRecommends = null,
+  adminSavedUnassigned = null,
+  adminEmbedBanner = null,
+  adminTallSheet = false,
+  layerZIndex = 1000,
+}) => {
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
@@ -280,12 +296,18 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
   }, [isVisible, attachSwipeDownClose]);
 
   useEffect(() => {
+    if (hideFollowingTab && activeTab === "following") {
+      setActiveTab("saved");
+    }
+  }, [hideFollowingTab, activeTab]);
+
+  useEffect(() => {
     console.log('🔄 UserCard useEffect 호출:', { isVisible, user });
     if (isVisible && user) {
       console.log('✅ loadUserData 시작');
       loadUserData();
     }
-  }, [isVisible, user]);
+  }, [isVisible, user, embeddedSavedRows, embeddedFollowingCurators]);
 
   // 실제 장소 수를 계산하는 함수
   const getTotalPlacesCount = () => {
@@ -577,10 +599,19 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
       console.log('🚀 loadUserData 함수 시작');
       setLoading(true);
 
-      // 1. 저장한 장소 불러오기 (폴더 정보 포함)
-      const { data: savedData, error: savedError } = await supabase
-        .from('user_saved_places')
-        .select(`
+      const useEmbedded =
+        embeddedSavedRows != null && Array.isArray(embeddedSavedRows);
+
+      let savedData = null;
+      let savedError = null;
+
+      if (useEmbedded) {
+        savedData = embeddedSavedRows;
+      } else {
+        const res = await supabase
+          .from("user_saved_places")
+          .select(
+            `
           *,
           places (*), 
           user_saved_place_folders (
@@ -591,16 +622,21 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
               icon
             )
           )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
+        `
+          )
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        savedData = res.data;
+        savedError = res.error;
+      }
 
-      console.log('UserCard - savedData:', savedData);
-      console.log('UserCard - savedError:', savedError);
+      console.log("UserCard - savedData:", savedData);
+      console.log("UserCard - savedError:", savedError);
 
-      // localStorage 데이터 처리 (항상 실행)
-      const localStorageDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      const localStorageDrafts = useEmbedded
+        ? []
+        : JSON.parse(localStorage.getItem("studio_drafts") || "[]");
       console.log('🗂️ UserCard - localStorage 데이터:', localStorageDrafts);
       
       // 기본 폴더 7개 초기화
@@ -682,7 +718,15 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
       
       setSavedPlaces(groupedByFolder);
 
-      // 2. 팔로우한 큐레이터 불러오기
+      if (hideFollowingTab) {
+        setFollowingCurators([]);
+      } else if (useEmbedded) {
+        setFollowingCurators(
+          Array.isArray(embeddedFollowingCurators)
+            ? embeddedFollowingCurators
+            : []
+        );
+      } else {
       const { data: followingData, error: followingError } = await supabase
         .from('user_follows')
         .select('*')
@@ -757,6 +801,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
       } else {
         setFollowingCurators([]);
       }
+      }
 
     } catch (error) {
       console.error('사용자 데이터 로드 오류:', error);
@@ -808,6 +853,14 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
   return (
     <>
       <div
+        role={embeddedAdminReadOnly ? "presentation" : undefined}
+        onClick={
+          embeddedAdminReadOnly
+            ? (e) => {
+                if (e.target === e.currentTarget) onClose?.();
+              }
+            : undefined
+        }
         style={{
           position: "fixed",
           top: 0,
@@ -817,12 +870,13 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "center",
-          zIndex: 1000,
+          zIndex: layerZIndex,
           padding: 0,
           ...userCardGlass.overlay,
         }}
       >
         <div
+          onClick={(e) => e.stopPropagation()}
           style={{
             borderRadius: "16px 16px 0 0",
             width: "100%",
@@ -858,6 +912,20 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                   "0 0 0 1px rgba(255,255,255,0.15), 0 1px 8px rgba(0,0,0,0.2)",
               }}
             />
+
+            {adminEmbedBanner ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  fontSize: "11px",
+                  color: "rgba(255,255,255,0.7)",
+                  padding: "0 14px 6px",
+                  lineHeight: 1.35,
+                }}
+              >
+                {adminEmbedBanner}
+              </div>
+            ) : null}
 
             {/* 프로필 정보 */}
             <div
@@ -905,6 +973,74 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
             </div>
           </div>
 
+          {Array.isArray(adminRecommends) && adminRecommends.length > 0 ? (
+            <div
+              style={{
+                padding: "8px 12px 6px",
+                borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
+                backgroundColor: "rgba(0, 0, 0, 0.22)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.85)",
+                  marginBottom: "6px",
+                }}
+              >
+                추천 등록 (스튜디오·큐레이터 연결)
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                  maxHeight: "min(28vh, 200px)",
+                  overflowY: "auto",
+                }}
+              >
+                {adminRecommends.map((row, idx) => (
+                  <div
+                    key={`adm-rec-${row.at}-${idx}`}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: "8px",
+                      backgroundColor: "rgba(46, 204, 113, 0.12)",
+                      border: "1px solid rgba(46, 204, 113, 0.25)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#fff",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {row.place_name || "(이름 없음)"}
+                    </div>
+                    {row.address ? (
+                      <div
+                        style={{
+                          color: "#aaa",
+                          fontSize: "10px",
+                          marginTop: "2px",
+                        }}
+                      >
+                        {row.address}
+                      </div>
+                    ) : null}
+                    <div style={{ color: "#777", fontSize: "10px", marginTop: "2px" }}>
+                      {row.at
+                        ? new Date(row.at).toLocaleString("ko-KR")
+                        : "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {/* 탭 버튼 */}
           <div
             style={{
@@ -916,20 +1052,23 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
           >
             <button
               type="button"
-              onClick={() => handleTabChange('saved')}
+              onClick={() => handleTabChange("saved")}
               style={{
                 flex: 1,
-                padding: '9px 8px',
+                padding: "9px 8px",
                 background:
                   activeTab === "saved"
                     ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
                     : "transparent",
-                color: activeTab === 'saved' ? 'white' : 'rgba(255, 255, 255, 0.55)',
-                border: 'none',
-                fontSize: '12px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
+                color:
+                  activeTab === "saved"
+                    ? "white"
+                    : "rgba(255, 255, 255, 0.55)",
+                border: "none",
+                fontSize: "12px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
                 boxShadow:
                   activeTab === "saved"
                     ? "inset 0 1px 0 rgba(255,255,255,0.2)"
@@ -938,55 +1077,62 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
             >
               ❤️ 내 저장 ({getTotalPlacesCount()})
             </button>
-            <button
-              type="button"
-              onClick={() => handleTabChange('following')}
-              style={{
-                flex: 1,
-                padding: '9px 8px',
-                background:
-                  activeTab === "following"
-                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                    : "transparent",
-                color: activeTab === 'following' ? 'white' : 'rgba(255, 255, 255, 0.55)',
-                border: 'none',
-                borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                fontSize: '12px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                boxShadow:
-                  activeTab === "following"
-                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                    : "none",
-              }}
-            >
-              🤝 팔로우 큐레이터 ({followingCurators.length})
-              {activeTab === 'following' && (
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowSearch(!showSearch);
-                  }}
-                  style={{
-                    backgroundColor: showSearch ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                    color: 'white',
-                    borderRadius: '4px',
-                    padding: '2px 6px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
-                  }}
-                >
-                  🔍
-                </div>
-              )}
-            </button>
+            {hideFollowingTab ? null : (
+              <button
+                type="button"
+                onClick={() => handleTabChange("following")}
+                style={{
+                  flex: 1,
+                  padding: "9px 8px",
+                  background:
+                    activeTab === "following"
+                      ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                      : "transparent",
+                  color:
+                    activeTab === "following"
+                      ? "white"
+                      : "rgba(255, 255, 255, 0.55)",
+                  border: "none",
+                  borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "4px",
+                  boxShadow:
+                    activeTab === "following"
+                      ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                      : "none",
+                }}
+              >
+                🤝 팔로우 큐레이터 ({followingCurators.length})
+                {activeTab === "following" && !embeddedAdminReadOnly && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSearch(!showSearch);
+                    }}
+                    style={{
+                      backgroundColor: showSearch
+                        ? "rgba(255, 255, 255, 0.3)"
+                        : "rgba(255, 255, 255, 0.2)",
+                      border: "1px solid rgba(255, 255, 255, 0.3)",
+                      color: "white",
+                      borderRadius: "4px",
+                      padding: "2px 6px",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                    }}
+                  >
+                    🔍
+                  </div>
+                )}
+              </button>
+            )}
           </div>
           </div>
 
@@ -1022,7 +1168,9 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
             ref={tabScrollRef}
             style={{
               padding: "10px 12px 14px",
-              maxHeight: "min(34vh, 168px)",
+              maxHeight: adminTallSheet
+                ? "min(58vh, 520px)"
+                : "min(34vh, 168px)",
               minHeight: 0,
               overflowY: "auto",
               WebkitOverflowScrolling: "touch",
@@ -1101,6 +1249,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                                 </div>
                                 ) : null}
                               </div>
+                              {!embeddedAdminReadOnly ? (
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                 <button
                                   onClick={() => {
@@ -1143,6 +1292,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                                   삭제
                                 </button>
                               </div>
+                              ) : null}
                             </div>
                           </div>
                           );
@@ -1189,20 +1339,85 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                         </button>
                       ))}
                       
-                      {/* 새 폴더 만들기 버튼 */}
                       <button
                         onClick={() => {
-                          // TODO: 새 폴더 만들기 기능
-                          alert('새 폴더 만들기 기능은 곧 구현됩니다!');
+                          if (embeddedAdminReadOnly) return;
+                          alert("새 폴더 만들기 기능은 곧 구현됩니다!");
                         }}
                         style={modalStyles.addFolderButton}
                       >
-                        <span style={{ fontSize: '14px' }}>+</span>
-                        <span style={{ fontSize: '10px', fontWeight: 'bold' }}>
+                        <span style={{ fontSize: "14px" }}>+</span>
+                        <span style={{ fontSize: "10px", fontWeight: "bold" }}>
                           새 폴더
                         </span>
                       </button>
                     </div>
+                    {embeddedAdminReadOnly &&
+                    Array.isArray(adminSavedUnassigned) &&
+                    adminSavedUnassigned.length > 0 ? (
+                      <div style={{ marginTop: "12px" }}>
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            color: "rgba(255, 193, 7, 0.95)",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          폴더 미연결 저장 (앱 그리드에는 없음)
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "5px",
+                          }}
+                        >
+                          {adminSavedUnassigned.map((p, idx) => (
+                            <div
+                              key={`adm-un-${p.at}-${idx}`}
+                              style={{
+                                padding: "8px 10px",
+                                borderRadius: "10px",
+                                ...userCardGlass.panel,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  color: "white",
+                                  fontSize: "13px",
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                {p.place_name || "(이름 없음)"}
+                              </div>
+                              {p.address ? (
+                                <div
+                                  style={{
+                                    color: "#999",
+                                    fontSize: "11px",
+                                    marginTop: "2px",
+                                  }}
+                                >
+                                  {p.address}
+                                </div>
+                              ) : null}
+                              <div
+                                style={{
+                                  color: "#777",
+                                  fontSize: "10px",
+                                  marginTop: "4px",
+                                }}
+                              >
+                                {p.at
+                                  ? new Date(p.at).toLocaleString("ko-KR")
+                                  : "-"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )
               )
@@ -1250,22 +1465,27 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                             {curator.username?.charAt(0)?.toUpperCase() || '👤'}
                           </div>
                           <div style={curatorCardStyles.details}>
-                          <div 
+                          <div
                             style={{
                               ...curatorCardStyles.name,
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                              textDecorationColor: 'rgba(255, 255, 255, 0.3)'
+                              cursor: embeddedAdminReadOnly ? "default" : "pointer",
+                              textDecoration: embeddedAdminReadOnly
+                                ? "none"
+                                : "underline",
+                              textDecorationColor: "rgba(255, 255, 255, 0.3)",
                             }}
-                            onClick={() => loadCuratorProfile(curator)}
+                            onClick={() => {
+                              if (!embeddedAdminReadOnly) loadCuratorProfile(curator);
+                            }}
                           >
-                            @{curator.username || 'unknown'}
+                            @{curator.username || "unknown"}
                           </div>
                           <div style={curatorCardStyles.meta}>
                             {curator.bio ? `${curator.bio.slice(0, 20)}...` : '큐레이터'} • {curator.stats?.saveCount || 0} 저장
                           </div>
                         </div>
                         </div>
+                        {!embeddedAdminReadOnly ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1275,6 +1495,7 @@ const UserCard = ({ user, onClose, isVisible, onFolderSelect }) => {
                         >
                           언팔로우
                         </button>
+                        ) : null}
                       </div>
                     ))
                   )}

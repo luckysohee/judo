@@ -896,7 +896,7 @@ const styles = {
     alignItems: "center",
     gap: "10px",
     marginTop: "10px",
-    padding: "0 4px 2px",
+    padding: "0 12px 2px",
     minHeight: "20px",
   },
   thinkingDot: {
@@ -928,6 +928,7 @@ const styles = {
     boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
     minWidth: 0,
     width: "100%",
+    boxSizing: "border-box",
   },
 
   iconButton: {

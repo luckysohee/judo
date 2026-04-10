@@ -74,12 +74,13 @@ export default function CuratorApplicationButton({ compact = false }) {
           color: "#ffffff",
           borderRadius: "999px",
           height: compact ? "32px" : "34px",
-          padding: compact ? "0 6px" : "0 10px",
-          fontSize: compact ? "10px" : "12px",
-          fontWeight: "800",
+          padding: compact ? "0 5px" : "0 8px",
+          fontSize: compact ? "9px" : "10px",
+          fontWeight: "700",
+          letterSpacing: "0.04em",
           cursor: "not-allowed",
           transition: "all 0.2s ease",
-          maxWidth: compact ? "64px" : undefined,
+          maxWidth: compact ? "48px" : undefined,
           overflow: compact ? "hidden" : undefined,
           textOverflow: compact ? "ellipsis" : undefined,
           whiteSpace: compact ? "nowrap" : undefined,
@@ -95,14 +96,16 @@ export default function CuratorApplicationButton({ compact = false }) {
     const baseStyle = {
       borderRadius: "999px",
       height: compact ? "32px" : "34px",
-      padding: compact ? "0 6px" : "0 10px",
-      fontSize: compact ? "10px" : "12px",
-      fontWeight: "800",
+      padding: compact ? "0 6px" : "0 9px",
+      fontSize: compact ? "9px" : "10px",
+      fontWeight: "700",
+      letterSpacing: "0.06em",
+      textTransform: "lowercase",
       transition: "all 0.2s ease",
       cursor: "pointer",
       ...(compact
         ? {
-            maxWidth: "64px",
+            maxWidth: "44px",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -151,13 +154,13 @@ export default function CuratorApplicationButton({ compact = false }) {
   const getButtonText = () => {
     switch (applicationStatus) {
       case "pending":
-        return "심사중";
+        return compact ? "대기" : "심사중";
       case "approved":
         return null; // 승인된 큐레이터는 버튼 표시 안함
       case "rejected":
-        return compact ? "신청" : "큐레이터 신청";
+        return "join";
       default:
-        return compact ? "신청" : "큐레이터 신청";
+        return "join";
     }
   };
 
@@ -189,17 +192,17 @@ export default function CuratorApplicationButton({ compact = false }) {
     }
   };
 
+  const ariaAndTitle =
+    applicationStatus === "pending"
+      ? "큐레이터 심사 진행 중"
+      : "큐레이터 신청";
+
   return (
     <button
       type="button"
       style={getButtonStyle()}
-      title={
-        compact
-          ? applicationStatus === "pending"
-            ? "큐레이터 심사 진행 중"
-            : "큐레이터 신청"
-          : undefined
-      }
+      title={ariaAndTitle}
+      aria-label={ariaAndTitle}
       onMouseOver={handleMouseOver}
       onMouseOut={handleMouseOut}
       onClick={handleClick}

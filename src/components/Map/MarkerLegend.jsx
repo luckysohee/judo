@@ -34,10 +34,7 @@ export default function MarkerLegend({
       <button
         type="button"
         onClick={onToggleSavedOnly}
-        style={{
-          ...styles.savedOnlyButton,
-          ...(savedOnly ? styles.savedOnlyButtonActive : null),
-        }}
+        style={styles.savedOnlyButton}
         aria-label={
           savedOnly
             ? "내가 저장한 장소만 보기 해제"
@@ -49,7 +46,20 @@ export default function MarkerLegend({
             : "내가 저장한 장소만 보기 · 큐레이터는 내 비공개 추천까지 표시"
         }
       >
-        ★
+        <span
+          style={savedOnly ? styles.savedOnlyStarOn : styles.savedOnlyStarOff}
+          aria-hidden
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        </span>
       </button>
 
       {!open ? (
@@ -122,14 +132,13 @@ const styles = {
     width: "28px",
     height: "28px",
     borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.32)",
-    backgroundColor: "rgba(22, 24, 28, 0.38)",
-    color: "#FFFFFF",
-    textShadow: "0 1px 2px rgba(0,0,0,0.55)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
+    border: "1px solid rgba(255, 255, 255, 0.72)",
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
+    color: "rgba(255, 255, 255, 0.92)",
+    backdropFilter: "blur(18px) saturate(180%)",
+    WebkitBackdropFilter: "blur(18px) saturate(180%)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 14px rgba(0,0,0,0.2)",
+      "inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 18px rgba(0,0,0,0.1)",
     cursor: "pointer",
     padding: 0,
     fontSize: "14px",
@@ -141,16 +150,20 @@ const styles = {
     transition:
       "color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, text-shadow 0.2s ease",
   },
-  savedOnlyButtonActive: {
-    border: "1px solid rgba(255, 235, 59, 0.55)",
-    backgroundColor: "rgba(22, 24, 28, 0.42)",
-    color: "#FFEB3B",
-    textShadow:
-      "0 0 12px rgba(255, 235, 59, 0.45), 0 1px 2px rgba(0,0,0,0.5)",
-    backdropFilter: "blur(16px) saturate(165%)",
-    WebkitBackdropFilter: "blur(16px) saturate(165%)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 18px rgba(0,0,0,0.22), 0 0 16px rgba(255, 235, 59, 0.2)",
+  savedOnlyStarOff: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "rgba(255, 255, 255, 0.94)",
+    filter:
+      "drop-shadow(0 0 0.75px rgba(0,0,0,0.28)) drop-shadow(0 1px 3px rgba(0,0,0,0.18))",
+  },
+  savedOnlyStarOn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#EAB308",
+    filter: "drop-shadow(0 0 5px rgba(234, 179, 8, 0.55))",
   },
   collapsedButton: {
     width: "28px",

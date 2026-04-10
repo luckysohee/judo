@@ -5,6 +5,11 @@ import { useAuth } from "../context/AuthContext";
 
 const COLOR_POOL = ["#2ECC71", "#FF5A5F", "#8E44AD", "#3498DB", "#A47148"];
 
+function isApplicantActivityEmpty(m) {
+  if (!m || m.loading || m.error) return false;
+  return (m.rows ?? []).length === 0;
+}
+
 export default function AdminApplicationsPage() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -13,6 +18,8 @@ export default function AdminApplicationsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [processingId, setProcessingId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  /** 신청자 앱 내 장소·저장 (admin_applicant_activity RPC) */
+  const [activityModal, setActivityModal] = useState(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -152,6 +159,80 @@ export default function AdminApplicationsPage() {
         application: application
       }
     });
+  };
+
+  const closeApplicantActivityModal = () => {
+    setActivityModal(null);
+  };
+
+  const openApplicantActivity = async (application) => {
+    if (!application?.user_id) return;
+    setActivityModal({
+      name: application.name,
+      userId: application.user_id,
+      activityFormat: null,
+      rows: [],
+      summary: null,
+      loading: true,
+      error: "",
+    });
+    const { data, error } = await supabase.rpc("admin_applicant_activity", {
+      p_target_user_id: application.user_id,
+    });
+    if (error) {
+      const raw = String(error.message || error.details || "");
+      const missingFn =
+        error.code === "PGRST202" ||
+        error.code === "42883" ||
+        /could not find the function|function .* does not exist|404/i.test(raw);
+      const hint = missingFn
+        ? " ① Dashboard → SQL Editor에 `database/migrations/20260413_admin_applicant_activity.sql` 전체 붙여 실행(가장 빠름). ② 또는 CLI: 프로젝트 연결 후 `supabase db push`로 `20260415190000_admin_applicant_activity_simple_array_final.sql`까지 적용. URL은 `.env`의 VITE_SUPABASE_URL 과 같은 프로젝트여야 합니다."
+        : "";
+      setActivityModal((m) =>
+        m
+          ? {
+              ...m,
+              loading: false,
+              error: missingFn
+                ? `RPC admin_applicant_activity 가 없습니다 (404 / PGRST202).${hint}`
+                : raw || "조회 실패",
+            }
+          : m
+      );
+      return;
+    }
+
+    let rows = [];
+    let summary = null;
+    let activityFormat = "legacy_array";
+    if (
+      data != null &&
+      typeof data === "object" &&
+      !Array.isArray(data) &&
+      Array.isArray(data.items)
+    ) {
+      rows = data.items;
+      summary =
+        data.summary && typeof data.summary === "object" ? data.summary : null;
+      activityFormat = "legacy_items";
+    } else if (Array.isArray(data)) {
+      rows = data;
+      activityFormat = "legacy_array";
+    } else {
+      rows = [];
+      activityFormat = "legacy_array";
+    }
+    setActivityModal((m) =>
+      m
+        ? {
+            ...m,
+            loading: false,
+            activityFormat,
+            rows,
+            summary,
+          }
+        : m
+    );
   };
 
   const handleDelete = async (application) => {
@@ -391,6 +472,16 @@ export default function AdminApplicationsPage() {
                     {new Date(item.created_at).toLocaleString("ko-KR")}
                   </div>
 
+                  <div style={{ marginTop: "10px" }}>
+                    <button
+                      type="button"
+                      onClick={() => openApplicantActivity(item)}
+                      style={styles.activityButton}
+                    >
+                      앱 내 활동 (추천·저장)
+                    </button>
+                  </div>
+
                   <div style={styles.buttonRow}>
                     {isPending && (
                       <>
@@ -482,6 +573,160 @@ export default function AdminApplicationsPage() {
           </div>
         )}
       </div>
+
+      {activityModal ? (
+        activityModal.loading ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-busy="true"
+            aria-label="신청자 활동 불러오는 중"
+            style={styles.modalOverlay}
+            onClick={closeApplicantActivityModal}
+          >
+            <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.modalBody}>불러오는 중…</div>
+            </div>
+          </div>
+        ) : activityModal.error ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="applicant-activity-title"
+            style={styles.modalOverlay}
+            onClick={closeApplicantActivityModal}
+          >
+            <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.modalHeader}>
+                <h2 id="applicant-activity-title" style={styles.modalTitle}>
+                  앱 내 활동 · {activityModal.name}
+                </h2>
+                <button
+                  type="button"
+                  aria-label="닫기"
+                  onClick={closeApplicantActivityModal}
+                  style={styles.modalClose}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ ...styles.modalBody, color: "#FF6B6B" }}>
+                {activityModal.error}
+                <div style={{ marginTop: "8px", fontSize: "12px", color: "#9f9f9f" }}>
+                  SQL Editor에{" "}
+                  <code style={styles.modalCode}>
+                    database/migrations/20260413_admin_applicant_activity.sql
+                  </code>
+                  {" "}내용을 실행하거나,{" "}
+                  <code style={styles.modalCode}>supabase db push</code>
+                  로{" "}
+                  <code style={styles.modalCode}>
+                    20260415190000_admin_applicant_activity_simple_array_final.sql
+                  </code>
+                  까지 적용하세요.
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="applicant-activity-title"
+            style={styles.modalOverlay}
+            onClick={closeApplicantActivityModal}
+          >
+            <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.modalHeader}>
+                <h2 id="applicant-activity-title" style={styles.modalTitle}>
+                  앱 내 활동 · {activityModal.name}
+                </h2>
+                <button
+                  type="button"
+                  aria-label="닫기"
+                  onClick={closeApplicantActivityModal}
+                  style={styles.modalClose}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={styles.modalMeta}>
+                user_id{" "}
+                <code style={styles.modalCode}>{activityModal.userId}</code>
+              </div>
+              {isApplicantActivityEmpty(activityModal) ? (
+                <div style={styles.modalBody}>등록된 추천·저장이 없습니다.</div>
+              ) : (
+                <>
+                  {activityModal.summary ? (
+                    <div style={styles.modalSummary}>
+                      추천{" "}
+                      <strong style={{ color: "#e5e5e5" }}>
+                        {Number(activityModal.summary.recommend_count) || 0}
+                      </strong>
+                      건 · 저장{" "}
+                      <strong style={{ color: "#e5e5e5" }}>
+                        {Number(activityModal.summary.saved_count) || 0}
+                      </strong>
+                      건
+                      {Array.isArray(activityModal.summary.folders) &&
+                      activityModal.summary.folders.length > 0 ? (
+                        <div style={styles.modalSummaryFolders}>
+                          폴더별 저장{" "}
+                          {activityModal.summary.folders
+                            .map((f) => `${f.name} ${f.count}`)
+                            .join(" · ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <ul style={styles.modalList}>
+                    {(activityModal.rows ?? []).map((row, idx) => (
+                      <li key={`${row.kind}-${row.at}-${idx}`} style={styles.modalListItem}>
+                        <span
+                          style={{
+                            ...styles.modalKind,
+                            ...(row.kind === "recommend"
+                              ? styles.modalKindRecommend
+                              : styles.modalKindSaved),
+                          }}
+                        >
+                          {row.kind === "recommend" ? "추천" : "저장"}
+                        </span>
+                        <div style={styles.modalPlaceName}>{row.place_name || "(이름 없음)"}</div>
+                        {row.address ? (
+                          <div style={styles.modalAddress}>{row.address}</div>
+                        ) : null}
+                        {row.kind === "saved" &&
+                        (row.folder_names || Number(row.folder_count) > 0) ? (
+                          <div style={styles.modalFolder}>
+                            {row.folder_names ? (
+                              <>
+                                폴더{" "}
+                                {row.folder_count > 0 ? (
+                                  <span style={{ color: "#888" }}>({row.folder_count}) </span>
+                                ) : null}
+                                {row.folder_names}
+                              </>
+                            ) : (
+                              <>폴더 {row.folder_count}개 (이름 없음)</>
+                            )}
+                          </div>
+                        ) : null}
+                        <div style={styles.modalAt}>
+                          {row.at
+                            ? new Date(row.at).toLocaleString("ko-KR")
+                            : "-"}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      ) : null}
     </div>
   );
 }
@@ -711,5 +956,150 @@ const styles = {
     padding: "12px",
     display: "flex",
     alignItems: "center",
+  },
+  activityButton: {
+    border: "1px solid #3d4f6a",
+    backgroundColor: "#1a2332",
+    color: "#7eb8ff",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2000,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "16px",
+    boxSizing: "border-box",
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: "520px",
+    maxHeight: "min(85vh, 720px)",
+    overflow: "auto",
+    backgroundColor: "#171717",
+    border: "1px solid #2a2a2a",
+    borderRadius: "16px",
+    padding: "16px",
+    boxSizing: "border-box",
+  },
+  modalHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "8px",
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: "17px",
+    fontWeight: 800,
+    lineHeight: 1.3,
+  },
+  modalClose: {
+    flexShrink: 0,
+    width: "36px",
+    height: "36px",
+    border: "none",
+    borderRadius: "10px",
+    backgroundColor: "#2a2a2a",
+    color: "#fff",
+    fontSize: "22px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  modalMeta: {
+    fontSize: "11px",
+    color: "#9f9f9f",
+    marginBottom: "12px",
+    wordBreak: "break-all",
+  },
+  modalMuted: {
+    fontSize: "12px",
+    color: "#888",
+    marginBottom: "8px",
+  },
+  modalSummary: {
+    fontSize: "12px",
+    color: "#bdbdbd",
+    lineHeight: 1.5,
+    marginBottom: "12px",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    backgroundColor: "#141414",
+    border: "1px solid #2a2a2a",
+  },
+  modalSummaryFolders: {
+    marginTop: "6px",
+    fontSize: "11px",
+    color: "#9f9f9f",
+  },
+  modalCode: {
+    fontFamily: "ui-monospace, monospace",
+    fontSize: "10px",
+    color: "#d4d4d4",
+  },
+  modalBody: {
+    fontSize: "14px",
+    color: "#d4d4d4",
+    lineHeight: 1.5,
+  },
+  modalList: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  modalListItem: {
+    border: "1px solid #2a2a2a",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    backgroundColor: "#111",
+  },
+  modalKind: {
+    display: "inline-block",
+    fontSize: "10px",
+    fontWeight: 800,
+    padding: "3px 8px",
+    borderRadius: "6px",
+    marginBottom: "6px",
+  },
+  modalKindRecommend: {
+    backgroundColor: "#1f3d2c",
+    color: "#2ECC71",
+  },
+  modalKindSaved: {
+    backgroundColor: "#2a2540",
+    color: "#a78bfa",
+  },
+  modalPlaceName: {
+    fontSize: "15px",
+    fontWeight: 700,
+    color: "#fff",
+  },
+  modalAddress: {
+    fontSize: "12px",
+    color: "#bdbdbd",
+    marginTop: "4px",
+  },
+  modalFolder: {
+    fontSize: "12px",
+    color: "#c4b5fd",
+    marginTop: "6px",
+  },
+  modalAt: {
+    fontSize: "11px",
+    color: "#888",
+    marginTop: "6px",
   },
 };

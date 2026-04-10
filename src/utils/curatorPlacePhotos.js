@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { prepareImageFileForUpload } from "./prepareImageFileForUpload";
 
 const BUCKET = "curator-place-photos";
 
@@ -6,6 +7,50 @@ export function curatorPhotoPublicUrl(storagePath) {
   if (!storagePath || typeof storagePath !== "string") return "";
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
   return data?.publicUrl || "";
+}
+
+/**
+ * 프로필 전용: `curator-place-photos`에 `{userId}/profile/...` 로만 올림 (curator_place_photos 행 없음)
+ * @returns {Promise<string>} 공개 URL
+ */
+export async function uploadCuratorProfileAvatarFile(file, curatorUserId) {
+  if (!file || !curatorUserId) {
+    throw new Error("파일과 큐레이터 사용자 ID가 필요합니다.");
+  }
+  const prepared = await prepareImageFileForUpload(file);
+  if (prepared.size > 5 * 1024 * 1024) {
+    throw new Error("파일은 5MB 이하여야 합니다.");
+  }
+  const rawName = (prepared.name || "avatar").toLowerCase();
+  const ext = rawName.includes(".")
+    ? rawName.split(".").pop()
+    : (prepared.type || "").includes("png")
+      ? "png"
+      : (prepared.type || "").includes("webp")
+        ? "webp"
+        : (prepared.type || "").includes("gif")
+          ? "gif"
+          : "jpg";
+  const safeExt = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext) ? ext : "jpg";
+  const path = `${curatorUserId}/profile/avatar-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 9)}.${safeExt}`;
+
+  const { error: upErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, prepared, { cacheControl: "3600", upsert: false });
+
+  if (upErr) {
+    const extra =
+      upErr.message?.includes("Bucket not found") || upErr.message?.includes("not found")
+        ? " Supabase에서 버킷 curator-place-photos(Public)와 Storage 정책을 확인하세요."
+        : upErr.message?.includes("new row violates") || upErr.message?.includes("policy")
+          ? " Storage RLS: 경로가 '{본인 user id}/...' 인지, 큐레이터 권한이 있는지 확인하세요."
+          : "";
+    throw new Error((upErr.message || "프로필 사진 업로드 실패") + extra);
+  }
+
+  return curatorPhotoPublicUrl(path);
 }
 
 function isUuid(s) {
