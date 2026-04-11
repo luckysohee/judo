@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
+import { adminTopNavButtonStyle } from "../styles/adminTopNavButton";
 
 export default function SearchInsightsPage() {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [zeroRows, setZeroRows] = useState([]);
@@ -14,30 +14,9 @@ export default function SearchInsightsPage() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user?.id) {
-      setIsAdmin(false);
-      setLoading(false);
-      setErrorMessage("로그인이 필요합니다.");
-      return;
-    }
     (async () => {
       try {
         setLoading(true);
-        const { data: prof, error: pe } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (pe) throw pe;
-        const admin = prof?.role === "admin";
-        setIsAdmin(admin);
-        if (!admin) {
-          setErrorMessage("관리자만 볼 수 있습니다.");
-          setZeroRows([]);
-          setRecentRows([]);
-          return;
-        }
-
         const { data: z, error: ze } = await supabase
           .from("search_logs")
           .select("*")
@@ -66,7 +45,7 @@ export default function SearchInsightsPage() {
         setLoading(false);
       }
     })();
-  }, [authLoading, user?.id]);
+  }, [authLoading]);
 
   const zeroAggregates = useMemo(() => {
     const m = new Map();
@@ -105,17 +84,12 @@ export default function SearchInsightsPage() {
       >
         <button
           type="button"
-          onClick={() => navigate(-1)}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 8,
-            border: "1px solid #333",
-            background: "#1a1d23",
-            color: "#e8eaed",
-            cursor: "pointer",
-          }}
+          onClick={() => navigate("/admin")}
+          style={adminTopNavButtonStyle}
+          aria-label="관리자 허브로"
+          title="관리자 허브로"
         >
-          ← 뒤로
+          ←
         </button>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
           검색 인사이트
@@ -124,7 +98,7 @@ export default function SearchInsightsPage() {
 
       {loading ? (
         <p style={{ opacity: 0.7 }}>불러오는 중…</p>
-      ) : !isAdmin ? (
+      ) : errorMessage ? (
         <p style={{ color: "#e74c3c" }}>{errorMessage}</p>
       ) : (
         <>

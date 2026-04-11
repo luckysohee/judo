@@ -1,0 +1,20 @@
+/** 관리자 화면 상단 뒤로 pill — 새로고침 버튼과 동일 터치 영역(30×30) */
+export const adminTopNavButtonStyle = {
+  flexShrink: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: "30px",
+  minHeight: "30px",
+  padding: "7px",
+  boxSizing: "border-box",
+  border: "1px solid #444444",
+  backgroundColor: "#1a1a1a",
+  color: "#ffffff",
+  borderRadius: "999px",
+  fontSize: "13px",
+  lineHeight: 1,
+  fontWeight: 600,
+  cursor: "pointer",
+  fontFamily: "inherit",
+};

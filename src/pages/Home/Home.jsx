@@ -691,13 +691,37 @@ export default function Home() {
     return R * c * 1000; // 미터로 변환
   };
 
-  /** 카카오 후보 위 룰 기반 점수·한 줄 이유. 정렬은 가까운 거리 우선, 동거리면 점수순. */
+  /** 카카오 후보 위 룰 기반 점수·한 줄 이유. 정렬: 의미 점수와 거리를 함께 반영(가까운 잡식당만 남는 현상 완화). */
   const calculateLocalAIScores = (
     places,
     keyword,
     userLocation = null,
     sortOrigin = null
   ) => {
+    const LOCAL_AI_TOP_N = 18;
+    const KW_OVERLAP_STOP = new Set([
+      "근처",
+      "주변",
+      "가까운",
+      "에서",
+      "으로",
+      "까지",
+      "먹고",
+      "하고",
+      "갈까",
+      "추천",
+      "검색",
+      "이야",
+      "명이야",
+      "명",
+      "때",
+      "좀",
+      "한",
+      "잘",
+      "같이",
+      "해요",
+    ]);
+
     const party = parsePartySize(keyword);
     const kwSc = stripPartyAndChatterForKeywordSearch(keyword) || keyword;
     const wantWalkable = /걸어|도보|근처|가까운|walking/i.test(kwSc);
@@ -729,6 +753,30 @@ export default function Home() {
     ];
     const barHit = barTokens.some((t) => kwSc.includes(t));
 
+    const queryKeywordOverlapBoost = (textLower) => {
+      const parts = kwSc
+        .toLowerCase()
+        .split(/[\s,./·|]+/u)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2 && !KW_OVERLAP_STOP.has(s));
+      let add = 0;
+      for (const p of parts) {
+        if (p && textLower.includes(p)) add += 8;
+      }
+      return Math.min(add, 44);
+    };
+
+    const distanceRankPenalty = (distM) => {
+      if (
+        !Number.isFinite(distM) ||
+        distM <= 0 ||
+        distM >= 1e8
+      ) {
+        return 24;
+      }
+      return Math.min(distM / 16, 90);
+    };
+
     const blogInsightBoost = (place) => {
       const bi = place.blogInsight;
       if (!bi || typeof bi !== "object") return 0;
@@ -753,6 +801,8 @@ export default function Home() {
       const facetResult = scorePlace(place, parsedFacets);
       let score = facetResult.score;
       const cat = `${place.category_name || ""} ${place.place_name || ""}`;
+      const catLower = cat.toLowerCase();
+      score += queryKeywordOverlapBoost(catLower);
 
       if (wantsSeafood && isObviousNonSeafoodKakaoPlace(place)) {
         score -= 120;
@@ -838,10 +888,15 @@ export default function Home() {
       .sort((a, b) => {
         const da = metersForSort(a);
         const db = metersForSort(b);
+        const sa = a.aiScore ?? 0;
+        const sb = b.aiScore ?? 0;
+        const ra = sa - distanceRankPenalty(da);
+        const rb = sb - distanceRankPenalty(db);
+        if (rb !== ra) return rb - ra;
         if (da !== db) return da - db;
-        return (b.aiScore ?? 0) - (a.aiScore ?? 0);
+        return sb - sa;
       })
-      .slice(0, 5);
+      .slice(0, LOCAL_AI_TOP_N);
   };
 
   const getAtmosphereFromCategory = (category) => {
@@ -3778,7 +3833,7 @@ const handleClearSearch = () => {
                           
                           if (userRole === "admin") {
                             // Admin은 큐레이터 신청내역 페이지로 이동
-                            navigate("/admin/applications");
+                            navigate("/admin");
                           } else if (userRole === "curator") {
                             // 큐레이터는 스튜디오 페이지로 이동
                             navigate("/studio");
