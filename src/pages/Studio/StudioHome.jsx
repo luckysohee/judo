@@ -22,6 +22,7 @@ import {
   calculateCuratorLevel
 } from "../../utils/recommendationEngine";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
+import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -1675,7 +1676,8 @@ export default function StudioHome() {
     total_places: 0, // 등록 장소 수
     total_likes: 0, // 총 좋아요 수
     warning_count: 0, // 경고 횟수
-    created_at: new Date().toISOString() // 큐레이터 시작일
+    created_at: new Date().toISOString(), // 큐레이터 시작일
+    username_changed_at: null,
   });
 
   // 큐레이터 통계 상태 - 실제 데이터 기반
@@ -2039,7 +2041,8 @@ export default function StudioHome() {
           total_places: currentUser.total_places || 0,
           total_likes: currentUser.total_likes || 0,
           warning_count: currentUser.warning_count || 0,
-          created_at: currentUser.created_at || prev.created_at
+          created_at: currentUser.created_at || prev.created_at,
+          username_changed_at: currentUser.username_changed_at ?? null,
         }));
 
         // 실제 활동 데이터 로드
@@ -2623,11 +2626,18 @@ export default function StudioHome() {
       const { data, error } = await supabase
         .from("curators")
         .upsert([profileData], { onConflict: 'user_id' }) // user_id 기준으로 upsert
-        .select();
+        .select("username_changed_at");
         
       if (error) {
         console.error("❌ 프로필 저장 오류:", error);
-        alert("프로필 저장에 실패했습니다: " + error.message);
+        if (isUsernameChangeCooldownError(error)) {
+          alert(
+            error.message ||
+              "핸들(@고유이름)은 14일에 한 번만 바꿀 수 있습니다."
+          );
+        } else {
+          alert("프로필 저장에 실패했습니다: " + error.message);
+        }
         return;
       }
       
@@ -2640,7 +2650,9 @@ export default function StudioHome() {
         username: editProfile.username,
         displayName: editProfile.displayName,
         bio: editProfile.bio,
-        image: editProfile.image
+        image: editProfile.image,
+        username_changed_at:
+          data?.[0]?.username_changed_at ?? prev.username_changed_at,
       }));
       
       setIsEditingProfile(false);

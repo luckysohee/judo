@@ -1706,7 +1706,7 @@ export default function Home() {
     }
     const { data, error } = await supabase
       .from("profiles")
-      .select("username, display_name, auth_provider")
+      .select("username, display_name, auth_provider, avatar_url")
       .eq("id", user.id)
       .maybeSingle();
     if (!error && data) setMapUserProfile(data);
@@ -1766,10 +1766,12 @@ export default function Home() {
     if (isCurator && curatorProfile?.image) {
       return String(curatorProfile.image).trim() || null;
     }
+    const fromProfile = String(mapUserProfile?.avatar_url || "").trim();
+    if (fromProfile) return fromProfile;
     const m = user.user_metadata || {};
     const raw = m.avatar_url || m.picture || m.image;
     return typeof raw === "string" && raw.trim() ? raw.trim() : null;
-  }, [user, isCurator, curatorProfile?.image]);
+  }, [user, isCurator, curatorProfile?.image, mapUserProfile?.avatar_url]);
 
   useEffect(() => {
     setSearchBarProfileImgFailed(false);

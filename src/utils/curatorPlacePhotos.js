@@ -53,6 +53,11 @@ export async function uploadCuratorProfileAvatarFile(file, curatorUserId) {
   return curatorPhotoPublicUrl(path);
 }
 
+/** 일반 사용자 프로필 — 경로·버킷은 큐레이터 아바타와 동일 (`{userId}/profile/...`) */
+export function uploadUserProfileAvatarFile(file, userId) {
+  return uploadCuratorProfileAvatarFile(file, userId);
+}
+
 function isUuid(s) {
   return (
     typeof s === "string" &&

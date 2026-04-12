@@ -2,7 +2,7 @@
  * 주도 검색바: 채팅 UI가 아니라 자연어 1줄 → 파싱·지도 후보·스코어·확장 제안.
  * 최종 형태·구현 매핑: `src/utils/searchPhase8SearchBar.js`
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
@@ -12,6 +12,7 @@ import {
   filterKakaoKeywordRowsForMealIntent,
   isMealFocusedKakaoQuery,
 } from "../../utils/filterKakaoKeywordResultsForMealIntent";
+import { searchKakaoKeywordViaProxy } from "../../utils/kakaoAPIProxy";
 
 /** 카카오 자동완성·주변 검색 공통 — 미터 */
 function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
@@ -70,6 +71,7 @@ export default function SearchBar({
   const kakaoSearchDebounceRef = useRef(null);
   /** Enter/제출 후 늦게 도착하는 카카오 콜백이 바텀시트를 다시 열지 않게 함 */
   const kakaoSearchTokenRef = useRef(0);
+  const kakaoResultsScrollRef = useRef(null);
   const [thinkDots, setThinkDots] = useState(".");
 
   useEffect(() => {
@@ -104,19 +106,19 @@ export default function SearchBar({
   const [searchResults, setSearchResults] = useState([]);
   const [appliedFilters, setAppliedFilters] = useState([]); // 적용된 필터 칩
 
-  // 카카오 장소 검색
+  // 카카오 장소 검색 — JS SDK 우선, 없거나 0건이면 REST 프록시(/api/kakao/search)
   const searchKakaoPlaces = (keyword) => {
-    if (!keyword.trim() || !window.kakao?.maps?.services) {
+    if (!keyword.trim()) {
       setKakaoResults([]);
-      setSelectedKakaoIndex(-1); // 결과가 없으면 선택된 인덱스 초기화
+      setSelectedKakaoIndex(-1);
+      setShowKakaoResultsState(false);
+      setIsKakaoLoading(false);
       return;
     }
 
     const token = ++kakaoSearchTokenRef.current;
     setIsKakaoLoading(true);
-    setSelectedKakaoIndex(-1); // 새로운 검색 시작 시 선택된 인덱스 초기화
-
-    const ps = new window.kakao.maps.services.Places();
+    setSelectedKakaoIndex(-1);
 
     let origin = null;
     if (
@@ -128,16 +130,99 @@ export default function SearchBar({
       origin = { lat: Number(userLocation.lat), lng: Number(userLocation.lng) };
     } else {
       const c = mapRef?.current?.getCenter?.();
-      if (c && typeof c.getLat === "function") {
-        const lat = c.getLat();
-        const lng = c.getLng();
-        if (Number.isFinite(lat) && Number.isFinite(lng)) origin = { lat, lng };
+      if (c && typeof c === "object") {
+        const lat =
+          typeof c.getLat === "function" ? c.getLat() : Number(c.lat);
+        const lng =
+          typeof c.getLng === "function" ? c.getLng() : Number(c.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          origin = { lat, lng };
+        }
       }
     }
 
     const mealFocusedQuery = isMealFocusedKakaoQuery(keyword);
+
+    const processRawRows = (raw) => {
+      let rows = Array.isArray(raw) ? raw : [];
+      if (origin) {
+        rows = rows
+          .map((place) => {
+            const plat = parseFloat(place.y);
+            const plng = parseFloat(place.x);
+            const dist =
+              Number.isFinite(plat) && Number.isFinite(plng)
+                ? haversineDistanceMeters(
+                    origin.lat,
+                    origin.lng,
+                    plat,
+                    plng
+                  )
+                : null;
+            return dist != null ? { ...place, distance: dist } : place;
+          })
+          .sort(
+            (a, b) =>
+              (Number(a.distance) || 1e12) - (Number(b.distance) || 1e12)
+          );
+      } else {
+        rows = rows.map((place) => {
+          const d = Number(place.distance);
+          if (!Number.isFinite(d) || d <= 0) {
+            const { distance: _drop, ...rest } = place;
+            return rest;
+          }
+          return place;
+        });
+      }
+      rows = filterKakaoKeywordRowsForMealIntent(keyword, rows);
+      return rows.slice(0, 15);
+    };
+
+    const finishWithRows = (raw) => {
+      if (token !== kakaoSearchTokenRef.current) {
+        setIsKakaoLoading(false);
+        return;
+      }
+      const rows = processRawRows(raw);
+      if (rows.length > 0) {
+        setKakaoResults(rows);
+        setShowKakaoResultsState(true);
+      } else {
+        setKakaoResults([]);
+        setShowKakaoResultsState(false);
+      }
+      setIsKakaoLoading(false);
+    };
+
+    const fetchViaProxy = async () => {
+      try {
+        const { documents } = await searchKakaoKeywordViaProxy({
+          query: keyword,
+          size: 15,
+          ...(origin
+            ? {
+                x: origin.lng,
+                y: origin.lat,
+                radius: 20000,
+              }
+            : {}),
+        });
+        finishWithRows(documents);
+      } catch (e) {
+        console.warn("searchKakaoKeywordViaProxy:", e);
+        finishWithRows([]);
+      }
+    };
+
+    if (!window.kakao?.maps?.services) {
+      void fetchViaProxy();
+      return;
+    }
+
+    const ps = new window.kakao.maps.services.Places();
     const searchOptions = {
-      category_group_code: "FD6",
+      ...(mealFocusedQuery ? { category_group_code: "FD6" } : {}),
       size: mealFocusedQuery ? 30 : 15,
       ...(origin
         ? {
@@ -155,47 +240,15 @@ export default function SearchBar({
           setIsKakaoLoading(false);
           return;
         }
-        if (status === window.kakao.maps.services.Status.OK) {
-          let rows = data;
-          if (origin) {
-            rows = data
-              .map((place) => {
-                const plat = parseFloat(place.y);
-                const plng = parseFloat(place.x);
-                const dist =
-                  Number.isFinite(plat) && Number.isFinite(plng)
-                    ? haversineDistanceMeters(
-                        origin.lat,
-                        origin.lng,
-                        plat,
-                        plng
-                      )
-                    : null;
-                return dist != null ? { ...place, distance: dist } : place;
-              })
-              .sort(
-                (a, b) =>
-                  (Number(a.distance) || 1e12) - (Number(b.distance) || 1e12)
-              );
-          } else {
-            rows = data.map((place) => {
-              const d = Number(place.distance);
-              if (!Number.isFinite(d) || d <= 0) {
-                const { distance: _drop, ...rest } = place;
-                return rest;
-              }
-              return place;
-            });
-          }
-          rows = filterKakaoKeywordRowsForMealIntent(keyword, rows);
-          rows = rows.slice(0, 15);
-          setKakaoResults(rows);
-          setShowKakaoResultsState(true);
-        } else {
-          setKakaoResults([]);
-          setShowKakaoResultsState(false);
+        const ok =
+          status === window.kakao.maps.services.Status.OK &&
+          Array.isArray(data) &&
+          data.length > 0;
+        if (ok) {
+          finishWithRows(data);
+          return;
         }
-        setIsKakaoLoading(false);
+        void fetchViaProxy();
       },
       searchOptions
     );
@@ -330,24 +383,24 @@ export default function SearchBar({
   const handleKeyDown = (event) => {
     // 키보드 네비게이션 기능 복원
     if (event.key === "Enter") {
+      if (event.nativeEvent?.isComposing) return;
       event.preventDefault();
-      console.log('🔑 Enter 키 감지!'); // 디버깅용
 
       cancelPendingKakaoSearch();
 
-      // 엔터키 시 모든 자동완성 카드 즉시 숨김
+      if (showKakaoResults && kakaoResults.length > 0) {
+        const idx =
+          selectedKakaoIndex >= 0
+            ? Math.min(selectedKakaoIndex, kakaoResults.length - 1)
+            : 0;
+        handleKakaoPlaceSelect(kakaoResults[idx]);
+        return;
+      }
+
       setShowSuggestions(false);
       setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
-      
-      // 카카오 검색 결과가 표시되고 선택된 항목이 있으면 해당 장소 선택
-      if (showKakaoResults && kakaoResults.length > 0 && selectedKakaoIndex >= 0) {
-        const selectedPlace = kakaoResults[selectedKakaoIndex];
-        handleKakaoPlaceSelect(selectedPlace);
-      } else {
-        // 일반 AI 검색 실행 - 지도에 마커만 표시
-        handleSubmit();
-      }
+      handleSubmit();
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
       
@@ -379,6 +432,24 @@ export default function SearchBar({
     setSelectedKakaoIndex(-1); // 초기화 추가
     onClear?.();
   };
+
+  useLayoutEffect(() => {
+    if (selectedKakaoIndex < 0) return;
+    if (!showKakaoSearch || !showKakaoResults || kakaoResults.length === 0) {
+      return;
+    }
+    const root = kakaoResultsScrollRef.current;
+    if (!root) return;
+    const item = root.querySelector(
+      `[data-kakao-suggestion-index="${selectedKakaoIndex}"]`
+    );
+    item?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+  }, [
+    selectedKakaoIndex,
+    showKakaoResults,
+    showKakaoSearch,
+    kakaoResults.length,
+  ]);
 
   // 타이핑 자동완성 → 지도 후보 동기화
   useEffect(() => {
@@ -628,6 +699,7 @@ export default function SearchBar({
       <AnimatePresence>
         {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
           <motion.div
+            ref={kakaoResultsScrollRef}
             style={{
               ...styles.suggestionBox,
               position: 'absolute',
@@ -658,7 +730,8 @@ export default function SearchBar({
             </div>
             {kakaoResults.map((place, index) => (
               <motion.button
-                key={place.id}
+                key={place.id != null ? String(place.id) : `idx-${index}`}
+                data-kakao-suggestion-index={index}
                 type="button"
                 onClick={() => handleKakaoPlaceSelect(place)}
                 style={{

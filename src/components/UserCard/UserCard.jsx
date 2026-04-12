@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from '../../lib/supabase';
+import { uploadUserProfileAvatarFile } from "../../utils/curatorPlacePhotos";
+import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
 import {
   formatAuthProviderForUi,
   getAuthProviderLabel,
 } from "../../lib/syncAuthProviderToProfile";
+import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -74,18 +77,6 @@ const curatorCardStyles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px'
-  },
-  avatar: {
-    width: '24px',
-    height: '24px',
-    borderRadius: '50%',
-    backgroundColor: '#3498DB',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '10px',
-    color: 'white',
-    flexShrink: 0
   },
   details: {
     flex: 1,
@@ -193,6 +184,61 @@ function getSavedPlaceDisplayFields(item) {
   };
 }
 
+/** curators 행: Studio·DB와 동일하게 avatar_url → avatar → image */
+function curatorProfileImageUrl(curator) {
+  if (!curator || typeof curator !== "object") return "";
+  return String(
+    curator.avatar_url || curator.avatar || curator.image || ""
+  ).trim();
+}
+
+function CuratorFollowAvatar({ curator, sizePx, fontSizePx: fontSizePxProp }) {
+  const url = curatorProfileImageUrl(curator);
+  const [broken, setBroken] = useState(false);
+  const letter =
+    curator?.username?.charAt(0)?.toUpperCase() ||
+    curator?.display_name?.charAt(0)?.toUpperCase() ||
+    "👤";
+  const showImg = Boolean(url) && !broken;
+  const fontSizePx =
+    fontSizePxProp ?? (sizePx <= 28 ? 10 : sizePx <= 44 ? 14 : 24);
+
+  return (
+    <div
+      style={{
+        width: `${sizePx}px`,
+        height: `${sizePx}px`,
+        borderRadius: "50%",
+        backgroundColor: "#3498DB",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: `${fontSizePx}px`,
+        color: "white",
+        flexShrink: 0,
+        overflow: "hidden",
+      }}
+    >
+      {showImg ? (
+        <img
+          src={url}
+          alt=""
+          decoding="async"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        letter
+      )}
+    </div>
+  );
+}
+
 const SWIPE_CLOSE_PX = 88;
 const SWIPE_MAX_DRAG_PX = 280;
 /** 홈 지도에서 JUDO 로고 줄만 남기고 시트가 올라갈 수 있는 상단 여백 */
@@ -237,8 +283,11 @@ const UserCard = ({
   const [pfUsername, setPfUsername] = useState("");
   const [pfSaving, setPfSaving] = useState(false);
   const [pfError, setPfError] = useState("");
+  const [pfAvatarUploading, setPfAvatarUploading] = useState(false);
   /** 헤더 즉시 반영 (세션 메타 갱신 전) */
   const [headerDisplayOverride, setHeaderDisplayOverride] = useState(null);
+
+  const profileAvatarInputRef = useRef(null);
 
   /** 핸들 제외: 프로필·탭바에서 아래로 스와이프 → 닫기 */
   const headerSwipeDownRef = useRef(null);
@@ -444,7 +493,7 @@ const UserCard = ({
     (async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("username, display_name, auth_provider")
+        .select("username, display_name, auth_provider, username_changed_at, avatar_url")
         .eq("id", user.id)
         .maybeSingle();
       if (cancelled) return;
@@ -985,6 +1034,53 @@ const UserCard = ({
     }
   };
 
+  const onProfileAvatarFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user?.id || embeddedAdminReadOnly) return;
+    if (!isAcceptableRasterImageFile(file)) {
+      window.alert("이미지 파일만 올릴 수 있어요.");
+      return;
+    }
+    setPfAvatarUploading(true);
+    try {
+      const url = await uploadUserProfileAvatarFile(file, user.id);
+      const { data: upd, error: upErr } = await supabase
+        .from("profiles")
+        .update({
+          avatar_url: url,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+        .select("avatar_url");
+      if (upErr) throw upErr;
+      if (!upd?.length) {
+        const { error: insErr } = await supabase.from("profiles").insert({
+          id: user.id,
+          role: "user",
+          avatar_url: url,
+          updated_at: new Date().toISOString(),
+        });
+        if (insErr) throw insErr;
+      }
+      setPublicProfileRow((prev) => ({ ...(prev || {}), avatar_url: url }));
+      await supabase.auth
+        .updateUser({
+          data: {
+            avatar_url: url,
+            picture: url,
+            image: url,
+          },
+        })
+        .catch(() => {});
+      onPublicProfileSaved?.();
+    } catch (err) {
+      window.alert(err?.message || "프로필 사진을 저장하지 못했습니다.");
+    } finally {
+      setPfAvatarUploading(false);
+    }
+  };
+
   const handleUnfollow = async (curatorId) => {
     try {
       const { error } = await supabase
@@ -1041,15 +1137,32 @@ const UserCard = ({
         .from("profiles")
         .update(payload)
         .eq("id", user.id)
-        .select("id");
+        .select("id, username_changed_at");
       if (upErr) throw upErr;
       if (!upd?.length) {
-        const { error: insErr } = await supabase.from("profiles").insert({
-          id: user.id,
-          role: "user",
-          ...payload,
-        });
+        const { data: insRow, error: insErr } = await supabase
+          .from("profiles")
+          .insert({
+            id: user.id,
+            role: "user",
+            ...payload,
+          })
+          .select("id, username_changed_at")
+          .maybeSingle();
         if (insErr) throw insErr;
+        if (insRow) {
+          setPublicProfileRow((prev) => ({
+            ...(prev || {}),
+            ...payload,
+            username_changed_at: insRow.username_changed_at,
+          }));
+        }
+      } else {
+        setPublicProfileRow((prev) => ({
+          ...(prev || {}),
+          ...payload,
+          username_changed_at: upd[0]?.username_changed_at,
+        }));
       }
       await supabase.auth
         .updateUser({
@@ -1064,11 +1177,17 @@ const UserCard = ({
         display_name: nick,
         username: raw,
       });
-      setPublicProfileRow((prev) => ({ ...(prev || {}), ...payload }));
       onPublicProfileSaved?.();
       setProfileFormOpen(false);
     } catch (e) {
-      setPfError(e?.message || "저장에 실패했습니다.");
+      if (isUsernameChangeCooldownError(e)) {
+        window.alert(
+          e?.message ||
+            "핸들(@고유이름)은 14일에 한 번만 바꿀 수 있습니다."
+        );
+      } else {
+        setPfError(e?.message || "저장에 실패했습니다.");
+      }
     } finally {
       setPfSaving(false);
     }
@@ -1091,6 +1210,15 @@ const UserCard = ({
       user?.user_metadata?.username ||
       ""
     ).trim() || null;
+  const cardAvatarUrl =
+    String(publicProfileRow?.avatar_url || "").trim() ||
+    String(
+      user?.user_metadata?.avatar_url ||
+        user?.user_metadata?.picture ||
+        user?.user_metadata?.image ||
+        ""
+    ).trim() ||
+    null;
   const loginProviderLabel = formatAuthProviderForUi(
     publicProfileRow?.auth_provider || getAuthProviderLabel(user)
   );
@@ -1208,8 +1336,12 @@ const UserCard = ({
                 boxShadow: '0 2px 10px rgba(52, 152, 219, 0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
                 border: '1px solid rgba(255, 255, 255, 0.25)',
               }}>
-                {user.user_metadata?.image ? (
-                  <img src={user.user_metadata.image} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {cardAvatarUrl ? (
+                  <img
+                    src={cardAvatarUrl}
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
                 ) : (
                   <span>👤</span>
                 )}
@@ -1283,6 +1415,85 @@ const UserCard = ({
               </button>
               {profileFormOpen ? (
                 <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div>
+                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "6px" }}>
+                      프로필 사진
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "56px",
+                          height: "56px",
+                          borderRadius: "50%",
+                          overflow: "hidden",
+                          flexShrink: 0,
+                          background:
+                            "linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          border: "1px solid rgba(255,255,255,0.2)",
+                        }}
+                      >
+                        {cardAvatarUrl ? (
+                          <img
+                            src={cardAvatarUrl}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <span style={{ fontSize: "22px" }}>👤</span>
+                        )}
+                      </div>
+                      <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+                        <input
+                          ref={profileAvatarInputRef}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={onProfileAvatarFile}
+                        />
+                        <button
+                          type="button"
+                          disabled={pfAvatarUploading}
+                          onClick={() => profileAvatarInputRef.current?.click()}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid rgba(255,255,255,0.22)",
+                            background: "rgba(52, 152, 219, 0.25)",
+                            color: "#fff",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            cursor: pfAvatarUploading ? "wait" : "pointer",
+                          }}
+                        >
+                          {pfAvatarUploading ? "올리는 중…" : "사진 올리기 · 바꾸기"}
+                        </button>
+                        <div
+                          style={{
+                            fontSize: "10px",
+                            color: "rgba(255,255,255,0.42)",
+                            marginTop: "6px",
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          5MB 이하 · JPG·PNG·WebP 등
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <div>
                     <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
                       닉네임 (다른 사람에게 보이는 이름)
@@ -1875,9 +2086,7 @@ const UserCard = ({
                         style={curatorCardStyles.card}
                       >
                         <div style={curatorCardStyles.info}>
-                          <div style={curatorCardStyles.avatar}>
-                            {curator.username?.charAt(0)?.toUpperCase() || '👤'}
-                          </div>
+                          <CuratorFollowAvatar curator={curator} sizePx={24} />
                           <div style={curatorCardStyles.details}>
                           <div
                             style={{
@@ -1997,20 +2206,7 @@ const UserCard = ({
             {/* 큐레이터 정보 */}
             <div style={{ padding: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
-                <div style={{
-                  width: '60px',
-                  height: '60px',
-                  borderRadius: '50%',
-                  backgroundColor: '#3498DB',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '24px',
-                  color: 'white',
-                  flexShrink: 0
-                }}>
-                  {selectedCurator.username?.charAt(0)?.toUpperCase() || '👤'}
-                </div>
+                <CuratorFollowAvatar curator={selectedCurator} sizePx={60} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
                     @{selectedCurator.username}

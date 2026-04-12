@@ -1,23 +1,35 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import './scrollbar.css'; // 동글 스크롤바 스타일 import
 
 // 입력 전 상태: 아무것도 표시 안 함
 const InitialState = () => null;
 
 // 입력 중 상태: 자동완성 + 상황 태그 하이라이트
-const TypingState = ({ 
-  query, 
-  matchedContexts, 
-  onContextTagClick, 
-  kakaoResults, 
-  isKakaoLoading, 
-  showKakaoResults, 
-  selectedKakaoIndex, 
-  setSelectedKakaoIndex, 
+function TypingState({
+  query,
+  matchedContexts,
+  onContextTagClick,
+  kakaoResults,
+  isKakaoLoading,
+  showKakaoResults,
+  selectedKakaoIndex,
+  setSelectedKakaoIndex,
   onKakaoPlaceClick,
   userLocation,
-  onNearbySearch
-}) => (
+  onNearbySearch,
+}) {
+  const kakaoScrollRef = useRef(null);
+  useLayoutEffect(() => {
+    if (selectedKakaoIndex < 0 || !kakaoResults?.length) return;
+    const root = kakaoScrollRef.current;
+    if (!root) return;
+    const item = root.querySelector(
+      `[data-kakao-suggestion-index="${selectedKakaoIndex}"]`
+    );
+    item?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+  }, [selectedKakaoIndex, kakaoResults?.length]);
+
+  return (
   <div className="absolute top-full left-0 right-0 mt-2 z-40">
     {/* 상황 태그 하이라이트 - 다크 모드 */}
     {matchedContexts.length > 0 && (
@@ -192,7 +204,8 @@ const TypingState = ({
 
     {/* 장소명 자동완성 - 플로팅 한줄씩 (반응형) */}
     {kakaoResults.length > 0 && (
-      <div 
+      <div
+        ref={kakaoScrollRef}
         id="search-results-sheet"
         className="search-results-container"
         style={{
@@ -224,7 +237,8 @@ const TypingState = ({
         {/* 장소 리스트 - 플로팅 한줄씩 */}
         {kakaoResults.map((place, index) => (
           <div
-            key={place.id}
+            key={place.id != null ? String(place.id) : `idx-${index}`}
+            data-kakao-suggestion-index={index}
             style={{
               position: 'relative',
               width: '100%',
@@ -359,7 +373,8 @@ const TypingState = ({
       </div>
     )}
   </div>
-);
+  );
+}
 
 // 검색 후 상태: 필터 칩 - 다크 모드
 const SearchCompleteState = ({ appliedFilters, onFilterRemove }) => (
