@@ -23,6 +23,10 @@ import {
 } from "../../utils/recommendationEngine";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
+import {
+  fetchStudioFollowersEnriched,
+  resolveFollowerPresentation,
+} from "../../utils/studioFollowersFetch";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -1724,33 +1728,42 @@ export default function StudioHome() {
           }
 
           if (unreadFollows && unreadFollows.length > 0) {
-            // 팔로워 정보 가져오기
+            const enriched = await fetchStudioFollowersEnriched(
+              supabase,
+              curatorProfile.id
+            );
+            const byUserId = new Map(
+              enriched.map((r) => [r.user_id, r])
+            );
+
             const followerPromises = unreadFollows.map(async (follow) => {
-              const { data: profileData, error: profileError } = await supabase
-                .from("profiles")
-                .select("username, display_name")
-                .eq("id", follow.user_id)
-                .maybeSingle();
-
-              if (profileError || !profileData) {
-                return {
-                  ...follow,
-                  toastLine: null,
-                  toastDetail: null,
-                };
+              const row = byUserId.get(follow.user_id);
+              if (row) {
+                const toastLine =
+                  row.label === "이름 미설정" ? null : row.label;
+                return { ...follow, toastLine, toastDetail: null };
               }
+              const [profRes, curRes] = await Promise.all([
+                supabase
+                  .from("profiles")
+                  .select("username, display_name, auth_provider, avatar_url")
+                  .eq("id", follow.user_id)
+                  .maybeSingle(),
+                supabase
+                  .from("curators")
+                  .select(
+                    "user_id, display_name, username, name, avatar_url, avatar, image, grade"
+                  )
+                  .eq("user_id", follow.user_id)
+                  .maybeSingle(),
+              ]);
 
-              const nick = (profileData.display_name || "").trim();
-              const handle = (profileData.username || "").trim();
-
-              let toastLine = null;
-              if (nick && handle) {
-                toastLine = `${nick} (@${handle})`;
-              } else if (nick) {
-                toastLine = nick;
-              } else if (handle) {
-                toastLine = `@${handle}`;
-              }
+              const pres = resolveFollowerPresentation(
+                profRes.data || {},
+                curRes.data
+              );
+              const toastLine =
+                pres.label === "이름 미설정" ? null : pres.label;
 
               return {
                 ...follow,

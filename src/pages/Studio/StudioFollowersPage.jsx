@@ -13,11 +13,17 @@ function followerInitial(label) {
 
 function FollowerRow({ follower }) {
   const [imgErr, setImgErr] = useState(false);
-  const initial = followerInitial(follower.label);
+  const initial = followerInitial(follower.primaryText || follower.label);
   return (
     <div style={styles.row}>
       <div style={styles.rowMain}>
-        <div style={styles.avatarWrap} aria-hidden>
+        <div
+          style={{
+            ...styles.avatarWrap,
+            ...(follower.isCurator ? styles.avatarWrapCurator : {}),
+          }}
+          aria-hidden
+        >
           {follower.avatarUrl && !imgErr ? (
             <img
               src={follower.avatarUrl}
@@ -27,11 +33,30 @@ function FollowerRow({ follower }) {
               referrerPolicy="no-referrer"
             />
           ) : (
-            <span style={styles.avatarFallback}>{initial}</span>
+            <span
+              style={{
+                ...styles.avatarFallback,
+                ...(follower.isCurator ? styles.avatarFallbackCurator : {}),
+              }}
+            >
+              {initial}
+            </span>
           )}
         </div>
-        <div style={styles.label} title={follower.label}>
-          {follower.label}
+        <div style={styles.textCol} title={follower.label}>
+          <div style={styles.labelRow}>
+            <div style={styles.nameBlock}>
+              <div style={styles.primary}>
+                {follower.primaryText ?? follower.label}
+              </div>
+              {follower.secondaryText ? (
+                <div style={styles.secondary}>{follower.secondaryText}</div>
+              ) : null}
+            </div>
+            {follower.isCurator ? (
+              <span style={styles.curatorBadge}>큐레이터</span>
+            ) : null}
+          </div>
         </div>
       </div>
       <div style={styles.date}>
@@ -136,7 +161,9 @@ export default function StudioFollowersPage() {
       </div>
 
       <div style={styles.content}>
-        <p style={styles.sub}>최신순 · 최대 200명 · 프로필 사진이 있으면 함께 표시돼요</p>
+        <p style={styles.sub}>
+          최신순 · 최대 200명 · 닉네임과 @핸들 표시 · 큐레이터 팔로워는 뱃지로 구분
+        </p>
 
         {loading ? (
           <div style={styles.muted}>불러오는 중…</div>
@@ -216,7 +243,7 @@ const styles = {
   },
   row: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: "12px",
     padding: "10px 14px",
@@ -226,7 +253,7 @@ const styles = {
   },
   rowMain: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: "12px",
     minWidth: 0,
     flex: 1,
@@ -237,8 +264,13 @@ const styles = {
     borderRadius: "50%",
     overflow: "hidden",
     flexShrink: 0,
+    marginTop: "2px",
     backgroundColor: "#2c3e50",
     border: "2px solid rgba(255,255,255,0.12)",
+  },
+  avatarWrapCurator: {
+    borderColor: "rgba(241, 196, 15, 0.55)",
+    boxShadow: "0 0 0 1px rgba(241, 196, 15, 0.2)",
   },
   avatarImg: {
     width: "100%",
@@ -257,19 +289,64 @@ const styles = {
     color: "#ecf0f1",
     background: "linear-gradient(135deg, #3498db 0%, #8e44ad 100%)",
   },
-  label: {
+  avatarFallbackCurator: {
+    background: "linear-gradient(135deg, #f39c12 0%, #d35400 100%)",
+  },
+  textCol: {
+    minWidth: 0,
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+  labelRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "8px",
+    minWidth: 0,
+  },
+  nameBlock: {
+    minWidth: 0,
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+  primary: {
     fontSize: "15px",
     fontWeight: 600,
     color: "#ecf0f1",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    minWidth: 0,
-    flex: 1,
+    lineHeight: 1.35,
+    whiteSpace: "normal",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
+  secondary: {
+    fontSize: "13px",
+    fontWeight: 500,
+    color: "rgba(255,255,255,0.5)",
+    lineHeight: 1.3,
+    whiteSpace: "normal",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
+  curatorBadge: {
+    fontSize: "10px",
+    fontWeight: 800,
+    letterSpacing: "0.02em",
+    padding: "3px 8px",
+    borderRadius: "999px",
+    flexShrink: 0,
+    marginTop: "2px",
+    color: "#f1c40f",
+    backgroundColor: "rgba(241, 196, 15, 0.12)",
+    border: "1px solid rgba(241, 196, 15, 0.45)",
   },
   date: {
     fontSize: "12px",
     color: "rgba(255,255,255,0.45)",
     flexShrink: 0,
+    paddingTop: "3px",
+    lineHeight: 1.35,
   },
 };
