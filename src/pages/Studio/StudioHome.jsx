@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   uploadCuratorPlacePhoto,
   uploadCuratorProfileAvatarFile,
@@ -24,9 +24,16 @@ import {
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
 import {
+  countStudioFollowingDistinct,
   fetchStudioFollowersEnriched,
   resolveFollowerPresentation,
 } from "../../utils/studioFollowersFetch";
+import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
+import {
+  selectSystemFoldersOrdered,
+  insertSystemFolderRow,
+  deleteOwnCustomSystemFolder,
+} from "../../utils/systemFoldersSupabase";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -40,6 +47,46 @@ function isLikelyMissingCuratorImageColumnError(error) {
     msg.includes("could not find the") ||
     msg.includes("unknown column")
   );
+}
+
+const FALLBACK_SAVED_FOLDER_DEFS = [
+  { key: "after_party", name: "2차", color: "#FF8C42", icon: "🍺", sort_order: 1 },
+  { key: "date", name: "데이트", color: "#FF69B4", icon: "💘", sort_order: 2 },
+  { key: "hangover", name: "해장", color: "#87CEEB", icon: "🥣", sort_order: 3 },
+  { key: "solo", name: "혼술", color: "#9B59B6", icon: "👤", sort_order: 4 },
+  { key: "group", name: "회식", color: "#F1C40F", icon: "👥", sort_order: 5 },
+  { key: "must_go", name: "찐맛집", color: "#27AE60", icon: "🌟", sort_order: 6 },
+  { key: "terrace", name: "야외/뷰", color: "#5DADE2", icon: "🌅", sort_order: 7 },
+];
+
+/** 잔 리스트·편집: 이 7개만 삭제 불가, 그 외 키는 사용자 추가 폴더로 간주 */
+const SYSTEM_SAVED_FOLDER_KEY_SET = new Set(
+  FALLBACK_SAVED_FOLDER_DEFS.map((def) => def.key)
+);
+
+function isDeletableUserSavedFolderKey(key) {
+  return key != null && !SYSTEM_SAVED_FOLDER_KEY_SET.has(String(key));
+}
+
+function studioSavedPlaceLabel(item) {
+  if (!item || typeof item !== "object") return "이름 없음";
+  const row = item.places ?? item.place;
+  const name =
+    row?.name ??
+    row?.place_name ??
+    row?.title ??
+    item.place_name ??
+    item.name ??
+    "";
+  return String(name || "").trim() || "이름 없음";
+}
+
+function studioSavedPlaceId(item) {
+  if (!item || typeof item !== "object") return null;
+  const row = item.places;
+  if (row && row.id != null) return String(row.id);
+  if (item.place_id != null) return String(item.place_id);
+  return null;
 }
 
 /**
@@ -933,7 +980,7 @@ const StatsSection = ({ stats }) => (
       <div style={sectionStyles.statCard}>
         <div style={sectionStyles.statIcon}>👥</div>
         <div style={sectionStyles.statNumber}>{stats.followerCount}</div>
-        <div style={sectionStyles.statLabel}>팔로워</div>
+        <div style={sectionStyles.statLabel}>picked</div>
       </div>
     </div>
   </div>
@@ -1197,9 +1244,12 @@ const sectionStyles = {
 
 export default function StudioHome() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth(); // 인증된 사용자 정보 가져오기
   const { showToast } = useToast(); // Toast 훅 추가
   const mapRef = useRef(null); // 지도 ref 다시 추가
+  /** 잔 리스트 탭 진입 시에만 내 저장 폴더 접기 (다른 탭↔리스트 전환 시 기본 접힘) */
+  const prevActiveSectionForListFolderRef = useRef(null);
   /** 잔 아카이브 프로필 박스 — 보기 모드에서 사진만 바로 저장 */
   /** 프로필 수정 모드에서만 사용 — 원 밖 「사진 올리기」 */
   const profileEditAvatarFileRef = useRef(null);
@@ -1211,7 +1261,22 @@ export default function StudioHome() {
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
   const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
-  
+
+  /** 잔 리스트 상단 — 카카오 「저장」 폴더 (system_folders + user_saved_places) */
+  const [savedFolderDefs, setSavedFolderDefs] = useState(FALLBACK_SAVED_FOLDER_DEFS);
+  const [savedByFolder, setSavedByFolder] = useState(() => ({}));
+  const [savedFoldersLoadError, setSavedFoldersLoadError] = useState("");
+  const [savedFoldersLoading, setSavedFoldersLoading] = useState(false);
+  const [savedFolderKey, setSavedFolderKey] = useState(null);
+  const [savedShowNewFolder, setSavedShowNewFolder] = useState(false);
+  const [savedNewFolderName, setSavedNewFolderName] = useState("");
+  const [savedFolderSaving, setSavedFolderSaving] = useState(false);
+  const [savedFoldersEditMode, setSavedFoldersEditMode] = useState(false);
+  const [savedFolderMetaDeletingKey, setSavedFolderMetaDeletingKey] =
+    useState(null);
+  /** 잔 리스트 — 내 저장 폴더 패널 (기본 접힘) */
+  const [savedFoldersListExpanded, setSavedFoldersListExpanded] = useState(false);
+
   // 변경사항 감지 상태
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [previousSection, setPreviousSection] = useState("archive");
@@ -1351,6 +1416,11 @@ export default function StudioHome() {
 
   /** 잔 올리기: 저장 시 함께 올릴 사진 (큐레이터 전용 탭이라 동일 권한) */
   const [addPlacePhotoFiles, setAddPlacePhotoFiles] = useState([]);
+  /** 잔 올리기: 내 저장 폴더 (카카오 저장과 동일 테이블 — 1개 이상 필수) */
+  const [addPlaceSelectedFolders, setAddPlaceSelectedFolders] = useState([]);
+  const [addPlaceShowNewFolder, setAddPlaceShowNewFolder] = useState(false);
+  const [addPlaceNewFolderName, setAddPlaceNewFolderName] = useState("");
+  const [addPlaceNewFolderSaving, setAddPlaceNewFolderSaving] = useState(false);
 
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
@@ -1689,6 +1759,7 @@ export default function StudioHome() {
     level: 1,
     saveCount: 0,
     followerCount: 0,
+    followingCount: 0,
     overlappingCurators: 0,
     /** studio_week_save_insights RPC */
     weekTopReactingPlace: null,
@@ -1823,10 +1894,13 @@ export default function StudioHome() {
       // 등록된 장소 수 (연결 테이블 통해 조회)
       const { data: placeCuratorsData, error: placesError } = await supabase
         .from("curator_places")
-        .select(`
+        .select(
+          `
           place_id,
+          created_at,
           places (created_at)
-        `)
+        `
+        )
         .eq("curator_id", userId);
 
       if (placesError) {
@@ -1837,20 +1911,34 @@ export default function StudioHome() {
       const totalPlaces = placeCuratorsData?.length || 0;
       const totalLikes = 0; // likes 필드가 없으므로 0으로 설정
 
-      // 이번 주/지난 주 통계 (실제 데이터 기반)
+      /** 큐레이터가 이 장소를 연결한 시각. 없으면 레거시 폴백으로 places.created_at */
+      const linkCreatedAt = (pc) => {
+        const a = pc?.created_at;
+        if (a) return new Date(a);
+        const p = pc?.places?.created_at;
+        return p ? new Date(p) : null;
+      };
+
+      // 로컬 주(일요일 0시) — 잔 기록·picked(신규 팔로워) 동일 기준
       const now = new Date();
       const thisWeekStart = new Date(now.setDate(now.getDate() - now.getDay()));
       const lastWeekStart = new Date(thisWeekStart);
       lastWeekStart.setDate(lastWeekStart.getDate() - 7);
 
-      const thisWeekPlaces = placeCuratorsData?.filter(pc => 
-        pc.places && new Date(pc.places.created_at) >= thisWeekStart
-      ).length || 0;
+      const thisWeekPlaces =
+        placeCuratorsData?.filter((pc) => {
+          const t = linkCreatedAt(pc);
+          return t && t >= thisWeekStart;
+        }).length || 0;
 
-      const lastWeekPlaces = placeCuratorsData?.filter(pc => 
-        pc.places && new Date(pc.places.created_at) >= lastWeekStart && 
-        new Date(pc.places.created_at) < thisWeekStart
-      ).length || 0;
+      const lastWeekPlaces =
+        placeCuratorsData?.filter((pc) => {
+          const t = linkCreatedAt(pc);
+          return t && t >= lastWeekStart && t < thisWeekStart;
+        }).length || 0;
+
+      let thisWeekNewFollowers = 0;
+      let lastWeekNewFollowers = 0;
 
       // 등급 계산 (실제 장소 수 기반)
       let level = 1;
@@ -1860,16 +1948,31 @@ export default function StudioHome() {
       else if (totalPlaces >= 100) level = 2;  // 실버
       else if (totalPlaces >= 50) level = 1;   // 브론즈
 
-      // 팔로워 수 계산
+      // 팔로워 수(성장 추이 picked = 주간 신규 팔로워 집계에도 동일 행 사용)
       console.log("🔍 큐레이터 프로필 ID:", curatorProfile?.id);
-      const { data: followersData, error: followersError } = await supabase
-        .from('user_follows')
-        .select('id')
-        .eq('curator_id', curatorProfile.id);
-      
+      const [{ data: followersData, error: followersError }, followingCount] =
+        await Promise.all([
+          curatorProfile?.id
+            ? supabase
+                .from("user_follows")
+                .select("id, created_at")
+                .eq("curator_id", curatorProfile.id)
+            : Promise.resolve({ data: [], error: null }),
+          countStudioFollowingDistinct(supabase, userId),
+        ]);
+
       console.log("🔍 팔로워 데이터:", { followersData, followersError });
-      const followerCount = followersError ? 0 : (followersData?.length || 0);
-      console.log("🔍 계산된 팔로워 수:", followerCount);
+      const followerCount = followersError ? 0 : followersData?.length || 0;
+      console.log("🔍 팔로워 / 팔로잉 수:", followerCount, followingCount);
+
+      if (!followersError && followersData?.length) {
+        for (const row of followersData) {
+          if (!row.created_at) continue;
+          const t = new Date(row.created_at);
+          if (t >= thisWeekStart) thisWeekNewFollowers += 1;
+          else if (t >= lastWeekStart && t < thisWeekStart) lastWeekNewFollowers += 1;
+        }
+      }
 
       let weekInsight = {
         top_place_name: null,
@@ -1897,18 +2000,19 @@ export default function StudioHome() {
         placeCount: totalPlaces,
         saveCount: totalLikes, // likes 필드가 없으므로 0
         followerCount: followerCount, // 실제 팔로워 수
+        followingCount,
         overlappingCurators: 0, // TODO: 중복 큐레이터 기능 구현 시 실제 데이터
         weekTopReactingPlace: weekInsight.top_place_name,
         weekTopReactingSaves: weekInsight.top_save_count,
         weeklyStats: {
           newPlaces: thisWeekPlaces,
           newSaves: weekInsight.week_total_saves,
-          newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
+          newFollowers: thisWeekNewFollowers
         },
         lastWeekStats: {
           newPlaces: lastWeekPlaces,
-          newSaves: 0, // TODO: 지난주 저장 합계 RPC
-          newFollowers: 0 // TODO: 팔로워 기능 구현 시 실제 데이터
+          newSaves: 0,
+          newFollowers: lastWeekNewFollowers
         }
       };
       
@@ -1928,11 +2032,18 @@ export default function StudioHome() {
     if (user?.id) {
       loadCuratorStats(user.id); // 실제 사용자 ID 전달
     }
-  }, [user?.id, myPlaces.length]);
+  }, [user?.id, myPlaces.length, curatorProfile?.id]);
 
   useEffect(() => {
     loadStudioData();
   }, []);
+
+  useEffect(() => {
+    if (location.state?.openStudioList) {
+      setActiveSection("list");
+      navigate("/studio", { replace: true, state: {} });
+    }
+  }, [location.state?.openStudioList, navigate]);
 
   useEffect(() => {
     if (!liveStartConfirmOpen) return;
@@ -2065,7 +2176,7 @@ export default function StudioHome() {
       console.log("📂 스튜디오 데이터 로딩 시작...");
       console.log("🔍 현재 사용자 ID:", user?.id);
       
-      // Supabase에서 저장된 장소 불러오기 (curator_places 기준)
+      // Supabase에서 저장된 장소 불러오기 (curator_places 기준, 공개·비공개 모두 — 잔 리스트·통계 일치)
       const { data: curatorPlacesData, error: placesError } = await supabase
         .from("curator_places")
         .select(`
@@ -2073,7 +2184,6 @@ export default function StudioHome() {
           places (*)
         `)
         .eq("curator_id", user.id) // 현재 사용자의 추천만 필터링
-        .eq("is_archived", false)
         .order("created_at", { ascending: false });
 
       // 장소 데이터 추출
@@ -2176,6 +2286,269 @@ export default function StudioHome() {
     }
   };
 
+  const loadSavedFolders = useCallback(async () => {
+    if (!user?.id) return;
+    setSavedFoldersLoading(true);
+    setSavedFoldersLoadError("");
+    try {
+      const sfPromise = selectSystemFoldersOrdered(supabase);
+      const savPromise = supabase
+        .from("user_saved_places")
+        .select(
+          `
+          id,
+          place_id,
+          places ( id, name, address ),
+          user_saved_place_folders ( folder_key )
+        `
+        )
+        .eq("user_id", user.id);
+
+      const [sfResult, savResult] = await Promise.all([sfPromise, savPromise]);
+
+      const { data: sfRows, error: sfErr } = sfResult;
+      const { data: savedRows, error: savErr } = savResult;
+
+      if (!sfErr && sfRows?.length) {
+        setSavedFolderDefs(sfRows);
+      } else if (sfErr) {
+        console.warn("system_folders:", sfErr.message);
+      }
+
+      if (savErr) {
+        setSavedFoldersLoadError(
+          savErr.message || "저장 폴더 목록을 불러오지 못했습니다."
+        );
+        setSavedByFolder({});
+        return;
+      }
+
+      const defList = sfRows?.length ? sfRows : FALLBACK_SAVED_FOLDER_DEFS;
+      const next = {};
+      defList.forEach((f) => {
+        next[f.key] = [];
+      });
+
+      (savedRows || []).forEach((row) => {
+        const links = row.user_saved_place_folders;
+        if (!links?.length) return;
+        links.forEach((l) => {
+          const k = l?.folder_key;
+          if (!k) return;
+          if (!next[k]) next[k] = [];
+          next[k].push(row);
+        });
+      });
+
+      setSavedByFolder(next);
+    } catch (e) {
+      setSavedFoldersLoadError(e?.message || "오류가 발생했습니다.");
+    } finally {
+      setSavedFoldersLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (
+      (activeSection === "list" || activeSection === "add") &&
+      user?.id
+    ) {
+      loadSavedFolders();
+    }
+  }, [activeSection, user?.id, loadSavedFolders]);
+
+  useEffect(() => {
+    const prev = prevActiveSectionForListFolderRef.current;
+    if (
+      activeSection === "list" &&
+      prev != null &&
+      prev !== "list"
+    ) {
+      setSavedFoldersListExpanded(false);
+    }
+    prevActiveSectionForListFolderRef.current = activeSection;
+  }, [activeSection]);
+
+  const sortedSavedFolders = useMemo(() => {
+    return [...savedFolderDefs].sort(
+      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    );
+  }, [savedFolderDefs]);
+
+  const hasDeletableSavedFolders = useMemo(
+    () => sortedSavedFolders.some((f) => isDeletableUserSavedFolderKey(f.key)),
+    [sortedSavedFolders]
+  );
+
+  const handleDeleteSavedFolder = async (key) => {
+    if (!user?.id) return;
+    if (!isDeletableUserSavedFolderKey(key)) return;
+    if (
+      !window.confirm(
+        "이 폴더를 삭제하면 내 저장과의 연결이 모두 풀리고, 폴더 목록에서 사라집니다. 계속할까요?"
+      )
+    ) {
+      return;
+    }
+    setSavedFolderMetaDeletingKey(key);
+    try {
+      const { error } = await deleteOwnCustomSystemFolder(
+        supabase,
+        user.id,
+        key
+      );
+      if (error) {
+        alert(error.message || "삭제하지 못했습니다.");
+        return;
+      }
+      setSavedFolderKey((k) => (k === key ? null : k));
+      setAddPlaceSelectedFolders((prev) => prev.filter((fk) => fk !== key));
+      await loadSavedFolders();
+    } finally {
+      setSavedFolderMetaDeletingKey(null);
+    }
+  };
+
+  const savedFolderSelectedPlaces = savedFolderKey
+    ? savedByFolder[savedFolderKey] || []
+    : [];
+
+  /** 잔 리스트 카드: 선택한 폴더에 넣은 places.id 집합 (내 잔과 교집합) */
+  const savedFolderPlaceIdSet = useMemo(() => {
+    if (!savedFolderKey) return null;
+    const ids = new Set();
+    for (const row of savedFolderSelectedPlaces) {
+      const id = studioSavedPlaceId(row);
+      if (id) ids.add(String(id));
+    }
+    return ids;
+  }, [savedFolderKey, savedFolderSelectedPlaces]);
+
+  const insertCustomSystemFolderRow = useCallback(
+    async (trimmedName) => {
+      if (!trimmedName) return { ok: false };
+      if (!user?.id) {
+        return {
+          ok: false,
+          error: { message: "로그인이 필요합니다." },
+        };
+      }
+      const key = `custom_${Date.now()}`;
+      const maxSo = Math.max(
+        0,
+        ...savedFolderDefs.map((f) => Number(f.sort_order) || 0)
+      );
+      const { error } = await insertSystemFolderRow(supabase, {
+        key,
+        name: trimmedName,
+        color: "#3498DB",
+        icon: "📁",
+        description: "",
+        sort_order: maxSo + 1,
+        is_active: true,
+        created_by: user.id,
+      });
+      if (error) {
+        return { ok: false, error };
+      }
+      await loadSavedFolders();
+      return { ok: true, key };
+    },
+    [savedFolderDefs, loadSavedFolders, user?.id]
+  );
+
+  const persistUserSavedPlaceFolders = useCallback(
+    (placeUuid, folderKeys) =>
+      upsertUserSavedPlaceFolders(supabase, {
+        placeId: placeUuid,
+        folderKeys,
+        firstSavedFrom: "studio",
+      }),
+    []
+  );
+
+  useEffect(() => {
+    if (!user?.id || !editingPlaceId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("user_saved_places")
+        .select(`id, user_saved_place_folders ( folder_key )`)
+        .eq("user_id", user.id)
+        .eq("place_id", editingPlaceId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error || !data) {
+        setAddPlaceSelectedFolders([]);
+        return;
+      }
+      const keys = (data.user_saved_place_folders || [])
+        .map((l) => l.folder_key)
+        .filter(Boolean);
+      setAddPlaceSelectedFolders(keys);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, editingPlaceId]);
+
+  const handleAddSavedFolder = async () => {
+    const name = savedNewFolderName.trim();
+    if (!name) return;
+    setSavedFolderSaving(true);
+    try {
+      const res = await insertCustomSystemFolderRow(name);
+      if (!res.ok) {
+        if (res.error) {
+          alert(
+            res.error.message ||
+              "폴더를 추가하지 못했습니다. Supabase에 INSERT 정책이 있는지 확인하세요."
+          );
+        }
+        return;
+      }
+      setSavedNewFolderName("");
+      setSavedShowNewFolder(false);
+    } finally {
+      setSavedFolderSaving(false);
+    }
+  };
+
+  const toggleAddPlaceFolder = (folderKey) => {
+    setAddPlaceSelectedFolders((prev) =>
+      prev.includes(folderKey)
+        ? prev.filter((k) => k !== folderKey)
+        : [...prev, folderKey]
+    );
+  };
+
+  const handleAddPlaceCustomFolder = async () => {
+    const name = addPlaceNewFolderName.trim();
+    if (!name) return;
+    setAddPlaceNewFolderSaving(true);
+    try {
+      const res = await insertCustomSystemFolderRow(name);
+      if (!res.ok) {
+        if (res.error) {
+          alert(
+            res.error.message ||
+              "폴더를 추가하지 못했습니다. Supabase에 INSERT 정책이 있는지 확인하세요."
+          );
+        }
+        return;
+      }
+      setAddPlaceNewFolderName("");
+      setAddPlaceShowNewFolder(false);
+      if (res.key) {
+        setAddPlaceSelectedFolders((prev) =>
+          prev.includes(res.key) ? prev : [...prev, res.key]
+        );
+      }
+    } finally {
+      setAddPlaceNewFolderSaving(false);
+    }
+  };
+
   const handleAddPlace = async (isDraft = false) => {
     try {
       // 필수 필드 확인
@@ -2199,6 +2572,11 @@ export default function StudioHome() {
         // 실제 인증된 사용자 ID 사용
         if (!user) {
           alert("로그인이 필요합니다.");
+          return;
+        }
+
+        if (addPlaceSelectedFolders.length === 0) {
+          alert("내 저장 폴더를 1개 이상 선택해주세요.");
           return;
         }
         
@@ -2231,6 +2609,14 @@ export default function StudioHome() {
           }
 
           console.log("✅ 장소 수정 성공:", data);
+
+          const folderRes = await persistUserSavedPlaceFolders(
+            editingPlaceId,
+            addPlaceSelectedFolders
+          );
+          if (folderRes.ok) {
+            await loadSavedFolders();
+          }
           
           // 로컬 상태 업데이트
           setMyPlaces(prev => prev.map(place => 
@@ -2239,40 +2625,96 @@ export default function StudioHome() {
               : place
           ));
           
-          alert("장소가 성공적으로 수정되었습니다!");
+          alert(
+            folderRes.ok
+              ? "장소가 성공적으로 수정되었습니다!"
+              : `장소는 수정되었습니다. 내 저장 폴더 연결: ${folderRes.message || "실패"}`
+          );
           
           // 수정 모드 종료
           setEditingPlaceId(null);
           
         } else {
-          // 새로 추가 모드: INSERT 사용
-          const newPlaceData = {
-            name: formData.name_address,
-            address: formData.name_address,
-            lat: formData.latitude,
-            lng: formData.longitude,
-            category: "미분류",
-            kakao_place_id: formData.kakao_place_id || null,
-          };
-          
-          console.log("📝 저장할 장소 데이터:", newPlaceData);
-          
-          // 1. 장소 마스터에 저장 (중복 확인 제거)
-          console.log("📝 새 장소 저장:", newPlaceData);
-          const { data: newPlace, error: placeError } = await supabase
-            .from("places")
-            .insert([newPlaceData])
-            .select();
+          // 새로 추가 모드: places.kakao_place_id 유니크 → 동일 카카오 ID는 기존 행 재사용
+          const kid = formData.kakao_place_id
+            ? String(formData.kakao_place_id).trim()
+            : "";
 
-          if (placeError) {
-            console.error("❌ 장소 저장 오류:", placeError);
-            alert(`장소 저장에 실패했습니다: ${placeError.message}`);
-            return;
+          let placeRow = null;
+
+          if (kid) {
+            const { data: existingPlace, error: exErr } = await supabase
+              .from("places")
+              .select("*")
+              .eq("kakao_place_id", kid)
+              .maybeSingle();
+
+            if (exErr) {
+              console.warn("기존 장소(kakao_place_id) 조회:", exErr.message);
+            } else if (existingPlace) {
+              const { data: updated, error: updErr } = await supabase
+                .from("places")
+                .update({
+                  name: formData.name_address,
+                  address: formData.name_address,
+                  lat: formData.latitude,
+                  lng: formData.longitude,
+                  category:
+                    formData.category ||
+                    existingPlace.category ||
+                    "미분류",
+                  kakao_place_id: kid,
+                })
+                .eq("id", existingPlace.id)
+                .select()
+                .single();
+
+              placeRow = updErr ? existingPlace : updated;
+              console.log("✅ 기존 places 행 재사용 (kakao_place_id):", kid);
+            }
           }
-          
-          const placeData = { data: newPlace };
 
-          console.log("✅ 장소 마스터 저장 성공:", placeData);
+          if (!placeRow) {
+            const newPlaceData = {
+              name: formData.name_address,
+              address: formData.name_address,
+              lat: formData.latitude,
+              lng: formData.longitude,
+              category: formData.category || "미분류",
+              kakao_place_id: kid || null,
+            };
+
+            console.log("📝 새 places INSERT:", newPlaceData);
+            const { data: newPlace, error: placeError } = await supabase
+              .from("places")
+              .insert([newPlaceData])
+              .select();
+
+            if (placeError) {
+              if (placeError.code === "23505" && kid) {
+                const { data: racePlace, error: raceErr } = await supabase
+                  .from("places")
+                  .select("*")
+                  .eq("kakao_place_id", kid)
+                  .maybeSingle();
+                if (!raceErr && racePlace) {
+                  placeRow = racePlace;
+                  console.log("✅ INSERT 충돌 후 기존 행 사용:", kid);
+                }
+              }
+              if (!placeRow) {
+                console.error("❌ 장소 저장 오류:", placeError);
+                alert(`장소 저장에 실패했습니다: ${placeError.message}`);
+                return;
+              }
+            } else {
+              placeRow = newPlace?.[0] ?? null;
+            }
+          }
+
+          const placeData = { data: placeRow ? [placeRow] : null };
+
+          console.log("✅ 장소 마스터 준비 완료:", placeData);
           
           // 2. 큐레이터 추천에 저장
         if (placeData && placeData.data && placeData.data[0]) {
@@ -2303,6 +2745,18 @@ export default function StudioHome() {
 
             const insertedRow = placeData.data[0];
             const insertedPlaceUuid = insertedRow?.id;
+
+            const folderRes = await persistUserSavedPlaceFolders(
+              insertedPlaceUuid,
+              addPlaceSelectedFolders
+            );
+            if (folderRes.ok) {
+              await loadSavedFolders();
+            } else {
+              alert(
+                `잔은 올라갔지만 내 저장 폴더 연결에 실패했습니다: ${folderRes.message || ""}`
+              );
+            }
             const kakaoForPhotos =
               insertedRow?.kakao_place_id || formData.kakao_place_id || null;
             if (
@@ -2341,9 +2795,10 @@ export default function StudioHome() {
             }
             setAddPlacePhotoFiles([]);
             
-            // 3. myPlaces에 새 장소 추가 (curator_places 데이터 기준)
+            // 3. myPlaces에 새 장소 추가 — id는 항상 places.id (목록·수정·삭제·폴더 필터와 loadStudioData 일치)
             const newPlaceForList = {
-              id: curatorData[0].id,
+              id: placeData.data[0].id,
+              curator_place_id: curatorData[0].id,
               place_id: placeData.data[0].id,
               name: formData.name_address,
               address: formData.name_address,
@@ -2384,6 +2839,9 @@ export default function StudioHome() {
             is_public: true
           });
           setAddPlacePhotoFiles([]);
+          setAddPlaceSelectedFolders([]);
+          setAddPlaceShowNewFolder(false);
+          setAddPlaceNewFolderName("");
           
           setSearchedPlaces([]);
           setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
@@ -3105,12 +3563,22 @@ export default function StudioHome() {
 
   return (
     <div style={styles.studioShell}>
-      {/* 좌측 상단 홈 버튼 */}
-      <div style={{ position: "absolute", top: "12px", left: "12px" }}>
-        <button 
+      {/* 좌측 상단: 홈 · 내 저장(폴더) — 스튜디오 잔 작업과 분리 */}
+      <div
+        style={{
+          position: "absolute",
+          top: "12px",
+          left: "12px",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px",
+          maxWidth: "calc(100% - 24px)",
+        }}
+      >
+        <button
           type="button"
           onClick={() => navigate("/")}
-          style={{ 
+          style={{
             ...studioCornerButtonStyle,
             backgroundColor: "#2ECC71",
           }}
@@ -3678,6 +4146,141 @@ export default function StudioHome() {
             )}
           </div>
 
+          {/* 내 저장 폴더 (저장 시 user_saved_places — SaveModal과 동일) */}
+          <div style={{ marginBottom: "14px" }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "6px",
+                fontWeight: "600",
+                fontSize: "12px",
+              }}
+            >
+              내 저장 폴더
+            </label>
+            <p
+              style={{
+                margin: "0 0 8px 0",
+                fontSize: "11px",
+                color: "rgba(255,255,255,0.45)",
+                lineHeight: 1.35,
+              }}
+            >
+              실제 저장 시 카카오 「저장」 목록에도 같은 폴더로 들어갑니다. 1개 이상 선택하세요.
+            </p>
+            {savedFoldersLoading ? (
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(255,255,255,0.45)",
+                  marginBottom: "8px",
+                }}
+              >
+                폴더 불러오는 중…
+              </div>
+            ) : null}
+            {savedFoldersLoadError ? (
+              <div
+                style={{
+                  color: "#e74c3c",
+                  fontSize: "12px",
+                  marginBottom: "8px",
+                }}
+              >
+                {savedFoldersLoadError}
+              </div>
+            ) : null}
+            <div style={addPlaceFolderPickerStyles.grid}>
+              {sortedSavedFolders.map((f) => {
+                const selected = addPlaceSelectedFolders.includes(f.key);
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => toggleAddPlaceFolder(f.key)}
+                    style={{
+                      ...addPlaceFolderPickerStyles.btnBase,
+                      borderColor: f.color,
+                      backgroundColor: selected
+                        ? f.color
+                        : "rgba(255, 255, 255, 0.05)",
+                      ...(selected ? addPlaceFolderPickerStyles.btnSelected : {}),
+                    }}
+                  >
+                    <span style={addPlaceFolderPickerStyles.fIcon}>{f.icon}</span>
+                    <span
+                      style={{
+                        ...addPlaceFolderPickerStyles.fName,
+                        color: selected ? "#fff" : f.color,
+                      }}
+                    >
+                      {f.name}
+                    </span>
+                  </button>
+                );
+              })}
+              {!addPlaceShowNewFolder ? (
+                <button
+                  type="button"
+                  onClick={() => setAddPlaceShowNewFolder(true)}
+                  style={addPlaceFolderPickerStyles.addBtn}
+                >
+                  <span style={addPlaceFolderPickerStyles.addIcon}>+</span>
+                  <span style={addPlaceFolderPickerStyles.addText}>새 폴더</span>
+                </button>
+              ) : null}
+            </div>
+            {addPlaceShowNewFolder ? (
+              <div style={addPlaceFolderPickerStyles.newFolderBox}>
+                <input
+                  type="text"
+                  value={addPlaceNewFolderName}
+                  onChange={(e) => setAddPlaceNewFolderName(e.target.value)}
+                  placeholder="폴더 이름"
+                  style={addPlaceFolderPickerStyles.newFolderInput}
+                  autoFocus
+                  onKeyDown={(e) =>
+                    e.key === "Enter" &&
+                    !addPlaceNewFolderSaving &&
+                    handleAddPlaceCustomFolder()
+                  }
+                />
+                <div style={addPlaceFolderPickerStyles.newFolderActions}>
+                  <button
+                    type="button"
+                    disabled={addPlaceNewFolderSaving}
+                    onClick={handleAddPlaceCustomFolder}
+                    style={addPlaceFolderPickerStyles.newFolderOk}
+                  >
+                    {addPlaceNewFolderSaving ? "…" : "✓"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={addPlaceNewFolderSaving}
+                    onClick={() => {
+                      setAddPlaceShowNewFolder(false);
+                      setAddPlaceNewFolderName("");
+                    }}
+                    style={addPlaceFolderPickerStyles.newFolderCancel}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {addPlaceSelectedFolders.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "8px",
+                  fontSize: "11px",
+                  color: "rgba(255,255,255,0.5)",
+                }}
+              >
+                {addPlaceSelectedFolders.length}개 폴더 선택됨
+              </div>
+            ) : null}
+          </div>
+
           {/* 장소 사진 (저장 시 업로드) */}
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>
@@ -3788,6 +4391,284 @@ export default function StudioHome() {
       {/* 잔 리스트 섹션 */}
       {activeSection === "list" && (
         <div style={styles.studioSectionInner}>
+          <div style={{ marginBottom: "6px", textAlign: "left" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                marginBottom: savedFoldersListExpanded ? "8px" : "4px",
+                maxWidth: "320px",
+                marginLeft: "auto",
+                marginRight: "auto",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSavedFoldersListExpanded((open) => {
+                    if (open) {
+                      setSavedFoldersEditMode(false);
+                      setSavedShowNewFolder(false);
+                      setSavedNewFolderName("");
+                    }
+                    return !open;
+                  });
+                }}
+                aria-expanded={savedFoldersListExpanded}
+                style={listSavedFolderStyles.savedFoldersCollapseTrigger}
+              >
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "rgba(255,255,255,0.75)",
+                  }}
+                >
+                  내 저장 폴더
+                </span>
+                <span style={listSavedFolderStyles.savedFoldersChevron}>
+                  {savedFoldersListExpanded ? "▲" : "▼"}
+                </span>
+              </button>
+              {savedFoldersListExpanded ? (
+                <button
+                  type="button"
+                  disabled={savedFoldersLoading}
+                  aria-pressed={savedFoldersEditMode}
+                  onClick={() => {
+                    if (savedFoldersEditMode) {
+                      setSavedFoldersEditMode(false);
+                    } else {
+                      setSavedFoldersEditMode(true);
+                    }
+                  }}
+                  style={listSavedFolderStyles.editToggleBtn}
+                >
+                  {savedFoldersEditMode ? "완료" : "편집"}
+                </button>
+              ) : null}
+            </div>
+            {!savedFoldersListExpanded && savedFoldersLoading ? (
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.45)",
+                  fontSize: "11px",
+                  marginBottom: "6px",
+                  maxWidth: "320px",
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                폴더 불러오는 중…
+              </div>
+            ) : null}
+            {!savedFoldersListExpanded && savedFoldersLoadError ? (
+              <div
+                style={{
+                  color: "#e74c3c",
+                  fontSize: "12px",
+                  marginBottom: "8px",
+                  maxWidth: "320px",
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                {savedFoldersLoadError}
+              </div>
+            ) : null}
+            {savedFoldersListExpanded && savedFoldersLoadError ? (
+              <div
+                style={{
+                  color: "#e74c3c",
+                  fontSize: "12px",
+                  marginBottom: "8px",
+                }}
+              >
+                {savedFoldersLoadError}
+              </div>
+            ) : null}
+            {savedFoldersListExpanded && savedFoldersLoading ? (
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.45)",
+                  fontSize: "12px",
+                  marginBottom: "8px",
+                }}
+              >
+                폴더 불러오는 중…
+              </div>
+            ) : null}
+            {savedFoldersListExpanded && !savedFoldersLoading ? (
+              <>
+                <div style={listSavedFolderStyles.grid}>
+                  {sortedSavedFolders.map((f) => {
+                    const list = savedByFolder[f.key] || [];
+                    const n = list.length;
+                    const active = savedFolderKey === f.key;
+                    return (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() =>
+                          setSavedFolderKey((k) => (k === f.key ? null : f.key))
+                        }
+                        style={{
+                          ...listSavedFolderStyles.folderBtn,
+                          borderColor: f.color,
+                          borderWidth: 2,
+                          backgroundColor: active
+                            ? f.color
+                            : "rgba(255, 255, 255, 0.05)",
+                          ...(active ? listSavedFolderStyles.folderBtnActive : {}),
+                        }}
+                      >
+                        <span style={listSavedFolderStyles.fIcon}>{f.icon}</span>
+                        <span
+                          style={{
+                            ...listSavedFolderStyles.fLabel,
+                            color: active ? "#fff" : f.color,
+                          }}
+                        >
+                          {f.name}{" "}
+                          <span style={listSavedFolderStyles.fCountInline}>
+                            ({n})
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!savedShowNewFolder ? (
+                    <button
+                      type="button"
+                      onClick={() => setSavedShowNewFolder(true)}
+                      style={listSavedFolderStyles.addBtn}
+                    >
+                      <span style={listSavedFolderStyles.addIcon}>+</span>
+                      <span style={listSavedFolderStyles.addTextInline}>
+                        새 폴더
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+                {savedShowNewFolder ? (
+                  <div style={listSavedFolderStyles.newFolderBox}>
+                    <input
+                      type="text"
+                      value={savedNewFolderName}
+                      onChange={(e) => setSavedNewFolderName(e.target.value)}
+                      placeholder="폴더 이름"
+                      style={listSavedFolderStyles.newFolderInput}
+                      autoFocus
+                      onKeyDown={(e) =>
+                        e.key === "Enter" &&
+                        !savedFolderSaving &&
+                        handleAddSavedFolder()
+                      }
+                    />
+                    <div style={listSavedFolderStyles.newFolderActions}>
+                      <button
+                        type="button"
+                        disabled={savedFolderSaving}
+                        onClick={handleAddSavedFolder}
+                        style={listSavedFolderStyles.newFolderOk}
+                      >
+                        {savedFolderSaving ? "…" : "✓"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savedFolderSaving}
+                        onClick={() => {
+                          setSavedShowNewFolder(false);
+                          setSavedNewFolderName("");
+                        }}
+                        style={listSavedFolderStyles.newFolderCancel}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {savedFoldersEditMode &&
+                !savedFoldersLoading &&
+                savedFolderKey &&
+                isDeletableUserSavedFolderKey(savedFolderKey) ? (
+                  <div style={listSavedFolderStyles.folderDeleteBarWrap}>
+                    <button
+                      type="button"
+                      disabled={
+                        savedFolderMetaDeletingKey === savedFolderKey
+                      }
+                      onClick={() => handleDeleteSavedFolder(savedFolderKey)}
+                      style={listSavedFolderStyles.folderDeleteBarBtn}
+                    >
+                      {savedFolderMetaDeletingKey === savedFolderKey
+                        ? "삭제 중…"
+                        : `「${
+                            sortedSavedFolders.find((x) => x.key === savedFolderKey)
+                              ?.name ?? "폴더"
+                          }」 삭제`}
+                    </button>
+                  </div>
+                ) : null}
+                {savedFoldersEditMode &&
+                !savedFoldersLoading &&
+                !(
+                  savedFolderKey &&
+                  isDeletableUserSavedFolderKey(savedFolderKey)
+                ) ? (
+                  <div style={listSavedFolderStyles.editPanel}>
+                    {savedFolderKey &&
+                    !isDeletableUserSavedFolderKey(savedFolderKey) ? (
+                      <p style={listSavedFolderStyles.editHint}>
+                        기본 폴더 7개는 삭제가 불가해요.
+                      </p>
+                    ) : !hasDeletableSavedFolders ? (
+                      <p style={listSavedFolderStyles.editHint}>
+                        지금 목록에는 고정 7개 폴더만 있어요. 「새 폴더」로 추가한 뒤에는 편집
+                        중에 그 폴더를 탭해 선택하면 목록 맨 아래 「…삭제」버튼이 나와요.
+                      </p>
+                    ) : (
+                      <p style={listSavedFolderStyles.editHint}>
+                        고정 7개를 제외한 폴더를 탭해 선택하면 폴더 줄 전체 아래에 「삭제」가
+                        나와요. 다시 탭하면 선택이 풀려요. 삭제 후 「완료」로 편집을 닫을 수
+                        있어요.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          <div
+            style={{
+              width: "100%",
+              height: 1,
+              backgroundColor: "rgba(255,255,255,0.12)",
+              margin: "16px 0 14px",
+            }}
+            aria-hidden
+          />
+
+          {savedFolderKey &&
+          !isDeletableUserSavedFolderKey(savedFolderKey) ? (
+            <p
+              style={{
+                margin: "0 0 10px 0",
+                fontSize: "11px",
+                color: "rgba(255,255,255,0.5)",
+                lineHeight: 1.4,
+                textAlign: "left",
+              }}
+            >
+              아래 목록은「
+              {sortedSavedFolders.find((x) => x.key === savedFolderKey)?.name}
+              」폴더에 넣은 장소만 보여요. 폴더를 다시 누르면 전체 잔으로 돌아갑니다.
+            </p>
+          ) : null}
+
           {/* 잔 리스트 검색 — flex 부모·긴 플레이스홀더로 가로 넘침 방지 */}
           <div
             style={{
@@ -3802,7 +4683,11 @@ export default function StudioHome() {
               type="text"
               value={listSearchQuery}
               onChange={(e) => setListSearchQuery(e.target.value)}
-              placeholder="잔리스트 검색 (장소명/카테고리/주소)"
+              placeholder={
+                savedFolderKey
+                  ? "이 폴더 안 잔만 검색 (장소명/카테고리/주소)"
+                  : "잔리스트 검색 (장소명/카테고리/주소)"
+              }
               style={{
                 display: "block",
                 width: "100%",
@@ -3887,6 +4772,12 @@ export default function StudioHome() {
                 filteredPlaces = myPlaces.filter(place => !place.is_public);
               }
 
+              if (savedFolderKey && savedFolderPlaceIdSet) {
+                filteredPlaces = filteredPlaces.filter((place) =>
+                  savedFolderPlaceIdSet.has(String(place.id))
+                );
+              }
+
               if (normalizedQuery) {
                 filteredPlaces = filteredPlaces.filter((place) => {
                   const name = (place?.name || "").toLowerCase();
@@ -3909,11 +4800,17 @@ export default function StudioHome() {
                   color: "#666",
                   fontSize: "13px",
                 }}>
-                  {filterType === "public"
-                    ? "공개 장소가 없습니다."
-                    : filterType === "private"
-                      ? "비공개 장소가 없습니다."
-                      : "저장된 장소가 없습니다."}
+                  {savedFolderKey
+                    ? filterType === "public"
+                      ? "이 폴더에 속한 공개 잔이 없습니다."
+                      : filterType === "private"
+                        ? "이 폴더에 속한 비공개 잔이 없습니다."
+                        : "이 폴더에 넣은 장소가 없거나, 아직 내 잔에 올리지 않았어요."
+                    : filterType === "public"
+                      ? "공개 장소가 없습니다."
+                      : filterType === "private"
+                        ? "비공개 장소가 없습니다."
+                        : "저장된 장소가 없습니다."}
                 </div>
               ) : (
                 filteredPlaces.map(place => (
@@ -4599,25 +5496,25 @@ export default function StudioHome() {
           
           {/* 통계 — 2×2 컴팩트 */}
           <div style={styles.archiveStatsGrid} role="region" aria-label="큐레이터 통계">
-            <div style={styles.archiveStatCell} title="다른 사용자가 저장한 횟수">
-              <div style={styles.archiveStatValue}>{curatorStats.saveCount || 0}</div>
-              <div style={styles.archiveStatLabel}>당신의 추천장소</div>
-              <div style={styles.archiveStatSub}>저장된 횟수</div>
-            </div>
-            <div style={styles.archiveStatCell} title="취향이 겹치는 큐레이터 수">
-              <div style={styles.archiveStatValue}>{curatorStats.overlappingCurators}</div>
-              <div style={styles.archiveStatLabel}>겹친 큐레이터</div>
-              <div style={styles.archiveStatSub}>취향 겹침</div>
-            </div>
-            <div style={styles.archiveStatCell} title="공개한 장소 수">
+            <div style={styles.archiveStatCell} title="공개·비공개 포함 잔 기록 수">
               <div style={styles.archiveStatValue}>{myPlaces.length}</div>
-              <div style={styles.archiveStatLabel}>잔 개수</div>
-              <div style={styles.archiveStatSub}>내 공개 장소</div>
+              <div style={styles.archiveStatLabel}>잔 기록</div>
+              <div style={styles.archiveStatSub}>공개·비공개 포함</div>
+            </div>
+            <div style={styles.archiveStatCell} title="취향 겹친 큐레이터">
+              <div style={styles.archiveStatValue}>{curatorStats.overlappingCurators}</div>
+              <div style={styles.archiveStatLabel}>겹친 잔</div>
+              <div style={styles.archiveStatSub}>취향 겹친 큐레이터</div>
+            </div>
+            <div style={styles.archiveStatCell} title="유저들이 내 추천 장소에 저장한 횟수">
+              <div style={styles.archiveStatValue}>{curatorStats.saveCount || 0}</div>
+              <div style={styles.archiveStatLabel}>잔 반응</div>
+              <div style={styles.archiveStatSub}>유저의 저장 횟수</div>
             </div>
             <button
               type="button"
-              title="팔로워 목록 보기"
-              aria-label={`팔로워 ${curatorStats.followerCount || 0}명, 목록 보기`}
+              title="picked · picks 목록"
+              aria-label={`picked ${curatorStats.followerCount || 0}명, picks ${curatorStats.followingCount || 0}명, 목록 보기`}
               onClick={() => navigate("/studio/followers")}
               style={{
                 ...styles.archiveStatCell,
@@ -4631,8 +5528,14 @@ export default function StudioHome() {
                 appearance: "none",
               }}
             >
-              <div style={styles.archiveStatValue}>{curatorStats.followerCount || 0}</div>
-              <div style={styles.archiveStatLabel}>팔로워</div>
+              <div style={styles.archiveStatValue}>
+                {curatorStats.followerCount || 0}
+                <span style={{ opacity: 0.45, fontWeight: 600, margin: "0 2px" }}>
+                  ·
+                </span>
+                {curatorStats.followingCount || 0}
+              </div>
+              <div style={styles.archiveStatLabel}>picked · picks</div>
               <div style={styles.archiveStatSub}>탭하여 목록</div>
             </button>
           </div>
@@ -4661,19 +5564,15 @@ export default function StudioHome() {
               padding: "15px", 
               marginBottom: "15px"
             }}>
-              {/* 시간 라벨 */}
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px", fontSize: "11px", color: "rgba(255,255,255,0.7)" }}>
                 <span>지난주</span>
                 <span>이번주</span>
               </div>
-              
-              {/* 점 그래프 */}
               <div style={{ display: "flex", gap: "20px" }}>
-                {/* 잔 그래프 */}
+                {/* 잔 기록 */}
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔</div>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔 기록</div>
                   <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-                    {/* 선 그래프 */}
                     <svg style={{
                       position: "absolute",
                       top: 0,
@@ -4691,13 +5590,9 @@ export default function StudioHome() {
                         strokeWidth="2"
                         strokeDasharray="300"
                         strokeDashoffset="300"
-                        style={{
-                          animation: "lineDraw 1s ease-out 0.1s forwards"
-                        }}
+                        style={{ animation: "lineDraw 1s ease-out 0.1s forwards" }}
                       />
                     </svg>
-                    
-                    {/* 지난주 점 */}
                     <div style={{
                       width: "12px",
                       height: "12px",
@@ -4721,8 +5616,6 @@ export default function StudioHome() {
                         {curatorStats.lastWeekStats?.newPlaces || 0}
                       </div>
                     </div>
-                    
-                    {/* 이번주 점 */}
                     <div style={{
                       width: "16px",
                       height: "16px",
@@ -4746,19 +5639,17 @@ export default function StudioHome() {
                         whiteSpace: "nowrap",
                         animation: "fadeInUp 0.4s ease-out 0.5s both"
                       }}>
-                        {curatorStats.weeklyStats?.newPlaces > curatorStats.lastWeekStats?.newPlaces ? "▲" : 
+                        {curatorStats.weeklyStats?.newPlaces > curatorStats.lastWeekStats?.newPlaces ? "▲" :
                          curatorStats.weeklyStats?.newPlaces < curatorStats.lastWeekStats?.newPlaces ? "▼" : "─"}
                         {curatorStats.weeklyStats?.newPlaces || 0}
                       </div>
                     </div>
                   </div>
                 </div>
-                
-                {/* 저장 그래프 */}
+                {/* 잔 반응 */}
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>저장</div>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔 반응</div>
                   <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-                    {/* 선 그래프 */}
                     <svg style={{
                       position: "absolute",
                       top: 0,
@@ -4776,13 +5667,9 @@ export default function StudioHome() {
                         strokeWidth="2"
                         strokeDasharray="300"
                         strokeDashoffset="300"
-                        style={{
-                          animation: "lineDraw 1s ease-out 0.3s forwards"
-                        }}
+                        style={{ animation: "lineDraw 1s ease-out 0.3s forwards" }}
                       />
                     </svg>
-                    
-                    {/* 지난주 점 */}
                     <div style={{
                       width: "12px",
                       height: "12px",
@@ -4805,8 +5692,6 @@ export default function StudioHome() {
                         {curatorStats.lastWeekStats?.newSaves || 0}
                       </div>
                     </div>
-                    
-                    {/* 이번주 점 */}
                     <div style={{
                       width: "16px",
                       height: "16px",
@@ -4830,97 +5715,95 @@ export default function StudioHome() {
                         whiteSpace: "nowrap",
                         animation: "fadeInUp 0.4s ease-out 0.7s both"
                       }}>
-                        {curatorStats.weeklyStats?.newSaves > curatorStats.lastWeekStats?.newSaves ? "▲" : 
+                        {curatorStats.weeklyStats?.newSaves > curatorStats.lastWeekStats?.newSaves ? "▲" :
                          curatorStats.weeklyStats?.newSaves < curatorStats.lastWeekStats?.newSaves ? "▼" : "─"}
                         {curatorStats.weeklyStats?.newSaves || 0}
                       </div>
                     </div>
                   </div>
                 </div>
-                
-                {/* 팔로워 그래프 */}
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>팔로워</div>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
-                    {/* 선 그래프 */}
-                    <svg style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      zIndex: 1
-                    }}>
-                      <line
-                        x1="20%"
-                        y1={`${100 - ((curatorStats.lastWeekStats?.newFollowers || 0) / 10) * 100}%`}
-                        x2="80%"
-                        y2={`${100 - ((curatorStats.weeklyStats?.newFollowers || 0) / 10) * 100}%`}
-                        stroke="#9B59B6"
-                        strokeWidth="2"
-                        strokeDasharray="300"
-                        strokeDashoffset="300"
-                        style={{
-                          animation: "lineDraw 1s ease-out 0.5s forwards"
-                        }}
-                      />
-                    </svg>
-                    
-                    {/* 지난주 점 */}
-                    <div style={{
-                      width: "12px",
-                      height: "12px",
-                      backgroundColor: "rgba(155, 89, 182, 0.5)",
-                      borderRadius: "50%",
-                      border: "2px solid #9B59B6",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${((curatorStats.lastWeekStats?.newFollowers || 0) / 10) * 60}px`
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.8)",
-                        whiteSpace: "nowrap"
-                      }}>
-                        {curatorStats.lastWeekStats?.newFollowers || 0}
+                {/* picked — 이번 주 신규 팔로워만 (picks 아님) */}
+                {(() => {
+                  const plw = curatorStats.lastWeekStats?.newFollowers || 0;
+                  const ptw = curatorStats.weeklyStats?.newFollowers || 0;
+                  const pickedScale = Math.max(5, plw, ptw);
+                  return (
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>picked</div>
+                      <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                        <svg style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: "100%",
+                          zIndex: 1
+                        }}>
+                          <line
+                            x1="20%"
+                            y1={`${100 - (plw / pickedScale) * 100}%`}
+                            x2="80%"
+                            y2={`${100 - (ptw / pickedScale) * 100}%`}
+                            stroke="#9B59B6"
+                            strokeWidth="2"
+                            strokeDasharray="300"
+                            strokeDashoffset="300"
+                            style={{ animation: "lineDraw 1s ease-out 0.5s forwards" }}
+                          />
+                        </svg>
+                        <div style={{
+                          width: "12px",
+                          height: "12px",
+                          backgroundColor: "rgba(155, 89, 182, 0.5)",
+                          borderRadius: "50%",
+                          border: "2px solid #9B59B6",
+                          position: "relative",
+                          zIndex: 2,
+                          bottom: `${(plw / pickedScale) * 60}px`
+                        }}>
+                          <div style={{
+                            position: "absolute",
+                            bottom: "20px",
+                            left: "50%",
+                            transform: "translateX(-50%)",
+                            fontSize: "10px",
+                            color: "rgba(255,255,255,0.8)",
+                            whiteSpace: "nowrap"
+                          }}>
+                            {plw}
+                          </div>
+                        </div>
+                        <div style={{
+                          width: "16px",
+                          height: "16px",
+                          backgroundColor: "#9B59B6",
+                          borderRadius: "50%",
+                          border: "3px solid rgba(255,255,255,0.3)",
+                          position: "relative",
+                          zIndex: 2,
+                          bottom: `${(ptw / pickedScale) * 60}px`,
+                          boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
+                          animation: "bounce 0.6s ease-out 0.6s both"
+                        }}>
+                          <div style={{
+                            position: "absolute",
+                            bottom: "20px",
+                            left: "50%",
+                            transform: "translateX(-50%)",
+                            fontSize: "10px",
+                            color: "#9B59B6",
+                            fontWeight: "bold",
+                            whiteSpace: "nowrap",
+                            animation: "fadeInUp 0.4s ease-out 0.9s both"
+                          }}>
+                            {ptw > plw ? "▲" : ptw < plw ? "▼" : "─"}
+                            {ptw}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    
-                    {/* 이번주 점 */}
-                    <div style={{
-                      width: "16px",
-                      height: "16px",
-                      backgroundColor: "#9B59B6",
-                      borderRadius: "50%",
-                      border: "3px solid rgba(255,255,255,0.3)",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${((curatorStats.weeklyStats?.newFollowers || 0) / 10) * 60}px`,
-                      boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
-                      animation: "bounce 0.6s ease-out 0.6s both"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "#9B59B6",
-                        fontWeight: "bold",
-                        whiteSpace: "nowrap",
-                        animation: "fadeInUp 0.4s ease-out 0.9s both"
-                      }}>
-                        {curatorStats.weeklyStats?.newFollowers > curatorStats.lastWeekStats?.newFollowers ? "▲" : 
-                         curatorStats.weeklyStats?.newFollowers < curatorStats.lastWeekStats?.newFollowers ? "▼" : "─"}
-                        {curatorStats.weeklyStats?.newFollowers || 0}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
               
               {/* CSS 애니메이션 스타일 - 완전히 제거 */}
@@ -5082,6 +5965,334 @@ export default function StudioHome() {
     </div>
   );
 }
+
+/** 잔 올리기 — 폴더 다중 선택 (SaveModal과 유사) */
+const addPlaceFolderPickerStyles = {
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "8px",
+    width: "100%",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    justifyItems: "stretch",
+  },
+  btnBase: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "4px",
+    padding: "5px 6px",
+    minHeight: "36px",
+    borderRadius: "8px",
+    borderStyle: "solid",
+    borderWidth: 2,
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    boxSizing: "border-box",
+    minWidth: 0,
+    width: "100%",
+    font: "inherit",
+    textAlign: "left",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+  },
+  btnSelected: { transform: "scale(0.98)" },
+  fIcon: { fontSize: "13px", lineHeight: 1, flexShrink: 0 },
+  fName: {
+    fontSize: "10px",
+    fontWeight: "bold",
+    lineHeight: 1.2,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+    flex: 1,
+  },
+  addBtn: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "4px",
+    padding: "5px 6px",
+    minHeight: "36px",
+    border: "2px dashed rgba(255, 255, 255, 0.3)",
+    borderRadius: "8px",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    cursor: "pointer",
+    color: "rgba(255, 255, 255, 0.6)",
+    boxSizing: "border-box",
+    minWidth: 0,
+    width: "100%",
+    font: "inherit",
+  },
+  addIcon: { fontSize: "13px", lineHeight: 1, flexShrink: 0 },
+  addText: {
+    fontSize: "10px",
+    fontWeight: "bold",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+    flex: 1,
+    textAlign: "left",
+  },
+  newFolderBox: {
+    marginTop: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "10px",
+    border: "2px solid #3498DB",
+    borderRadius: "8px",
+    backgroundColor: "#1a1a1a",
+    boxSizing: "border-box",
+    width: "100%",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+  },
+  newFolderInput: {
+    padding: "6px 8px",
+    border: "1px solid #333",
+    borderRadius: "4px",
+    backgroundColor: "#252525",
+    color: "#ffffff",
+    fontSize: "12px",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  newFolderActions: { display: "flex", gap: "6px", justifyContent: "flex-end" },
+  newFolderOk: {
+    backgroundColor: "#3498DB",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    padding: "4px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  newFolderCancel: {
+    backgroundColor: "#e74c3c",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    padding: "4px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+};
+
+/** 잔 리스트 탭 — 내 저장 폴더 그리드 (낮은 행 · 제목과 개수 한 줄) */
+const listSavedFolderStyles = {
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "10px",
+    width: "100%",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    justifyItems: "stretch",
+    alignItems: "start",
+  },
+  folderDeleteBarWrap: {
+    width: "100%",
+    maxWidth: "320px",
+    marginTop: "12px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    boxSizing: "border-box",
+  },
+  folderDeleteBarBtn: {
+    width: "100%",
+    margin: 0,
+    padding: "10px 12px",
+    border: "1px solid rgba(231,76,60,0.55)",
+    borderRadius: "8px",
+    background: "rgba(231,76,60,0.2)",
+    color: "#ffb4a8",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1.3,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    display: "block",
+    textAlign: "center",
+    boxSizing: "border-box",
+  },
+  folderBtn: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "4px",
+    padding: "5px 6px",
+    borderRadius: "8px",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    minHeight: "36px",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+    position: "relative",
+    zIndex: 10,
+    boxSizing: "border-box",
+    minWidth: 0,
+    width: "100%",
+    font: "inherit",
+    textAlign: "left",
+    borderStyle: "solid",
+    borderWidth: 2,
+  },
+  folderBtnActive: { transform: "scale(0.95)" },
+  fIcon: { fontSize: "13px", lineHeight: 1, flexShrink: 0 },
+  fLabel: {
+    fontSize: "10px",
+    fontWeight: "bold",
+    lineHeight: 1.2,
+    minWidth: 0,
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "left",
+  },
+  fCountInline: { fontWeight: 700, opacity: 0.92 },
+  addBtn: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "4px",
+    padding: "5px 6px",
+    border: "2px dashed rgba(255, 255, 255, 0.3)",
+    borderRadius: "8px",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    cursor: "pointer",
+    minHeight: "36px",
+    color: "rgba(255, 255, 255, 0.6)",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+    boxSizing: "border-box",
+    minWidth: 0,
+    width: "100%",
+    font: "inherit",
+  },
+  addIcon: { fontSize: "13px", lineHeight: 1, flexShrink: 0 },
+  addTextInline: {
+    fontSize: "10px",
+    fontWeight: "bold",
+    lineHeight: 1.2,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+    flex: 1,
+    textAlign: "left",
+  },
+  newFolderBox: {
+    marginTop: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "10px",
+    border: "2px solid #3498DB",
+    borderRadius: "8px",
+    backgroundColor: "#1a1a1a",
+    boxSizing: "border-box",
+    width: "100%",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+  },
+  newFolderInput: {
+    padding: "6px 8px",
+    border: "1px solid #333",
+    borderRadius: "4px",
+    backgroundColor: "#252525",
+    color: "#ffffff",
+    fontSize: "12px",
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  newFolderActions: { display: "flex", gap: "6px", justifyContent: "flex-end" },
+  newFolderOk: {
+    backgroundColor: "#3498DB",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    padding: "4px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  newFolderCancel: {
+    backgroundColor: "#e74c3c",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    padding: "4px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  savedFoldersCollapseTrigger: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    padding: "4px 2px",
+    margin: 0,
+    border: "none",
+    borderRadius: "6px",
+    background: "transparent",
+    color: "inherit",
+    cursor: "pointer",
+    font: "inherit",
+    textAlign: "left",
+  },
+  savedFoldersChevron: {
+    fontSize: "9px",
+    lineHeight: 1,
+    opacity: 0.65,
+    flexShrink: 0,
+  },
+  editToggleBtn: {
+    flexShrink: 0,
+    fontSize: "11px",
+    fontWeight: 600,
+    padding: "4px 10px",
+    borderRadius: "6px",
+    border: "1px solid rgba(255,255,255,0.25)",
+    background: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.88)",
+    cursor: "pointer",
+  },
+  editPanel: {
+    marginTop: "12px",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.22)",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  editHint: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.5)",
+    margin: 0,
+    lineHeight: 1.45,
+  },
+};
 
 const styles = {
   studioShell: {

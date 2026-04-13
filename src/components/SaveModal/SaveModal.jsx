@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { markSearchSessionBookmarked } from "../../utils/searchAnalytics";
+import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
+import {
+  selectSystemFoldersOrdered,
+  insertSystemFolderRow,
+} from "../../utils/systemFoldersSupabase";
 
-// 시스템 폴더 설정
-const SYSTEM_FOLDERS = [
-  { key: 'after_party', name: '2차', color: '#FF8C42', icon: '🍺' },
-  { key: 'date', name: '데이트', color: '#FF69B4', icon: '💘' },
-  { key: 'hangover', name: '해장', color: '#87CEEB', icon: '🥣' },
-  { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
-  { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
-  { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
-  { key: 'terrace', name: '야외/뷰', color: '#5DADE2', icon: '🌅' }
+// DB 실패 시 기본 7개 (sort_order 포함 — 새 폴더 sort_order 계산용)
+const DEFAULT_FOLDER_DEFS = [
+  { key: 'after_party', name: '2차', color: '#FF8C42', icon: '🍺', sort_order: 1 },
+  { key: 'date', name: '데이트', color: '#FF69B4', icon: '💘', sort_order: 2 },
+  { key: 'hangover', name: '해장', color: '#87CEEB', icon: '🥣', sort_order: 3 },
+  { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤', sort_order: 4 },
+  { key: 'group', name: '회식', color: '#F1C40F', icon: '👥', sort_order: 5 },
+  { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟', sort_order: 6 },
+  { key: 'terrace', name: '야외/뷰', color: '#5DADE2', icon: '🌅', sort_order: 7 },
 ];
 
 export default function SaveModal({ 
@@ -27,18 +32,38 @@ export default function SaveModal({
   const [isLoading, setIsLoading] = useState(false);
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderSaving, setNewFolderSaving] = useState(false);
+  const [folderDefs, setFolderDefs] = useState(DEFAULT_FOLDER_DEFS);
 
-  // 폴더 추천: 첫 번째를 기본 선택(표시는 다른 칸과 동일 스타일)
+  useEffect(() => {
+    if (!isOpen) {
+      setShowNewFolderInput(false);
+      setNewFolderName('');
+      setNewFolderSaving(false);
+      return;
+    }
+    (async () => {
+      const { data, error } = await selectSystemFoldersOrdered(supabase);
+      if (!error && data?.length) {
+        setFolderDefs(data);
+      }
+    })();
+  }, [isOpen]);
+
+  // 폴더 추천: 장소가 바뀔 때만 (DB에서 폴더 목록이 늦게 와도 추천 키는 시스템 7개 안에서만 나옴)
   useEffect(() => {
     if (!place) return;
 
-    const recommendations = calculateFolderRecommendations(place);
+    const recommendations = calculateFolderRecommendations(
+      place,
+      DEFAULT_FOLDER_DEFS
+    );
     if (recommendations.length > 0) {
       setSelectedFolders([recommendations[0].key]);
     }
   }, [place]);
 
-  const calculateFolderRecommendations = (place) => {
+  const calculateFolderRecommendations = (place, defs) => {
     const scores = {};
     
     // after_party (2차)
@@ -89,7 +114,7 @@ export default function SaveModal({
     return Object.entries(scores)
       .map(([key, score]) => ({ key, score }))
       .sort((a, b) => b.score - a.score)
-      .map(item => SYSTEM_FOLDERS.find(f => f.key === item.key))
+      .map(item => defs.find(f => f.key === item.key))
       .filter(Boolean); // undefined 필터링
   };
 
@@ -119,49 +144,19 @@ export default function SaveModal({
         return;
       }
 
-      // 임시: RPC 함수 없이 직접 저장
-      // 1. 장소 저장 (UPSERT)
       const sessionId = searchSessionIdRef?.current ?? null;
-      const upsertPayload = {
-        user_id: user.id,
-        place_id: place.id,
-        first_saved_from: firstSavedFrom,
-      };
-      if (sessionId) {
-        upsertPayload.search_session_id = sessionId;
-      }
+      const folderRes = await upsertUserSavedPlaceFolders(supabase, {
+        placeId: place.id,
+        folderKeys: selectedFolders,
+        firstSavedFrom,
+        extraSavedPlaceFields: sessionId
+          ? { search_session_id: sessionId }
+          : undefined,
+      });
 
-      const { data: savedPlace, error: saveError } = await supabase
-        .from('user_saved_places')
-        .upsert(upsertPayload)
-        .select()
-        .single();
-
-      if (saveError) {
-        console.error('저장 실패:', saveError);
-        alert('저장에 실패했습니다.');
-        return;
-      }
-
-      // 2. 기존 폴더 연결 삭제
-      await supabase
-        .from('user_saved_place_folders')
-        .delete()
-        .eq('user_saved_place_id', savedPlace.id);
-
-      // 3. 새 폴더 연결 추가
-      const folderInserts = selectedFolders.map(folderKey => ({
-        user_saved_place_id: savedPlace.id,
-        folder_key: folderKey
-      }));
-
-      const { error: folderError } = await supabase
-        .from('user_saved_place_folders')
-        .insert(folderInserts);
-
-      if (folderError) {
-        console.error('폴더 연결 실패:', folderError);
-        alert('폴더 연결에 실패했습니다.');
+      if (!folderRes.ok) {
+        console.error('저장 실패:', folderRes.message);
+        alert(folderRes.message || '저장에 실패했습니다.');
         return;
       }
 
@@ -183,13 +178,61 @@ export default function SaveModal({
     }
   };
 
-  const handleAddNewFolder = () => {
-    if (newFolderName.trim()) {
-      // 새로운 폴더 추가 로직 (임시: 선택된 폴더에 추가)
-      const folderKey = `custom_${Date.now()}`;
-      setSelectedFolders(prev => [...prev, folderKey]);
+  const handleAddNewFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+
+    setNewFolderSaving(true);
+    try {
+      const {
+        data: { user: authUser },
+        error: authErr,
+      } = await supabase.auth.getUser();
+      if (authErr || !authUser?.id) {
+        alert('로그인이 필요합니다.');
+        return;
+      }
+      const key = `custom_${Date.now()}`;
+      const maxSo = Math.max(
+        0,
+        ...folderDefs.map((f) => Number(f.sort_order) || 0)
+      );
+      const { error } = await insertSystemFolderRow(supabase, {
+        key,
+        name,
+        color: '#3498DB',
+        icon: '📁',
+        description: '',
+        sort_order: maxSo + 1,
+        is_active: true,
+        created_by: authUser.id,
+      });
+      if (error) {
+        alert(
+          error.message ||
+            '폴더를 만들지 못했습니다. Supabase에 system_folders INSERT 정책이 있는지 확인하세요.'
+        );
+        return;
+      }
+      const row = {
+        key,
+        name,
+        color: '#3498DB',
+        icon: '📁',
+        sort_order: maxSo + 1,
+      };
+      setFolderDefs((prev) =>
+        [...prev, row].sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        )
+      );
+      setSelectedFolders((prev) =>
+        prev.includes(key) ? prev : [...prev, key]
+      );
       setNewFolderName('');
       setShowNewFolderInput(false);
+    } finally {
+      setNewFolderSaving(false);
     }
   };
 
@@ -238,10 +281,10 @@ export default function SaveModal({
               : styles.content
           }
         >
-          {/* 7개 시스템 폴더 + 새 폴더 = 4×2 고정 그리드 */}
+          {/* system_folders 전체 + 새 폴더 (4열 그리드) */}
           <div style={styles.section}>
             <div style={styles.folderGrid2x4}>
-              {SYSTEM_FOLDERS.map((folder) => {
+              {folderDefs.map((folder) => {
                 const selected = selectedFolders.includes(folder.key);
                 return (
                   <button
@@ -288,19 +331,23 @@ export default function SaveModal({
                   style={styles.input}
                   autoFocus
                   onKeyDown={(e) =>
-                    e.key === "Enter" && handleAddNewFolder()
+                    e.key === "Enter" &&
+                    !newFolderSaving &&
+                    handleAddNewFolder()
                   }
                 />
                 <div style={styles.newFolderInputActions}>
                   <button
                     type="button"
+                    disabled={newFolderSaving}
                     onClick={handleAddNewFolder}
                     style={styles.addButton}
                   >
-                    ✓
+                    {newFolderSaving ? '…' : '✓'}
                   </button>
                   <button
                     type="button"
+                    disabled={newFolderSaving}
                     onClick={() => setShowNewFolderInput(false)}
                     style={styles.cancelButton}
                   >

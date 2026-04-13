@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
-import { fetchStudioFollowersEnriched } from "../../utils/studioFollowersFetch";
+import {
+  fetchStudioFollowersEnriched,
+  fetchStudioFollowingEnriched,
+} from "../../utils/studioFollowersFetch";
 
 function followerInitial(label) {
   const s = String(label || "?").trim();
@@ -74,14 +77,30 @@ function FollowerRow({ follower }) {
 
 export default function StudioFollowersPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [curatorId, setCuratorId] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
+  /** tab picked | picks (URL ?tab=picks, 예전 following 호환) */
+  const tab =
+    searchParams.get("tab") === "picks" ||
+    searchParams.get("tab") === "following"
+      ? "picks"
+      : "picked";
+
+  const setTab = (next) => {
+    if (next === "picks") {
+      setSearchParams({ tab: "picks" }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
+
   const load = useCallback(async () => {
-    if (!curatorId) {
+    if (!curatorId || !user?.id) {
       setRows([]);
       setLoading(false);
       return;
@@ -89,16 +108,19 @@ export default function StudioFollowersPage() {
     setLoading(true);
     setErrorMessage("");
     try {
-      const list = await fetchStudioFollowersEnriched(supabase, curatorId);
+      const list =
+        tab === "picks"
+          ? await fetchStudioFollowingEnriched(supabase, user.id)
+          : await fetchStudioFollowersEnriched(supabase, curatorId);
       setRows(list);
     } catch (e) {
-      console.warn("팔로워 목록:", e?.message || e);
+      console.warn("picked / picks 목록:", e?.message || e);
       setErrorMessage(e?.message || "목록을 불러오지 못했습니다.");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [curatorId]);
+  }, [curatorId, user?.id, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +152,7 @@ export default function StudioFollowersPage() {
   }, [load]);
 
   useEffect(() => {
-    if (!curatorId) return undefined;
+    if (!curatorId || tab !== "picked") return undefined;
     const channel = supabase
       .channel(`studio_followers_page:${curatorId}`)
       .on(
@@ -149,7 +171,39 @@ export default function StudioFollowersPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [curatorId, load]);
+  }, [curatorId, tab, load]);
+
+  useEffect(() => {
+    if (!user?.id || tab !== "picks") return undefined;
+    const channel = supabase
+      .channel(`studio_following_page:${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "user_follows",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          void load();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, tab, load]);
+
+  const emptyMessage =
+    tab === "picks"
+      ? "아직 picks가 없어요."
+      : "아직 picked가 없어요.";
+
+  const subText =
+    tab === "picks"
+      ? "최신순 · 최대 200명 · picks 큐레이터 닉네임과 @핸들"
+      : "최신순 · 최대 200명 · 닉네임과 @핸들 · 큐레이터는 뱃지로 구분";
 
   return (
     <div style={styles.page}>
@@ -157,24 +211,52 @@ export default function StudioFollowersPage() {
         <button type="button" onClick={() => navigate("/studio")} style={styles.backButton}>
           ← 스튜디오
         </button>
-        <h1 style={styles.title}>팔로워</h1>
+        <h1 style={styles.title}>picked · picks</h1>
       </div>
 
       <div style={styles.content}>
-        <p style={styles.sub}>
-          최신순 · 최대 200명 · 닉네임과 @핸들 표시 · 큐레이터 팔로워는 뱃지로 구분
-        </p>
+        <div style={styles.tabBar} role="tablist" aria-label="picked 또는 picks">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "picked"}
+            style={{
+              ...styles.tab,
+              ...(tab === "picked" ? styles.tabActive : {}),
+            }}
+            onClick={() => setTab("picked")}
+          >
+            picked
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "picks"}
+            style={{
+              ...styles.tab,
+              ...(tab === "picks" ? styles.tabActive : {}),
+            }}
+            onClick={() => setTab("picks")}
+          >
+            picks
+          </button>
+        </div>
+
+        <p style={styles.sub}>{subText}</p>
 
         {loading ? (
           <div style={styles.muted}>불러오는 중…</div>
         ) : errorMessage ? (
           <div style={styles.error}>{errorMessage}</div>
         ) : rows.length === 0 ? (
-          <div style={styles.muted}>아직 팔로워가 없어요.</div>
+          <div style={styles.muted}>{emptyMessage}</div>
         ) : (
           <div style={styles.list}>
             {rows.map((f, idx) => (
-              <FollowerRow key={`${f.user_id}-${idx}`} follower={f} />
+              <FollowerRow
+                key={`${tab}-${String(f.curator_id ?? f.user_id)}-${idx}`}
+                follower={f}
+              />
             ))}
           </div>
         )}
@@ -221,6 +303,31 @@ const styles = {
     padding: "20px 18px 40px",
     boxSizing: "border-box",
   },
+  tabBar: {
+    display: "flex",
+    gap: "8px",
+    marginBottom: "14px",
+    padding: "4px",
+    borderRadius: "12px",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+  tab: {
+    flex: 1,
+    border: "none",
+    borderRadius: "9px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+    backgroundColor: "transparent",
+    color: "rgba(255,255,255,0.45)",
+  },
+  tabActive: {
+    backgroundColor: "#333",
+    color: "#fff",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+  },
   sub: {
     margin: "0 0 16px 0",
     fontSize: "13px",
@@ -243,7 +350,7 @@ const styles = {
   },
   row: {
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: "12px",
     padding: "10px 14px",
@@ -253,7 +360,7 @@ const styles = {
   },
   rowMain: {
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: "12px",
     minWidth: 0,
     flex: 1,
@@ -264,7 +371,6 @@ const styles = {
     borderRadius: "50%",
     overflow: "hidden",
     flexShrink: 0,
-    marginTop: "2px",
     backgroundColor: "#2c3e50",
     border: "2px solid rgba(255,255,255,0.12)",
   },
@@ -301,7 +407,7 @@ const styles = {
   },
   labelRow: {
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: "8px",
     minWidth: 0,
   },
@@ -337,7 +443,6 @@ const styles = {
     padding: "3px 8px",
     borderRadius: "999px",
     flexShrink: 0,
-    marginTop: "2px",
     color: "#f1c40f",
     backgroundColor: "rgba(241, 196, 15, 0.12)",
     border: "1px solid rgba(241, 196, 15, 0.45)",
@@ -346,7 +451,6 @@ const styles = {
     fontSize: "12px",
     color: "rgba(255,255,255,0.45)",
     flexShrink: 0,
-    paddingTop: "3px",
     lineHeight: 1.35,
   },
 };

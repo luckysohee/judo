@@ -7,6 +7,7 @@ import {
   getAuthProviderLabel,
 } from "../../lib/syncAuthProviderToProfile";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
+import { insertSystemFolderRow } from "../../utils/systemFoldersSupabase";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -155,8 +156,65 @@ const modalStyles = {
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
     position: 'relative',
     zIndex: 10
-  }
+  },
+  newFolderInline: {
+    marginTop: "10px",
+    padding: "10px",
+    borderRadius: "10px",
+    border: "2px solid rgba(52, 152, 219, 0.55)",
+    backgroundColor: "rgba(0,0,0,0.25)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  newFolderInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    color: "#fff",
+    fontSize: "13px",
+    outline: "none",
+  },
+  newFolderActions: {
+    display: "flex",
+    gap: "8px",
+    justifyContent: "flex-end",
+  },
+  newFolderOk: {
+    backgroundColor: "#3498DB",
+    color: "#fff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  newFolderCancel: {
+    backgroundColor: "rgba(231, 76, 60, 0.85)",
+    color: "#fff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
 };
+
+/** 스튜디오 초안(localStorage) 폴더명 → key (시스템 7개만) */
+const UCARD_DRAFT_FOLDER_ROWS = [
+  { key: "after_party", name: "2차", color: "#FF8C42", icon: "🍺" },
+  { key: "date", name: "데이트", color: "#FF69B4", icon: "💘" },
+  { key: "hangover", name: "해장", color: "#87CEEB", icon: "🥣" },
+  { key: "solo", name: "혼술", color: "#9B59B6", icon: "👤" },
+  { key: "group", name: "회식", color: "#F1C40F", icon: "👥" },
+  { key: "must_go", name: "찐맛집", color: "#27AE60", icon: "🌟" },
+  { key: "terrace", name: "야외/뷰", color: "#5DADE2", icon: "🌅" },
+];
 
 /** Supabase `places (*)` 조인은 `places`, 스튜디오 드래프트 형태는 `place` */
 function getSavedPlaceDisplayFields(item) {
@@ -276,6 +334,9 @@ const UserCard = ({
   const [showFolderEditModal, setShowFolderEditModal] = useState(false); // 폴더 수정 모달 상태
   const [editingPlace, setEditingPlace] = useState(null); // 수정 중인 장소
   const [selectedFolders, setSelectedFolders] = useState([]); // 선택된 폴더들
+  const [savedTabNewFolderOpen, setSavedTabNewFolderOpen] = useState(false);
+  const [savedTabNewFolderName, setSavedTabNewFolderName] = useState("");
+  const [savedTabNewFolderSaving, setSavedTabNewFolderSaving] = useState(false);
 
   const [publicProfileRow, setPublicProfileRow] = useState(null);
   const [profileFormOpen, setProfileFormOpen] = useState(false);
@@ -844,31 +905,44 @@ const UserCard = ({
         : JSON.parse(localStorage.getItem("studio_drafts") || "[]");
       console.log('🗂️ UserCard - localStorage 데이터:', localStorageDrafts);
       
-      // 기본 폴더 7개 초기화
-      const SYSTEM_FOLDERS = [
-        { key: 'after_party', name: '2차', color: '#FF8C42', icon: '🍺' },
-        { key: 'date', name: '데이트', color: '#FF69B4', icon: '💘' },
-        { key: 'hangover', name: '해장', color: '#87CEEB', icon: '🥣' },
-        { key: 'solo', name: '혼술', color: '#9B59B6', icon: '👤' },
-        { key: 'group', name: '회식', color: '#F1C40F', icon: '👥' },
-        { key: 'must_go', name: '찐맛집', color: '#27AE60', icon: '🌟' },
-        { key: 'terrace', name: '야외/뷰', color: '#5DADE2', icon: '🌅' }
-      ];
-      
+      let folderDefsForGrid = UCARD_DRAFT_FOLDER_ROWS.map((f, i) => ({
+        key: f.key,
+        name: f.name,
+        color: f.color,
+        icon: f.icon,
+        sort_order: i + 1,
+      }));
+
+      if (!useEmbedded) {
+        const { data: sfRows, error: sfErr } = await supabase
+          .from("system_folders")
+          .select("key, name, color, icon, sort_order")
+          .order("sort_order", { ascending: true });
+        if (!sfErr && sfRows?.length) {
+          folderDefsForGrid = sfRows;
+        }
+      }
+
       const groupedByFolder = {};
-      SYSTEM_FOLDERS.forEach(folder => {
+      folderDefsForGrid.forEach((folder) => {
         groupedByFolder[folder.key] = {
-          folderInfo: folder,
-          places: []
+          folderInfo: {
+            key: folder.key,
+            name: folder.name,
+            color: folder.color,
+            icon: folder.icon,
+          },
+          places: [],
         };
       });
-      
+
       // localStorage 데이터 처리
       localStorageDrafts.forEach(draft => {
         const folders = draft.folders || [];
         folders.forEach(folderName => {
-          // 폴더 이름을 key로 변환
-          const folderKey = SYSTEM_FOLDERS.find(f => f.name === folderName)?.key;
+          const folderKey = UCARD_DRAFT_FOLDER_ROWS.find(
+            (f) => f.name === folderName
+          )?.key;
           if (folderKey && groupedByFolder[folderKey]) {
             // localStorage 데이터를 Supabase 형식으로 변환
             const placeData = {
@@ -894,14 +968,26 @@ const UserCard = ({
       if (savedError) {
         console.error('저장된 장소 로드 오류:', savedError);
       } else if (savedData && savedData.length > 0) {
-        // Supabase 데이터 처리 (데이터가 있을 경우에만)
-        savedData.forEach(saved => {
-          if (saved.user_saved_place_folders && saved.user_saved_place_folders.length > 0) {
-            saved.user_saved_place_folders.forEach(folder => {
+        savedData.forEach((saved) => {
+          if (
+            saved.user_saved_place_folders &&
+            saved.user_saved_place_folders.length > 0
+          ) {
+            saved.user_saved_place_folders.forEach((folder) => {
               const folderKey = folder.folder_key;
-              if (groupedByFolder[folderKey]) {
-                groupedByFolder[folderKey].places.push(saved);
+              const sf = folder.system_folders;
+              if (!groupedByFolder[folderKey]) {
+                groupedByFolder[folderKey] = {
+                  folderInfo: {
+                    key: folderKey,
+                    name: sf?.name || folderKey,
+                    color: sf?.color || "#3498DB",
+                    icon: sf?.icon || "📁",
+                  },
+                  places: [],
+                };
               }
+              groupedByFolder[folderKey].places.push(saved);
             });
           }
         });
@@ -1012,6 +1098,54 @@ const UserCard = ({
       console.error('사용자 데이터 로드 오류:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateSavedTabFolder = async () => {
+    if (embeddedAdminReadOnly) return;
+    const name = savedTabNewFolderName.trim();
+    if (!name) return;
+    setSavedTabNewFolderSaving(true);
+    try {
+      const {
+        data: { user: authUser },
+        error: authErr,
+      } = await supabase.auth.getUser();
+      if (authErr || !authUser) {
+        alert("로그인이 필요합니다.");
+        return;
+      }
+      const key = `custom_${Date.now()}`;
+      const { data: maxRow } = await supabase
+        .from("system_folders")
+        .select("sort_order")
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const maxSo =
+        maxRow?.sort_order != null ? Number(maxRow.sort_order) : 0;
+      const { error } = await insertSystemFolderRow(supabase, {
+        key,
+        name,
+        color: "#3498DB",
+        icon: "📁",
+        description: "",
+        sort_order: maxSo + 1,
+        is_active: true,
+        created_by: authUser.id,
+      });
+      if (error) {
+        alert(
+          error.message ||
+            "폴더를 만들지 못했습니다. Supabase INSERT 정책을 확인하세요."
+        );
+        return;
+      }
+      setSavedTabNewFolderName("");
+      setSavedTabNewFolderOpen(false);
+      await loadUserData();
+    } finally {
+      setSavedTabNewFolderSaving(false);
     }
   };
 
@@ -1965,9 +2099,10 @@ const UserCard = ({
                       ))}
                       
                       <button
+                        type="button"
                         onClick={() => {
                           if (embeddedAdminReadOnly) return;
-                          alert("새 폴더 만들기 기능은 곧 구현됩니다!");
+                          setSavedTabNewFolderOpen((o) => !o);
                         }}
                         style={modalStyles.addFolderButton}
                       >
@@ -1977,6 +2112,46 @@ const UserCard = ({
                         </span>
                       </button>
                     </div>
+                    {savedTabNewFolderOpen && !embeddedAdminReadOnly ? (
+                      <div style={modalStyles.newFolderInline}>
+                        <input
+                          type="text"
+                          value={savedTabNewFolderName}
+                          onChange={(e) =>
+                            setSavedTabNewFolderName(e.target.value)
+                          }
+                          placeholder="새 폴더 이름"
+                          style={modalStyles.newFolderInput}
+                          autoFocus
+                          onKeyDown={(e) =>
+                            e.key === "Enter" &&
+                            !savedTabNewFolderSaving &&
+                            handleCreateSavedTabFolder()
+                          }
+                        />
+                        <div style={modalStyles.newFolderActions}>
+                          <button
+                            type="button"
+                            disabled={savedTabNewFolderSaving}
+                            onClick={handleCreateSavedTabFolder}
+                            style={modalStyles.newFolderOk}
+                          >
+                            {savedTabNewFolderSaving ? "…" : "만들기"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savedTabNewFolderSaving}
+                            onClick={() => {
+                              setSavedTabNewFolderOpen(false);
+                              setSavedTabNewFolderName("");
+                            }}
+                            style={modalStyles.newFolderCancel}
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     {embeddedAdminReadOnly &&
                     Array.isArray(adminSavedUnassigned) &&
                     adminSavedUnassigned.length > 0 ? (

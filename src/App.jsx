@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "./components/Toast/ToastProvider";
 import PostLoginAdminRedirect from "./components/PostLoginAdminRedirect";
 import AdminRoute from "./components/AdminRoute";
@@ -43,6 +43,12 @@ function App() {
       {/* 스튜디오 라우트 */}
       <Route path="/studio" element={<StudioHome />} />
       <Route path="/studio/followers" element={<StudioFollowersPage />} />
+      <Route
+        path="/studio/my-saves"
+        element={
+          <Navigate to="/studio" replace state={{ openStudioList: true }} />
+        }
+      />
       <Route path="/studio/new-place" element={<NewPlace />} />
       <Route path="/studio/place/:id/edit" element={<EditPlace />} />
     </Routes>
