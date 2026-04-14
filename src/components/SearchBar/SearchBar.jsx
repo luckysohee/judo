@@ -287,21 +287,14 @@ export default function SearchBar({
   // 카카오 장소 선택
   const handleKakaoPlaceSelect = (place) => {
     cancelPendingKakaoSearch();
-    // 지도 이동 처리
-    console.log('장소 선택 (지도 이동):', place);
-    
-    // mapRef를 통해 지도 이동 (moveToLocation 함수 사용)
-    if (mapRef?.current?.moveToLocation) {
-      mapRef.current.moveToLocation(place.y, place.x);
-      console.log('지도 이동 완료:', place.y, place.x);
-    } else {
-      console.log('moveToLocation 함수 없음');
+
+    const lat = parseFloat(place?.y);
+    const lng = parseFloat(place?.x);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      mapRef?.current?.moveToLocation?.(lat, lng);
     }
 
-    // 콜백 함수 호출 (마커 생성 및 카드 표시)
-    if (onKakaoPlaceSelect) {
-      onKakaoPlaceSelect(place);
-    }
+    onKakaoPlaceSelect?.(place);
 
     // 검색 결과 닫기 및 선택된 인덱스 초기화
     setShowKakaoResultsState(false);
@@ -337,12 +330,7 @@ export default function SearchBar({
       setShowSuggestions(false);
       setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
-      
-      // 검색 완료 후 상태 복원 (시뮬레이션)
-      setTimeout(() => {
-        setIsSearching(false);
-        setQuery(''); // 검색창 비우기
-      }, 1000);
+      setIsSearching(false);
     }
   };
 
@@ -817,12 +805,22 @@ export default function SearchBar({
 
         <div
           style={{
-            position: "relative",
             flex: 1,
             minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 0,
             overflow: "hidden",
           }}
         >
+          <div
+            style={{
+              position: "relative",
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+            }}
+          >
           <motion.input
             value={query}
             onChange={handleInputChange}
@@ -845,7 +843,7 @@ export default function SearchBar({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           />
-          
+
           {/* 전광판 효과 - placeholder 글씨 움직임 */}
           {!query && (
             <motion.div
@@ -874,6 +872,7 @@ export default function SearchBar({
               {placeholder || 'Search for places...'}
             </motion.div>
           )}
+          </div>
         </div>
 
         {query ? (

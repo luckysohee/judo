@@ -825,14 +825,15 @@ const UserCard = ({
         return;
       }
 
-      // 큐레이터의 저장된 장소 불러오기
+      // user_saved_places.user_id 는 일반적으로 auth.uid() (= curators.user_id). curators.id(PK)와 다름.
+      const curatorAuthId = curatorData.user_id ?? curatorData.id;
       const { data: savedPlaces, error: placesError } = await supabase
         .from('user_saved_places')
         .select(`
           *,
           places (*)
         `)
-        .eq('user_id', curatorData.id)
+        .eq('user_id', curatorAuthId)
         .order('created_at', { ascending: false })
         .limit(20);
 

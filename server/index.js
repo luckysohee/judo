@@ -512,6 +512,52 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * 코스 1차→2차 보행 경로 (OSRM 공개 데모 — 프로덕션은 자체 OSRM/키 있는 라우팅으로 교체 권장)
+ * Query: slat, slng, dlat, dlng (WGS84)
+ */
+app.get("/api/course-walking-route", async (req, res) => {
+  const slat = Number(req.query.slat);
+  const slng = Number(req.query.slng);
+  const dlat = Number(req.query.dlat);
+  const dlng = Number(req.query.dlng);
+  if (![slat, slng, dlat, dlng].every((n) => Number.isFinite(n))) {
+    return res.status(400).json({ ok: false, error: "invalid_coordinates" });
+  }
+  const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${slng},${slat};${dlng},${dlat}?overview=full&geometries=geojson&steps=false`;
+  try {
+    const r = await fetch(osrmUrl, {
+      headers: { "User-Agent": "judo-course-walking-route/1.0" },
+    });
+    if (!r.ok) {
+      return res.json({
+        ok: false,
+        error: "routing_http",
+        status: r.status,
+      });
+    }
+    const data = await r.json();
+    const route = data?.routes?.[0];
+    const coords = route?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) {
+      return res.json({ ok: false, error: "no_route" });
+    }
+    const path = coords.map(([lng, lat]) => ({
+      lat: Number(lat),
+      lng: Number(lng),
+    }));
+    return res.json({
+      ok: true,
+      path,
+      distanceMeters: Math.round(Number(route.distance) || 0),
+      durationSeconds: Math.round(Number(route.duration) || 0),
+    });
+  } catch (e) {
+    console.error("/api/course-walking-route", e);
+    return res.json({ ok: false, error: "fetch_failed" });
+  }
+});
+
 /** 5단계: AI는 장소를 발명하지 않고, 검색·지도 파이프라인을 보조하는 구조화 힌트만 반환 */
 app.post("/api/search-intent-assist", async (req, res) => {
   const raw = req.body?.query;

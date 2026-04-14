@@ -89,6 +89,116 @@ function studioSavedPlaceId(item) {
   return null;
 }
 
+/** 같은 place에 curator_id 가 auth.uid() / curators.id 로 중복이면 최신 행 하나만 */
+function dedupeCuratorPlacesByPlaceId(curatorPlacesData) {
+  const best = new Map();
+  for (const cp of curatorPlacesData || []) {
+    const pid = cp?.places?.id;
+    if (pid == null) continue;
+    const prev = best.get(pid);
+    const t = cp?.created_at ? new Date(cp.created_at).getTime() : 0;
+    const pt = prev?.created_at ? new Date(prev.created_at).getTime() : 0;
+    if (!prev || t >= pt) best.set(pid, cp);
+  }
+  return [...best.values()];
+}
+
+/**
+ * 잔 올리기: places 행은 kakao_place_id 로 재사용해도 curator_places 는 매번 INSERT 하면 동일 place_id 로 여러 줄이 생김.
+ * 기존 본인 행이 있으면 UPDATE, 중복 행은 삭제 후 하나만 유지.
+ */
+async function upsertCuratorPlaceForStudio(
+  supabase,
+  authUserId,
+  curatorProfilePk,
+  placeUuid,
+  {
+    display_name,
+    one_line_reason = "",
+    tags = [],
+    alcohol_types = [],
+    moods = [],
+  }
+) {
+  const pid = String(placeUuid).trim();
+  const patch = {
+    display_name,
+    one_line_reason,
+    tags,
+    alcohol_types,
+    moods,
+  };
+
+  let q = supabase
+    .from("curator_places")
+    .select("id, curator_id, created_at")
+    .eq("place_id", pid);
+  if (curatorProfilePk && String(curatorProfilePk) !== String(authUserId)) {
+    q = q.or(`curator_id.eq.${authUserId},curator_id.eq.${curatorProfilePk}`);
+  } else {
+    q = q.eq("curator_id", authUserId);
+  }
+  const { data: rows, error: selErr } = await q;
+  if (selErr) return { data: null, error: selErr };
+
+  const list = rows || [];
+  if (list.length === 0) {
+    return supabase
+      .from("curator_places")
+      .insert([
+        {
+          curator_id: authUserId,
+          place_id: pid,
+          ...patch,
+        },
+      ])
+      .select();
+  }
+
+  const canonical =
+    list.find((r) => String(r.curator_id) === String(authUserId)) || list[0];
+  for (const d of list.filter((r) => r.id !== canonical.id)) {
+    const { error: delErr } = await supabase
+      .from("curator_places")
+      .delete()
+      .eq("id", d.id);
+    if (delErr) {
+      console.warn("curator_places dedupe delete:", delErr);
+    }
+  }
+
+  return supabase
+    .from("curator_places")
+    .update(patch)
+    .eq("id", canonical.id)
+    .select();
+}
+
+function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
+  return (curatorPlacesData || [])
+    .filter((cp) => cp?.places?.id != null)
+    .map((curatorPlace) => {
+    const place = curatorPlace.places;
+    return {
+      id: place.id,
+      name: place.name,
+      address: place.address || place.name,
+      latitude: place.lat,
+      longitude: place.lng,
+      category: place.category || "미분류",
+      alcohol_type: place.alcohol_type || "",
+      atmosphere: place.atmosphere || "",
+      recommended_menu: place.recommended_menu || "",
+      menu_reason: place.menu_reason || "",
+      tags: place.tags || [],
+      is_public: !curatorPlace.is_archived,
+      created_at: place.created_at
+        ? new Date(place.created_at).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
+    };
+  });
+}
+
 /**
  * curators 행에 프로필 이미지 저장 (avatar_url → avatar → image 순으로 시도)
  */
@@ -1891,8 +2001,8 @@ export default function StudioHome() {
   // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
     try {
-      // 등록된 장소 수 (연결 테이블 통해 조회)
-      const { data: placeCuratorsData, error: placesError } = await supabase
+      const curPk = curatorProfile?.id;
+      let statsCpQ = supabase
         .from("curator_places")
         .select(
           `
@@ -1900,13 +2010,28 @@ export default function StudioHome() {
           created_at,
           places (created_at)
         `
-        )
-        .eq("curator_id", userId);
+        );
+      if (curPk && String(curPk) !== String(userId)) {
+        statsCpQ = statsCpQ.or(
+          `curator_id.eq.${userId},curator_id.eq.${curPk}`
+        );
+      } else {
+        statsCpQ = statsCpQ.eq("curator_id", userId);
+      }
+      const { data: statsCpRaw, error: placesError } = await statsCpQ;
 
       if (placesError) {
         console.error("places load error:", placesError);
         return;
       }
+
+      const byPlace = new Map();
+      for (const row of statsCpRaw || []) {
+        const pid = row?.place_id;
+        if (pid == null) continue;
+        byPlace.set(String(pid), row);
+      }
+      const placeCuratorsData = [...byPlace.values()];
 
       const totalPlaces = placeCuratorsData?.length || 0;
       const totalLikes = 0; // likes 필드가 없으므로 0으로 설정
@@ -2094,7 +2219,9 @@ export default function StudioHome() {
   const loadStudioData = async () => {
     try {
       setLoading(true);
-      
+      /** curators 행 PK — 잔 목록 조회 시 curator_id 가 이 값인 레거시 행 포함 */
+      let curatorsRowPk = null;
+
       // 현재 인증된 사용자 정보 가져오기
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
@@ -2146,6 +2273,8 @@ export default function StudioHome() {
           total_likes: 0,
           warning_count: 0
         };
+
+        curatorsRowPk = currentUser.id ?? null;
         
         console.log("📂 프로필 데이터 로드:", currentUser);
         
@@ -2169,22 +2298,47 @@ export default function StudioHome() {
           username_changed_at: currentUser.username_changed_at ?? null,
         }));
 
-        // 실제 활동 데이터 로드
-        await loadCuratorActivity(currentUser.id);
+        // curator_places.curator_id 는 auth.uid() 또는 레거시로 curators.id 일 수 있음 — 집계는 auth 기준
+        await loadCuratorActivity(user.id);
       }
       
       console.log("📂 스튜디오 데이터 로딩 시작...");
       console.log("🔍 현재 사용자 ID:", user?.id);
+
+      if (!user?.id) {
+        setMyPlaces([]);
+        const savedDraftsGuest = JSON.parse(
+          localStorage.getItem("studio_drafts") || "[]"
+        );
+        setDrafts(savedDraftsGuest);
+        setLoading(false);
+        return;
+      }
       
       // Supabase에서 저장된 장소 불러오기 (curator_places 기준, 공개·비공개 모두 — 잔 리스트·통계 일치)
-      const { data: curatorPlacesData, error: placesError } = await supabase
+      const curatorsPk = curatorsRowPk;
+      let cpReq = supabase
         .from("curator_places")
         .select(`
           *,
           places (*)
         `)
-        .eq("curator_id", user.id) // 현재 사용자의 추천만 필터링
         .order("created_at", { ascending: false });
+      if (
+        curatorsPk &&
+        String(curatorsPk) !== String(user.id)
+      ) {
+        cpReq = cpReq.or(
+          `curator_id.eq.${user.id},curator_id.eq.${curatorsPk}`
+        );
+      } else {
+        cpReq = cpReq.eq("curator_id", user.id);
+      }
+      const { data: curatorPlacesRaw, error: placesError } = await cpReq;
+
+      const curatorPlacesData = dedupeCuratorPlacesByPlaceId(
+        curatorPlacesRaw
+      );
 
       // 장소 데이터 추출
       const placesData = curatorPlacesData?.map(cp => cp.places).filter(Boolean) || [];
@@ -2245,27 +2399,8 @@ export default function StudioHome() {
       } else {
         console.log("✅ 불러온 장소 데이터:", placesData);
         
-        // DB 데이터를 myPlaces 형식으로 변환
-        const formattedPlaces = curatorPlacesData.map(curatorPlace => {
-          const place = curatorPlace.places;
-          console.log("🔍 DB 장소 데이터:", { id: place.id, name: place.name, is_archived: curatorPlace.is_archived });
-          
-          return {
-            id: place.id,
-            name: place.name,
-            address: place.address || place.name,
-            latitude: place.lat,
-            longitude: place.lng,
-            category: place.category || "미분류",
-            alcohol_type: place.alcohol_type || "",
-            atmosphere: place.atmosphere || "",
-            recommended_menu: place.recommended_menu || "",
-            menu_reason: place.menu_reason || "",
-            tags: place.tags || [],
-            is_public: !curatorPlace.is_archived, // is_archived를 is_public으로 변환 (false=공개=true, true=비공개=false)
-            created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-          };
-        });
+        const formattedPlaces =
+          mapCuratorJoinRowsToMyPlaces(curatorPlacesData);
         
         setMyPlaces(formattedPlaces);
         console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
@@ -2380,22 +2515,67 @@ export default function StudioHome() {
     [sortedSavedFolders]
   );
 
+  /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 — curator_id 가 auth.uid() / curators.id 인 행 모두 반영 */
+  const reloadStudioMyPlaces = useCallback(async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    const u = authData?.user;
+    if (!u?.id) return;
+    const { data: cr } = await supabase
+      .from("curators")
+      .select("id")
+      .eq("user_id", u.id)
+      .maybeSingle();
+    const ck = cr?.id;
+    let q = supabase
+      .from("curator_places")
+      .select(`*, places (*)`)
+      .order("created_at", { ascending: false });
+    if (ck && String(ck) !== String(u.id)) {
+      q = q.or(`curator_id.eq.${u.id},curator_id.eq.${ck}`);
+    } else {
+      q = q.eq("curator_id", u.id);
+    }
+    const { data, error } = await q;
+    if (error) {
+      console.warn("reloadStudioMyPlaces:", error.message);
+      return;
+    }
+    const deduped = dedupeCuratorPlacesByPlaceId(data);
+    setMyPlaces(mapCuratorJoinRowsToMyPlaces(deduped));
+  }, [supabase]);
+
   const handleDeleteSavedFolder = async (key) => {
     if (!user?.id) return;
     if (!isDeletableUserSavedFolderKey(key)) return;
     if (
       !window.confirm(
-        "이 폴더를 삭제하면 내 저장과의 연결이 모두 풀리고, 폴더 목록에서 사라집니다. 계속할까요?"
+        "이 폴더에 넣어 둔 잔은 내 저장·스튜디오 잔 리스트(추천)에서 모두 사라집니다. 다른 폴더에도 같이 넣었어도 해당 저장·추천이 지워집니다. 폴더 목록에서도 사라집니다. 계속할까요?"
       )
     ) {
       return;
     }
     setSavedFolderMetaDeletingKey(key);
     try {
+      const folderItems = savedByFolder[key] || [];
+      const hintSavedIds = folderItems.map((r) => r.id).filter(Boolean);
+      const hintPlaceIds = folderItems
+        .map((r) => {
+          if (r?.place_id != null) return String(r.place_id);
+          if (r?.places?.id != null) return String(r.places.id);
+          return null;
+        })
+        .filter(Boolean);
+      const hint = {
+        savedPlaceIds: hintSavedIds,
+        placeIds: hintPlaceIds,
+        curatorRowId: curatorProfile?.id ?? null,
+      };
+
       const { error } = await deleteOwnCustomSystemFolder(
         supabase,
         user.id,
-        key
+        key,
+        hint
       );
       if (error) {
         alert(error.message || "삭제하지 못했습니다.");
@@ -2404,6 +2584,7 @@ export default function StudioHome() {
       setSavedFolderKey((k) => (k === key ? null : k));
       setAddPlaceSelectedFolders((prev) => prev.filter((fk) => fk !== key));
       await loadSavedFolders();
+      await reloadStudioMyPlaces();
     } finally {
       setSavedFolderMetaDeletingKey(null);
     }
@@ -2471,21 +2652,34 @@ export default function StudioHome() {
     if (!user?.id || !editingPlaceId) return;
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
+      const { data: curRow } = await supabase
+        .from("curators")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const curPk = curRow?.id ?? null;
+      let req = supabase
         .from("user_saved_places")
         .select(`id, user_saved_place_folders ( folder_key )`)
-        .eq("user_id", user.id)
-        .eq("place_id", editingPlaceId)
-        .maybeSingle();
+        .eq("place_id", editingPlaceId);
+      if (curPk && String(curPk) !== String(user.id)) {
+        req = req.or(`user_id.eq.${user.id},user_id.eq.${curPk}`);
+      } else {
+        req = req.eq("user_id", user.id);
+      }
+      const { data: rows, error } = await req;
       if (cancelled) return;
-      if (error || !data) {
+      if (error || !rows?.length) {
         setAddPlaceSelectedFolders([]);
         return;
       }
-      const keys = (data.user_saved_place_folders || [])
-        .map((l) => l.folder_key)
-        .filter(Boolean);
-      setAddPlaceSelectedFolders(keys);
+      const keySet = new Set();
+      for (const row of rows) {
+        for (const l of row.user_saved_place_folders || []) {
+          if (l.folder_key) keySet.add(l.folder_key);
+        }
+      }
+      setAddPlaceSelectedFolders([...keySet]);
     })();
     return () => {
       cancelled = true;
@@ -2579,9 +2773,13 @@ export default function StudioHome() {
           alert("내 저장 폴더를 1개 이상 선택해주세요.");
           return;
         }
-        
-        const curatorId = user.id;
-        
+
+        const { data: crRowForCp } = await supabase
+          .from("curators")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
         if (editingPlaceId) {
           // 수정 모드: UPDATE 사용
           const updateData = {
@@ -2609,6 +2807,26 @@ export default function StudioHome() {
           }
 
           console.log("✅ 장소 수정 성공:", data);
+
+          const { error: cpMergeErr } = await upsertCuratorPlaceForStudio(
+            supabase,
+            user.id,
+            crRowForCp?.id ?? null,
+            editingPlaceId,
+            {
+              display_name:
+                user.display_name || user.nickname || user.email,
+              one_line_reason: formData.menu_reason || "",
+              tags: formData.tags || [],
+              alcohol_types: formData.alcohol_type
+                ? [formData.alcohol_type]
+                : [],
+              moods: formData.atmosphere ? [formData.atmosphere] : [],
+            }
+          );
+          if (cpMergeErr) {
+            console.warn("curator_places 정리(수정 저장):", cpMergeErr);
+          }
 
           const folderRes = await persistUserSavedPlaceFolders(
             editingPlaceId,
@@ -2718,29 +2936,35 @@ export default function StudioHome() {
           
           // 2. 큐레이터 추천에 저장
         if (placeData && placeData.data && placeData.data[0]) {
-          const curatorPlaceData = {
-            curator_id: user.id,
-            display_name: user.display_name || user.nickname || user.email, // 추가!
-            place_id: placeData.data[0].id,
+          const curatorFields = {
+            display_name: user.display_name || user.nickname || user.email,
             one_line_reason: formData.menu_reason || "",
             tags: formData.tags || [],
             alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
-            moods: formData.atmosphere ? [formData.atmosphere] : []
+            moods: formData.atmosphere ? [formData.atmosphere] : [],
           };
-            
-            console.log("📝 저장할 curator_places 데이터:", curatorPlaceData);
-            
-            const { data: curatorData, error: curatorError } = await supabase
-              .from("curator_places")
-              .insert([curatorPlaceData])
-              .select();
-              
+            console.log("📝 저장할 curator_places 필드:", curatorFields);
+
+            const { data: curatorData, error: curatorError } =
+              await upsertCuratorPlaceForStudio(
+                supabase,
+                user.id,
+                crRowForCp?.id ?? null,
+                placeData.data[0].id,
+                curatorFields
+              );
+
             if (curatorError) {
               console.error("❌ curator_places 저장 오류:", curatorError);
               alert(`큐레이터 추천 저장에 실패했습니다: ${curatorError.message}`);
               return;
             }
-            
+            if (!curatorData?.[0]?.id) {
+              console.error("❌ curator_places 저장 후 행 없음");
+              alert("큐레이터 추천 저장에 실패했습니다.");
+              return;
+            }
+
             console.log("✅ curator_places 저장 성공:", curatorData);
 
             const insertedRow = placeData.data[0];
@@ -2817,8 +3041,9 @@ export default function StudioHome() {
             };
             
             console.log("📝 myPlaces에 추가할 데이터:", newPlaceForList);
-            setMyPlaces(prev => {
-              const updated = [newPlaceForList, ...prev];
+            setMyPlaces((prev) => {
+              const withoutDup = prev.filter((p) => p.id !== newPlaceForList.id);
+              const updated = [newPlaceForList, ...withoutDup];
               console.log("✅ myPlaces 업데이트 완료:", updated.length, "개");
               return updated;
             });

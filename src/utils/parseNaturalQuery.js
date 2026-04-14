@@ -26,7 +26,17 @@ const CURATOR_KEYWORDS = [
   "seongsul",
 ];
 
-const WALKING_KEYWORDS = ["도보", "걸어", "걸어서", "가까운", "근처", "근방"];
+const WALKING_KEYWORDS = [
+  "도보",
+  "걸어",
+  "걸어서",
+  "걸어가",
+  "걸어갈",
+  "걸어다니",
+  "가까운",
+  "근처",
+  "근방",
+];
 const SAVED_SORT_KEYWORDS = ["인기", "저장많은", "저장 많은", "핫한", "유명한"];
 
 function stripFromNormalized(remainingText, phrase) {

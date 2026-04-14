@@ -93,6 +93,141 @@ export function findCuratorCatalogMatch(picked, catalog) {
   return null;
 }
 
+function curatorRichnessScore(p) {
+  if (!p || typeof p !== "object") return 0;
+  let s = 0;
+  if (Array.isArray(p.curatorPlaces)) s += p.curatorPlaces.length * 20;
+  if (Array.isArray(p.curators)) s += p.curators.length * 6;
+  if (typeof p.curatorCount === "number") s += p.curatorCount * 4;
+  return s;
+}
+
+function isUuidLike(id) {
+  return (
+    typeof id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      id
+    )
+  );
+}
+
+function isKakaoApiShape(p) {
+  if (!p) return false;
+  if (p.isKakaoPlace) return true;
+  const sid = p.id;
+  return typeof sid === "string" && sid.startsWith("kakao_");
+}
+
+/**
+ * 동일 카카오 숫자 장소 id인 행을 하나로 합침.
+ * DB UUID 행과 검색 kakao_* 행이 동시에 있으면 메타는 UUID·큐레이터 쪽을 유지하고,
+ * 좌표가 크게 어긋나면(>40m) 카카오 API 쪽 y/x를 신뢰해 마커 위치를 맞춤.
+ */
+function mergeTwoPlacesSameKakaoId(a, b) {
+  const [primary, secondary] =
+    isUuidLike(a?.id) && !isUuidLike(b?.id)
+      ? [a, b]
+      : isUuidLike(b?.id) && !isUuidLike(a?.id)
+      ? [b, a]
+      : curatorRichnessScore(a) >= curatorRichnessScore(b)
+      ? [a, b]
+      : [b, a];
+
+  const wP = resolvePlaceWgs84(primary);
+  const wS = resolvePlaceWgs84(secondary);
+  const meters = wP && wS ? haversineM(wP, wS) : 0;
+
+  let lat = primary.lat;
+  let lng = primary.lng;
+  let x = primary.x;
+  let y = primary.y;
+  if (meters > 40 && isKakaoApiShape(secondary) && wS) {
+    lat = wS.lat;
+    lng = wS.lng;
+    x = secondary.x != null && secondary.x !== "" ? secondary.x : x;
+    y = secondary.y != null && secondary.y !== "" ? secondary.y : y;
+  }
+
+  const seenCp = new Set();
+  const curatorPlaces = [];
+  for (const row of [primary, secondary]) {
+    for (const cp of row?.curatorPlaces || []) {
+      const key = String(cp?.id ?? cp?.curator_id ?? JSON.stringify(cp));
+      if (seenCp.has(key)) continue;
+      seenCp.add(key);
+      curatorPlaces.push(cp);
+    }
+  }
+
+  const curators = [
+    ...new Set([...(primary.curators || []), ...(secondary.curators || [])]),
+  ];
+
+  return {
+    ...secondary,
+    ...primary,
+    id: primary.id,
+    lat,
+    lng,
+    x,
+    y,
+    curatorPlaces,
+    curators,
+    curatorCount: Math.max(
+      primary.curatorCount || 0,
+      secondary.curatorCount || 0,
+      curators.length
+    ),
+    kakao_place_id: primary.kakao_place_id || secondary.kakao_place_id,
+    place_id: primary.place_id || secondary.place_id,
+    place_url: primary.place_url || secondary.place_url,
+    phone: primary.phone || secondary.phone,
+    address:
+      primary.address ||
+      secondary.address ||
+      primary.road_address_name ||
+      secondary.road_address_name,
+    road_address_name:
+      primary.road_address_name || secondary.road_address_name || "",
+    address_name: primary.address_name || secondary.address_name || "",
+  };
+}
+
+/**
+ * 지도 마커용: 같은 카카오 업소가 id만 달라 두 번 들어오는 경우 1개로 합침.
+ * @param {object[]} places
+ * @returns {object[]}
+ */
+export function dedupeMapPlacesByKakaoId(places) {
+  if (!Array.isArray(places) || places.length < 2) return places;
+
+  const byKid = new Map();
+  const noKid = [];
+  for (const p of places) {
+    const kid = normalizeKakaoPlaceId(p);
+    if (!kid) {
+      noKid.push(p);
+      continue;
+    }
+    if (!byKid.has(kid)) byKid.set(kid, []);
+    byKid.get(kid).push(p);
+  }
+
+  const out = [];
+  for (const group of byKid.values()) {
+    if (group.length === 1) {
+      out.push(group[0]);
+      continue;
+    }
+    let acc = group[0];
+    for (let i = 1; i < group.length; i++) {
+      acc = mergeTwoPlacesSameKakaoId(acc, group[i]);
+    }
+    out.push(acc);
+  }
+  return [...out, ...noKid];
+}
+
 /**
  * 검색/지도에서 연 장소를 큐레이터 DB 카드와 같은 내용으로 맞춤
  * (curatorPlaces, 한 줄 평, UUID id 등)

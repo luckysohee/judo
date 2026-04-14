@@ -79,6 +79,22 @@ const MapView = forwardRef(({
   closePlacePreviewOnMapClick = true,
   /** 지도 빈 곳 클릭 시(미리보기 닫기와 동일 타이밍) — 마커 안내 패널 닫기 등 */
   onMapBackgroundClick,
+  /**
+   * 미리보기가 닫혀 있을 때만: 지도 클릭 좌표 { lat, lng } — 부모에서 Places/Geocoder 등으로 카드 오픈
+   */
+  onMapBlankClick,
+  /**
+   * true면 마커(places)가 바뀌어도 setBounds/setCenter로 줌·센터를 건드리지 않음 — 검색 결과만 그 위에 표시
+   */
+  preserveViewportOnPlacesChange = false,
+  /**
+   * 코스 1→2차 보행 경로 `{ polylinePath, legLabel?, labelPosition?, key }` — key는 effect 의존용
+   */
+  courseOverlay = null,
+  /**
+   * 코스 경로 setBounds 시 화면 하단 여백(px) — 바텀시트·피크에 가리지 않게 지도를 위로 맞춤
+   */
+  courseOverlayFitBottomPaddingPx = 0,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -86,6 +102,8 @@ const MapView = forwardRef(({
   const overlayRef = useRef(null);
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
+  const coursePolylineRef = useRef(null);
+  const courseLegLabelOverlayRef = useRef(null);
   const ignoreMapClickRef = useRef(false);
   const closePlacePreviewOnMapClickRef = useRef(closePlacePreviewOnMapClick);
   useEffect(() => {
@@ -105,6 +123,21 @@ const MapView = forwardRef(({
   useEffect(() => {
     onMapBackgroundClickRef.current = onMapBackgroundClick;
   }, [onMapBackgroundClick]);
+
+  const onMapBlankClickRef = useRef(onMapBlankClick);
+  useEffect(() => {
+    onMapBlankClickRef.current = onMapBlankClick;
+  }, [onMapBlankClick]);
+
+  const selectedPlaceRef = useRef(selectedPlace);
+  useEffect(() => {
+    selectedPlaceRef.current = selectedPlace;
+  }, [selectedPlace]);
+
+  const setSelectedPlaceRef = useRef(setSelectedPlace);
+  useEffect(() => {
+    setSelectedPlaceRef.current = setSelectedPlace;
+  }, [setSelectedPlace]);
 
   const runWithIgnoredViewportEvents = useCallback((fn, clearMs = 450) => {
     ignoreViewportEventRef.current = true;
@@ -129,7 +162,17 @@ const MapView = forwardRef(({
     if (!c) return;
     const lat = c.getLat();
     const lng = c.getLng();
-    onViewportChangeRef.current?.({ lat, lng });
+    let level;
+    try {
+      level = mapRef.current.getLevel?.();
+    } catch {
+      level = undefined;
+    }
+    onViewportChangeRef.current?.({
+      lat,
+      lng,
+      level: typeof level === "number" && Number.isFinite(level) ? level : undefined,
+    });
   }, []);
 
   const prevPlacesSigRef = useRef("");
@@ -437,6 +480,14 @@ const MapView = forwardRef(({
         if (!mapRef.current) return null;
         return mapRef.current.getBounds();
       },
+      getLevel: () => {
+        if (!mapRef.current) return null;
+        try {
+          return mapRef.current.getLevel();
+        } catch {
+          return null;
+        }
+      },
       getCurrentLocation: () => {
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
@@ -548,15 +599,35 @@ const MapView = forwardRef(({
                 userInteractedRef.current = true;
               };
 
-              window.kakao.maps.event.addListener(map, "click", () => {
+              window.kakao.maps.event.addListener(map, "click", (mouseEvent) => {
                 if (ignoreMapClickRef.current) return;
                 try {
                   onMapBackgroundClickRef.current?.();
                 } catch (e) {
                   console.error("onMapBackgroundClick:", e);
                 }
+                const latLng = mouseEvent?.latLng;
+                const lat =
+                  typeof latLng?.getLat === "function" ? latLng.getLat() : null;
+                const lng =
+                  typeof latLng?.getLng === "function" ? latLng.getLng() : null;
+
                 if (closePlacePreviewOnMapClickRef.current) {
-                  setSelectedPlace(null);
+                  if (selectedPlaceRef.current) {
+                    setSelectedPlaceRef.current?.(null);
+                  } else if (
+                    onMapBlankClickRef.current &&
+                    typeof lat === "number" &&
+                    typeof lng === "number" &&
+                    Number.isFinite(lat) &&
+                    Number.isFinite(lng)
+                  ) {
+                    try {
+                      onMapBlankClickRef.current({ lat, lng });
+                    } catch (e) {
+                      console.error("onMapBlankClick:", e);
+                    }
+                  }
                 }
                 closeOverlay(); // KakaoPlaceOverlay만 지도 탭으로 닫기
               });
@@ -582,6 +653,7 @@ const MapView = forwardRef(({
               setMapReady(true);
               setTimeout(() => {
                 viewportNotifyReadyRef.current = true;
+                notifyViewportCenterChanged();
               }, 650);
             } catch (e) {
               console.error("kakao map init error:", e);
@@ -600,7 +672,7 @@ const MapView = forwardRef(({
     };
     initMap();
     return () => { mounted = false; clearTimeout(retryTimer); };
-  }, [setSelectedPlace, notifyViewportCenterChanged]);
+  }, [notifyViewportCenterChanged]);
 
   // 2. 마커 업데이트 (데이터 변경 시에만 범위 조정)
   useEffect(() => {
@@ -629,7 +701,10 @@ const MapView = forwardRef(({
 
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
       const shouldCluster =
-        Boolean(clustererRef.current) && !isLive && !p.isKakaoTypingPreview;
+        Boolean(clustererRef.current) &&
+        !isLive &&
+        !p.isKakaoTypingPreview &&
+        !p.isCoursePin;
 
       const checkinMeta = markerCheckinMeta(p, checkinCountByPlaceId, hotRankTopPlaceIds);
 
@@ -720,9 +795,19 @@ const MapView = forwardRef(({
     const sig = placesViewportSignature(places);
     const isPlacesChanged = prevPlacesSigRef.current !== sig;
     if (isPlacesChanged) {
-      // 스튜디오 페이지에서는 무조건 중심 이동 (사용자 상호작용 무시)
+      prevPlacesSigRef.current = sig;
+      // 장소 미리보기 카드 열린 채 검색창 타이핑 → 자동완성 마커만 바뀌어도 setBounds로 줌아웃됨.
+      // 후보가 전부 타이핑 미리보기일 때도 동일 — 마커만 갱신하고 뷰는 유지.
+      const skipViewportAdjust =
+        Boolean(selectedPlace) ||
+        preserveViewportOnPlacesChange ||
+        (validPlaces.length > 0 &&
+          validPlaces.every((p) => p.isKakaoTypingPreview));
       const isStudioPage = window.location.pathname.includes('/studio');
-      if (!userInteractedRef.current || isStudioPage) {
+      if (
+        !skipViewportAdjust &&
+        (!userInteractedRef.current || isStudioPage)
+      ) {
         ignoreViewportEventRef.current = true;
         if (validPlaces.length === 1) {
           const c = resolvePlaceCoords(validPlaces[0]);
@@ -739,7 +824,6 @@ const MapView = forwardRef(({
           ignoreViewportEventRef.current = false;
         }, 450);
       }
-      prevPlacesSigRef.current = sig;
     }
   }, [
     places,
@@ -750,6 +834,7 @@ const MapView = forwardRef(({
     userFolders,
     checkinCountByPlaceId,
     hotRankTopPlaceIds,
+    preserveViewportOnPlacesChange,
   ]);
 
   // 3. 선택된 장소로 부드럽게 이동 (검색 결과는 y/x만 있고 lat/lng 없는 경우 많음)
@@ -819,6 +904,143 @@ const MapView = forwardRef(({
       }
     }, 160);
   }, [selectedPlace, mapReady]);
+
+  // 코스 1차–2차 폴리라인 + 거리 라벨 (클릭·드래그를 가로채지 않게)
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !window.kakao?.maps) return;
+
+    let releaseIgnoreTimer = null;
+
+    if (courseLegLabelOverlayRef.current) {
+      try {
+        courseLegLabelOverlayRef.current.setMap(null);
+      } catch {
+        /* ignore */
+      }
+      courseLegLabelOverlayRef.current = null;
+    }
+
+    if (coursePolylineRef.current) {
+      try {
+        coursePolylineRef.current.setMap(null);
+      } catch {
+        /* ignore */
+      }
+      coursePolylineRef.current = null;
+    }
+
+    const rawPath = courseOverlay?.polylinePath;
+    if (!Array.isArray(rawPath) || rawPath.length < 2) {
+      return undefined;
+    }
+
+    const kakaoPath = rawPath
+      .filter(
+        (p) =>
+          p &&
+          Number.isFinite(Number(p.lat)) &&
+          Number.isFinite(Number(p.lng))
+      )
+      .map(
+        (p) =>
+          new window.kakao.maps.LatLng(Number(p.lat), Number(p.lng))
+      );
+
+    if (kakaoPath.length < 2) return undefined;
+
+    coursePolylineRef.current = new window.kakao.maps.Polyline({
+      path: kakaoPath,
+      strokeWeight: 4,
+      strokeColor: "#7c3aed",
+      strokeOpacity: 0.88,
+      strokeStyle: "solid",
+    });
+    coursePolylineRef.current.setMap(mapRef.current);
+    try {
+      if (typeof coursePolylineRef.current.setClickable === "function") {
+        coursePolylineRef.current.setClickable(false);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const legLabel = String(courseOverlay?.legLabel || "").trim();
+    const lp = courseOverlay?.labelPosition;
+    if (
+      legLabel &&
+      lp &&
+      Number.isFinite(Number(lp.lat)) &&
+      Number.isFinite(Number(lp.lng)) &&
+      typeof window.kakao.maps.CustomOverlay === "function"
+    ) {
+      const el = document.createElement("div");
+      el.textContent = legLabel;
+      el.style.cssText = [
+        "padding:5px 10px",
+        "background:rgba(255,255,255,0.96)",
+        "border:1px solid rgba(124,58,237,0.45)",
+        "border-radius:10px",
+        "font-size:11px",
+        "font-weight:700",
+        "color:#5b21b6",
+        "pointer-events:none",
+        "white-space:nowrap",
+        "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
+      ].join(";");
+      try {
+        courseLegLabelOverlayRef.current = new window.kakao.maps.CustomOverlay({
+          map: mapRef.current,
+          position: new window.kakao.maps.LatLng(Number(lp.lat), Number(lp.lng)),
+          content: el,
+          xAnchor: 0.5,
+          yAnchor: 0.45,
+          zIndex: 4,
+          clickable: false,
+        });
+      } catch {
+        courseLegLabelOverlayRef.current = null;
+      }
+    }
+
+    const bounds = new window.kakao.maps.LatLngBounds();
+    kakaoPath.forEach((ll) => bounds.extend(ll));
+    ignoreViewportEventRef.current = true;
+    const padB = Math.round(Number(courseOverlayFitBottomPaddingPx) || 0);
+    if (padB > 0) {
+      const padT = 56;
+      const padX = 44;
+      mapRef.current.setBounds(bounds, padT, padX, padB, padX);
+    } else {
+      mapRef.current.setBounds(bounds);
+    }
+    releaseIgnoreTimer = setTimeout(() => {
+      ignoreViewportEventRef.current = false;
+    }, 480);
+
+    return () => {
+      if (releaseIgnoreTimer) {
+        clearTimeout(releaseIgnoreTimer);
+        releaseIgnoreTimer = null;
+      }
+      ignoreViewportEventRef.current = false;
+      if (courseLegLabelOverlayRef.current) {
+        try {
+          courseLegLabelOverlayRef.current.setMap(null);
+        } catch {
+          /* ignore */
+        }
+        courseLegLabelOverlayRef.current = null;
+      }
+      if (coursePolylineRef.current) {
+        try {
+          coursePolylineRef.current.setMap(null);
+        } catch {
+          /* ignore */
+        }
+        coursePolylineRef.current = null;
+      }
+    };
+  }, [mapReady, courseOverlay, courseOverlayFitBottomPaddingPx]);
 
   // center prop이 변경될 때 지도 중심 이동
   useEffect(() => {

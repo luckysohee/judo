@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, useDragControls } from "framer-motion";
 import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 
@@ -47,6 +48,7 @@ export default function PlacePreviewCard({
   const [googlePhotoAttributions, setGooglePhotoAttributions] = useState([]);
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const dragControls = useDragControls();
   const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
 
@@ -216,6 +218,7 @@ export default function PlacePreviewCard({
           setIsLoadingKakao(false);
         });
     } else if (!kakaoPlaceId) {
+      if (place?.mapClickNoVenue) return;
       console.warn("⚠️ 카카오 place id 없음 - 상세조회 생략", {
         id: place?.id,
         place_id: place?.place_id,
@@ -738,9 +741,9 @@ export default function PlacePreviewCard({
     
     // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
     if (userRole === "curator" || userRole === "admin") {
-      // 카카오 장소는 백그라운드로 임시저장
-      if (place.isKakaoPlace) {
-        console.log('📍 카카오 장소 - 백그라운드 임시저장');
+      // 카카오 장소·지도 탭 후 좌표만(근처 POI 없음)은 잔 채우기 드래프트로
+      if (place.isKakaoPlace || place.mapClickNoVenue) {
+        console.log('📍 잔 채우기 임시저장 (카카오 또는 좌표만)');
         
         // 백그라운드에서 임시저장 시도 (사용자에게는 토스트만 표시)
         const result = await saveToCuratorDrafts(place);
@@ -810,10 +813,27 @@ export default function PlacePreviewCard({
       const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
       console.log('📍 기존 drafts:', existingDrafts.length, '개');
       
-      // 2. 중복 체크 - 같은 kakao_place_id가 있는지 확인
-      const isDuplicate = existingDrafts.some(draft => 
-        draft.kakao_place_id === (place.kakao_place_id || place.id) && 
-        draft.curator_id === user.id
+      // 2. 중복 체크 — 숫자 카카오 ID 우선, 없으면 좌표(지도 클릭 픽 등)
+      const dupKeyDraft = (d) => {
+        const k = d.kakao_place_id;
+        if (k != null && String(k).trim() !== "" && /^\d+$/.test(String(k)))
+          return `k:${k}`;
+        if (d.place_lat != null && d.place_lng != null)
+          return `ll:${Number(d.place_lat).toFixed(5)}_${Number(d.place_lng).toFixed(5)}`;
+        return `id:${d.id}`;
+      };
+      const dupKeyPlace = (p) => {
+        const k = p.kakao_place_id;
+        if (k != null && String(k).trim() !== "" && /^\d+$/.test(String(k)))
+          return `k:${k}`;
+        if (p.lat != null && p.lng != null)
+          return `ll:${Number(p.lat).toFixed(5)}_${Number(p.lng).toFixed(5)}`;
+        return `id:${p.id}`;
+      };
+      const pk = dupKeyPlace(place);
+      const isDuplicate = existingDrafts.some(
+        (draft) =>
+          draft.curator_id === user.id && dupKeyDraft(draft) === pk
       );
       
       if (isDuplicate) {
@@ -822,10 +842,16 @@ export default function PlacePreviewCard({
       }
       
       // 3. 새로운 draft 데이터 생성
+      const numericKakaoId =
+        place.kakao_place_id != null &&
+        String(place.kakao_place_id).trim() !== "" &&
+        /^\d+$/.test(String(place.kakao_place_id).trim())
+          ? String(place.kakao_place_id).trim()
+          : null;
       const newDraft = {
         id: `draft_${Date.now()}`,
         curator_id: user.id,
-        kakao_place_id: place.kakao_place_id || place.id,
+        kakao_place_id: numericKakaoId,
         place_name: place.name,
         place_address: place.address,
         place_lat: place.lat,
@@ -955,6 +981,85 @@ export default function PlacePreviewCard({
             <span style={styles.sheetDragHandleBar} aria-hidden />
           </div>
         ) : null}
+        {place.mapClickNoVenue ? (
+          <>
+            <div style={styles.header}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={styles.closeButtonInline}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+            <div style={{ ...styles.body, padding: "16px 14px 22px" }}>
+              <div
+                style={{
+                  fontSize: 17,
+                  fontWeight: 700,
+                  marginBottom: 10,
+                  color: "#fff",
+                }}
+              >
+                {extractDisplayName(
+                  place?.name || place?.place_name || "이 위치"
+                )}
+              </div>
+              <p
+                style={{
+                  margin: "0 0 14px",
+                  color: "rgba(255,255,255,0.72)",
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                }}
+              >
+                근처에서 등록 가능한 장소를 찾지 못했어요. 스튜디오에서 직접
+                올리거나, 큐레이터는 좌표만 잔 채우기에 넣을 수 있어요.
+              </p>
+              {place.address ? (
+                <div
+                  style={{
+                    fontSize: 14,
+                    color: "#e0e0e0",
+                    marginBottom: 16,
+                  }}
+                >
+                  📍 {place.address}
+                </div>
+              ) : null}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate("/studio")}
+                  style={styles.mapEmptyPrimaryBtn}
+                >
+                  직접 등록하기
+                </button>
+                {isCurator ? (
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSaveClick()}
+                    style={styles.mapEmptySecondaryBtn}
+                  >
+                    ⚡ 좌표만 잔 채우기
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => onClose?.()}
+                  style={styles.mapEmptySecondaryBtn}
+                >
+                  다시 선택
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
         <div style={styles.header}>
           <div style={styles.headerRight}>
             {/* 카카오맵 상세보기 링크 */}
@@ -1183,8 +1288,22 @@ export default function PlacePreviewCard({
 
         <div style={styles.body}>
           <div style={styles.titleRow}>
-            <div style={styles.title}>
-              {extractDisplayName(place?.name || place?.place_name || "")}
+            <div>
+              <div style={styles.title}>
+                {extractDisplayName(place?.name || place?.place_name || "")}
+              </div>
+              {place.mapClickResolvedPlace ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.55)",
+                    marginTop: 6,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  지도를 탭해 찾은 장소예요. 주도에 올리거나 저장해 보세요.
+                </div>
+              ) : null}
             </div>
 
             <div style={styles.titleRight}>
@@ -1454,6 +1573,8 @@ export default function PlacePreviewCard({
             </button>
           </div>
         </div>
+          </>
+        )}
           </>
         )}
         </MotionCard>
@@ -2057,5 +2178,27 @@ const styles = {
     padding: "0 8px",
     cursor: "pointer",
     boxSizing: "border-box",
+  },
+  mapEmptyPrimaryBtn: {
+    width: "100%",
+    minHeight: "44px",
+    borderRadius: "10px",
+    border: "none",
+    backgroundColor: "#2ECC71",
+    color: "#fff",
+    fontSize: "14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  mapEmptySecondaryBtn: {
+    width: "100%",
+    minHeight: "42px",
+    borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    color: "#eee",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
   },
 };

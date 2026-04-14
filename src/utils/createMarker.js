@@ -144,6 +144,15 @@ function getFolderMarkerColor(place, userFolders) {
   return getMarkerTier(place);
 }
 
+/** SVG <text> / 속성용 이스케이프 */
+function escapeSvgText(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function checkinMarkerDecorations(size, checkinMeta) {
   const cc = Number(checkinMeta?.checkinCount) || 0;
   const showFlame = Boolean(checkinMeta?.showHotFlame);
@@ -278,6 +287,40 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     `
     : "";
 
+  const courseCaptionRaw =
+    place.isCoursePin && place.courseMapCaption
+      ? String(place.courseMapCaption).trim().slice(0, 14)
+      : "";
+  const courseCaptionW = courseCaptionRaw
+    ? Math.min(80, Math.max(52, courseCaptionRaw.length * 6 + 18))
+    : 0;
+  const courseRouteBadge = courseCaptionRaw
+    ? `
+      <g>
+        <rect
+          x="${size / 2 - courseCaptionW / 2}"
+          y="2"
+          width="${courseCaptionW}"
+          height="15"
+          rx="7.5"
+          fill="#5b21b6"
+          stroke="#ffffff"
+          stroke-width="1.2"
+        />
+        <text
+          x="${size / 2}"
+          y="9.5"
+          dominant-baseline="central"
+          text-anchor="middle"
+          font-size="8.5"
+          font-weight="800"
+          fill="#ffffff"
+          font-family="system-ui, -apple-system, Arial, sans-serif"
+        >${escapeSvgText(courseCaptionRaw)}</text>
+      </g>
+    `
+    : "";
+
   return `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <defs>
@@ -318,6 +361,7 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
           </text>
         </g>
         ${liveBadge}
+        ${courseRouteBadge}
         ${checkinMarkerDecorations(size, checkinMeta)}
       </g>
     </svg>

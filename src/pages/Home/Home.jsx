@@ -1,4 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
@@ -36,6 +43,11 @@ import {
 } from "../../utils/storage";
 
 import { getCustomPlaces } from "../../utils/customPlacesStorage";
+import { mapClickCoordToPreviewPlace } from "../../utils/mapClickCoordToPreviewPlace";
+import {
+  resolveMapClickVenue,
+  kakaoPlacesDocToMapClickPreview,
+} from "../../utils/resolveMapClickVenue";
 import parseNaturalQuery from "../../utils/parseNaturalQuery";
 import {
   parseSearchQuery,
@@ -71,12 +83,18 @@ import {
 } from "../../utils/fetchCuratorPlaceDbSearch";
 import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
 import {
+  isWalkingRouteReasonable,
+  walkingRouteDisplayMinutes,
+} from "../../utils/courseWalkingRouteQuality.js";
+import {
   getKakaoPlaceDetailsViaProxy,
   searchKakaoKeywordViaProxy,
 } from "../../utils/kakaoAPIProxy";
 import {
   mergePickedPlaceWithCuratorCatalog,
   findCuratorCatalogMatch,
+  dedupeMapPlacesByKakaoId,
+  normalizeKakaoPlaceId,
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
 import {
@@ -85,8 +103,28 @@ import {
 } from "../../utils/placeUiTags";
 import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
+import { useCourseSearch } from "../../hooks/useCourseSearch";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { getMarkerTier, isCuratorListedPlace } from "../../utils/createMarker";
+import { isCourseQuery } from "../../utils/isCourseQuery";
+import {
+  formatCourseStayMinutes,
+  formatCourseWalkApprox,
+  getCourseOpenStatusText,
+  getCourseWalkComfortHint,
+  getCourseLegMeters,
+  formatCourseLegDistanceSummary,
+} from "../../utils/formatCourseUi";
+import { fetchCourseWalkingRoute } from "../../utils/fetchCourseWalkingRoute.js";
+import {
+  buildGoogleMapsWalkingDirectionsUrl,
+  buildKakaoMapFromToUrls,
+  openInNewTab,
+} from "../../utils/externalMapDirections.js";
+import { getRegenerateSecondLabel } from "../../utils/regenerateSecondStep.js";
+import { buildCourseSummary } from "../../utils/buildCourseSummary";
+import { buildCourseMapData } from "../../utils/buildCourseMapData";
+import { courseOptionsToMapPlaces } from "../../utils/generateCourseOptions.js";
 
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(/\/$/, "");
@@ -139,6 +177,25 @@ function placeMatchesSavedKeySet(place, savedKeySet) {
 }
 
 const SEARCH_INTENT_ASSIST_MS = 5500;
+
+/** 코스 카드 가로 스크롤 행 — 뷰 중앙에 가장 가까운 카드 인덱스 */
+function getCourseSwipeIndexFromScroll(el) {
+  if (!el || el.children.length === 0) return 0;
+  const host = el.getBoundingClientRect();
+  const midX = host.left + host.width / 2;
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < el.children.length; i++) {
+    const cr = el.children[i].getBoundingClientRect();
+    const cx = cr.left + cr.width / 2;
+    const d = Math.abs(cx - midX);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
 
 export default function Home() {
   const navigate = useNavigate();
@@ -323,8 +380,15 @@ export default function Home() {
       if (searchLocation) {
         // 현재 위치 기반 검색
         searchOptions.location = new window.kakao.maps.LatLng(searchLocation.lat, searchLocation.lng);
+        const walkish =
+          /걸어|도보|걸어서|걸어가|걸어갈|walking/i.test(kwIn) ||
+          /걸어|도보|걸어서|걸어가|걸어갈|walking/i.test(String(keyword || ""));
         searchOptions.radius =
-          matchedFoodKeyword === "해산물" || kwIn.includes("해산물") ? 2000 : 800;
+          matchedFoodKeyword === "해산물" || kwIn.includes("해산물")
+            ? 2000
+            : walkish
+              ? 1200
+              : 800;
       }
 
       ps.keywordSearch(
@@ -385,7 +449,18 @@ export default function Home() {
                     walkingTime: Math.max(1, Math.round(distance / 67)), // 약 4km/h 기준
                   };
                 })
-                .filter((place) => place.distance <= 800);
+                .filter((place) => {
+                  const maxM =
+                    matchedFoodKeyword === "해산물" || kwIn.includes("해산물")
+                      ? 2000
+                      : /걸어|도보|걸어서|걸어가|걸어갈|walking/i.test(kwIn) ||
+                          /걸어|도보|걸어서|걸어가|걸어갈|walking/i.test(
+                            String(keyword || "")
+                          )
+                        ? 1200
+                        : 800;
+                  return place.distance <= maxM;
+                });
 
               if (isPojangmacha) {
                 const strictMatched = placesWithDistance.filter((place) => {
@@ -441,6 +516,54 @@ export default function Home() {
         searchOptions
       );
     });
+  };
+
+  /**
+   * "A or B", "또는", "|" 또는 한 문장에 2차·술집 + 와인바가 같이 있으면
+   * 카카오 키워드 검색을 나눠 병합해 후보 풀을 넓힌다.
+   */
+  const mergeNearbyKakaoForOrQuery = async (keyword, userLocation) => {
+    const strip =
+      stripPartyAndChatterForKeywordSearch(keyword) ||
+      String(keyword || "").trim();
+    if (!strip) return [];
+
+    const parts = strip
+      .split(/\s+(?:or|또는)\s+|\s*\|\s*/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const dedupeMerge = async (queries) => {
+      const merged = [];
+      const seen = new Set();
+      for (const q of queries) {
+        const chunk = await searchNearbyBars(q, userLocation);
+        for (const pl of chunk) {
+          const id = pl?.id != null ? String(pl.id) : null;
+          if (id) {
+            if (seen.has(id)) continue;
+            seen.add(id);
+          }
+          merged.push(pl);
+        }
+      }
+      return merged;
+    };
+
+    if (parts.length >= 2) {
+      const m = await dedupeMerge(parts);
+      if (m.length) return m;
+    }
+
+    if (
+      /와인바|와인\s*바/i.test(strip) &&
+      /(?:2차|이차|술집|뒷풀이)/i.test(strip)
+    ) {
+      const m = await dedupeMerge(["술집", "와인바"]);
+      if (m.length) return m;
+    }
+
+    return searchNearbyBars(keyword, userLocation);
   };
 
   // 네이버 블로그 검색 함수
@@ -720,11 +843,15 @@ export default function Home() {
       "잘",
       "같이",
       "해요",
+      "or",
+      "있는",
     ]);
 
     const party = parsePartySize(keyword);
     const kwSc = stripPartyAndChatterForKeywordSearch(keyword) || keyword;
-    const wantWalkable = /걸어|도보|근처|가까운|walking/i.test(kwSc);
+    const wantWalkable =
+      /걸어|도보|근처|가까운|걸어서|걸어가|걸어갈|walking/i.test(kwSc);
+    const wantQuiet = /조용|차분|한적|quiet/i.test(kwSc);
     const parsedFacets = parseSearchQuery(keyword);
     const wantsSeafood = queryWantsSeafoodFocus(keyword, parsedFacets);
     const wantsYajang = queryWantsYajangFocus(keyword, parsedFacets);
@@ -833,6 +960,22 @@ export default function Home() {
       }
       if (wantWalkable && userLocation && place.distance > 0 && place.distance <= 400) {
         score += 10;
+      }
+
+      if (wantQuiet) {
+        if (
+          /와인|wine|와인바|펍|라운지|lounge|바(?![a-z])|wine\s*bar/i.test(
+            catLower
+          )
+        ) {
+          score += 12;
+        }
+        if (/조용|차분|한적|룸|프라이빗|private|와인/i.test(catLower)) {
+          score += 10;
+        }
+        if (/클럽|노래방|코인노래|룸싸롱|단란주점|댄스/i.test(catLower)) {
+          score -= 38;
+        }
       }
 
       // 인원(근사): 좌석 수 없음 — 단체·포차류만 보조 가점
@@ -953,7 +1096,6 @@ export default function Home() {
   };
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showPlaceDetail, setShowPlaceDetail] = useState(false); // 장소 상세 표시 상태
   const [isCurator, setIsCurator] = useState(false);
   const curatorWelcomeRef = useRef(false); // 큐레이터 상태 변화 감지용 ref
   const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
@@ -1028,23 +1170,212 @@ export default function Home() {
   // 로그인 유도 모달 훅
   const { showLoginPrompt, requiredFeature, requireLogin, closeLoginPrompt } = useLoginRequired();
 
+  const {
+    courseOptions,
+    selectedCourse,
+    altSecondCourses,
+    courseError,
+    isCourseMode,
+    isRegeneratingSecond,
+    isRefreshingCourses,
+    runCourseSearch,
+    resetCourseSearch,
+    chooseCourse,
+    regenerateSelectedCourseSecond,
+    rerunDifferentCourses,
+    applyAlternativeSecond,
+  } = useCourseSearch();
+
+  const [courseMapOverlay, setCourseMapOverlay] = useState(null);
+
+  const coursePeekLegSummary = useMemo(() => {
+    const course = selectedCourse ?? courseOptions?.[0] ?? null;
+    if (
+      courseMapOverlay?.key &&
+      String(courseMapOverlay.key).includes("-routed") &&
+      String(courseMapOverlay.legLabel || "").trim()
+    ) {
+      return String(courseMapOverlay.legLabel).trim();
+    }
+    return formatCourseLegDistanceSummary(course);
+  }, [selectedCourse, courseOptions, courseMapOverlay]);
+
+  /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
+  const courseMapFitBottomPaddingPx = useMemo(() => {
+    if (!isCourseMode || !String(query || "").trim() || isAiSearching) return 0;
+    if (typeof window === "undefined") return 280;
+    const h = window.innerHeight;
+    if (aiSheetOpen) {
+      return Math.min(Math.round(h * 0.44) + 44, 440);
+    }
+    return Math.min(Math.round(h * 0.17) + 56, 180);
+  }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
+
+  /** 코스 카드 가로 스와이프 — 스크롤이 멈춘 뒤에만 선택·지도 반영 (스크롤 중 휙휙 변경 방지) */
+  const courseSwipeRowRef = useRef(null);
+  const courseSwipeSettleTimerRef = useRef(null);
+
+  const settleCourseFromSwipe = useCallback(() => {
+    const el = courseSwipeRowRef.current;
+    if (!el || !courseOptions?.length) return;
+    const idx = getCourseSwipeIndexFromScroll(el);
+    const course = courseOptions[idx];
+    if (course?.key && course.key !== selectedCourse?.key) {
+      chooseCourse(course);
+    }
+  }, [courseOptions, selectedCourse?.key, chooseCourse]);
+
+  const onCourseSwipeRowScroll = useCallback(() => {
+    const prev = courseSwipeSettleTimerRef.current;
+    if (prev != null) window.clearTimeout(prev);
+    courseSwipeSettleTimerRef.current = window.setTimeout(() => {
+      courseSwipeSettleTimerRef.current = null;
+      settleCourseFromSwipe();
+    }, 220);
+  }, [settleCourseFromSwipe]);
+
+  useEffect(() => {
+    if (!isCourseMode || !aiSheetOpen || courseOptions.length < 2) {
+      return undefined;
+    }
+    const el = courseSwipeRowRef.current;
+    if (!el || typeof el.addEventListener !== "function") return undefined;
+    const onScrollEnd = () => {
+      if (courseSwipeSettleTimerRef.current != null) {
+        window.clearTimeout(courseSwipeSettleTimerRef.current);
+        courseSwipeSettleTimerRef.current = null;
+      }
+      settleCourseFromSwipe();
+    };
+    el.addEventListener("scrollend", onScrollEnd, { passive: true });
+    return () => el.removeEventListener("scrollend", onScrollEnd);
+  }, [isCourseMode, aiSheetOpen, courseOptions.length, settleCourseFromSwipe]);
+
+  useEffect(
+    () => () => {
+      const t = courseSwipeSettleTimerRef.current;
+      if (t != null) window.clearTimeout(t);
+    },
+    []
+  );
+
+  useLayoutEffect(() => {
+    if (!isCourseMode || !aiSheetOpen || !courseOptions?.length || !selectedCourse) {
+      return;
+    }
+    const el = courseSwipeRowRef.current;
+    if (!el) return;
+    const idx = courseOptions.findIndex((c) => c.key === selectedCourse.key);
+    if (idx < 0) return;
+    const child = el.children[idx];
+    if (!(child instanceof HTMLElement)) return;
+    const host = el.getBoundingClientRect();
+    const cr = child.getBoundingClientRect();
+    const pad = 12;
+    const needs = cr.left < host.left + pad || cr.right > host.right - pad;
+    if (needs) {
+      child.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    }
+  }, [isCourseMode, aiSheetOpen, selectedCourse?.key, courseOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const base = buildCourseMapData(selectedCourse);
+    if (!base?.polylinePath?.length) {
+      setCourseMapOverlay(null);
+      return undefined;
+    }
+    const a = base.polylinePath[0];
+    const b = base.polylinePath[base.polylinePath.length - 1];
+
+    setCourseMapOverlay({
+      polylinePath: base.polylinePath,
+      legLabel: base.legLabel,
+      labelPosition: base.labelPosition,
+      key: `${selectedCourse?.key ?? ""}-straight`,
+    });
+
+    fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
+      if (cancelled) return;
+      const straightM = getCourseLegMeters(selectedCourse);
+      const fallbackStraight = () => {
+        setCourseMapOverlay({
+          polylinePath: base.polylinePath,
+          legLabel: base.legLabel,
+          labelPosition: base.labelPosition,
+          key: `${selectedCourse?.key ?? ""}-straight`,
+        });
+      };
+
+      if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
+        const dm = Number(route.distanceMeters) || 0;
+        const ds = Number(route.durationSeconds) || 0;
+        const mid = route.path[Math.floor(route.path.length / 2)];
+        const lp = {
+          lat: Number(mid.lat),
+          lng: Number(mid.lng),
+        };
+        const reasonable = isWalkingRouteReasonable({
+          routedMeters: dm,
+          straightMeters: straightM,
+          durationSeconds: ds,
+        });
+        let legLabel;
+        if (reasonable && dm > 0) {
+          const walkMin = walkingRouteDisplayMinutes(dm, ds);
+          const distStr =
+            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
+          legLabel = `길 따라 ${distStr} · 도보 약 ${walkMin}분`;
+        } else if (dm > 0) {
+          const walkMin = walkingRouteDisplayMinutes(dm, ds);
+          const distStr =
+            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
+          legLabel = `보행 경로 ${distStr} · 도보 약 ${walkMin}분`;
+        } else {
+          legLabel = base.legLabel;
+        }
+        setCourseMapOverlay({
+          polylinePath: route.path,
+          legLabel,
+          labelPosition: lp,
+          key: `${selectedCourse?.key ?? ""}-routed`,
+        });
+      } else {
+        fallbackStraight();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCourse]);
+
+  useEffect(() => {
+    if (!isCourseMode || !courseOptions?.length) return;
+    const pick = selectedCourse ?? courseOptions[0];
+    if (!pick?.steps?.length) return;
+    setKakaoPlaces(courseOptionsToMapPlaces([pick]));
+  }, [isCourseMode, selectedCourse, courseOptions]);
+
   // 현재 위치 상태
   const [currentLocation, setCurrentLocation] = useState(null);
   const [mapLocationLoading, setMapLocationLoading] = useState(false);
-  const suppressSearchRecenterRef = useRef(false);
   const [mapViewportCenterFromUser, setMapViewportCenterFromUser] =
     useState(null);
 
   const onMapViewportChange = useCallback(({ lat, lng }) => {
     if (
-      typeof lat !== "number" ||
-      !Number.isFinite(lat) ||
-      typeof lng !== "number" ||
-      !Number.isFinite(lng)
+      typeof lat === "number" &&
+      Number.isFinite(lat) &&
+      typeof lng === "number" &&
+      Number.isFinite(lng)
     ) {
-      return;
+      setMapViewportCenterFromUser({ lat, lng });
     }
-    setMapViewportCenterFromUser({ lat, lng });
   }, []);
 
   const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
@@ -1062,49 +1393,6 @@ export default function Home() {
     () => [...dbPlaces, ...customPlaces],
     [dbPlaces, customPlaces]
   );
-
-  const showSearchHereButton = useMemo(() => {
-    if (!currentLocation?.lat || !currentLocation?.lng) return false;
-    if (!mapViewportCenterFromUser) return false;
-    if (!String(query || "").trim()) return false;
-    if (isLocationBasedSearch) return false;
-    const kw =
-      stripPartyAndChatterForKeywordSearch(String(query).trim()) ||
-      String(query).trim();
-    if (kakaoQueryHasGeographicAnchor(kw)) return false;
-    const d = calculateDistance(
-      currentLocation.lat,
-      currentLocation.lng,
-      mapViewportCenterFromUser.lat,
-      mapViewportCenterFromUser.lng
-    );
-    return d >= 350;
-  }, [
-    currentLocation,
-    mapViewportCenterFromUser,
-    query,
-    isLocationBasedSearch,
-  ]);
-
-  /** 추천 피크·바텀시트·확장 제안 카드와 겹치지 않도록 플로팅 버튼 높이 */
-  const searchHereFloatingBottom = useMemo(() => {
-    if (selectedPlace) return undefined;
-    const hasExpandCard =
-      Boolean(searchExpandUX && String(query || "").trim()) && !isAiSearching;
-    const hasRecList = aiRecommendedIds.length > 0;
-    if (!hasExpandCard && !hasRecList) return undefined;
-    if (hasRecList && aiSheetOpen) {
-      return "clamp(200px, calc(128px + 28vh), 460px)";
-    }
-    return "200px";
-  }, [
-    selectedPlace,
-    searchExpandUX,
-    query,
-    isAiSearching,
-    aiRecommendedIds.length,
-    aiSheetOpen,
-  ]);
 
   const setSelectedPlaceWithAnalytics = useCallback(
     (place, clickSource = "map_click") => {
@@ -1142,6 +1430,32 @@ export default function Home() {
       setSelectedPlace(resolved);
     },
     [user, curatorPlaceCatalogForMerge]
+  );
+
+  /**
+   * 지도 빈 곳 탭: 근처 Places → 있으면 카카오 장소 카드, 없으면 Geocoder + “못 찾음” 카드
+   */
+  const handleMapBlankPick = useCallback(
+    async ({ lat, lng }) => {
+      const level = mapRef.current?.getLevel?.();
+      if (typeof level === "number" && level > 7) return;
+      const resolved = await resolveMapClickVenue(lat, lng);
+      if (resolved.kind === "place" && resolved.doc) {
+        const shape = kakaoPlacesDocToMapClickPreview(resolved.doc);
+        if (shape) {
+          setSelectedPlaceWithAnalytics(shape, "map_nearby_pick");
+        }
+        return;
+      }
+      const geo = await mapClickCoordToPreviewPlace(resolved.lat, resolved.lng);
+      if (geo) {
+        setSelectedPlaceWithAnalytics(
+          { ...geo, mapClickNoVenue: true },
+          "map_empty_pick"
+        );
+      }
+    },
+    [setSelectedPlaceWithAnalytics]
   );
 
   const livePlaceIdsText = useMemo(() => {
@@ -2129,7 +2443,22 @@ export default function Home() {
       }
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return applyLegendCategoryFilter(
-        mergePlaces(mergePlaces(kakaoPlaces, displayedPlaces), kakaoTypingPreviewPlaces),
+        dedupeMapPlacesByKakaoId(
+          mergePlaces(mergePlaces(kakaoPlaces, displayedPlaces), kakaoTypingPreviewPlaces)
+        ),
+        legendCategory
+      );
+    }
+
+    // 코스 추천: 선택 코스 1·2차 핀만 표시(DB·검색 마커·타이핑 미리보기 제외)
+    if (
+      isCourseMode &&
+      !courseError &&
+      Array.isArray(courseOptions) &&
+      courseOptions.length > 0
+    ) {
+      return applyLegendCategoryFilter(
+        dedupeMapPlacesByKakaoId([...kakaoPlaces]),
         legendCategory
       );
     }
@@ -2147,7 +2476,7 @@ export default function Home() {
           kakao: kakaoPlaces.length,
         });
       }
-      return applyLegendCategoryFilter(merged, legendCategory);
+      return applyLegendCategoryFilter(dedupeMapPlacesByKakaoId(merged), legendCategory);
     }
     
     // 일반 모드에서는 비공개 필터링 적용
@@ -2163,10 +2492,9 @@ export default function Home() {
       console.log("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
     }
 
-    const result = mergePlaces(
-      mergePlaces(kakaoPlaces, filtered),
-      kakaoTypingPreviewPlaces
-    ); // 동일 id면 kakaoPlaces·DB가 타이핑 미리보기보다 우선
+    const result = dedupeMapPlacesByKakaoId(
+      mergePlaces(mergePlaces(kakaoPlaces, filtered), kakaoTypingPreviewPlaces)
+    ); // 동일 id면 kakaoPlaces·DB가 타이핑 미리보기보다 우선; 카카오 숫자 id로 이중 마커 제거
     if (import.meta.env.DEV) {
       console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
     }
@@ -2181,15 +2509,14 @@ export default function Home() {
     aiRecommendedIds,
     query,
     legendCategory,
+    isCourseMode,
+    courseError,
+    courseOptions,
   ]);
 
-  useEffect(() => {
-    if (kakaoTypingPreviewPlaces.length === 0) return;
-    const t = window.setTimeout(() => {
-      mapRef.current?.fitToPlaces?.(kakaoTypingPreviewPlaces);
-    }, 140);
-    return () => window.clearTimeout(t);
-  }, [kakaoTypingPreviewPlaces]);
+  // 카카오 자동완성 후보가 전국·광역으로 퍼질 수 있어 fitToPlaces(setBounds)를 쓰면
+  // 타이핑만 해도 지도가 줌아웃됨. 검색어가 있을 땐 MapView `preserveViewportOnPlacesChange`로
+  // 마커만 갱신하고 줌/센터는 유지.
 
 const topReasonMap = useMemo(() => {
   const map = {};
@@ -2293,51 +2620,70 @@ const handleClearSearch = () => {
   setYajangFallbackBanner(null);
   setSearchDistanceOrigin(null);
   setMapViewportCenterFromUser(null);
+  resetCourseSearch();
 };
 
-  // 카카오 장소 선택 핸들러 (마커 생성용)
-  const handleKakaoPlaceSelect = (kakaoPlace) => {
-    console.log('📍 카카오 장소 선택:', kakaoPlace);
-    
-    // 카카오 장소 데이터 형식 변환
-    const formattedPlace = {
-      id: `kakao_${kakaoPlace.id}`,
-      name: kakaoPlace.place_name,
-      address: kakaoPlace.road_address_name || kakaoPlace.address_name,
-      lat: parseFloat(kakaoPlace.y),
-      lng: parseFloat(kakaoPlace.x),
-      category: kakaoPlace.category_name,
-      phone: kakaoPlace.phone,
-      kakao_place_id: kakaoPlace.id,
-      isKakaoPlace: true,
-      isLive: true,
-      place_url: kakaoPlace.place_url, // 카카오맵 상세보기 URL
-      category_name: kakaoPlace.category_name, // 커스텀 오버레이용
-      road_address_name: kakaoPlace.road_address_name, // 커스텀 오버레이용
-    };
-    
-    console.log('📍 마커 데이터:', formattedPlace);
-    
-    // kakaoPlaces에 추가
-    setKakaoPlaces(prev => {
-      const exists = prev.some(p => p.id === formattedPlace.id);
-      if (!exists) {
-        const newPlaces = [...prev, formattedPlace];
-        console.log('📍 카카오 장소 추가 후:', newPlaces.length);
-        
-        // 마커 생성 후 해당 장소를 선택하여 카드 표시
-        setTimeout(() => {
-          if (mapRef.current && mapRef.current.zoomToPlaces) {
-            mapRef.current.zoomToPlaces(allRecommendedPlaces);
-          }
-          setShowPlaceDetail(true);
-        }, 500); // 마커가 생성될 시간을 주기 위해 약간의 지연
-        
-        return newPlaces;
+  // 카카오 자동완성 클릭·엔터: 지도 이동 + 확정 마커 + 미리보기 카드
+  const handleKakaoPlaceSelect = useCallback(
+    (kakaoPlace) => {
+      if (!kakaoPlace || kakaoPlace.id == null) return;
+
+      const lat = parseFloat(kakaoPlace.y);
+      const lng = parseFloat(kakaoPlace.x);
+      const formattedPlace = {
+        id: `kakao_${kakaoPlace.id}`,
+        name: kakaoPlace.place_name,
+        place_name: kakaoPlace.place_name,
+        address: kakaoPlace.road_address_name || kakaoPlace.address_name,
+        lat: Number.isFinite(lat) ? lat : undefined,
+        lng: Number.isFinite(lng) ? lng : undefined,
+        x: kakaoPlace.x != null ? String(kakaoPlace.x) : undefined,
+        y: kakaoPlace.y != null ? String(kakaoPlace.y) : undefined,
+        category: kakaoPlace.category_name,
+        phone: kakaoPlace.phone,
+        kakao_place_id: kakaoPlace.id,
+        isKakaoPlace: true,
+        isLive: true,
+        place_url: kakaoPlace.place_url,
+        category_name: kakaoPlace.category_name,
+        road_address_name: kakaoPlace.road_address_name,
+        address_name: kakaoPlace.address_name,
+        distance: kakaoPlace.distance,
+      };
+
+      setKakaoTypingPreviewPlaces([]);
+
+      setKakaoPlaces((prev) => {
+        const exists = prev.some((p) => p.id === formattedPlace.id);
+        if (exists) return prev;
+        return [...prev, formattedPlace];
+      });
+
+      const merged = mergePickedPlaceWithCuratorCatalog(
+        formattedPlace,
+        curatorPlaceCatalogForMerge
+      );
+      setSelectedPlaceWithAnalytics(merged, "kakao_autocomplete");
+
+      const panLat = Number.isFinite(parseFloat(merged.y))
+        ? parseFloat(merged.y)
+        : merged.lat;
+      const panLng = Number.isFinite(parseFloat(merged.x))
+        ? parseFloat(merged.x)
+        : merged.lng;
+      if (Number.isFinite(panLat) && Number.isFinite(panLng)) {
+        const pan = () =>
+          mapRef.current?.moveToLocation?.(panLat, panLng);
+        pan();
+        window.requestAnimationFrame(pan);
+        window.setTimeout(pan, 120);
       }
-      return prev;
-    });
-  };
+    },
+    [
+      curatorPlaceCatalogForMerge,
+      setSelectedPlaceWithAnalytics,
+    ]
+  );
 
   // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
   const handleQuickSave = (place) => {
@@ -2362,17 +2708,31 @@ const handleClearSearch = () => {
       Boolean(naturalQ.wantsWalkingDistance) ||
       /걸어서|도보|걸어가기|걸어갈|걸어다니기/i.test(nextQuery);
 
+    /** 미리보기로 연 장소를 기준점으로 쓰고 싶을 때(지도 핀·카드가 열린 상태) */
+    const anchorFromSelectedPlaceIntent =
+      /여기서|여기\s*기준|이\s*곳에서|이\s*장소|선택한\s*곳|지금\s*핀|지도에서\s*고른|열린\s*카드/i.test(
+        nextQuery
+      );
+    const selectedPlaceSnapshot = anchorFromSelectedPlaceIntent
+      ? selectedPlace
+      : null;
+    const searchAnchorCoords = resolvePlaceWgs84(selectedPlaceSnapshot);
+    const hasSearchPinAnchor = Boolean(searchAnchorCoords);
+
     const shouldUseLocationSearch =
       !namesGeographicArea &&
       (isLocationBasedSearch ||
         explicitNearMe ||
         walkIntent ||
-        vagueNear);
+        vagueNear ||
+        hasSearchPinAnchor);
+
+    /** UI에서 '내 주변'을 켠 경우에만 GPS 우선(렌더 시점 값 — 아래 setState 전에 캡처) */
+    const userPinnedLocationSearchMode = isLocationBasedSearch;
 
     setQuery(nextQuery);
     
     // 검색 시작 시 모든 상태 초기화
-    setIsLocationBasedSearch(shouldUseLocationSearch);
     setSelectedPlace(null);
     setAiError("");
     setAiSummary("");
@@ -2388,7 +2748,8 @@ const handleClearSearch = () => {
     setSearchExpandUX(null);
     setYajangFallbackBanner(null);
     setSearchDistanceOrigin(null);
-    
+    resetCourseSearch();
+
     console.log('🧹 모든 검색 상태 초기화 완료');
 
     if (!nextQuery) return;
@@ -2401,10 +2762,34 @@ const handleClearSearch = () => {
     let shouldOpenAiSheetAfterLoad = false;
     let searchHadError = false;
     let searchResultIdsForLog = [];
+    let searchModeForLog = shouldUseLocationSearch ? "nearby" : "map";
 
     try {
       setIsAiSearching(true);
       setSearchLoadingLabel(getSearchLoadingMessage(nextQuery));
+
+      if (isCourseQuery(nextQuery)) {
+        const res = await runCourseSearch(nextQuery);
+        if (res.handled) {
+          searchModeForLog = "course";
+          setExternalPlaces([]);
+          setAiRecommendedIds([]);
+          searchResultIdsForLog = [
+            ...new Set(
+              (res.options || []).flatMap((c) =>
+                (c.steps || []).map((s) => String(s.place?.id ?? "")).filter(Boolean)
+              ),
+            ),
+          ];
+          shouldOpenAiSheetAfterLoad = true;
+          setAiSummary(
+            res.options?.length
+              ? "큐레이터·태그·거리 기준으로 짠 2단계 코스예요."
+              : ""
+          );
+        }
+        return;
+      }
 
       const intentAssistPromise = Promise.race([
         fetchSearchIntentAssist(nextQuery),
@@ -2417,6 +2802,35 @@ const handleClearSearch = () => {
         console.log("🔍 내 위치 중심 검색 시작:", nextQuery);
 
         const resolveNearbySearchOrigin = async () => {
+          if (searchAnchorCoords) {
+            return {
+              lat: searchAnchorCoords.lat,
+              lng: searchAnchorCoords.lng,
+            };
+          }
+          // "이 근처·근처·주변"만 쓴 경우: 지도에 맞춰 본 위치가 기준 (GPS는 내 위치 모드일 때만 우선)
+          const useDeviceGps =
+            explicitNearMe || userPinnedLocationSearchMode;
+          if (!useDeviceGps) {
+            const mc = mapRef.current?.getCenter?.();
+            if (
+              mc &&
+              Number.isFinite(Number(mc.lat)) &&
+              Number.isFinite(Number(mc.lng))
+            ) {
+              return { lat: Number(mc.lat), lng: Number(mc.lng) };
+            }
+            if (
+              mapViewportCenterFromUser &&
+              Number.isFinite(mapViewportCenterFromUser.lat) &&
+              Number.isFinite(mapViewportCenterFromUser.lng)
+            ) {
+              return {
+                lat: mapViewportCenterFromUser.lat,
+                lng: mapViewportCenterFromUser.lng,
+              };
+            }
+          }
           const clat = currentLocation?.lat;
           const clng = currentLocation?.lng;
           if (
@@ -2435,11 +2849,9 @@ const handleClearSearch = () => {
           intentAssistPromise,
         ]);
         console.log("📍 주변 검색 기준 좌표:", userLocation, {
-          fromPinnedMap: Boolean(
-            currentLocation?.lat != null &&
-              currentLocation?.lng != null &&
-              Number.isFinite(Number(currentLocation.lat)) &&
-              Number.isFinite(Number(currentLocation.lng))
+          fromSelectedPlaceCard: Boolean(searchAnchorCoords),
+          preferDeviceGps: Boolean(
+            explicitNearMe || userPinnedLocationSearchMode
           ),
         });
         setSearchDistanceOrigin({
@@ -2451,13 +2863,19 @@ const handleClearSearch = () => {
           intentAssist?.kakaoKeywordHint &&
           String(intentAssist.kakaoKeywordHint).trim();
         let nearbyKeyword = kakaoHint || nextQuery;
-        let nearbyPlaces = await searchNearbyBars(nearbyKeyword, userLocation);
+        let nearbyPlaces = await mergeNearbyKakaoForOrQuery(
+          nearbyKeyword,
+          userLocation
+        );
         if (
           nearbyPlaces.length === 0 &&
           kakaoHint &&
           kakaoHint !== nextQuery.trim()
         ) {
-          nearbyPlaces = await searchNearbyBars(nextQuery, userLocation);
+          nearbyPlaces = await mergeNearbyKakaoForOrQuery(
+            nextQuery,
+            userLocation
+          );
         }
         nearbyPlaces = filterPlacesByParsedIntent(
           nearbyPlaces,
@@ -2540,6 +2958,19 @@ const handleClearSearch = () => {
 
         console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
 
+        const anchorKakaoId = selectedPlaceSnapshot
+          ? normalizeKakaoPlaceId(selectedPlaceSnapshot)
+          : null;
+        const withoutSelf =
+          anchorKakaoId != null
+            ? scoredPlaces.filter(
+                (p) => normalizeKakaoPlaceId(p) !== anchorKakaoId
+              )
+            : scoredPlaces;
+        if (withoutSelf.length < scoredPlaces.length) {
+          scoredPlaces = withoutSelf;
+        }
+
         // 결과 설정 (리스트·병합 시에도 빨간 핀 플래그 유지)
         setExternalPlaces(
           scoredPlaces.map((p) => ({ ...p, isKakaoPlace: true }))
@@ -2552,9 +2983,13 @@ const handleClearSearch = () => {
         setAiSummary(
           yajangBannerPayloadNear
             ? `5km 안 큐레이터 야장 ${scoredPlaces.length}곳 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""}`
-            : intentLineNear
-              ? `주변 추천 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""} · ${intentLineNear}`
-              : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
+            : searchAnchorCoords
+              ? intentLineNear
+                ? `선택 장소 기준 · ${nextQuery.slice(0, 16)}${nextQuery.length > 16 ? "…" : ""} · ${intentLineNear}`
+                : `선택 장소 기준 도보권 · ${nextQuery.slice(0, 22)}${nextQuery.length > 22 ? "…" : ""}`
+              : intentLineNear
+                ? `주변 추천 · ${nextQuery.slice(0, 18)}${nextQuery.length > 18 ? "…" : ""} · ${intentLineNear}`
+                : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
         );
         setAiReasons(["거리·검색어 점수", "카테고리 매칭", "의도 키워드 반영"]);
         const dbSearchNear = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
@@ -2843,15 +3278,12 @@ const handleClearSearch = () => {
         });
 
         const mapOriginForSort = await mapOriginPromise;
-        const mapCenterFromRef =
-          suppressSearchRecenterRef.current && mapRef.current?.getCenter
-            ? mapRef.current.getCenter()
-            : null;
+        const mapCenterFromRef = mapRef.current?.getCenter?.();
         const sortOrigin =
           mapCenterFromRef &&
           Number.isFinite(mapCenterFromRef.lat) &&
           Number.isFinite(mapCenterFromRef.lng)
-            ? mapCenterFromRef
+            ? { lat: mapCenterFromRef.lat, lng: mapCenterFromRef.lng }
             : mapOriginForSort;
 
         // 4. AI 스코어링 + 결과 없으면 확장 쿼리 자동 재시도 (추천 순서: 가까운 거리순)
@@ -3014,69 +3446,21 @@ const handleClearSearch = () => {
         setKakaoPlaces(kakaoFormattedPlaces);
         searchResultIdsForLog = mergedMap.map((id) => String(id));
 
-        // 검색 결과가 있으면 지도 이동 (「이 위치에서 검색」 시 현재 뷰 유지)
+        // 검색 결과는 현재 뷰 유지 — 마커만 갱신(MapView preserveViewport와 동일 정책)
         if (kakaoFormattedPlaces.length > 0 && mapRef.current) {
-          if (!suppressSearchRecenterRef.current) {
-            const firstPlace = kakaoFormattedPlaces[0];
-
-            if (!window.kakao || !window.kakao.maps) {
-              console.error("❌ 카카오 맵 API가 로드되지 않았습니다!");
-            } else {
-              console.log("✅ 카카오 맵 API 확인:", window.kakao.maps);
-              console.log(
-                "🗺️ 지도 이동 시도:",
-                firstPlace.name,
-                firstPlace.lat,
-                firstPlace.lng
-              );
-              console.log(
-                "🔍 통합 검색 마커:",
-                unifiedBlogFromServer.length > 0
-                  ? `블로그 ${unifiedBlogFromServer.length}건`
-                  : "블로그는 별도 로딩 또는 없음"
-              );
-
-              try {
-                if (mapRef.current.panTo) {
-                  mapRef.current.panTo(firstPlace.lat, firstPlace.lng);
-                }
-                if (mapRef.current.setLevel) {
-                  mapRef.current.setLevel(1);
-                }
-                console.log(`🗺️ 검색 결과로 지도 이동 성공: ${firstPlace.name}`);
-              } catch (error) {
-                console.error("❌ 지도 이동 실패:", error);
-                try {
-                  mapRef.current.moveToLocation(firstPlace.lat, firstPlace.lng);
-                  if (mapRef.current.setLevel) {
-                    mapRef.current.setLevel(1);
-                  }
-                  console.log(`🗺️ 대체 이동 성공: ${firstPlace.name}`);
-                } catch (error2) {
-                  console.error("❌ 대체 이동도 실패:", error2);
-                }
-              }
-            }
-            setMapViewportCenterFromUser(null);
-          } else {
-            const c = mapRef.current.getCenter?.();
-            if (
-              c &&
-              Number.isFinite(c.lat) &&
-              Number.isFinite(c.lng)
-            ) {
-              setMapViewportCenterFromUser({ lat: c.lat, lng: c.lng });
-            }
+          const c = mapRef.current.getCenter?.();
+          if (
+            c &&
+            Number.isFinite(c.lat) &&
+            Number.isFinite(c.lng)
+          ) {
+            setMapViewportCenterFromUser({ lat: c.lat, lng: c.lng });
           }
-        } else {
+        } else if (kakaoFormattedPlaces.length === 0) {
           console.log("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
             hasPlaces: kakaoFormattedPlaces.length > 0,
             hasMapRef: !!mapRef.current,
             kakaoApi: !!window.kakao?.maps,
-            firstPlace:
-              kakaoFormattedPlaces.length > 0
-                ? kakaoFormattedPlaces[0]
-                : null,
           });
         }
 
@@ -3106,7 +3490,7 @@ const handleClearSearch = () => {
         searchResultsIds: searchResultIdsForLog,
         hasResults: searchResultIdsForLog.length > 0,
         user,
-        searchMode: shouldUseLocationSearch ? "nearby" : "map",
+        searchMode: searchModeForLog,
         hadClientError: searchHadError,
       });
       const elapsed = Date.now() - searchUiStartedAt;
@@ -3120,20 +3504,6 @@ const handleClearSearch = () => {
       if (shouldOpenAiSheetAfterLoad) {
         setAiSheetOpen(true);
       }
-    }
-  };
-
-  const handleSearchHere = async () => {
-    const q = String(query || "").trim();
-    if (!q) {
-      showToast("검색어를 입력해 주세요", "info", 2500);
-      return;
-    }
-    suppressSearchRecenterRef.current = true;
-    try {
-      await handleSearchSubmit(q);
-    } finally {
-      suppressSearchRecenterRef.current = false;
     }
   };
 
@@ -3224,11 +3594,13 @@ const handleClearSearch = () => {
       
       console.log("✅ 큐레이터 상세 정보:", curatorData);
       
-      // curator_places 테이블에서 장소 수 조회
+      // curator_places.curator_id 는 스튜디오에서 auth.uid() (= curators.user_id) 로 저장됨.
+      // curators.id(행 PK)와 다르므로 여기서는 user_id 로 조회해야 잔 수가 맞음.
+      const curatorAuthId = curatorData.user_id ?? curatorData.id;
       const { data: placesData, error: placesError } = await supabase
         .from('curator_places')
         .select('id')
-        .eq('curator_id', curatorData.id)
+        .eq('curator_id', curatorAuthId)
         .eq('is_archived', false);
       
       const placeCount = placesError ? 0 : (placesData?.length || 0);
@@ -3580,25 +3952,13 @@ const handleClearSearch = () => {
           onMapBackgroundClick={() =>
             setMarkerGuideMapCloseTick((t) => t + 1)
           }
+          onMapBlankClick={handleMapBlankPick}
+          preserveViewportOnPlacesChange={Boolean(
+            String(query || "").trim()
+          )}
+          courseOverlay={courseMapOverlay}
+          courseOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
         />
-
-        {showSearchHereButton ? (
-          <button
-            type="button"
-            style={{
-              ...styles.searchHereFloatingBtn,
-              ...(searchHereFloatingBottom != null
-                ? { bottom: searchHereFloatingBottom }
-                : null),
-              opacity: isAiSearching ? 0.55 : 1,
-              pointerEvents: isAiSearching ? "none" : "auto",
-            }}
-            disabled={isAiSearching}
-            onClick={handleSearchHere}
-          >
-            이 위치에서 검색
-          </button>
-        ) : null}
 
         <div style={styles.headerOverlay}>
           <div style={styles.logoStack}>
@@ -3932,9 +4292,17 @@ const handleClearSearch = () => {
         <div
           style={{
             ...styles.mapCardOverlay,
+            ...(isCourseMode && String(query).trim() && !isAiSearching
+              ? {
+                  /** 검색바 위로 겹쳐도 됨 — 코스 UI를 화면 맨 아래에 붙여 지도 영역 최대화 */
+                  zIndex: 170,
+                }
+              : {}),
             bottom: selectedPlace
               ? "18px"
-              : styles.mapCardOverlay.bottom,
+              : isCourseMode && String(query).trim() && !isAiSearching
+                ? "env(safe-area-inset-bottom, 0px)"
+                : styles.mapCardOverlay.bottom,
           }}
         >
           {selectedPlace ? (
@@ -4004,6 +4372,518 @@ const handleClearSearch = () => {
                 </button>
               </div>
             </div>
+          ) : isCourseMode && query.trim() && !isAiSearching ? (
+            <>
+              <button
+                type="button"
+                style={{
+                  ...styles.aiPeekBar,
+                  ...styles.courseAiPeekBar,
+                  opacity: isAiSearching ? 0.92 : 1,
+                }}
+                onClick={() => setAiSheetOpen((open) => !open)}
+              >
+                <div style={{ ...styles.aiPeekLeft, gap: "8px" }}>
+                  <span style={{ ...styles.aiPeekBadge, ...styles.courseAiPeekBadge }}>
+                    코스
+                  </span>
+                  <div style={styles.aiPeekTextWrap}>
+                    <div style={{ ...styles.aiPeekTitle, ...styles.courseAiPeekTitle }}>
+                      {courseError && !courseOptions.length
+                        ? "코스를 찾지 못했어요"
+                        : `추천 코스 ${courseOptions.length}가지`}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.aiPeekSubtitle,
+                        ...styles.courseAiPeekSubtitle,
+                      }}
+                    >
+                      {courseError && !courseOptions.length ? (
+                        courseError
+                      ) : (
+                        <>
+                          {coursePeekLegSummary ? (
+                            <span
+                              style={{
+                                display: "block",
+                                fontWeight: 600,
+                                color: "#5b21b6",
+                                marginBottom: 2,
+                              }}
+                            >
+                              {coursePeekLegSummary}
+                            </span>
+                          ) : null}
+                          <span>
+                            {aiSummary || "눌러서 코스 상세 보기"}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
+              </button>
+
+              {aiSheetOpen ? (
+                <div
+                  style={{
+                    ...styles.aiBottomSheet,
+                    ...styles.courseAiBottomSheet,
+                  }}
+                >
+                  <div style={{ ...styles.aiSheetHandleWrap, paddingTop: "6px" }}>
+                    <div style={styles.aiSheetHandle} />
+                  </div>
+                  {courseError ? (
+                    <p
+                      style={{
+                        margin: "12px 16px",
+                        fontSize: 14,
+                        lineHeight: 1.5,
+                        color: "#5c4033",
+                      }}
+                    >
+                      {courseError}
+                    </p>
+                  ) : null}
+                  <div style={styles.courseSheetBody}>
+                    <div
+                      ref={courseSwipeRowRef}
+                      style={styles.courseOptionsSwipeRow}
+                      onScroll={onCourseSwipeRowScroll}
+                    >
+                    {courseOptions.map((course, index) => {
+                      const isSel = selectedCourse?.key === course.key;
+                      const legM = getCourseLegMeters(course);
+                      const courseWalkHint =
+                        legM != null ? getCourseWalkComfortHint(legM) : "";
+                      const legSummary = formatCourseLegDistanceSummary(course);
+                      return (
+                      <div
+                        key={course.key || index}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => chooseCourse(course)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            chooseCourse(course);
+                          }
+                        }}
+                        style={{
+                          ...styles.courseOptionCardSwipe,
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          background: "rgba(255,255,255,0.92)",
+                          border: isSel
+                            ? "2px solid rgba(124, 58, 237, 0.55)"
+                            : "1px solid rgba(92, 64, 51, 0.12)",
+                          boxShadow: isSel
+                            ? "0 6px 18px rgba(124, 58, 237, 0.15)"
+                            : "0 4px 14px rgba(0,0,0,0.06)",
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 15,
+                            marginBottom: 6,
+                            color: "#3d2914",
+                          }}
+                        >
+                          {course.profileTitle || `코스 ${index + 1}`}
+                        </div>
+                        {course.profileDescription ? (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#666",
+                              marginBottom: 10,
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {course.profileDescription}
+                          </div>
+                        ) : null}
+                        {legSummary ? (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: "#5b21b6",
+                              marginBottom: 8,
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            1차→2차 {legSummary}
+                          </div>
+                        ) : null}
+                        <p
+                          style={{
+                            margin: "0 0 12px",
+                            fontSize: 12,
+                            color: "#444",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {buildCourseSummary(course)}
+                        </p>
+                        <div style={{ fontSize: 13, lineHeight: 1.55, color: "#333" }}>
+                          <div style={{ marginBottom: 8 }}>
+                            <strong>{course.steps[0]?.label}</strong>
+                            <button
+                              type="button"
+                              style={{
+                                display: "block",
+                                marginTop: 4,
+                                padding: 0,
+                                border: "none",
+                                background: "none",
+                                color: "#6b4f2a",
+                                fontWeight: 600,
+                                textAlign: "left",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const raw =
+                                  course.steps[0]?.place?._raw ||
+                                  course.steps[0]?.place;
+                                if (!raw) return;
+                                setSelectedPlaceWithAnalytics(
+                                  mergePickedPlaceWithCuratorCatalog(
+                                    raw,
+                                    curatorPlaceCatalogForMerge
+                                  ),
+                                  "course_step1"
+                                );
+                              }}
+                            >
+                              {course.steps[0]?.place?.name}
+                            </button>
+                            <div style={{ color: "#666", marginTop: 4 }}>
+                              체류 약{" "}
+                              {formatCourseStayMinutes(
+                                course.steps[0]?.stayMinutes
+                              )}
+                            </div>
+                            {getCourseOpenStatusText(course.steps[0]?.place) ? (
+                              <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                                {getCourseOpenStatusText(course.steps[0]?.place)}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div
+                            style={{
+                              margin: "10px 0",
+                              fontSize: 12,
+                              color: "#666",
+                            }}
+                          >
+                            1차 → 2차{" "}
+                            {formatCourseWalkApprox(
+                              legM ?? course.steps[1]?.walkDistanceMeters
+                            )}
+                            {courseWalkHint ? (
+                              <span style={{ display: "block", marginTop: 4 }}>
+                                {courseWalkHint}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div>
+                            <strong>{course.steps[1]?.label}</strong>
+                            <button
+                              type="button"
+                              style={{
+                                display: "block",
+                                marginTop: 4,
+                                padding: 0,
+                                border: "none",
+                                background: "none",
+                                color: "#6b4f2a",
+                                fontWeight: 600,
+                                textAlign: "left",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const raw =
+                                  course.steps[1]?.place?._raw ||
+                                  course.steps[1]?.place;
+                                if (!raw) return;
+                                setSelectedPlaceWithAnalytics(
+                                  mergePickedPlaceWithCuratorCatalog(
+                                    raw,
+                                    curatorPlaceCatalogForMerge
+                                  ),
+                                  "course_step2"
+                                );
+                              }}
+                            >
+                              {course.steps[1]?.place?.name}
+                            </button>
+                            <div style={{ color: "#666", marginTop: 4 }}>
+                              체류 약{" "}
+                              {formatCourseStayMinutes(
+                                course.steps[1]?.stayMinutes
+                              )}
+                            </div>
+                            {getCourseOpenStatusText(course.steps[1]?.place) ? (
+                              <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                                {getCourseOpenStatusText(course.steps[1]?.place)}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    })}
+                    </div>
+                    {selectedCourse && courseOptions.length ? (
+                      <div
+                        style={{
+                          padding: "4px 10px 8px",
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 6,
+                          alignItems: "center",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "100%",
+                            fontSize: 11,
+                            color: "#888",
+                            lineHeight: 1.45,
+                            marginBottom: 2,
+                          }}
+                        >
+                          지도 선은 길을 따라 표시됩니다. 턴 단위 안내는 외부 지도 길찾기를
+                          이용해 주세요.
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isRefreshingCourses || isRegeneratingSecond}
+                          style={{
+                            border: "1px solid rgba(124, 58, 237, 0.35)",
+                            borderRadius: 999,
+                            padding: "8px 12px",
+                            background: "rgba(250,245,255,0.98)",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#5b21b6",
+                            cursor:
+                              isRefreshingCourses || isRegeneratingSecond
+                                ? "wait"
+                                : "pointer",
+                            opacity:
+                              isRefreshingCourses || isRegeneratingSecond
+                                ? 0.65
+                                : 1,
+                          }}
+                          onClick={() => rerunDifferentCourses()}
+                        >
+                          {isRefreshingCourses
+                            ? "다른 코스 찾는 중…"
+                            : "다른 코스로 다시 추천"}
+                        </button>
+                        {[
+                          { v: "same", label: "2차만 다시" },
+                          { v: "mood", label: "2차 분위기" },
+                          { v: "closer", label: "2차 더 가까이" },
+                          { v: "featured", label: "2차 큐레이터" },
+                        ].map(({ v, label }) => (
+                          <button
+                            key={v}
+                            type="button"
+                            disabled={isRegeneratingSecond || isRefreshingCourses}
+                            style={{
+                              border: "1px solid rgba(92, 64, 51, 0.18)",
+                              borderRadius: 999,
+                              padding: "8px 12px",
+                              background: "rgba(255,255,255,0.95)",
+                              fontSize: 12,
+                              color: "#3d2914",
+                              cursor:
+                                isRegeneratingSecond || isRefreshingCourses
+                                  ? "wait"
+                                  : "pointer",
+                              opacity:
+                                isRegeneratingSecond || isRefreshingCourses
+                                  ? 0.65
+                                  : 1,
+                            }}
+                            onClick={() => regenerateSelectedCourseSecond(v)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                        {(() => {
+                          const p0 = selectedCourse?.steps?.[0]?.place;
+                          const p1 = selectedCourse?.steps?.[1]?.place;
+                          const w0 = resolvePlaceWgs84(p0);
+                          const w1 = resolvePlaceWgs84(p1);
+                          if (!w0 || !w1) return null;
+                          const googleUrl = buildGoogleMapsWalkingDirectionsUrl(
+                            {
+                              lat: w0.lat,
+                              lng: w0.lng,
+                              name: p0?.name,
+                            },
+                            {
+                              lat: w1.lat,
+                              lng: w1.lng,
+                              name: p1?.name,
+                            }
+                          );
+                          const { toUrl } = buildKakaoMapFromToUrls(
+                            {
+                              lat: w0.lat,
+                              lng: w0.lng,
+                              name: p0?.name,
+                            },
+                            {
+                              lat: w1.lat,
+                              lng: w1.lng,
+                              name: p1?.name,
+                            }
+                          );
+                          return (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isRegeneratingSecond || isRefreshingCourses}
+                                style={{
+                                  border: "1px solid rgba(37, 99, 235, 0.35)",
+                                  borderRadius: 999,
+                                  padding: "8px 12px",
+                                  background: "rgba(239,246,255,0.98)",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  color: "#1d4ed8",
+                                  cursor:
+                                    isRegeneratingSecond || isRefreshingCourses
+                                      ? "wait"
+                                      : "pointer",
+                                  opacity:
+                                    isRegeneratingSecond || isRefreshingCourses
+                                      ? 0.65
+                                      : 1,
+                                }}
+                                onClick={() => openInNewTab(googleUrl)}
+                              >
+                                구글 지도 도보 길찾기
+                              </button>
+                              {toUrl ? (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    isRegeneratingSecond || isRefreshingCourses
+                                  }
+                                  style={{
+                                    border: "1px solid rgba(234, 179, 8, 0.45)",
+                                    borderRadius: 999,
+                                    padding: "8px 12px",
+                                    background: "rgba(254,252,232,0.98)",
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: "#a16207",
+                                    cursor:
+                                      isRegeneratingSecond || isRefreshingCourses
+                                        ? "wait"
+                                        : "pointer",
+                                    opacity:
+                                      isRegeneratingSecond || isRefreshingCourses
+                                        ? 0.65
+                                        : 1,
+                                  }}
+                                  onClick={() => openInNewTab(toUrl)}
+                                >
+                                  카카오맵에서 2차 위치
+                                </button>
+                              ) : null}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
+                    {altSecondCourses.length > 0 ? (
+                      <div style={{ padding: "0 12px 16px" }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: "#3d2914",
+                            marginBottom: 10,
+                          }}
+                        >
+                          다른 2차 추천
+                        </div>
+                        {altSecondCourses.map((course) => (
+                          <div
+                            key={course.key}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => applyAlternativeSecond(course)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                applyAlternativeSecond(course);
+                              }
+                            }}
+                            style={{
+                              border: "1px solid rgba(92, 64, 51, 0.14)",
+                              borderRadius: 14,
+                              padding: "12px 14px",
+                              background: "rgba(255,255,255,0.96)",
+                              marginBottom: 10,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: "#5c4033" }}>
+                              <strong>1차 유지</strong>
+                              <div style={{ marginTop: 4 }}>
+                                {course.steps[0]?.place?.name}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#6b7280",
+                                padding: "8px 0",
+                              }}
+                            >
+                              {getRegenerateSecondLabel(course.regenerateVariant)} ·{" "}
+                              {formatCourseWalkApprox(
+                                course.steps[1]?.walkDistanceMeters
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#5c4033" }}>
+                              <strong>새 2차</strong>
+                              <div style={{ marginTop: 4 }}>
+                                {course.steps[1]?.place?.name}
+                              </div>
+                              <div style={{ color: "#666", marginTop: 4 }}>
+                                체류 약{" "}
+                                {formatCourseStayMinutes(
+                                  course.steps[1]?.stayMinutes
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </>
           ) : aiRecommendedIds.length > 0 ? (
             <>
               <button
@@ -4484,24 +5364,6 @@ const styles = {
     display: "inline-block",
   },
 
-  searchHereFloatingBtn: {
-    position: "absolute",
-    left: "50%",
-    transform: "translateX(-50%)",
-    bottom: "102px",
-    zIndex: 105,
-    padding: "10px 18px",
-    borderRadius: "999px",
-    border: "none",
-    backgroundColor: "rgba(17, 17, 17, 0.88)",
-    color: "#fff",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
-    whiteSpace: "nowrap",
-  },
-
   bottomBarContainer: {
     position: "absolute",
     left: "50%",
@@ -4513,7 +5375,8 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    zIndex: 100,
+    /** 코스 시트(backdrop-filter)보다 위에 항상 그려지도록 */
+    zIndex: 160,
   },
 
   searchWrapper: {
@@ -4865,9 +5728,14 @@ const styles = {
     position: "absolute",
     left: "16px",
     right: "16px",
-    bottom: "100px", 
+    bottom: "100px",
     zIndex: 40,
     pointerEvents: "none",
+    /** 코스·AI 카드: 내용을 오버레이 하단(검색바 쪽)에 붙여 지도가 위로 넓게 보이게 */
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-end",
+    alignItems: "stretch",
   },
 
   expandSearchWrap: {
@@ -4987,6 +5855,38 @@ const styles = {
     cursor: "pointer",
   },
 
+  /** 코스 모드 피크 바 — 얇게 */
+  courseAiPeekBar: {
+    padding: "7px 12px",
+    borderRadius: "14px",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.18)",
+  },
+
+  courseAiPeekBadge: {
+    width: "22px",
+    height: "22px",
+    fontSize: "10px",
+  },
+
+  courseAiPeekTitle: {
+    fontSize: "12px",
+    fontWeight: 800,
+    lineHeight: 1.15,
+  },
+
+  courseAiPeekSubtitle: {
+    fontSize: "10px",
+    lineHeight: 1.2,
+    maxWidth: "min(78vw, 300px)",
+    whiteSpace: "normal",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    marginTop: "1px",
+  },
+
   aiPeekLeft: {
     display: "flex",
     alignItems: "center",
@@ -5053,6 +5953,15 @@ const styles = {
     pointerEvents: "auto",
     position: "relative",
     zIndex: 100,
+  },
+
+  /** 코스 바텀시트 — 핵심만 보이도록 낮은 높이 */
+  courseAiBottomSheet: {
+    marginTop: "6px",
+    maxHeight: "min(38vh, 300px)",
+    borderRadius: "16px 16px 0 0",
+    /** 부모 오버레이 z-index(40) 안에서만 쓰이도록 — 하단 검색바(160)와 동숫자 방지 */
+    zIndex: 0,
   },
 
   aiSheetHandleWrap: {
@@ -5134,6 +6043,43 @@ const styles = {
     flexDirection: "column",
     gap: "10px",
     pointerEvents: "auto",
+  },
+
+  /** 코스 바텀시트: 가로 스와이프 카드 + 아래 액션 영역 */
+  courseSheetBody: {
+    display: "flex",
+    flexDirection: "column",
+    overflowX: "hidden",
+    overflowY: "auto",
+    flex: 1,
+    minHeight: 0,
+    pointerEvents: "auto",
+  },
+
+  courseOptionsSwipeRow: {
+    display: "flex",
+    flexDirection: "row",
+    gap: "10px",
+    overflowX: "auto",
+    overflowY: "hidden",
+    WebkitOverflowScrolling: "touch",
+    scrollSnapType: "x mandatory",
+    padding: "6px 12px 4px",
+    flexShrink: 0,
+    scrollbarWidth: "thin",
+    touchAction: "pan-x",
+    overscrollBehaviorX: "contain",
+    maxHeight: "min(24vh, 208px)",
+  },
+
+  courseOptionCardSwipe: {
+    flex: "0 0 min(calc(100vw - 56px), 288px)",
+    width: "min(calc(100vw - 56px), 288px)",
+    maxWidth: "min(calc(100vw - 56px), 288px)",
+    scrollSnapAlign: "center",
+    boxSizing: "border-box",
+    maxHeight: "min(22vh, 188px)",
+    overflowY: "auto",
   },
 
   aiSheetSectionLabel: {

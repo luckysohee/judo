@@ -1,7 +1,55 @@
 /**
  * user_saved_places 행을 (user_id, place_id)로 찾거나 만든 뒤 user_saved_place_folders를 교체.
  * PostgREST upsert onConflict 가 환경마다 달라 실패할 수 있어 SELECT → INSERT/UPDATE 로 통일.
+ *
+ * 레거시: user_saved_places.user_id 가 auth.uid() 가 아니라 curators.id 인 행이 있으면,
+ * auth 기준만 조회 시 못 찾아 같은 place_id 로 두 번째 행이 생길 수 있음 → OR 조회 후 중복 행 제거.
  */
+
+async function fetchCuratorPkForAuthUser(supabase, authUserId) {
+  const { data: curRow } = await supabase
+    .from("curators")
+    .select("id")
+    .eq("user_id", authUserId)
+    .maybeSingle();
+  return curRow?.id ?? null;
+}
+
+function ownedUserSavedPlacesQuery(supabase, placeId, authUserId, curatorPk) {
+  let q = supabase
+    .from("user_saved_places")
+    .select("id, user_id")
+    .eq("place_id", placeId);
+  if (curatorPk && String(curatorPk) !== String(authUserId)) {
+    q = q.or(`user_id.eq.${authUserId},user_id.eq.${curatorPk}`);
+  } else {
+    q = q.eq("user_id", authUserId);
+  }
+  return q;
+}
+
+/** 같은 장소에 본인 소유 user_saved_places 가 여러 줄이면 auth.uid() 행을 우선 남기고 나머지 삭제 */
+async function dedupeUserSavedPlacesForPlace(supabase, rows, authUserId) {
+  if (!rows?.length) return null;
+  const canonical =
+    rows.find((r) => String(r.user_id) === String(authUserId)) || rows[0];
+  const duplicates = rows.filter((r) => r.id !== canonical.id);
+  for (const dup of duplicates) {
+    await supabase
+      .from("user_saved_place_folders")
+      .delete()
+      .eq("user_saved_place_id", dup.id);
+    const { error } = await supabase
+      .from("user_saved_places")
+      .delete()
+      .eq("id", dup.id);
+    if (error) {
+      console.warn("user_saved_places dedupe delete:", error);
+    }
+  }
+  return canonical.id;
+}
+
 export async function upsertUserSavedPlaceFolders(
   supabase,
   {
@@ -29,12 +77,14 @@ export async function upsertUserSavedPlaceFolders(
     return { ok: false, message: "로그인이 필요합니다." };
   }
 
-  const { data: existing, error: exErr } = await supabase
-    .from("user_saved_places")
-    .select("id")
-    .eq("user_id", authUser.id)
-    .eq("place_id", pid)
-    .maybeSingle();
+  const curatorPk = await fetchCuratorPkForAuthUser(supabase, authUser.id);
+
+  const { data: uspRows, error: exErr } = await ownedUserSavedPlacesQuery(
+    supabase,
+    pid,
+    authUser.id,
+    curatorPk
+  );
 
   if (exErr) {
     console.error("user_saved_places select:", exErr);
@@ -44,7 +94,12 @@ export async function upsertUserSavedPlaceFolders(
     };
   }
 
-  let savedPlaceId = existing?.id ?? null;
+  let savedPlaceId = await dedupeUserSavedPlacesForPlace(
+    supabase,
+    uspRows || [],
+    authUser.id
+  );
+  let isNewInsert = false;
 
   if (!savedPlaceId) {
     const { data: inserted, error: insErr } = await supabase
@@ -62,15 +117,17 @@ export async function upsertUserSavedPlaceFolders(
 
     if (insErr) {
       if (insErr.code === "23505") {
-        const { data: again, error: againErr } = await supabase
-          .from("user_saved_places")
-          .select("id")
-          .eq("user_id", authUser.id)
-          .eq("place_id", pid)
-          .maybeSingle();
-        if (!againErr && again?.id) {
-          savedPlaceId = again.id;
-        }
+        const { data: againRows } = await ownedUserSavedPlacesQuery(
+          supabase,
+          pid,
+          authUser.id,
+          curatorPk
+        );
+        savedPlaceId = await dedupeUserSavedPlacesForPlace(
+          supabase,
+          againRows || [],
+          authUser.id
+        );
       }
       if (!savedPlaceId) {
         console.error("user_saved_places insert:", insErr);
@@ -81,17 +138,20 @@ export async function upsertUserSavedPlaceFolders(
       }
     } else {
       savedPlaceId = inserted?.id ?? null;
+      isNewInsert = true;
     }
-  } else {
+  }
+
+  if (!savedPlaceId) {
+    return { ok: false, message: "저장 행 ID를 받지 못했습니다." };
+  }
+
+  if (!isNewInsert) {
     const patch = { first_saved_from: firstSavedFrom };
     if (extraSavedPlaceFields && typeof extraSavedPlaceFields === "object") {
       Object.assign(patch, extraSavedPlaceFields);
     }
     await supabase.from("user_saved_places").update(patch).eq("id", savedPlaceId);
-  }
-
-  if (!savedPlaceId) {
-    return { ok: false, message: "저장 행 ID를 받지 못했습니다." };
   }
 
   await supabase

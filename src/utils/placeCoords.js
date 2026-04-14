@@ -1,4 +1,4 @@
-function haversineMeters(lat1, lng1, lat2, lng2) {
+export function haversineMeters(lat1, lng1, lat2, lng2) {
   const toRad = (d) => (d * Math.PI) / 180;
   const R = 6371000;
   const dLat = toRad(lat2 - lat1);

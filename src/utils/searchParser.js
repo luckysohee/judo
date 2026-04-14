@@ -626,9 +626,30 @@ export function filterPlacesByParsedIntent(
   let filtered = list;
 
   if (wantsWineBar || wantsCocktailOnly) {
+    /** "2차 술집 or 와인바"처럼 술집·바 업종을 같이 염두에 둔 경우 — 와인만 남기면 후보가 너무 줄어듦 */
+    const barOrWineMix =
+      /\s(or|또는)\s|\|/.test(q) ||
+      (wantsWineBar &&
+        !wantsCocktailOnly &&
+        /(?:2차|이차|술집|뒷풀이|호프|주점)/i.test(q));
+
     filtered = list.filter((pl) => {
       const t = placeHaystack(pl);
       if (mismatchCheapNight(t)) return false;
+
+      if (barOrWineMix && wantsWineBar && !wantsCocktailOnly) {
+        if (
+          /호프$|호프\s|맥주\s*전문|생맥/i.test(t) &&
+          !/와인|wine|바|펍/i.test(t)
+        ) {
+          return false;
+        }
+        return (
+          matchesRefinedBar(t) ||
+          /주점|술집|이자카야|호프|요리주점|포차|포장마차|펍/i.test(t)
+        );
+      }
+
       if (wantsWineBar && !wantsCocktailOnly) {
         if (/호프$|호프\s|맥주\s*전문|생맥/i.test(t) && !/와인|wine|바|펍/i.test(t)) {
           return false;
