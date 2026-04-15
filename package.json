@@ -14,10 +14,12 @@
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/ios": "^8.2.0",
-    "@supabase/supabase-js": "^2.99.1",
+    "@supabase/supabase-js": "^2.103.1",
     "axios": "^1.14.0",
+    "csv-writer": "^1.6.0",
     "framer-motion": "^12.38.0",
     "heic2any": "^0.0.4",
+    "puppeteer": "^24.40.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.6.0",
@@ -33,5 +35,18 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "vite": "^7.3.1"
-  }
+  },
+  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "main": "batch_geocoding.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luckysohee/judo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/luckysohee/judo/issues"
+  },
+  "homepage": "https://github.com/luckysohee/judo#readme"
 }

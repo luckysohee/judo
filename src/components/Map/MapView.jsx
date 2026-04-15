@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from "react";
 import createMarker from "../../utils/createMarker";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
-import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import {
+  resolvePlaceWgs84,
+  isLikelyKoreaWgs84,
+} from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 
 function isSameVenueOnMap(selected, place) {
@@ -95,6 +98,11 @@ const MapView = forwardRef(({
    * 코스 경로 setBounds 시 화면 하단 여백(px) — 바텀시트·피크에 가리지 않게 지도를 위로 맞춤
    */
   courseOverlayFitBottomPaddingPx = 0,
+  /**
+   * 마커 여러 개일 때 setBounds 패딩(px) — 코스 2차 후보처럼 살짝 줌아웃해 전부 보이게
+   * `{ top, right, bottom, left }` 또는 네 면 동일한 숫자
+   */
+  placesFitBoundsPadding = null,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -693,7 +701,7 @@ const MapView = forwardRef(({
       if (!c) return false;
       const { lat, lng } = c;
       if (p.isKakaoTypingPreview) return true;
-      return lat >= 37.4 && lat <= 37.7 && lng >= 126.8 && lng <= 127.2;
+      return isLikelyKoreaWgs84(lat, lng);
     });
 
     const nextMarkers = validPlaces.map((p) => {
@@ -711,7 +719,8 @@ const MapView = forwardRef(({
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
         place: { ...p, lat, lng }, // lat/lng 필드 추가
-        isSelected: isSameVenueOnMap(selectedPlace, p),
+        isSelected:
+          isSameVenueOnMap(selectedPlace, p) || Boolean(p.courseMarkerSolid),
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
@@ -818,7 +827,23 @@ const MapView = forwardRef(({
             mapRef.current.setLevel(4);
           }
         } else if (validPlaces.length > 1) {
-          mapRef.current.setBounds(bounds);
+          const p = placesFitBoundsPadding;
+          if (p != null && typeof p === "object") {
+            const t = Math.round(Number(p.top) || 0);
+            const r = Math.round(Number(p.right) || 0);
+            const b = Math.round(Number(p.bottom) || 0);
+            const l = Math.round(Number(p.left) || 0);
+            if (t + r + b + l > 0) {
+              mapRef.current.setBounds(bounds, t, r, b, l);
+            } else {
+              mapRef.current.setBounds(bounds);
+            }
+          } else if (typeof p === "number" && Number.isFinite(p) && p > 0) {
+            const n = Math.round(p);
+            mapRef.current.setBounds(bounds, n, n, n, n);
+          } else {
+            mapRef.current.setBounds(bounds);
+          }
         }
         setTimeout(() => {
           ignoreViewportEventRef.current = false;
@@ -835,7 +860,52 @@ const MapView = forwardRef(({
     checkinCountByPlaceId,
     hotRankTopPlaceIds,
     preserveViewportOnPlacesChange,
+    placesFitBoundsPadding,
   ]);
+
+  /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */
+  useEffect(() => {
+    if (!mapReady || !markersRef.current?.length) return;
+
+    const validPlaces = places.filter((p) => {
+      const c = resolvePlaceCoords(p);
+      if (!c) return false;
+      const { lat, lng } = c;
+      if (p.isKakaoTypingPreview) return true;
+      return isLikelyKoreaWgs84(lat, lng);
+    });
+
+    const intervals = [];
+    markersRef.current.forEach((marker, idx) => {
+      const p = validPlaces[idx];
+      if (!p?.courseMarkerPulse) return;
+      let bright = true;
+      const id = window.setInterval(() => {
+        bright = !bright;
+        try {
+          if (typeof marker.setOpacity === "function") {
+            marker.setOpacity(bright ? 1 : 0.4);
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 520);
+      intervals.push(id);
+    });
+
+    return () => {
+      for (const id of intervals) window.clearInterval(id);
+      markersRef.current.forEach((marker, idx) => {
+        const p = validPlaces[idx];
+        if (!p?.courseMarkerPulse) return;
+        try {
+          if (typeof marker.setOpacity === "function") marker.setOpacity(1);
+        } catch {
+          /* ignore */
+        }
+      });
+    };
+  }, [places, mapReady]);
 
   // 3. 선택된 장소로 부드럽게 이동 (검색 결과는 y/x만 있고 lat/lng 없는 경우 많음)
   useEffect(() => {

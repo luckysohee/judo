@@ -1,8 +1,10 @@
-import { useRealtimeCheckins } from '../hooks/useRealtimeCheckins';
-
-// 마커 스타일 동적 변경 함수
-export const getDynamicMarkerStyle = (place, userFolders = [], savedColorMap = {}) => {
-  const { hotPlaces, placeCheckinCounts } = useRealtimeCheckins();
+// 마커 스타일 동적 변경 함수 (체크인 데이터는 호출부에서 넘기면 핫플/배지 반영)
+export const getDynamicMarkerStyle = (
+  place,
+  userFolders = [],
+  savedColorMap = {},
+  { hotPlaces = [], placeCheckinCounts = {} } = {}
+) => {
   
   // 기존 마커 스타일 로직
   const baseStyle = getBaseMarkerStyle(place, userFolders, savedColorMap);
@@ -128,8 +130,18 @@ const getBaseMarkerStyle = (place, userFolders = [], savedColorMap = {}) => {
 };
 
 // 마커 SVG 생성 함수 (핫플레이스 스타일 포함)
-export const createDynamicMarkerSVG = (place, userFolders = [], savedColorMap = {}) => {
-  const style = getDynamicMarkerStyle(place, userFolders, savedColorMap);
+export const createDynamicMarkerSVG = (
+  place,
+  userFolders = [],
+  savedColorMap = {},
+  checkinSnapshot = {}
+) => {
+  const style = getDynamicMarkerStyle(
+    place,
+    userFolders,
+    savedColorMap,
+    checkinSnapshot
+  );
   const { size, circleRadius, tier, savedColor, primaryColor, secondaryColor, hotPlace, checkinBadge } = style;
   
   // 기본 SVG 구조

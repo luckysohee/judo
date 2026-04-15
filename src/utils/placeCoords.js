@@ -22,6 +22,14 @@ export function resolvePlaceWgs84(place) {
 }
 
 /**
+ * 지도 마커 표시용: 한반도·제주 대략 범위 (과거 서울 소구역 박스는 전국 업로드가 안 보여 제거)
+ */
+export function isLikelyKoreaWgs84(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return lat >= 33.0 && lat <= 38.85 && lng >= 124.4 && lng <= 132.3;
+}
+
+/**
  * 체크인 거리 검증: y/x와 lat/lng가 둘 다 있으면서 어긋나면, 사용자 GPS에 더 가까운 쌍을 쓴다.
  * (지도·저장은 lat/lng가 맞는데 카카오 y/x만 오래된 경우 오탐 방지)
  */

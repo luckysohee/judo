@@ -1,0 +1,62 @@
+[
+  {
+    "name": "0910멸치집 논현직영점",
+    "category": "한식",
+    "address": "서울특별시 강남구 논현동 183-4 1층",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "365활새우 창우수산 강남본점",
+    "category": "해물,생선요리",
+    "address": "서울특별시 강남구 논현동 241-1 강남파라곤 로비층 107호, 108호",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "88생선구이",
+    "category": "생선구이",
+    "address": "강원특별자치도 속초시 중앙동 468-55",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "게섯거라",
+    "category": "게요리",
+    "address": "서울특별시 송파구 방이동 100",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "경도회관",
+    "category": "해물,생선요리",
+    "address": "전라남도 여수시 경호동 621-3",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "고등어회결사",
+    "category": "생선회",
+    "address": "제주특별자치도 제주시 애월읍 하귀2리 2615-1 1층",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "고흥회수산",
+    "category": "생선회",
+    "address": "서울특별시 성북구 동소문동5가 8",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "골목집",
+    "category": "한식",
+    "address": "서울특별시 중구 오장동 206-55",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "광안리 밤포차",
+    "category": "요리주점",
+    "address": "서울특별시 금천구 가산동 83-5",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  },
+  {
+    "name": "광주홍어회찜",
+    "category": "해물,생선요리",
+    "address": "서울특별시 성동구 금호동1가 1797-1",
+    "curator_id": "8cd3b6dd-42de-4bce-9867-0a395ddfd390"
+  }
+]

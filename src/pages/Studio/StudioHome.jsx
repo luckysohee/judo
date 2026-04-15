@@ -89,6 +89,15 @@ function studioSavedPlaceId(item) {
   return null;
 }
 
+/** 스튜디오 성장 추이 미니차트: 라벨·stroke가 박스 밖으로 안 나가게 y% 클램프 */
+function growthTrendLineYPercent(value, scale) {
+  const s = Number(scale);
+  if (!Number.isFinite(s) || s <= 0) return 50;
+  const v = Math.max(0, Number(value) || 0);
+  const pct = 100 - (v / s) * 100;
+  return Math.min(96, Math.max(4, pct));
+}
+
 /** 같은 place에 curator_id 가 auth.uid() / curators.id 로 중복이면 최신 행 하나만 */
 function dedupeCuratorPlacesByPlaceId(curatorPlacesData) {
   const best = new Map();
@@ -174,27 +183,93 @@ async function upsertCuratorPlaceForStudio(
     .select();
 }
 
+/** DB·API에서 tags 등이 json 문자열·비배열로 올 때 폼용 문자열 배열로 */
+function parseDbStringArray(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return [];
+    if (t.startsWith("[") || t.startsWith("{")) {
+      try {
+        const j = JSON.parse(t);
+        return parseDbStringArray(j);
+      } catch {
+        /* fallthrough */
+      }
+    }
+    if (t.startsWith("{") && t.endsWith("}") && !t.startsWith("[{")) {
+      return t
+        .slice(1, -1)
+        .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+        .map((s) => s.replace(/^"|"$/g, "").trim())
+        .filter(Boolean);
+    }
+    return t.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+/** 잔 올리기 카테고리 셀렉트 고정 목록 — 그 외 저장값은 동적 option 으로 표시 */
+const STUDIO_PLACE_CATEGORY_OPTIONS = [
+  "한식",
+  "중식",
+  "일식",
+  "양식",
+  "육류",
+  "해산물",
+  "디저트",
+  "미분류",
+];
+
+/** 잔 올리기 셀렉트에 넣지 않을 레거시·가져오기용 카테고리 문자열 → 표준값 */
+function normalizeStudioPlaceCategory(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (STUDIO_PLACE_CATEGORY_OPTIONS.includes(s)) return s;
+  if (/순대|순댓/i.test(s)) return "한식";
+  return s;
+}
+
 function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
   return (curatorPlacesData || [])
     .filter((cp) => cp?.places?.id != null)
     .map((curatorPlace) => {
     const place = curatorPlace.places;
+    const alc = Array.isArray(curatorPlace.alcohol_types)
+      ? curatorPlace.alcohol_types
+      : [];
+    const moodArr = Array.isArray(curatorPlace.moods) ? curatorPlace.moods : [];
+    const tagsCp = parseDbStringArray(curatorPlace.tags);
+    const tagsPl = parseDbStringArray(place.tags);
+    const tagsMerged = tagsCp.length ? tagsCp : tagsPl;
+    const line =
+      curatorPlace.one_line_reason != null &&
+      curatorPlace.one_line_reason !== undefined
+        ? String(curatorPlace.one_line_reason)
+        : null;
     return {
       id: place.id,
       name: place.name,
       address: place.address || place.name,
       latitude: place.lat,
       longitude: place.lng,
-      category: place.category || "미분류",
-      alcohol_type: place.alcohol_type || "",
-      atmosphere: place.atmosphere || "",
+      kakao_place_id: place.kakao_place_id ?? null,
+      category: normalizeStudioPlaceCategory(place.category || "") || "미분류",
+      alcohol_type: alc[0] ?? place.alcohol_type ?? "",
+      atmosphere: moodArr[0] ?? place.atmosphere ?? "",
       recommended_menu: place.recommended_menu || "",
-      menu_reason: place.menu_reason || "",
-      tags: place.tags || [],
+      menu_reason: line !== null ? line : (place.menu_reason || ""),
+      tags: filterPlaceTagsForDisplay(tagsMerged),
+      alcohol_types: alc,
+      moods: moodArr,
       is_public: !curatorPlace.is_archived,
       created_at: place.created_at
         ? new Date(place.created_at).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
+      curator_place_id: curatorPlace.id,
     };
   });
 }
@@ -1358,6 +1433,8 @@ export default function StudioHome() {
   const { user } = useAuth(); // 인증된 사용자 정보 가져오기
   const { showToast } = useToast(); // Toast 훅 추가
   const mapRef = useRef(null); // 지도 ref 다시 추가
+  /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
+  const skipAddSectionResetRef = useRef(false);
   /** 잔 리스트 탭 진입 시에만 내 저장 폴더 접기 (다른 탭↔리스트 전환 시 기본 접힘) */
   const prevActiveSectionForListFolderRef = useRef(null);
   /** 잔 아카이브 프로필 박스 — 보기 모드에서 사진만 바로 저장 */
@@ -1480,35 +1557,6 @@ export default function StudioHome() {
     }
   }, [activeSection]); // activeSection이 변경될 때만 실행
 
-  // 탭 변경 시 폼 초기화
-  useEffect(() => {
-    if (activeSection === "add") {
-      // 잔 올리기 탭으로 이동 시 폼 초기화
-      setFormData({
-        name_address: "",
-        category: "",
-        alcohol_type: "",
-        atmosphere: "",
-        recommended_menu: "",
-        menu_reason: "",
-        tags: [],
-        latitude: null,
-        longitude: null,
-        kakao_place_id: null,
-        is_public: true
-      });
-      setAddPlacePhotoFiles([]);
-      
-      // 검색 관련 상태도 초기화
-      setSearchSuggestions([]);
-      setShowSuggestions(false);
-      setSelectedSuggestionIndex(-1);
-      setSearchedPlaces([]);
-      setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
-      setEditingPlaceId(null);
-    }
-  }, [activeSection]); // activeSection이 변경될 때마다 실행
-
   // 잔 올리기 폼 상태
   const [formData, setFormData] = useState({
     name_address: "",
@@ -1537,6 +1585,42 @@ export default function StudioHome() {
   const [originalEditingPlace, setOriginalEditingPlace] = useState(null); // 원본 데이터 저장
   const [editingDraftId, setEditingDraftId] = useState(null); // 수정 중인 임시저장 ID
   const formRef = useRef(null); // 폼 참조
+
+  // 탭 변경 시 폼 초기화 (잔 리스트→수정→잔 올리기 시에는 건너뜀 — 아니면 editingPlaceId가 지워져 신규 INSERT로 중복 저장됨)
+  useEffect(() => {
+    if (activeSection !== "add") return;
+    if (skipAddSectionResetRef.current) {
+      skipAddSectionResetRef.current = false;
+      return;
+    }
+    if (editingPlaceId) return;
+    setFormData({
+      name_address: "",
+      category: "",
+      alcohol_type: "",
+      atmosphere: "",
+      recommended_menu: "",
+      menu_reason: "",
+      tags: [],
+      latitude: null,
+      longitude: null,
+      kakao_place_id: null,
+      is_public: true,
+    });
+    setAddPlacePhotoFiles([]);
+
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIndex(-1);
+    setSearchedPlaces([]);
+    setMapCenter({ lat: 37.5665, lng: 126.9780 });
+    setEditingPlaceId(null);
+    try {
+      localStorage.removeItem("editing_place_id");
+    } catch (_) {
+      /* ignore */
+    }
+  }, [activeSection, editingPlaceId]);
 
   // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
   const [drafts, setDrafts] = useState([]);
@@ -1711,17 +1795,19 @@ export default function StudioHome() {
 
   // 자주 쓰는 태그 (핵심 10개)
   const frequentTags = [
-    "혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", 
-    "야장", "가성비", "안주맛집"
+    "혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임",
+    "야장", "룸 있음", "24시간", "가성비", "안주맛집",
+    "성시경", "성시경맛집", "최자", "최자맛집", "소안맛집", "소주안주맛집",
   ];
 
   // 전체 태그 목록 (분위기성 태그 제외)
   const allTags = {
-    "🍺 상황": ["혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임"],
-    "🔥 특징": ["야장", "바테이블", "늦게까지", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
+    "🍺 상황": ["혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임"],
+    "🔥 특징": ["야장", "바테이블", "늦게까지", "24시간", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
     "🎭 감성": ["노포감성", "로컬맛집", "감성술집", "숨은맛집"], // 분위기성 태그 제거
+    "📺 화제": ["성시경", "성시경맛집", "최자", "최자맛집", "소안맛집", "소주안주맛집"],
     "🍽 안주": ["국물안주", "해산물강함", "고기안주", "가벼운안주", "안주다양"],
-    "🧭 공간": ["단체가능", "테이블넓음", "예약필수", "웨이팅짧음", "2차추천", "바테이블(닷지)"],
+    "🧭 공간": ["단체가능", "테이블넓음", "룸 있음", "예약필수", "웨이팅짧음", "2차추천", "바테이블(닷지)"],
     "🚽 화장실": ["실내 화장실", "외부 화장실", "위생적인", "비위생적인"]
   };
 
@@ -2745,6 +2831,24 @@ export default function StudioHome() {
 
   const handleAddPlace = async (isDraft = false) => {
     try {
+      const draftIdPublishedFrom = editingDraftId;
+      const removePublishedDraft = () => {
+        if (!draftIdPublishedFrom) return;
+        try {
+          const existingDrafts = JSON.parse(
+            localStorage.getItem("studio_drafts") || "[]"
+          );
+          const nextDrafts = existingDrafts.filter(
+            (d) => String(d.id) !== String(draftIdPublishedFrom)
+          );
+          localStorage.setItem("studio_drafts", JSON.stringify(nextDrafts));
+          setDrafts(nextDrafts);
+        } catch (e) {
+          console.warn("studio_drafts 정리(잔 올리기 저장 후):", e);
+        }
+        setEditingDraftId(null);
+      };
+
       // 필수 필드 확인
       if (!formData.name_address || !formData.latitude || !formData.longitude) {
         alert("장소 이름과 위치를 선택해주세요.");
@@ -2780,14 +2884,20 @@ export default function StudioHome() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (editingPlaceId) {
+        const effectiveEditPlaceId =
+          editingPlaceId ||
+          (typeof localStorage !== "undefined"
+            ? localStorage.getItem("editing_place_id")
+            : null);
+
+        if (effectiveEditPlaceId) {
           // 수정 모드: UPDATE 사용
           const updateData = {
             name: formData.name_address,
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
-            comment: formData.menu_reason || null,
+            // 추천 한 줄은 curator_places.one_line_reason (upsertCuratorPlaceForStudio)
             kakao_place_id: formData.kakao_place_id || null,
           };
           
@@ -2796,7 +2906,7 @@ export default function StudioHome() {
           const { data, error } = await supabase
             .from("places")
             .update(updateData)
-            .eq("id", editingPlaceId)
+            .eq("id", effectiveEditPlaceId)
             .select();
 
           if (error) {
@@ -2812,7 +2922,7 @@ export default function StudioHome() {
             supabase,
             user.id,
             crRowForCp?.id ?? null,
-            editingPlaceId,
+            effectiveEditPlaceId,
             {
               display_name:
                 user.display_name || user.nickname || user.email,
@@ -2829,20 +2939,24 @@ export default function StudioHome() {
           }
 
           const folderRes = await persistUserSavedPlaceFolders(
-            editingPlaceId,
+            effectiveEditPlaceId,
             addPlaceSelectedFolders
           );
           if (folderRes.ok) {
-            await loadSavedFolders();
+            void loadSavedFolders().catch((e) =>
+              console.warn("loadSavedFolders(수정 후):", e)
+            );
           }
           
           // 로컬 상태 업데이트
           setMyPlaces(prev => prev.map(place => 
-            place.id === editingPlaceId 
+            String(place.id) === String(effectiveEditPlaceId)
               ? { ...place, ...updateData, latitude: updateData.lat, longitude: updateData.lng }
               : place
           ));
-          
+
+          removePublishedDraft();
+
           alert(
             folderRes.ok
               ? "장소가 성공적으로 수정되었습니다!"
@@ -2851,6 +2965,15 @@ export default function StudioHome() {
           
           // 수정 모드 종료
           setEditingPlaceId(null);
+          try {
+            localStorage.removeItem("editing_place_id");
+          } catch (_) {
+            /* ignore */
+          }
+
+          setHasUnsavedChanges(false);
+          setOriginalPlaceBeforeChange(null);
+          setActiveSection("list");
           
         } else {
           // 새로 추가 모드: places.kakao_place_id 유니크 → 동일 카카오 ID는 기존 행 재사용
@@ -2975,7 +3098,9 @@ export default function StudioHome() {
               addPlaceSelectedFolders
             );
             if (folderRes.ok) {
-              await loadSavedFolders();
+              void loadSavedFolders().catch((e) =>
+                console.warn("loadSavedFolders(신규 저장 후):", e)
+              );
             } else {
               alert(
                 `잔은 올라갔지만 내 저장 폴더 연결에 실패했습니다: ${folderRes.message || ""}`
@@ -2983,41 +3108,45 @@ export default function StudioHome() {
             }
             const kakaoForPhotos =
               insertedRow?.kakao_place_id || formData.kakao_place_id || null;
+            const photoFilesSnapshot = addPlacePhotoFiles.slice();
+            setAddPlacePhotoFiles([]);
+            const curatorUserId = user?.id;
             if (
               insertedPlaceUuid &&
-              addPlacePhotoFiles.length > 0 &&
-              user?.id
+              photoFilesSnapshot.length > 0 &&
+              curatorUserId
             ) {
-              let photoFail = 0;
-              for (const file of addPlacePhotoFiles) {
-                try {
-                  if (!isAcceptableRasterImageFile(file)) continue;
-                  const fileToUpload = await prepareImageFileForUpload(file);
-                  await uploadCuratorPlacePhoto({
-                    file: fileToUpload,
-                    curatorId: user.id,
-                    kakaoPlaceId: kakaoForPhotos,
-                    placeId: insertedPlaceUuid,
-                  });
-                } catch (photoErr) {
-                  photoFail += 1;
-                  console.error("큐레이터 사진 업로드 실패:", photoErr);
+              void (async () => {
+                let photoFail = 0;
+                for (const file of photoFilesSnapshot) {
+                  try {
+                    if (!isAcceptableRasterImageFile(file)) continue;
+                    const fileToUpload = await prepareImageFileForUpload(file);
+                    await uploadCuratorPlacePhoto({
+                      file: fileToUpload,
+                      curatorId: curatorUserId,
+                      kakaoPlaceId: kakaoForPhotos,
+                      placeId: insertedPlaceUuid,
+                    });
+                  } catch (photoErr) {
+                    photoFail += 1;
+                    console.error("큐레이터 사진 업로드 실패:", photoErr);
+                  }
                 }
-              }
-              if (photoFail > 0) {
-                showToast(
-                  `사진 ${photoFail}장 업로드 실패 — 콘솔·Supabase Storage/RLS 확인`,
-                  "error",
-                  6000
-                );
-              } else {
-                showToast(
-                  `사진 ${addPlacePhotoFiles.length}장을 등록했습니다.`,
-                  "success"
-                );
-              }
+                if (photoFail > 0) {
+                  showToast(
+                    `사진 ${photoFail}장 업로드 실패 — 콘솔·Supabase Storage/RLS 확인`,
+                    "error",
+                    6000
+                  );
+                } else {
+                  showToast(
+                    `사진 ${photoFilesSnapshot.length}장을 등록했습니다.`,
+                    "success"
+                  );
+                }
+              })();
             }
-            setAddPlacePhotoFiles([]);
             
             // 3. myPlaces에 새 장소 추가 — id는 항상 places.id (목록·수정·삭제·폴더 필터와 loadStudioData 일치)
             const newPlaceForList = {
@@ -3047,6 +3176,8 @@ export default function StudioHome() {
               console.log("✅ myPlaces 업데이트 완료:", updated.length, "개");
               return updated;
             });
+
+            removePublishedDraft();
           }
           
           // 폼 초기화
@@ -3071,14 +3202,18 @@ export default function StudioHome() {
           setSearchedPlaces([]);
           setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
           setEditingPlaceId(null); // 수정 모드 종료
+
+          setHasUnsavedChanges(false);
+          setOriginalPlaceBeforeChange(null);
           
           // "잔 리스트" 탭으로 자동 이동
           setActiveSection("list");
         }
       } else {
         // 임시저장인 경우
+        const draftRowId = editingDraftId || `${Date.now()}`;
         const draftData = {
-          id: Date.now().toString(),
+          id: draftRowId,
           basicInfo: {
             name_address: formData.name_address,
             category: formData.category
@@ -3116,8 +3251,9 @@ export default function StudioHome() {
         }
         
         localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
-        
-        setDrafts(prev => [...prev, draftData]);
+
+        // React 상태는 localStorage와 동일하게 유지 (기존: 항상 append 해서 수정 시 초안이 2개로 보임)
+        setDrafts(updatedDrafts);
         console.log("✅ 임시저장 완료 (localStorage):", draftData);
         
         // 수정 모드였다면 원본 장소를 잔 리스트에서 제거
@@ -3236,38 +3372,51 @@ export default function StudioHome() {
   const handleEditPlace = (place) => {
     try {
       console.log("✏️ 장소 수정:", place);
-      
+
+      setEditingDraftId(null);
+
       // 수정 모드 설정
       setEditingPlaceId(place.id);
       localStorage.setItem('editing_place_id', place.id);
-      
+
+      skipAddSectionResetRef.current = true;
+
+      const alcoholFromCp =
+        Array.isArray(place.alcohol_types) && place.alcohol_types.length
+          ? place.alcohol_types[0]
+          : place.alcohol_type || "";
+      const moodFromCp =
+        Array.isArray(place.moods) && place.moods.length
+          ? place.moods[0]
+          : place.atmosphere || "";
+
+      setFormData({
+        name_address: place.name,
+        category: normalizeStudioPlaceCategory(place.category || "") || "",
+        alcohol_type: alcoholFromCp,
+        atmosphere: moodFromCp,
+        recommended_menu: place.recommended_menu || "",
+        menu_reason: place.menu_reason || "",
+        tags: filterPlaceTagsForDisplay(parseDbStringArray(place.tags)),
+        latitude: place.latitude,
+        longitude: place.longitude,
+        kakao_place_id: place.kakao_place_id ?? null,
+        is_public: place.is_public,
+      });
+
       // 지도 중심을 해당 장소로 이동
       setMapCenter({ lat: place.latitude, lng: place.longitude });
       
       // '잔 올리기' 탭으로 이동
       setActiveSection("add");
       
-      // 폼 데이터 설정 (탭 이동 후 약간의 지연을 줌)
-      setTimeout(() => {
-        setFormData({
-          name_address: place.name,
-          category: place.category || "",
-          alcohol_type: place.alcohol_type || "",
-          atmosphere: place.atmosphere || "",
-          recommended_menu: place.recommended_menu || "",
-          menu_reason: place.menu_reason || "",
-          tags: place.tags || [],
-          latitude: place.latitude,
-          longitude: place.longitude,
-          is_public: place.is_public
-        });
-        
-        console.log("📝 폼 데이터 설정 완료:", {
-          name: place.name,
-          category: place.category,
-          tags: place.tags
-        });
-      }, 300);
+      console.log("📝 폼 데이터 설정 완료:", {
+        name: place.name,
+        category: place.category,
+        alcohol_type: alcoholFromCp,
+        atmosphere: moodFromCp,
+        tags: place.tags,
+      });
       
       alert("장소 정보를 수정할 수 있습니다. 수정 후 다시 저장해주세요.");
       
@@ -3496,7 +3645,15 @@ export default function StudioHome() {
     
     // 잔 올리기 섹션으로 이동
     setActiveSection("add");
-    
+
+    // 잔 리스트에서 연 '장소 수정' 상태가 남아 있으면 임시저장 시 잘못된 행이 지워지거나 중복 저장될 수 있음
+    setEditingPlaceId(null);
+    try {
+      localStorage.removeItem("editing_place_id");
+    } catch (_) {
+      /* ignore */
+    }
+
     // 수정 중인 임시저장 ID 설정
     setEditingDraftId(draft.id);
     
@@ -3826,7 +3983,16 @@ export default function StudioHome() {
         <button
           type="button"
           title="잔 올리기"
-          onClick={() => setActiveSection("add")}
+          onClick={() => {
+            setEditingDraftId(null);
+            setEditingPlaceId(null);
+            try {
+              localStorage.removeItem("editing_place_id");
+            } catch (_) {
+              /* ignore */
+            }
+            setActiveSection("add");
+          }}
           style={{
             ...styles.topBarButton,
             ...(activeSection === "add" ? styles.topBarButtonActive : {}),
@@ -4060,13 +4226,15 @@ export default function StudioHome() {
               tabIndex={3}
             >
               <option value="">선택하세요</option>
-              <option value="한식">한식</option>
-              <option value="중식">중식</option>
-              <option value="일식">일식</option>
-              <option value="양식">양식</option>
-              <option value="육류">육류</option>
-              <option value="해산물">해산물</option>
-              <option value="디저트">디저트</option>
+              {STUDIO_PLACE_CATEGORY_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              {formData.category &&
+              !STUDIO_PLACE_CATEGORY_OPTIONS.includes(formData.category) ? (
+                <option value={formData.category}>{formData.category}</option>
+              ) : null}
             </select>
           </div>
 
@@ -4095,6 +4263,7 @@ export default function StudioHome() {
               <option value="막걸리">막걸리</option>
               <option value="하이볼">하이볼</option>
               <option value="위스키">위스키</option>
+              <option value="고량주">고량주</option>
               <option value="사케">사케</option>
               <option value="칵테일">칵테일</option>
             </select>
@@ -4260,21 +4429,27 @@ export default function StudioHome() {
                 value={tagInputValue}
                 onChange={(e) => handleTagInputChange(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    const trimmedValue = tagInputValue.trim();
-                    if (trimmedValue && !formData.tags.includes(trimmedValue)) {
-                      // 기존 태그가 있으면 그걸 사용, 없으면 새로 추가
-                      const existingTag = allTagsList.find(tag => 
-                        tag.toLowerCase() === trimmedValue.toLowerCase()
-                      );
-                      const tagToAdd = existingTag || trimmedValue;
-                      
-                      setFormData(prev => ({ ...prev, tags: [...prev.tags, tagToAdd] }));
-                      setTagInputValue("");
-                      setTagSuggestions([]);
-                    }
-                  }
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  // 한글 IME 조합 중 Enter/Space는 태그 확정으로 쓰지 않음 (끝 글자 중복·오입 방지)
+                  if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  const trimmedValue = String(
+                    e.currentTarget?.value ?? ""
+                  ).trim();
+                  if (!trimmedValue) return;
+
+                  const existingTag = allTagsList.find(
+                    (tag) =>
+                      tag.toLowerCase() === trimmedValue.toLowerCase()
+                  );
+                  const tagToAdd = existingTag || trimmedValue;
+
+                  setFormData((prev) => {
+                    if (prev.tags.includes(tagToAdd)) return prev;
+                    return { ...prev, tags: [...prev.tags, tagToAdd] };
+                  });
+                  setTagInputValue("");
+                  setTagSuggestions([]);
                 }}
                 style={{
                   width: "100%",
@@ -5795,22 +5970,29 @@ export default function StudioHome() {
               </div>
               <div style={{ display: "flex", gap: "20px" }}>
                 {/* 잔 기록 */}
+                {(() => {
+                  const nPlw = curatorStats.lastWeekStats?.newPlaces || 0;
+                  const nPtw = curatorStats.weeklyStats?.newPlaces || 0;
+                  const placesScale = Math.max(8, nPlw, nPtw);
+                  return (
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔 기록</div>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 기록</div>
+                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
+                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
                     <svg style={{
                       position: "absolute",
                       top: 0,
                       left: 0,
                       width: "100%",
                       height: "100%",
-                      zIndex: 1
+                      zIndex: 1,
+                      overflow: "hidden"
                     }}>
                       <line
                         x1="20%"
-                        y1={`${100 - ((curatorStats.lastWeekStats?.newPlaces || 0) / 8) * 100}%`}
+                        y1={`${growthTrendLineYPercent(nPlw, placesScale)}%`}
                         x2="80%"
-                        y2={`${100 - ((curatorStats.weeklyStats?.newPlaces || 0) / 8) * 100}%`}
+                        y2={`${growthTrendLineYPercent(nPtw, placesScale)}%`}
                         stroke="#E74C3C"
                         strokeWidth="2"
                         strokeDasharray="300"
@@ -5826,7 +6008,7 @@ export default function StudioHome() {
                       border: "2px solid #E74C3C",
                       position: "relative",
                       zIndex: 2,
-                      bottom: `${((curatorStats.lastWeekStats?.newPlaces || 0) / 8) * 60}px`,
+                      bottom: `${(nPlw / placesScale) * 52}px`,
                       animation: "bounce 0.6s ease-out"
                     }}>
                       <div style={{
@@ -5838,7 +6020,7 @@ export default function StudioHome() {
                         color: "rgba(255,255,255,0.8)",
                         whiteSpace: "nowrap"
                       }}>
-                        {curatorStats.lastWeekStats?.newPlaces || 0}
+                        {nPlw}
                       </div>
                     </div>
                     <div style={{
@@ -5849,7 +6031,7 @@ export default function StudioHome() {
                       border: "3px solid rgba(255,255,255,0.3)",
                       position: "relative",
                       zIndex: 2,
-                      bottom: `${((curatorStats.weeklyStats?.newPlaces || 0) / 8) * 60}px`,
+                      bottom: `${(nPtw / placesScale) * 52}px`,
                       boxShadow: "0 0 10px rgba(231, 76, 60, 0.5)",
                       animation: "bounce 0.6s ease-out 0.2s both"
                     }}>
@@ -5864,30 +6046,40 @@ export default function StudioHome() {
                         whiteSpace: "nowrap",
                         animation: "fadeInUp 0.4s ease-out 0.5s both"
                       }}>
-                        {curatorStats.weeklyStats?.newPlaces > curatorStats.lastWeekStats?.newPlaces ? "▲" :
-                         curatorStats.weeklyStats?.newPlaces < curatorStats.lastWeekStats?.newPlaces ? "▼" : "─"}
-                        {curatorStats.weeklyStats?.newPlaces || 0}
+                        {nPtw > nPlw ? "▲" :
+                         nPtw < nPlw ? "▼" : "─"}
+                        {nPtw}
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
+                  );
+                })()}
                 {/* 잔 반응 */}
+                {(() => {
+                  const nSlw = curatorStats.lastWeekStats?.newSaves || 0;
+                  const nStw = curatorStats.weeklyStats?.newSaves || 0;
+                  const savesScale = Math.max(40, nSlw, nStw);
+                  return (
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>잔 반응</div>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 반응</div>
+                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
+                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
                     <svg style={{
                       position: "absolute",
                       top: 0,
                       left: 0,
                       width: "100%",
                       height: "100%",
-                      zIndex: 1
+                      zIndex: 1,
+                      overflow: "hidden"
                     }}>
                       <line
                         x1="20%"
-                        y1={`${100 - ((curatorStats.lastWeekStats?.newSaves || 0) / 40) * 100}%`}
+                        y1={`${growthTrendLineYPercent(nSlw, savesScale)}%`}
                         x2="80%"
-                        y2={`${100 - ((curatorStats.weeklyStats?.newSaves || 0) / 40) * 100}%`}
+                        y2={`${growthTrendLineYPercent(nStw, savesScale)}%`}
                         stroke="#F39C12"
                         strokeWidth="2"
                         strokeDasharray="300"
@@ -5903,7 +6095,7 @@ export default function StudioHome() {
                       border: "2px solid #F39C12",
                       position: "relative",
                       zIndex: 2,
-                      bottom: `${((curatorStats.lastWeekStats?.newSaves || 0) / 40) * 60}px`
+                      bottom: `${(nSlw / savesScale) * 52}px`
                     }}>
                       <div style={{
                         position: "absolute",
@@ -5914,7 +6106,7 @@ export default function StudioHome() {
                         color: "rgba(255,255,255,0.8)",
                         whiteSpace: "nowrap"
                       }}>
-                        {curatorStats.lastWeekStats?.newSaves || 0}
+                        {nSlw}
                       </div>
                     </div>
                     <div style={{
@@ -5925,7 +6117,7 @@ export default function StudioHome() {
                       border: "3px solid rgba(255,255,255,0.3)",
                       position: "relative",
                       zIndex: 2,
-                      bottom: `${((curatorStats.weeklyStats?.newSaves || 0) / 40) * 60}px`,
+                      bottom: `${(nStw / savesScale) * 52}px`,
                       boxShadow: "0 0 10px rgba(243, 156, 18, 0.5)",
                       animation: "bounce 0.6s ease-out 0.4s both"
                     }}>
@@ -5940,13 +6132,16 @@ export default function StudioHome() {
                         whiteSpace: "nowrap",
                         animation: "fadeInUp 0.4s ease-out 0.7s both"
                       }}>
-                        {curatorStats.weeklyStats?.newSaves > curatorStats.lastWeekStats?.newSaves ? "▲" :
-                         curatorStats.weeklyStats?.newSaves < curatorStats.lastWeekStats?.newSaves ? "▼" : "─"}
-                        {curatorStats.weeklyStats?.newSaves || 0}
+                        {nStw > nSlw ? "▲" :
+                         nStw < nSlw ? "▼" : "─"}
+                        {nStw}
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
+                  );
+                })()}
                 {/* picked — 이번 주 신규 팔로워만 (picks 아님) */}
                 {(() => {
                   const plw = curatorStats.lastWeekStats?.newFollowers || 0;
@@ -5954,21 +6149,23 @@ export default function StudioHome() {
                   const pickedScale = Math.max(5, plw, ptw);
                   return (
                     <div style={{ flex: 1 }}>
-                      <div style={{ color: "white", fontSize: "11px", marginBottom: "12px", textAlign: "center" }}>picked</div>
-                      <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                      <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>picked</div>
+                      <div style={{ overflow: "hidden", paddingTop: "24px" }}>
+                      <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
                         <svg style={{
                           position: "absolute",
                           top: 0,
                           left: 0,
                           width: "100%",
                           height: "100%",
-                          zIndex: 1
+                          zIndex: 1,
+                          overflow: "hidden"
                         }}>
                           <line
                             x1="20%"
-                            y1={`${100 - (plw / pickedScale) * 100}%`}
+                            y1={`${growthTrendLineYPercent(plw, pickedScale)}%`}
                             x2="80%"
-                            y2={`${100 - (ptw / pickedScale) * 100}%`}
+                            y2={`${growthTrendLineYPercent(ptw, pickedScale)}%`}
                             stroke="#9B59B6"
                             strokeWidth="2"
                             strokeDasharray="300"
@@ -5984,7 +6181,7 @@ export default function StudioHome() {
                           border: "2px solid #9B59B6",
                           position: "relative",
                           zIndex: 2,
-                          bottom: `${(plw / pickedScale) * 60}px`
+                          bottom: `${(plw / pickedScale) * 52}px`
                         }}>
                           <div style={{
                             position: "absolute",
@@ -6006,7 +6203,7 @@ export default function StudioHome() {
                           border: "3px solid rgba(255,255,255,0.3)",
                           position: "relative",
                           zIndex: 2,
-                          bottom: `${(ptw / pickedScale) * 60}px`,
+                          bottom: `${(ptw / pickedScale) * 52}px`,
                           boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
                           animation: "bounce 0.6s ease-out 0.6s both"
                         }}>
@@ -6025,6 +6222,7 @@ export default function StudioHome() {
                             {ptw}
                           </div>
                         </div>
+                      </div>
                       </div>
                     </div>
                   );

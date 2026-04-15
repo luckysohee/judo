@@ -1,0 +1,151 @@
+[
+  {
+    "name": "508shop",
+    "category": "전,빈대떡",
+    "address": "서울특별시 종로구 이화동 9-86",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "가든포차",
+    "category": "한식",
+    "address": "서울특별시 도봉구 방학동 산63-1 가든포차(구)고려가든",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "고가길구공탄",
+    "category": "돼지고기구이",
+    "address": "서울특별시 용산구 한강로1가 252-4",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "골목분식",
+    "category": "종합분식",
+    "address": "서울특별시 종로구 장사동 38-3",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "군산집",
+    "category": "한식",
+    "address": "서울특별시 영등포구 영등포동5가 20-62 1층 군산집",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "금릉슈퍼",
+    "category": "슈퍼,마트",
+    "address": "서울특별시 종로구 숭인동 96-2",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "까치포차",
+    "category": "포장마차",
+    "address": "서울특별시 중구 신당동 368-96 1층 까치포차",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "낙산마트",
+    "category": "슈퍼,마트",
+    "address": "서울특별시 종로구 이화동 9-151 락산마트",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "남호식당 역삼 본점",
+    "category": "한식",
+    "address": "서울특별시 강남구 역삼동 739-5",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "내일은니가쏴라",
+    "category": "맥주,호프",
+    "address": "강원특별자치도 속초시 교동 826-1",
+    "region": "강원특별자치도",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "달맞이이모네",
+    "category": "요리주점",
+    "address": "서울특별시 관악구 신림동 1425-8 효정",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "닭발집",
+    "category": "닭요리",
+    "address": "서울특별시 서대문구 남가좌동 291-28",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "돼지네 냉삼",
+    "category": "돼지고기구이",
+    "address": "서울특별시 금천구 가산동 143-15 지상1층",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "돼지연탄석쇠불고기 배진강",
+    "category": "육류,고기요리",
+    "address": "전라남도 강진군 병영면 삼인리 318",
+    "region": "전라남도",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "땡땡이 양철집",
+    "category": "육류,고기요리",
+    "address": "서울특별시 마포구 중동 199",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "레슬러 원조닭꼬치",
+    "category": "포장마차",
+    "address": "서울특별시 동작구 신대방동 644-3 1층",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "만물슈퍼",
+    "category": "슈퍼,마트",
+    "address": "서울특별시 성동구 도선동 319",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "멕시칸치킨 범5점",
+    "category": "치킨,닭강정",
+    "address": "부산광역시 동구 좌천동 1074",
+    "region": "부산광역시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "명화식육식당",
+    "category": "육류,고기요리",
+    "address": "광주광역시 광산구 명화동 225-1",
+    "region": "광주광역시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "못난이포차",
+    "category": "포장마차",
+    "address": "서울특별시 강남구 삼성동 152-23 06166",
+    "region": "서울특별시",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752",
+    "lat": 37.5103121449862,
+    "lng": 127.055958218745
+  },
+  {
+    "name": "황미자초원구이 성건동본점",
+    "category": "육류,고기요리",
+    "address": "경상북도 경주시 성건동 630-11",
+    "region": "경상북도",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  }
+]

@@ -34,6 +34,11 @@ export default function PlacePreviewCard({
   onClose,
   getUserRole,
   searchSessionIdRef,
+  /**
+   * 코스 모드: 지도 미리보기에서 1차 확정 → 2차 재탐색
+   * `{ show, secondEnabled, secondBusy, onSelectAsFirst, onFindSecond }`
+   */
+  courseMapLegActions = null,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -709,16 +714,39 @@ export default function PlacePreviewCard({
     );
   };
 
-  const featuredCuratorPlace =
-    (place.curatorPlaces || []).find((curatorPlace) => {
-      const candidates = [
-        curatorPlace?.curators?.display_name,
-        curatorPlace?.curators?.username,
-        curatorPlace?.display_name,
-        curatorPlace?.curator_id,
-      ].filter(Boolean);
-      return candidates.some((candidate) => selectedCuratorNames.includes(candidate));
-    }) || (place.curatorPlaces || [])[0];
+  const selectedCuratorLower = new Set(
+    selectedCuratorNames
+      .map((s) => String(s ?? "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const curatorPlaceMatchesSelected = (curatorPlace) => {
+    const candidates = [
+      curatorPlace?.curators?.display_name,
+      curatorPlace?.curators?.username,
+      curatorPlace?.display_name,
+      curatorPlace?.curator_id,
+    ].filter(Boolean);
+    return candidates.some((candidate) =>
+      selectedCuratorLower.has(String(candidate).trim().toLowerCase())
+    );
+  };
+
+  const oneLineTrim = (curatorPlace) =>
+    String(curatorPlace?.one_line_reason ?? "").trim();
+
+  const hasOneLine = (curatorPlace) => oneLineTrim(curatorPlace).length > 0;
+
+  // 상단 한줄평 박스: (1) 선택된 큐레이터 중 한줄평 있는 사람 (2) 아니면 아무나 한줄평 있는 첫 큐레이터
+  const featuredCuratorCommentPlace =
+    (place.curatorPlaces || []).find(
+      (cp) => curatorPlaceMatchesSelected(cp) && hasOneLine(cp)
+    ) ||
+    (place.curatorPlaces || []).find(hasOneLine) ||
+    null;
+
+  const featuredOneLineReason = oneLineTrim(featuredCuratorCommentPlace);
+  const showFeaturedCuratorCommentBox = featuredOneLineReason.length > 0;
 
   // 빠른저장 버튼 핸들러
   const handleQuickSaveClick = async () => {
@@ -1416,14 +1444,14 @@ export default function PlacePreviewCard({
                 {kakaoDetails?.review_count && (
                   <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
                 )}
-                {/* 큐레이터 추천 코멘트 추가 - DB 데이터 사용 */}
-                {featuredCuratorPlace && (
+                {/* 큐레이터 한줄평: 내용 있을 때만 상단 박스 (아래 curatorRow 칩은 유지) */}
+                {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
                     </span>
                     <span style={styles.curatorReason}>
-                      "{featuredCuratorPlace?.one_line_reason || ""}"
+                      "{featuredOneLineReason}"
                     </span>
                   </div>
                 )}
@@ -1454,14 +1482,14 @@ export default function PlacePreviewCard({
                 {displayPhone && (
                   <div style={styles.phoneLine}>📞 {displayPhone}</div>
                 )}
-                {/* 큐레이터 추천 코멘트 추가 - DB 데이터 사용 */}
-                {featuredCuratorPlace && (
+                {/* 큐레이터 한줄평: 내용 있을 때만 상단 박스 (아래 curatorRow 칩은 유지) */}
+                {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
                     </span>
                     <span style={styles.curatorReason}>
-                      "{featuredCuratorPlace?.one_line_reason || ""}"
+                      "{featuredOneLineReason}"
                     </span>
                   </div>
                 )}
@@ -1519,6 +1547,74 @@ export default function PlacePreviewCard({
               })}
             </div>
           </div>
+
+          {courseMapLegActions?.show ? (
+            <div
+              style={{
+                marginTop: 12,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => courseMapLegActions.onSelectAsFirst?.()}
+                style={{
+                  flex: "1 1 120px",
+                  minHeight: 40,
+                  padding: "0 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(124, 58, 237, 0.45)",
+                  background: "rgba(250,245,255,0.98)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: "#5b21b6",
+                  cursor: "pointer",
+                }}
+              >
+                1차 선택
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !courseMapLegActions.secondEnabled ||
+                  Boolean(courseMapLegActions.secondBusy)
+                }
+                onClick={() => courseMapLegActions.onFindSecond?.()}
+                style={{
+                  flex: "1 1 120px",
+                  minHeight: 40,
+                  padding: "0 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(92, 64, 51, 0.22)",
+                  background:
+                    courseMapLegActions.secondEnabled &&
+                    !courseMapLegActions.secondBusy
+                      ? "rgba(255,255,255,0.98)"
+                      : "rgba(0,0,0,0.06)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: "#3d2914",
+                  cursor:
+                    courseMapLegActions.secondEnabled &&
+                    !courseMapLegActions.secondBusy
+                      ? "pointer"
+                      : "default",
+                  opacity:
+                    courseMapLegActions.secondEnabled &&
+                    !courseMapLegActions.secondBusy
+                      ? 1
+                      : 0.5,
+                }}
+              >
+                {courseMapLegActions.secondBusy
+                  ? "2차 찾는 중…"
+                  : "2차 찾기"}
+              </button>
+            </div>
+          ) : null}
 
           <div style={styles.actionRow}>
             <CheckinButton

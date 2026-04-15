@@ -15,20 +15,42 @@ function curatorDisplayName(curatorId, dbPlaces, dbCurators) {
     }
   }
   const c = (dbCurators || []).find(
-    (x) => x.id === curatorId || x.username === curatorId
+    (x) =>
+      String(x.id) === String(curatorId) ||
+      String(x.username) === String(curatorId) ||
+      String(x.filterKey) === String(curatorId)
   );
   return c?.displayName || c?.name || curatorId;
 }
 
-function curatorUsernameForId(curatorId, dbPlaces) {
+/** CuratorFilterBar / filteredByCuratorPlaces 와 동일: username → display_name → id/auth id */
+function curatorFilterKeyForId(curatorId, dbPlaces, dbCurators) {
+  const cid = String(curatorId ?? "").trim();
+  if (!cid) return "";
   for (const p of dbPlaces || []) {
     for (const cp of p.curatorPlaces || []) {
-      if (cp.curator_id === curatorId) {
-        return cp.curators?.username || cp.curator_id || curatorId;
-      }
+      if (String(cp.curator_id ?? "").trim() !== cid) continue;
+      const u = String(cp.curators?.username ?? "").trim();
+      const d = String(cp.curators?.display_name ?? "").trim();
+      const rowId = String(cp.curators?.id ?? "").trim();
+      if (u || d) return u || d;
+      if (rowId) return rowId;
+      return String(cp.curator_id ?? "").trim() || cid;
     }
   }
-  return curatorId;
+  const c = (dbCurators || []).find(
+    (x) =>
+      String(x.id ?? "").trim() === cid ||
+      String(x.filterKey ?? "").trim() === cid ||
+      String(x.username ?? "").trim() === cid
+  );
+  if (c) {
+    const u = String(c.username ?? "").trim();
+    const d = String(c.displayName ?? c.display_name ?? "").trim();
+    const pk = String(c.id ?? "").trim();
+    return u || d || pk || cid;
+  }
+  return cid;
 }
 
 /**
@@ -64,7 +86,7 @@ export function buildCuratorSearchHighlights(query, dbPlaces, dbCurators) {
         headline: `「${primaryAlcohol}」 장소를 많이 저장한 큐레이터`,
         sub: `${curatorDisplayName(cid, dbPlaces, dbCurators)} · ${n}곳`,
         curatorId: cid,
-        curatorUsername: curatorUsernameForId(cid, dbPlaces),
+        curatorUsername: curatorFilterKeyForId(cid, dbPlaces, dbCurators),
       });
     }
   }
@@ -96,7 +118,7 @@ export function buildCuratorSearchHighlights(query, dbPlaces, dbCurators) {
         headline: `「${primaryRegion}」 저장이 많은 큐레이터`,
         sub: `${curatorDisplayName(cid, dbPlaces, dbCurators)} · ${n}곳`,
         curatorId: cid,
-        curatorUsername: curatorUsernameForId(cid, dbPlaces),
+        curatorUsername: curatorFilterKeyForId(cid, dbPlaces, dbCurators),
       });
     }
   }

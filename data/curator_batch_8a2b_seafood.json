@@ -1,0 +1,700 @@
+[
+  {
+    "name": "0910멸치집 논현직영점",
+    "category": "한식",
+    "address": "서울특별시 강남구 논현동 183-4 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "365활새우 창우수산 강남본점",
+    "category": "해물,생선요리",
+    "address": "서울특별시 강남구 논현동 241-1 강남파라곤 로비층 107호, 108호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "88생선구이",
+    "category": "생선구이",
+    "address": "강원특별자치도 속초시 중앙동 468-55",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "게섯거라",
+    "category": "게요리",
+    "address": "서울특별시 송파구 방이동 100",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "경도회관",
+    "category": "해물,생선요리",
+    "address": "전라남도 여수시 경호동 621-3",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "고등어회결사",
+    "category": "",
+    "address": "제주특별자치도 제주시 애월읍 하귀2리 2615-1 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "고흥회수산",
+    "category": "생선회",
+    "address": "서울특별시 성북구 동소문동5가 8",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "골목집",
+    "category": "한식",
+    "address": "서울특별시 중구 오장동 206-55",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "광안리 밤포차",
+    "category": "요리주점",
+    "address": "서울특별시 금천구 가산동 83-5",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "광주홍어회찜",
+    "category": "해물,생선요리",
+    "address": "서울특별시 성동구 금호동1가 1797-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "구룡포 계절 회집",
+    "category": "생선회",
+    "address": "서울특별시 성북구 동선동2가 2-2",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "굴과찜사랑 본점",
+    "category": "해물,생선요리",
+    "address": "서울특별시 성동구 행당동 298-50",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "귀족생골뱅이",
+    "category": "해물,생선요리",
+    "address": "서울특별시 강북구 미아동 51-16",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "기사문",
+    "category": "해물,생선요리",
+    "address": "강원특별자치도 강릉시 교동 1894-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "김다찌",
+    "category": "",
+    "address": "서울 동작구 사당로26길 130-6",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "까망조개이야기",
+    "category": "생선회",
+    "address": "경기도 안산시 단원구 대부북동 1848-110",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "꽐라포차",
+    "category": "횟집",
+    "address": "서울 중구 다산로35길 14",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "끝집",
+    "category": "해물,생선요리",
+    "address": "부산광역시 해운대구 중동 612",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "나노하나",
+    "category": "일식당",
+    "address": "서울특별시 서초구 서초동 1308-26 강남역리가스퀘어 1층 107호 나노하나",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "나는굴찜",
+    "category": "굴요리",
+    "address": "서울특별시 중구 다동 121-3 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "동표골뱅이",
+    "category": "한식",
+    "address": "서울특별시 용산구 신계동 32-5",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "동피랑",
+    "category": "해물,생선요리",
+    "address": "서울특별시 마포구 상수동 337-5",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "동해남부선 서촌 본점",
+    "category": "한식",
+    "address": "서울특별시 종로구 내자동 11-1 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "뚝도지기",
+    "category": "해물,생선요리",
+    "address": "서울특별시 성동구 성수동2가 335-35",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "로꼬로꼬조개찜 영등포점",
+    "category": "조개요리",
+    "address": "서울특별시 영등포구 영등포동3가 4-12",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "마린3스토리",
+    "category": "",
+    "address": "서울 강남구 논현로71길 5",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "마산집",
+    "category": "해물,생선요리",
+    "address": "인천광역시 미추홀구 숭의동 162-16 1층 마산집",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "마시안 어부집",
+    "category": "조개요리",
+    "address": "인천광역시 중구 덕교동 134-17",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "막포",
+    "category": "",
+    "address": "서울 용산구 한강대로 166-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "만복회해산물",
+    "category": "일식당",
+    "address": "서울특별시 강남구 역삼동 605-9 1층 1호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "만원수산종합어시장",
+    "category": "생선회",
+    "address": "서울특별시 용산구 갈월동 69-19",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "말질로",
+    "category": "요리주점",
+    "address": "서울특별시 중구 신당동 141-12 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "맛기행사",
+    "category": "계절샤브샤브",
+    "address": "서울특별시 서초구 방배동 453-29",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "맛짱조개",
+    "category": "조개요리",
+    "address": "서울특별시 강남구 논현동 115-4 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "매치스성수",
+    "category": "와인",
+    "address": "서울특별시 성동구 성수동2가 271-12 7층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "모아래 로바다야끼",
+    "category": "이자카야",
+    "address": "서울특별시 금천구 가산동 143-37 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "목동해물",
+    "category": "일식당",
+    "address": "서울특별시 양천구 목동 406-100 해물",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "목포회집 본점",
+    "category": "생선회",
+    "address": "서울특별시 영등포구 당산동 171-19",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "목포회집 양평동점",
+    "category": "생선회",
+    "address": "서울특별시 영등포구 양평동4가 27-4",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "무르",
+    "category": "이자카야",
+    "address": "서울특별시 강남구 역삼동 678-26 TJ삼영타워 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "사랑호 수산포차",
+    "category": "",
+    "address": "서울 강남구 도산대로51길 39",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "삼미집 청담본점",
+    "category": "해물,생선요리",
+    "address": "서울특별시 강남구 청담동 126-3",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "삼바리 신사점",
+    "category": "조개요리",
+    "address": "서울특별시 강남구 신사동 510-11 1층 삼바리",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "서촌계단집",
+    "category": "해물,생선요리",
+    "address": "서울특별시 종로구 내자동 11-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "선경준치회집",
+    "category": "생선회",
+    "address": "전라남도 목포시 온금동 186",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "선창활어횟집",
+    "category": "생선회",
+    "address": "강원특별자치도 속초시 동명동 1-6 선창활어횟집",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "선창횟집",
+    "category": "생선회",
+    "address": "부산광역시 해운대구 중동 996-6 선창횟집",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "섬마을회수산",
+    "category": "생선회",
+    "address": "서울특별시 용산구 한남동 633-3 1F 내부",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "섭지코지로 본점",
+    "category": "한식",
+    "address": "제주특별자치도 서귀포시 성산읍 성산리 247-2 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "섭지코지마씸",
+    "category": "일식당",
+    "address": "서울특별시 성북구 삼선동4가 347",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "성수부두",
+    "category": "조개요리",
+    "address": "서울특별시 성동구 성수동2가 316-22 지하1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "소랑도",
+    "category": "생선회",
+    "address": "서울특별시 광진구 중곡동 141-12 1층 소랑도",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "소문난마산아구해물찜 본점",
+    "category": "아귀찜,해물찜",
+    "address": "서울특별시 서초구 잠원동 22-9 정원빌딩 소문난마산아구해물찜 본점",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "속초갓포",
+    "category": "일식당",
+    "address": "강원특별자치도 속초시 금호동 473-78 1층 속초갓포",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "속초대일호방어",
+    "category": "생선회",
+    "address": "강원특별자치도 속초시 중앙동 471-4 6호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "9호유신호",
+    "category": "오징어요리",
+    "address": "강원특별자치도 속초시 동명동 383-1 9호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "속초홍게나라",
+    "category": "게요리",
+    "address": "강원특별자치도 속초시 영랑동 147-267",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "손선장 노량진점",
+    "category": "생선회",
+    "address": "서울특별시 동작구 노량진동 334 남3문 활어 17-19호/38-39호 손선장",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d",
+    "lat": 37.51471367373409,
+    "lng": 126.93901350312254
+  },
+  {
+    "name": "송골횟집",
+    "category": "생선회",
+    "address": "경상북도 포항시 북구 여남동 63",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "쇼쿠도 아토",
+    "category": "이자카야",
+    "address": "서울특별시 송파구 석촌동 53-3 1층 쇼쿠도 아토",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "영덕횟집",
+    "category": "생선회",
+    "address": "서울특별시 강남구 삼성동 152-37 대명빌딩",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "영도다리",
+    "category": "요리주점",
+    "address": "서울특별시 종로구 돈의동 34 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "영도해녀촌",
+    "category": "해물,생선요리",
+    "address": "부산광역시 영도구 동삼동 산65-1 영도해녀문화전시관 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "옛날마차",
+    "category": "생선회",
+    "address": "서울특별시 양천구 신정동 904-6",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "오로씨",
+    "category": "요리주점",
+    "address": "서울특별시 관악구 신림동 1433-28 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "오메가메",
+    "category": "한식",
+    "address": "부산광역시 사하구 괴정동 945-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "오성굴구이",
+    "category": "해물,생선요리",
+    "address": "충청남도 보령시 천북면 장은리 959 오성굴구이",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "오십이도칼국수 오이도본점",
+    "category": "칼국수,만두",
+    "address": "경기도 시흥시 정왕동 1978-4 1,2층 오십이도칼국수 본점",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "올레요횟집",
+    "category": "생선회",
+    "address": "서울특별시 동작구 사당동 1041-31",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "완도회식당",
+    "category": "오징어요리",
+    "address": "강원특별자치도 속초시 교동 962-14",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "왕포수산",
+    "category": "생선회",
+    "address": "서울특별시 서대문구 홍은동 400-37 1,2층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "용두통골뱅이",
+    "category": "요리주점",
+    "address": "서울특별시 동대문구 신설동 42-1 1층 용두통골뱅이",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "우리회수산",
+    "category": "",
+    "address": "서울 마포구 도화길 18",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "우시",
+    "category": "이자카야",
+    "address": "서울특별시 영등포구 여의도동 36-4 오륜빌딩 208호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "우주횟집 본점",
+    "category": "생선회",
+    "address": "서울특별시 송파구 방이동 63-14 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "울엄마제철맛집",
+    "category": "해물,생선요리",
+    "address": "서울특별시 용산구 한강로3가 40-126 울엄마제철맛집",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "원조 석이네 조개박사",
+    "category": "조개요리",
+    "address": "경상북도 경주시 성건동 625-7 조개박사",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "원조바다집",
+    "category": "해물,생선요리",
+    "address": "부산광역시 중구 신창동2가 17-13",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "원효굴찜",
+    "category": "굴요리",
+    "address": "서울특별시 용산구 원효로3가 43-32",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "유래초밥",
+    "category": "생선회",
+    "address": "인천광역시 계양구 계산동 990-2 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "죽변항",
+    "category": "생선회",
+    "address": "서울특별시 성동구 성수동1가 13-157 뚝섬현대아파트",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "죽변항해물포차",
+    "category": "해물,생선요리",
+    "address": "서울특별시 영등포구 당산동3가 150-2",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "진동세꼬시",
+    "category": "생선회",
+    "address": "서울특별시 용산구 후암동 103-10 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "진동횟집",
+    "category": "생선회",
+    "address": "서울특별시 서초구 잠원동 18-2",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "참돔이야기",
+    "category": "생선회",
+    "address": "서울특별시 금천구 가산동 143-6 지웰스테이트2차107~108호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "철수네 해산물 먹거리장터",
+    "category": "한식",
+    "address": "서울특별시 동대문구 제기동 631-5",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "청계 어시장",
+    "category": "생선회",
+    "address": "서울특별시 중구 주교동 153-2",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "88조개",
+    "category": "한식",
+    "address": "서울특별시 송파구 잠실동 189-9 1층 88조개",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "청춘조개 오이도본점",
+    "category": "조개요리",
+    "address": "경기도 시흥시 정왕동 2030-11",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "카본",
+    "category": "양식",
+    "address": "서울특별시 강남구 청담동 18-26 1층 와인바 카본",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "태호네횟집",
+    "category": "",
+    "address": "인천광역시 중구 북성동1가 3-9",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "토말실비",
+    "category": "",
+    "address": "서울 강남구 삼성로104길 15",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "통영다찌",
+    "category": "해물,생선요리",
+    "address": "서울특별시 강남구 논현동 81-4",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "통영항 수산민족 가락시장역점",
+    "category": "조개요리",
+    "address": "서울특별시 송파구 가락동 82-7 1층 통영항 가락시장역점",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "팔팔회센타 본점",
+    "category": "생선회",
+    "address": "강원특별자치도 속초시 대포동 780",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "포항집",
+    "category": "생선회",
+    "address": "서울특별시 서초구 잠원동 8-7 청하빌딩",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "피쉬스토리",
+    "category": "생선회",
+    "address": "서울특별시 강남구 신사동 661-18 1층 16호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "필동해물",
+    "category": "한식",
+    "address": "서울특별시 중구 필동2가 97-1",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "학동포차",
+    "category": "한식",
+    "address": "서울특별시 강남구 논현동 98-12 다동 1층 104호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "한강동",
+    "category": "일식당",
+    "address": "서울특별시 용산구 한강로3가 49-2 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "한남댁",
+    "category": "요리주점",
+    "address": "서울특별시 용산구 한남동 634-14 지하1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "한남물터",
+    "category": "요리주점",
+    "address": "서울특별시 용산구 한남동 657-159 지하 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "한성회세꼬시",
+    "category": "생선회",
+    "address": "서울특별시 성북구 삼선동1가 89",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해녀",
+    "category": "한식",
+    "address": "서울특별시 중구 황학동 753-51 1층2층3층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해물기와",
+    "category": "해물,생선요리",
+    "address": "서울특별시 마포구 공덕동 242-34 1층 해물기와",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해물만선",
+    "category": "해물,생선요리",
+    "address": "서울특별시 동대문구 제기동 153 안암골벽산아파트 제2상가동",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해물점 용산 직영점",
+    "category": "요리주점",
+    "address": "서울특별시 용산구 용산동3가 1-67 1층 해물점 용산 직영점",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해물점 종각 직영점",
+    "category": "요리주점",
+    "address": "서울특별시 종로구 관철동 157-1 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해진아나고구이",
+    "category": "장어,먹장어요리",
+    "address": "부산광역시 수영구 광안동 1075-3",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "스미카츠 본점",
+    "category": "돈가스",
+    "address": "경기도 시흥시 정왕동 2036-12 1,2층 스미카츠",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "해화장",
+    "category": "생선회",
+    "address": "서울특별시 강남구 삼성동 151-18 1층 103호",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "허심탄회",
+    "category": "생선회",
+    "address": "서울특별시 송파구 석촌동 297-1 허심탄회",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "화진호 이선장네",
+    "category": "해물,생선요리",
+    "address": "강원특별자치도 속초시 교동 964-12",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "황금마차",
+    "category": "포장마차",
+    "address": "강원특별자치도 속초시 영랑동 147-227",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "회떠유",
+    "category": "생선회",
+    "address": "서울특별시 서초구 반포동 742-5 조씨밥세끼",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  },
+  {
+    "name": "후추네",
+    "category": "일식당",
+    "address": "서울특별시 관악구 봉천동 1620-21 1층",
+    "curator_id": "8a2b5c1d-9e4f-4d2a-b7c1-3f6e9a8b2c4d"
+  }
+]

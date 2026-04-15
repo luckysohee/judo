@@ -1,0 +1,457 @@
+[
+  {
+    "name": "88포장마차",
+    "category": "포장마차",
+    "address": "전라남도 목포시 용당동 1088-15 88포장마차",
+    "region": "전라남도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "SUSHI702",
+    "category": "초밥,롤",
+    "address": "서울특별시 강남구 신사동 583-1 B1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "가마솥소머리국밥",
+    "category": "국밥",
+    "address": "전라남도 구례군 구례읍 봉동리 211-13",
+    "region": "전라남도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "강릉짬뽕순두부 동화가든 본점",
+    "category": "두부요리",
+    "address": "강원특별자치도 강릉시 초당동 309-1 동화가든",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "강촌쌈밥",
+    "category": "쌈밥",
+    "address": "서울특별시 종로구 평창동 460-1 강촌쌈밥",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "경주박가국밥 본점",
+    "category": null,
+    "address": "부산 기장군 정관읍 구연2로 18",
+    "region": "부산광역시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "고미태",
+    "category": "일식당",
+    "address": "서울특별시 마포구 합정동 427-18 1층 고미태",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "골목식당",
+    "category": "국수",
+    "address": "제주특별자치도 제주시 이도일동 1347-1",
+    "region": "제주특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "곰막식당",
+    "category": "한식",
+    "address": "제주특별자치도 제주시 구좌읍 동복리 667-1",
+    "region": "제주특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "권오복 분틀 메밀국수",
+    "category": "국수",
+    "address": "강원특별자치도 강릉시 노암동 231-5",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "그집 해장국",
+    "category": "감자탕",
+    "address": "경기도 수원시 장안구 조원동 778-8 고집해장국",
+    "region": "경기도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "금강산식당",
+    "category": "한식",
+    "address": "서울특별시 용산구 청파동2가 114-3 금강산식당",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "금돼지식당",
+    "category": "돼지고기구이",
+    "address": "서울특별시 중구 신당동 370-69 1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "금산제면소",
+    "category": "국수",
+    "address": "서울특별시 중구 회현동2가 31-1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "금성식당",
+    "category": "한식",
+    "address": "경기도 용인시 처인구 양지읍 남곡리 127-17",
+    "region": "경기도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "꿉당 성수점",
+    "category": "돼지고기구이",
+    "address": "서울특별시 성동구 성수동2가 273-24 경협회관 104호",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "남동공단떡볶이",
+    "category": "떡볶이",
+    "address": "인천광역시 남동구 논현동 450",
+    "region": "인천광역시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "남북통일",
+    "category": "만두",
+    "address": "서울특별시 마포구 서교동 375-26",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "남영돈",
+    "category": "돼지고기구이",
+    "address": "서울특별시 용산구 남영동 52-2 남영돈",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "남영탉",
+    "category": null,
+    "address": "서울 용산구 한강대로80길 12",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "로바다야끼아라도",
+    "category": "이자카야",
+    "address": "서울특별시 강남구 신사동 577",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "만민식당",
+    "category": "해물,생선요리",
+    "address": "제주특별자치도 제주시 한림읍 동명리 138-3",
+    "region": "제주특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "맛이차이나",
+    "category": "중식당",
+    "address": "서울특별시 마포구 상수동 321-1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "맥파이 브루샵",
+    "category": "맥주,호프",
+    "address": "서울특별시 용산구 이태원동 691 1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "멘야준 홍대점",
+    "category": "일식당",
+    "address": "서울특별시 마포구 서교동 465-2",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "명랑막국수",
+    "category": "막국수",
+    "address": "강원특별자치도 원주시 학성동 311-18",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "명월집",
+    "category": "돼지고기구이",
+    "address": "강원특별자치도 춘천시 퇴계동 1170-6 2층() 명월집",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "명화식육식당",
+    "category": "육류,고기요리",
+    "address": "광주광역시 광산구 명화동 225-1",
+    "region": "광주광역시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "뫼촌",
+    "category": "닭요리",
+    "address": "서울특별시 마포구 도화동 184-10 뫼촌",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "문배동육칼 본점",
+    "category": "칼국수,만두",
+    "address": "서울특별시 용산구 문배동 34-1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "미성옥",
+    "category": "곰탕,설렁탕",
+    "address": "서울특별시 중구 명동1가 54-6",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "백학정",
+    "category": "한식",
+    "address": "전북특별자치도 정읍시 태인면 태성리 532 백학정",
+    "region": "전북특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "보보식당 압구정",
+    "category": "중식당",
+    "address": "서울특별시 강남구 신사동 640-2 로빈명품관 1층 103호",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "볼라레",
+    "category": "이탈리아음식",
+    "address": "서울특별시 서초구 반포동 107-2 성훈빌딩",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "봉구네가마솥순대국",
+    "category": "순대,순댓국",
+    "address": "서울특별시 서대문구 남가좌동 325-2",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "봉자마라탕",
+    "category": "중식당",
+    "address": "서울특별시 광진구 자양동 12-5",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "분식",
+    "category": "스파게티,파스타전문",
+    "address": "서울특별시 마포구 연남동 487-21 1층 우측 103호",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "브루클린더버거조인트 가로수길점",
+    "category": "햄버거",
+    "address": "서울특별시 강남구 신사동 540-11 가로수빌딩 1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "비야게레로",
+    "category": "멕시코,남미음식",
+    "address": "서울특별시 강남구 삼성동 118-21 101호",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "빨간떡볶이",
+    "category": "떡볶이",
+    "address": "부산광역시 해운대구 우동 552-2 우일종합시장 1층 빨간떡볶이(2호,3호)",
+    "region": "부산광역시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "야반",
+    "category": "한정식",
+    "address": "경기도 이천시 관고동 156-2",
+    "region": "경기도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "야상해",
+    "category": "딤섬,중식만두",
+    "address": "서울특별시 용산구 이태원동 119-16",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "여수댁",
+    "category": "한식",
+    "address": "서울특별시 용산구 이태원동 274-7",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "연정식당",
+    "category": "한식",
+    "address": "제주특별자치도 제주시 연동 256",
+    "region": "제주특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "영동포차나",
+    "category": "태국음식",
+    "address": "서울특별시 강남구 논현동 98-12 나동 2층 208호",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "옐로우보울",
+    "category": "이탈리아음식",
+    "address": "서울특별시 서대문구 충정로3가 476 구세군빌딩 지하1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "오뎅식당 의정부 본점",
+    "category": "찌개,전골",
+    "address": "경기도 의정부시 의정부동 220-58",
+    "region": "경기도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "오복수산 씨티플라자 여의도점",
+    "category": "일식당",
+    "address": "서울특별시 영등포구 여의도동 25 씨티플라자 3층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "오산횟집",
+    "category": "생선회",
+    "address": "강원특별자치도 양양군 손양면 동호리 1-4",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "오죽이네",
+    "category": "닭요리",
+    "address": "서울특별시 종로구 익선동 156",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "옥경이네건생선",
+    "category": "해물,생선요리",
+    "address": "서울특별시 중구 황학동 723-2",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "우정양곱창",
+    "category": "곱창,막창,양",
+    "address": "서울특별시 강남구 논현동 67-11 1층 우정양곱창",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "우촌숯불갈비",
+    "category": "육류,고기요리",
+    "address": "서울특별시 성동구 금호동4가 1119-2",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "원보양꼬치",
+    "category": "양꼬치",
+    "address": "서울특별시 광진구 자양동 16-37",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "원스타 올드패션드 햄버거 도곡점",
+    "category": "햄버거",
+    "address": "서울특별시 강남구 도곡동 424-11 1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "원주복추어탕",
+    "category": "추어탕",
+    "address": "강원특별자치도 원주시 개운동 406-13",
+    "region": "강원특별자치도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "월래순교자관",
+    "category": "중식당",
+    "address": "서울특별시 구로구 가리봉동 127-5 1층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "은주정",
+    "category": "찌개,전골",
+    "address": "서울특별시 중구 주교동 43-23",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "을지로보석",
+    "category": "오뎅,꼬치",
+    "address": "서울특별시 중구 저동2가 84-11 3층",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "의령식당",
+    "category": "국밥",
+    "address": "부산광역시 해운대구 우동 456-11",
+    "region": "부산광역시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "현선이네 용산본점",
+    "category": "떡볶이",
+    "address": "서울특별시 용산구 한강로2가 305-1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "호수집",
+    "category": "닭요리",
+    "address": "서울특별시 중구 중림동 61-4",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "홍릉각",
+    "category": "중식당",
+    "address": "서울특별시 동대문구 제기동 838",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "황제회관",
+    "category": "해물,생선요리",
+    "address": "전라남도 완도군 완도읍 군내리 1260-17",
+    "region": "전라남도",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  },
+  {
+    "name": "황토마당",
+    "category": "한식",
+    "address": "서울특별시 용산구 용산동3가 1-1",
+    "region": "서울특별시",
+    "curator_id": "c0aca16e-7435-4d4b-96e2-e4eaa8ea8384"
+  }
+]

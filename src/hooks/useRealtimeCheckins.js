@@ -1,7 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
+function newRealtimeTopicSuffix() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export const useRealtimeCheckins = () => {
+  /** 동일 토픽명으로 여러 훅이 구독하면 "after subscribe()" 오류 → 컴포넌트마다 고유 채널 */
+  const realtimeTopicRef = useRef(null);
+  if (realtimeTopicRef.current == null) {
+    realtimeTopicRef.current = newRealtimeTopicSuffix();
+  }
   const [hotPlaces, setHotPlaces] = useState([]);
   const [checkinRanking, setCheckinRanking] = useState([]);
   const [recentCheckins, setRecentCheckins] = useState([]);
@@ -119,7 +131,7 @@ export const useRealtimeCheckins = () => {
   // 실시간 체크인 구독
   useEffect(() => {
     const channel = supabase
-      .channel('check_ins_changes')
+      .channel(`check_ins_changes__${realtimeTopicRef.current}`)
       .on(
         'postgres_changes',
         {

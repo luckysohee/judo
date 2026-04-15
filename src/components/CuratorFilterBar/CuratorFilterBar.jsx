@@ -29,13 +29,21 @@ export default function CuratorFilterBar({
   const safeCurators = Array.isArray(curators) ? curators : [];
 
   return (
-    <div style={styles.wrap}>
+    <div style={{ ...styles.wrap, pointerEvents: "auto" }}>
       <div style={styles.scrollRow}>
         <button
           type="button"
-          onClick={onSelectAll}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectAll?.();
+          }}
           style={{
             ...styles.chip,
+            position: "relative",
+            zIndex: 2,
             ...(allActive ? styles.chipActive : null),
           }}
         >
@@ -43,13 +51,29 @@ export default function CuratorFilterBar({
         </button>
 
         {safeCurators.map((curator) => {
-          const active = selectedCurators.includes(curator.name);
+          const pick = (v) =>
+            v != null && String(v).trim() ? String(v).trim() : "";
+          const curatorKey = String(
+            pick(curator.filterKey) ||
+              pick(curator.username) ||
+              pick(curator.displayName) ||
+              pick(curator.display_name) ||
+              pick(curator.name) ||
+              pick(curator.id) ||
+              ""
+          ).trim();
+          const active = selectedCurators.some(
+            (s) =>
+              String(s ?? "")
+                .trim()
+                .toLowerCase() === curatorKey.toLowerCase()
+          );
           // 등급별 설정 가져오기
           const rankConfig = RANK_CONFIG[curator.grade] || RANK_CONFIG.default;
 
           return (
             <div
-              key={curator.id || curator.name}
+              key={curator.id || curatorKey || curator.name}
               style={{
                 ...styles.curatorChip,
                 ...(active ? styles.curatorChipActive : null),
@@ -70,8 +94,8 @@ export default function CuratorFilterBar({
                   onProfileClick?.(curator);
                 } else {
                   // 이름 영역 (나머지)
-                  const curatorName = curator.username || curator.name;
-                  onToggle?.(curatorName);
+                  const toggleId = curatorKey;
+                  if (toggleId) onToggle?.(toggleId);
                 }
               }}
             >
@@ -85,7 +109,11 @@ export default function CuratorFilterBar({
                   pointerEvents: "none", // 부모의 onClick만 사용
                 }}
               >
-                {curator.displayName || curator.name}
+                {curator.displayName ||
+                  curator.display_name ||
+                  curator.name ||
+                  curator.username ||
+                  curator.id}
               </div>
               
               {/* 등급 뱃지 */}
@@ -149,6 +177,7 @@ const styles = {
     WebkitBackdropFilter: "blur(10px)",
     boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
     whiteSpace: "nowrap",
+    touchAction: "manipulation",
   },
 
   curatorChip: {
@@ -167,6 +196,7 @@ const styles = {
     whiteSpace: "nowrap",
     cursor: "pointer",
     transition: "all 0.2s ease",
+    touchAction: "manipulation",
   },
 
   profileButton: {

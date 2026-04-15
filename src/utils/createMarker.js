@@ -1,5 +1,3 @@
-import { useRealtimeCheckins } from '../hooks/useRealtimeCheckins';
-
 // 폴더 색상 매핑
 const FOLDER_COLORS = {
   after_party: '#FF8C42',    // orange

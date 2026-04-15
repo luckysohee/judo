@@ -1,0 +1,242 @@
+[
+  {
+    "name": "41번 포차",
+    "category": "포장마차",
+    "address": "전라남도 여수시 봉산동 266-15",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "가든포차",
+    "category": "한식",
+    "address": "서울특별시 도봉구 방학동 산63-1 가든포차(구)고려가든",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "경상도식당",
+    "category": "돼지고기구이",
+    "address": "서울특별시 중구 을지로6가 1-1",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "Backstreet Gosung2",
+    "category": "육류,고기요리",
+    "address": "대구광역시 중구 동문동 37-1",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "골목분식",
+    "category": "종합분식",
+    "address": "서울특별시 종로구 장사동 38-3",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "공원분식",
+    "category": "포차포장마차",
+    "address": "서울특별시 동대문구 전농동 295-144",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "그때그집",
+    "category": "전통,민속주점",
+    "address": "서울특별시 용산구 서계동 260-1 만리시장입구 그때그집",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "기찻길연탄불생고기",
+    "category": "돼지고기구이",
+    "address": "서울특별시 영등포구 당산동6가 320",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "까치네닭볶음탕",
+    "category": "닭요리",
+    "address": "서울특별시 용산구 남영동 40-4 까치네",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "까치둥지",
+    "category": "매운탕,해물탕",
+    "address": "강원특별자치도 원주시 단구동 500-1",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "꼬꼬닭발 용산점",
+    "category": "닭발",
+    "address": "서울특별시 용산구 서계동 261-23",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "나드리식품",
+    "category": "식품",
+    "address": "서울 중구 주교동 208",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "나우구이집",
+    "category": "돼지고기구이",
+    "address": "강원특별자치도 원주시 우산동 230-24",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "나진국밥",
+    "category": "국밥",
+    "address": "전라남도 여수시 화양면 나진리 430-4 나진국밥",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "원조남원닭발 본점",
+    "category": "닭발",
+    "address": "서울특별시 중구 신당동 132-34",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "낭만포차",
+    "category": "포장마차",
+    "address": "전라남도 여수시 여서동 211",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "너구리포차",
+    "category": "포장마차",
+    "address": "강원특별자치도 원주시 개운동 405-8",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "너랑나랑호프",
+    "category": "맥주,호프",
+    "address": "서울특별시 마포구 망원동 386-3 삼미빌딩 1층",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "노다지집",
+    "category": "포장마차",
+    "address": "강원특별자치도 원주시 개운동 385-10",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "부민옥",
+    "category": "육류,고기요리",
+    "address": "서울특별시 중구 다동 177-2",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "산골",
+    "category": "한식",
+    "address": "서울특별시 관악구 봉천동 32-2",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "상록식당",
+    "category": "돼지고기구이",
+    "address": "제주특별자치도 서귀포시 토평동 1310-20",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "새문순대국",
+    "category": "한식",
+    "address": "서울특별시 마포구 대흥동 18-9",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "서울식품",
+    "category": "슈퍼,마트",
+    "address": "서울특별시 종로구 관수동 102-2",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "세운나다방",
+    "category": "다방",
+    "address": "서울특별시 중구 산림동 207-2 대림상가 464-4호, 4층 세운나다방",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "수복센타",
+    "category": "오뎅,꼬치",
+    "address": "부산광역시 중구 남포동2가 15-1",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "순돌이곱창",
+    "category": "곱창,막창,양",
+    "address": "전북특별자치도 군산시 신창동 18-2",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "시굴집",
+    "category": "백숙,삼계탕",
+    "address": "인천광역시 서구 검암동 253-1 시굴집",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "쌍용폐계닭 본점",
+    "category": "닭요리",
+    "address": "경기도 평택시 합정동 728-16",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "엄정분식",
+    "category": "종합분식",
+    "address": "충청북도 충주시 충인동 228",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "엉터리통닭",
+    "category": "치킨,닭강정",
+    "address": "서울특별시 용산구 이태원동 225-154",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "연남서식당",
+    "category": "한식",
+    "address": "서울 마포구 백범로2길 32",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "영덕회식당",
+    "category": "생선회",
+    "address": "서울특별시 중구 충무로4가 56-3 1층 영덕회식당",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "옛날할머니분식",
+    "category": "떡볶이",
+    "address": "서울특별시 중랑구 중화동 297-64 1층",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "용강식당",
+    "category": "한식",
+    "address": "서울특별시 중구 인현동2가 92-9",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "용궁단골식당본점",
+    "category": "순대,순댓국",
+    "address": "경상북도 예천군 용궁면 읍부리 299-6",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "용마갈비",
+    "category": "육류,고기요리",
+    "address": "서울특별시 중랑구 망우동 403-60",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "용마루굴다리껍데기",
+    "category": "육류,고기요리",
+    "address": "서울특별시 마포구 공덕동 22-13",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "할머니포장마차",
+    "category": "멸치국수",
+    "address": "서울특별시 송파구 방이동 49-5 올림픽파크존",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  },
+  {
+    "name": "황소집",
+    "category": "곰탕,설렁탕",
+    "address": "서울특별시 중구 충무로3가 36-4",
+    "curator_id": "2fba03a4-5a6d-43e2-a7d8-7c78fa8df752"
+  }
+]

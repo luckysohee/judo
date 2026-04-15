@@ -1,0 +1,20 @@
+소주안조 배치 JSON (curator_places 용)
+=====================================
+
+원본(과거 레거시 PK 문자열이었던 경우 — 지금은 import용으로 통일 UUID 로 바꿔 둠):
+  data/curator_batch_c57a_soju_anjo_places.json
+  curator_id = d5e6f7a8-b9c0-4d1e-af2b-3c4d5e6f7a8b
+
+import 스크립트용 동일 277건:
+  data/curator_batch_soju_anjo_places_import_ready.json
+
+채팅으로 준 레거시 c57a… 목록과 동일 277건 + note(연서시장·종로3가역) 반영본:
+  data/curator_batch_soju_anjo_places_wave2.json
+  (curator_id 는 import_ready 와 같이 d5e6f7a8-b9c0-4d1e-af2b-3c4d5e6f7a8b)
+
+실행 예:
+  node scripts/importJsonPlacesForCurator.mjs data/curator_batch_soju_anjo_places_import_ready.json
+  node scripts/importJsonPlacesForCurator.mjs data/curator_batch_soju_anjo_places_wave2.json
+
+주의:
+- public.curators 해당 행의 id 가 위 UUID 이고 user_id 가 채워져 있어야 합니다.

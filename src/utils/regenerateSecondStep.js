@@ -1,6 +1,6 @@
 import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILES } from "./courseProfiles.js";
-import { haversineMeters } from "./placeCoords.js";
+import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { getMinutesUntilClose } from "./timeUtils.js";
 import {
   calculateCoursePlaceScore,
@@ -45,6 +45,10 @@ export function regenerateSecondStep({
   const firstPlace = selectedCourse.steps[0].place;
   const currentSecond = selectedCourse.steps[1]?.place;
 
+  const wFirst = resolvePlaceWgs84(firstPlace);
+  if (!wFirst) return [];
+  const firstAnchor = { ...firstPlace, lat: wFirst.lat, lng: wFirst.lng };
+
   let areaPlaces = filterByArea(places, parsedQuery.area);
   let effectiveParsed = parsedQuery;
   if (!areaPlaces.length && parsedQuery.area) {
@@ -56,15 +60,30 @@ export function regenerateSecondStep({
   const distanceLimits = walkable ? [500, 700, 1000] : [2000];
 
   const candidates = areaPlaces
-    .filter(
-      (place) =>
-        !isSameVenueForCourseStep(firstPlace, place) &&
-        (!currentSecond || !isSameVenueForCourseStep(currentSecond, place))
-    )
+    .map((place) => {
+      const w = resolvePlaceWgs84(place);
+      if (!w) return null;
+      return { ...place, lat: w.lat, lng: w.lng };
+    })
+    .filter(Boolean)
+    .filter((place) => {
+      if (isSameVenueForCourseStep(firstAnchor, place)) return false;
+      if (!currentSecond) return true;
+      const w2 = resolvePlaceWgs84(currentSecond);
+      if (w2) {
+        return !isSameVenueForCourseStep(
+          { ...currentSecond, lat: w2.lat, lng: w2.lng },
+          place
+        );
+      }
+      const sid = placeId(currentSecond);
+      const pid = placeId(place);
+      return sid == null || pid == null || String(sid) !== String(pid);
+    })
     .map((place) => {
       const distance = haversineMeters(
-        Number(firstPlace.lat),
-        Number(firstPlace.lng),
+        Number(firstAnchor.lat),
+        Number(firstAnchor.lng),
         Number(place.lat),
         Number(place.lng)
       );

@@ -1,0 +1,872 @@
+[
+  {
+    "name": "가담",
+    "category": "중식당",
+    "address": "서울특별시 강남구 신사동 608-8",
+    "region": "서울특별시",
+    "lat": 37.5263766795909,
+    "lng": 127.030267325363,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "가연국시",
+    "category": "한식",
+    "address": "서울특별시 강남구 역삼동 704-50 남경선능빌딩 1층",
+    "region": "서울특별시",
+    "lat": 37.5048932476797,
+    "lng": 127.046119712049,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "감초식당",
+    "category": "돼지고기구이",
+    "address": "서울특별시 동대문구 제기동 892-12",
+    "region": "서울특별시",
+    "lat": 37.579545494569,
+    "lng": 127.036262691012,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "강남진해장",
+    "category": "한식",
+    "address": "서울특별시 강남구 역삼동 819-4",
+    "region": "서울특별시",
+    "lat": 37.4995271009211,
+    "lng": 127.029260058332,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "갯마을 한강로점",
+    "category": "칼국수/만두",
+    "address": "서울특별시 용산구 한강로3가 65-550",
+    "region": "서울특별시",
+    "lat": 37.5230357206244,
+    "lng": 126.970275324508,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "경원식당 본점",
+    "category": "찌개/전골",
+    "address": "경기도 의정부시 의정부동 483",
+    "region": "경기도",
+    "lat": 37.7402485349053,
+    "lng": 127.038270342257,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "고다이 한남본점",
+    "category": "양갈비",
+    "address": "서울특별시 용산구 한남동 30-4 1층",
+    "region": "서울특별시",
+    "lat": 37.5346031277256,
+    "lng": 127.008828798177,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "고디바 베이커리 카페 도산점",
+    "category": "카페/디저트",
+    "address": "서울 강남구 도산대로49길 15",
+    "region": "서울특별시",
+    "lat": 37.5238779875217,
+    "lng": 127.037023763409,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "군위식당",
+    "category": "국밥",
+    "address": "대구광역시 중구 포정동 21-3 중앙상가",
+    "region": "대구광역시",
+    "lat": 35.8722459025381,
+    "lng": 128.59224319934,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "권영수대가전골",
+    "category": "한식",
+    "address": "서울특별시 동대문구 제기동 1019 본관1층 10057호",
+    "region": "서울특별시",
+    "lat": 37.5791638481844,
+    "lng": 127.039313042101,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "금천문 & 오향족발",
+    "category": "족발/보쌈",
+    "address": "서울특별시 용산구 남영동 84-8 1층",
+    "region": "서울특별시",
+    "lat": 37.5422155557038,
+    "lng": 126.973090435105,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "김제식당",
+    "category": "한식",
+    "address": "서울 동대문구 고산자로36길 3",
+    "region": "서울특별시",
+    "lat": 37.5790377655561,
+    "lng": 127.039142935818,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "나진국밥",
+    "category": "국밥",
+    "address": "전라남도 여수시 화양면 나진리 430-4",
+    "region": "전라남도",
+    "lat": 34.7068915210351,
+    "lng": 127.613249942982,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "남도보쌈파전",
+    "category": "한식",
+    "address": "서울특별시 동대문구 장안동 310-3 대진빌딩 1층",
+    "region": "서울특별시",
+    "lat": 37.5746629556792,
+    "lng": 127.072248957103,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "남영돈",
+    "category": "돼지고기구이",
+    "address": "서울특별시 용산구 남영동 52-2",
+    "region": "서울특별시",
+    "lat": 37.5427528866478,
+    "lng": 126.973779350839,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "남원통닭 본관",
+    "category": "치킨/닭강정",
+    "address": "서울특별시 동대문구 제기동 635-6 1층 7호",
+    "region": "서울특별시",
+    "lat": 37.5803776247236,
+    "lng": 127.042553328467,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "넘버원양꼬치",
+    "category": "양꼬치",
+    "address": "서울특별시 용산구 보광동 238-56",
+    "region": "서울특별시",
+    "lat": 37.5304811576875,
+    "lng": 126.996941604621,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "녹동뻘낙지",
+    "category": "낙지요리",
+    "address": "서울특별시 중구 신당동 370-46",
+    "region": "서울특별시",
+    "lat": 37.5580349323144,
+    "lng": 127.012170970671,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "농부와닭동네 여의도MBC점",
+    "category": "치킨/닭강정",
+    "address": "서울특별시 영등포구 여의도동 21-4",
+    "region": "서울특별시",
+    "lat": 37.5260301293081,
+    "lng": 126.930751200367,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "뉴 델리",
+    "category": "인도음식",
+    "address": "서울특별시 강남구 신사동 613-15",
+    "region": "서울특별시",
+    "lat": 37.5275044603217,
+    "lng": 127.030630140025,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "방화동 교동짬뽕",
+    "category": "중식당",
+    "address": "서울특별시 강서구 방화동 323-8 이루미팰리스 101호",
+    "region": "서울특별시",
+    "lat": 37.5774062729746,
+    "lng": 126.815759647447,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "버거스낵",
+    "category": "햄버거",
+    "address": "서울특별시 용산구 이태원동 565",
+    "region": "서울특별시",
+    "lat": 37.5373195070799,
+    "lng": 126.987631110339,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "번동피순대",
+    "category": "순대/순댓국",
+    "address": "서울특별시 도봉구 창동 578-126 1층",
+    "region": "서울특별시",
+    "lat": 37.6386180564463,
+    "lng": 127.037689497029,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "복춘식당",
+    "category": "아귀찜/해물찜",
+    "address": "전라남도 여수시 교동 472",
+    "region": "전라남도",
+    "lat": 34.7395818995519,
+    "lng": 127.734079266968,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "부영각",
+    "category": "중식당",
+    "address": "서울특별시 마포구 용강동 494-61",
+    "region": "서울특별시",
+    "lat": 37.542523793166,
+    "lng": 126.939507404457,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "부자피자 1호점",
+    "category": "피자",
+    "address": "서울특별시 용산구 한남동 743-33",
+    "region": "서울특별시",
+    "lat": 37.5372706897598,
+    "lng": 126.999811046376,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "부흥왕족발",
+    "category": "족발/보쌈",
+    "address": "서울특별시 강남구 청담동 62-1 1층",
+    "region": "서울특별시",
+    "lat": 37.5231284059808,
+    "lng": 127.048784609343,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "산지",
+    "category": "한식",
+    "address": "서울특별시 중구 신당동 844 스포츠센터동 1층 104호",
+    "region": "서울특별시",
+    "lat": 37.5486807945139,
+    "lng": 127.008880476432,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "삼계탕마을 래미안퍼스티지점",
+    "category": "백숙/삼계탕",
+    "address": "서울특별시 서초구 반포동 18-3",
+    "region": "서울특별시",
+    "lat": 37.5043398401292,
+    "lng": 127.00085217962,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "삼호 짱뚱이",
+    "category": "해물/생선요리",
+    "address": "서울특별시 강남구 논현동 64",
+    "region": "서울특별시",
+    "lat": 37.5196234635249,
+    "lng": 127.031044667535,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "샤오롱바오",
+    "category": "중식당",
+    "address": "서울특별시 광진구 자양동 600 1층",
+    "region": "서울특별시",
+    "lat": 37.5313794003326,
+    "lng": 127.07538814402,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "서대문 양꼬치 BAR",
+    "category": "양꼬치",
+    "address": "서울특별시 마포구 연남동 255-20 2층",
+    "region": "서울특별시",
+    "lat": 37.5624042025268,
+    "lng": 126.924176312533,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "서령 본점",
+    "category": "한식",
+    "address": "서울특별시 중구 남대문로5가 120 1층",
+    "region": "서울특별시",
+    "lat": 37.5585590955361,
+    "lng": 126.975430626737,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "서린낙지",
+    "category": "낙지요리",
+    "address": "서울특별시 종로구 종로1가 24 르메이에르종로타운1 2층",
+    "region": "서울특별시",
+    "lat": 37.5704589394035,
+    "lng": 126.979850194195,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "서부감자국",
+    "category": "감자탕",
+    "address": "서울특별시 은평구 녹번동 181",
+    "region": "서울특별시",
+    "lat": 37.6022568835758,
+    "lng": 126.926944792763,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "서이축산",
+    "category": "정육점",
+    "address": "서울특별시 서초구 반포동 96-4 A동",
+    "region": "서울특별시",
+    "lat": 37.4975184919388,
+    "lng": 126.998107281641,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "성수아구찜",
+    "category": "아귀찜/해물찜",
+    "address": "서울특별시 성동구 성수동1가 656-318 1층",
+    "region": "서울특별시",
+    "lat": 37.5455689004856,
+    "lng": 127.045891057891,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "성천막국수 논현점",
+    "category": "막국수",
+    "address": "서울특별시 서초구 반포동 706-6 106호",
+    "region": "서울특별시",
+    "lat": 37.5104156836216,
+    "lng": 127.020613786282,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "소문난성수감자탕",
+    "category": "감자탕",
+    "address": "서울특별시 성동구 성수동2가 315-100",
+    "region": "서울특별시",
+    "lat": 37.5428854313678,
+    "lng": 127.054429511745,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "수제 별미순대국",
+    "category": "순대/순댓국",
+    "address": "경기도 의정부시 의정부동 511-4",
+    "region": "경기도",
+    "lat": 37.7370736740028,
+    "lng": 127.040237619893,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "오띠젤리베이커리",
+    "category": "카페/디저트",
+    "address": "서울특별시 용산구 이태원동 34-50 1층",
+    "region": "서울특별시",
+    "lat": 37.5332569677087,
+    "lng": 126.989299914773,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "오소록 답십리점",
+    "category": "국수",
+    "address": "서울특별시 동대문구 답십리동 276-24 1층",
+    "region": "서울특별시",
+    "lat": 37.5679706059044,
+    "lng": 127.056619014298,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "와일드버팔로",
+    "category": "양식",
+    "address": "서울특별시 강남구 신사동 662-15 1층",
+    "region": "서울특별시",
+    "lat": 37.5272191920932,
+    "lng": 127.039200917894,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "완도전복",
+    "category": "전복요리",
+    "address": "서울특별시 중구 신당동 373-129",
+    "region": "서울특별시",
+    "lat": 37.5526889705105,
+    "lng": 127.011998310432,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "왕스덕 논현점",
+    "category": "중식당",
+    "address": "서울특별시 강남구 논현동 4-18 하림타워 지하1층",
+    "region": "서울특별시",
+    "lat": 37.5171788149032,
+    "lng": 127.02297376612,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "우미26",
+    "category": "육류/고기요리",
+    "address": "서울특별시 서대문구 냉천동 218",
+    "region": "서울특별시",
+    "lat": 37.5679239542238,
+    "lng": 126.9641343624,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "우정",
+    "category": "육류/고기요리",
+    "address": "서울특별시 강남구 청담동 85-13 1층",
+    "region": "서울특별시",
+    "lat": 37.5250973828248,
+    "lng": 127.04038775938,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "원조신촌설렁탕",
+    "category": "곰탕/설렁탕",
+    "address": "서울특별시 마포구 공덕동 119-45",
+    "region": "서울특별시",
+    "lat": 37.5482220783919,
+    "lng": 126.9562627203,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "원조추어탕",
+    "category": "추어탕",
+    "address": "서울특별시 동작구 사당동 89-15 석원빌딩",
+    "region": "서울특별시",
+    "lat": 37.4896865539378,
+    "lng": 126.981873661091,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "월드양념통닭",
+    "category": "치킨/닭강정",
+    "address": "부산광역시 사하구 장림동 792-7",
+    "region": "부산광역시",
+    "lat": 35.0807660816371,
+    "lng": 128.967877750837,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "육개옥",
+    "category": "한식",
+    "address": "서울특별시 강남구 논현동 206-5",
+    "region": "서울특별시",
+    "lat": 37.5072454162212,
+    "lng": 127.032254466942,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "윤밀원",
+    "category": "족발/보쌈",
+    "address": "경기도 성남시 분당구 정자동 46-5 1층",
+    "region": "경기도",
+    "lat": 37.37264895087,
+    "lng": 127.114948034458,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "을지칼국수",
+    "category": "칼국수/만두",
+    "address": "서울특별시 중구 을지로3가 291-45",
+    "region": "서울특별시",
+    "lat": 37.5660257571043,
+    "lng": 126.993109031718,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이가네가마솥설렁탕",
+    "category": "곰탕/설렁탕",
+    "address": "서울특별시 은평구 녹번동 141-39",
+    "region": "서울특별시",
+    "lat": 37.6074883299647,
+    "lng": 126.924697057612,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이남장 삼성점",
+    "category": "곰탕/설렁탕",
+    "address": "서울특별시 강남구 삼성동 165-12",
+    "region": "서울특별시",
+    "lat": 37.5136173001417,
+    "lng": 127.064441006635,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이식당",
+    "category": "육류/고기요리",
+    "address": "서울특별시 종로구 평창동 152-2 1F",
+    "region": "서울특별시",
+    "lat": 37.6069241701879,
+    "lng": 126.971497704235,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이조갈비",
+    "category": "육류/고기요리",
+    "address": "서울특별시 중구 무학동 58",
+    "region": "서울특별시",
+    "lat": 37.563892554351,
+    "lng": 127.014787541895,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이조순대국",
+    "category": "순대/순댓국",
+    "address": "서울특별시 용산구 원효로2가 91-10",
+    "region": "서울특별시",
+    "lat": 37.5352056034099,
+    "lng": 126.960337013319,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이태원숯불구이",
+    "category": "육류/고기요리",
+    "address": "서울특별시 용산구 이태원동 44-13",
+    "region": "서울특별시",
+    "lat": 37.533057171875,
+    "lng": 126.990928134103,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "이품",
+    "category": "중식당",
+    "address": "서울특별시 서대문구 연희동 132-19",
+    "region": "서울특별시",
+    "lat": 37.5675696686402,
+    "lng": 126.930107187786,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "충북순대",
+    "category": "순대/순댓국",
+    "address": "서울특별시 동작구 흑석동 50-24 1층",
+    "region": "서울특별시",
+    "lat": 37.5078620155582,
+    "lng": 126.963844397872,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "카페 오쁘띠베르",
+    "category": "카페/디저트",
+    "address": "서울특별시 종로구 통인동 114 1층",
+    "region": "서울특별시",
+    "lat": 37.5802636108323,
+    "lng": 126.970994798727,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "코치",
+    "category": "일식/튀김/꼬치",
+    "address": "서울특별시 성동구 성수동2가 565 1층",
+    "region": "서울특별시",
+    "lat": 37.5382395519428,
+    "lng": 127.055128779561,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "크리스피포크타운",
+    "category": "멕시코/남미음식",
+    "address": "서울특별시 용산구 이태원동 455-33 1층",
+    "region": "서울특별시",
+    "lat": 37.5345365840933,
+    "lng": 126.988499367203,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "태화장",
+    "category": "중식당",
+    "address": "대전광역시 동구 정동 36-32",
+    "region": "대전광역시",
+    "lat": 36.3338493921613,
+    "lng": 127.429361279112,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "토마루해물칼국수",
+    "category": "칼국수/만두",
+    "address": "서울특별시 송파구 잠실동 233-11 1층",
+    "region": "서울특별시",
+    "lat": 37.5058944480989,
+    "lng": 127.084808042387,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "편의방",
+    "category": "중식당",
+    "address": "서울특별시 서대문구 연희동 353-94",
+    "region": "서울특별시",
+    "lat": 37.5618268625704,
+    "lng": 126.927505043268,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "풍성감자탕",
+    "category": "한식",
+    "address": "서울특별시 광진구 구의동 246-16 1층",
+    "region": "서울특별시",
+    "lat": 37.5372998229102,
+    "lng": 127.084010616586,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "필동면옥",
+    "category": "냉면",
+    "address": "서울특별시 중구 필동3가 1-5",
+    "region": "서울특별시",
+    "lat": 37.5603968525828,
+    "lng": 126.99692057557,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "하남숯불닭갈비 미사본점",
+    "category": "닭갈비",
+    "address": "경기도 하남시 미사동 205-2",
+    "region": "경기도",
+    "lat": 37.5659901754834,
+    "lng": 127.205558232123,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "하이콴",
+    "category": "베트남음식",
+    "address": "서울특별시 서초구 반포동 706-8 1층",
+    "region": "서울특별시",
+    "lat": 37.5107197300354,
+    "lng": 127.020856481818,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "한국횟집",
+    "category": "일식당",
+    "address": "서울특별시 중랑구 중화동 300-38 1층",
+    "region": "서울특별시",
+    "lat": 37.5970658978543,
+    "lng": 127.07621814484,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "한재골 가든",
+    "category": "한식",
+    "address": "전라남도 담양군 대전면 평장리 394-1",
+    "region": "전라남도",
+    "lat": 35.2941779507722,
+    "lng": 126.880646245509,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "함덕골목 본점",
+    "category": "한식",
+    "address": "제주특별자치도 제주시 조천읍 조천리 1209-13",
+    "region": "제주특별자치도",
+    "lat": 33.5393075476738,
+    "lng": 126.641020604784,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "함평국밥",
+    "category": "국밥",
+    "address": "서울특별시 중랑구 상봉동 90-64",
+    "region": "서울특별시",
+    "lat": 37.5954645469891,
+    "lng": 127.089229352018,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "함흥냉면",
+    "category": "냉면",
+    "address": "서울특별시 영등포구 영등포동3가 7-32",
+    "region": "서울특별시",
+    "lat": 37.5189718379819,
+    "lng": 126.906755395363,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "함흥면옥 압구정점",
+    "category": "냉면",
+    "address": "서울특별시 강남구 신사동 592-4 제이와이빌딩",
+    "region": "서울특별시",
+    "lat": 37.5222206963811,
+    "lng": 127.028536559097,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "해남순대국",
+    "category": "순대/순댓국",
+    "address": "서울특별시 중구 신당동 366-9",
+    "region": "서울특별시",
+    "lat": 37.5528618891268,
+    "lng": 127.009867583773,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "해녀촌",
+    "category": "국수",
+    "address": "제주특별자치도 제주시 구좌읍 동복리 1502-1",
+    "region": "제주특별자치도",
+    "lat": 33.5536381823707,
+    "lng": 126.709889423828,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "해봉정육 본점",
+    "category": "육류/고기요리",
+    "address": "서울특별시 강남구 대치동 999-6 대동빌딩 1층",
+    "region": "서울특별시",
+    "lat": 37.5078776729384,
+    "lng": 127.066481173471,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "해진아나고구이",
+    "category": "장어/먹장어요리",
+    "address": "부산광역시 수영구 광안동 1075-3",
+    "region": "부산광역시",
+    "lat": 35.1662868487824,
+    "lng": 129.113910792366,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "향동가",
+    "category": "한식",
+    "address": "서울특별시 강남구 논현동 79-4 1층",
+    "region": "서울특별시",
+    "lat": 37.5162710313247,
+    "lng": 127.031306269172,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "현대순대국",
+    "category": "순대/순댓국",
+    "address": "서울특별시 강남구 논현동 161 남경빌딩",
+    "region": "서울특별시",
+    "lat": 37.5090625881698,
+    "lng": 127.024235320837,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "홍명",
+    "category": "중식당",
+    "address": "서울특별시 강남구 논현동 37-9 미현빌딩 1층",
+    "region": "서울특별시",
+    "lat": 37.5145552763238,
+    "lng": 127.029451993056,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "화목순대국",
+    "category": "순대/순댓국",
+    "address": "서울특별시 영등포구 여의도동 44-14 1F",
+    "region": "서울특별시",
+    "lat": 37.519378799617,
+    "lng": 126.931456195778,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "화진호 이선장네",
+    "category": "해물/생선요리",
+    "address": "강원특별자치도 속초시 교동 964-12",
+    "region": "강원특별자치도",
+    "lat": 38.1954018973001,
+    "lng": 128.573210747774,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  },
+  {
+    "name": "효제루",
+    "category": "중식당",
+    "address": "서울특별시 종로구 효제동 301-2 1층",
+    "region": "서울특별시",
+    "lat": 37.5726047355503,
+    "lng": 127.002262175151,
+    "kakao_place_id": null,
+    "geocode_ok": true
+  }
+]

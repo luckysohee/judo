@@ -147,6 +147,7 @@ export default function SaveModal({
       const sessionId = searchSessionIdRef?.current ?? null;
       const folderRes = await upsertUserSavedPlaceFolders(supabase, {
         placeId: place.id,
+        placeSnapshot: place,
         folderKeys: selectedFolders,
         firstSavedFrom,
         extraSavedPlaceFields: sessionId
@@ -163,7 +164,7 @@ export default function SaveModal({
       if (sessionId) {
         await markSearchSessionBookmarked({
           sessionId,
-          placeId: place.id,
+          placeId: folderRes.placeUuid ?? place.id,
           user,
         });
       }

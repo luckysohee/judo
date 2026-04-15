@@ -43,6 +43,7 @@ import {
 } from "../../utils/storage";
 
 import { getCustomPlaces } from "../../utils/customPlacesStorage";
+import { curatorPlaceMatchesLoggedInCurator } from "../../utils/curatorPlacesCuratorIdMode";
 import { mapClickCoordToPreviewPlace } from "../../utils/mapClickCoordToPreviewPlace";
 import {
   resolveMapClickVenue,
@@ -116,15 +117,15 @@ import {
   formatCourseLegDistanceSummary,
 } from "../../utils/formatCourseUi";
 import { fetchCourseWalkingRoute } from "../../utils/fetchCourseWalkingRoute.js";
-import {
-  buildGoogleMapsWalkingDirectionsUrl,
-  buildKakaoMapFromToUrls,
-  openInNewTab,
-} from "../../utils/externalMapDirections.js";
 import { getRegenerateSecondLabel } from "../../utils/regenerateSecondStep.js";
 import { buildCourseSummary } from "../../utils/buildCourseSummary";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
 import { courseOptionsToMapPlaces } from "../../utils/generateCourseOptions.js";
+import {
+  addLegacyPlaceCuratorAliasesToKeySet,
+  addLegacyPlaceCuratorIdsForUsername,
+  expandLegacyPlaceCuratorIdIfAny,
+} from "../../utils/curatorLegacyPlaceIds";
 
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(/\/$/, "");
@@ -145,6 +146,97 @@ function applyLegendCategoryFilter(places, legendCategory) {
   }
 
   return places;
+}
+
+/**
+ * 장소에 붙은 추천(curator_places) ↔ 칩 키(username·display_name·행 id·auth uid) 교차 매칭.
+ * curator_id 가 auth.uid 인 경우 조인이 비어도 dbCurators.userId 로 핸들·닉네임을 풀어 넣음.
+ */
+function buildPlaceCuratorFilterKeySet(place, dbCurators) {
+  const keys = new Set();
+  const add = (v) => {
+    const s = String(v ?? "").trim().toLowerCase();
+    if (s) keys.add(s);
+  };
+  for (const v of place.curatorUsernames || []) add(v);
+  for (const v of place.curators || []) add(v);
+  for (const cp of place.curatorPlaces || []) {
+    add(cp.curator_id);
+    add(cp.curators?.username);
+    add(cp.curators?.display_name);
+    add(cp.curators?.user_id);
+    add(cp.curators?.id);
+  }
+  if (Array.isArray(dbCurators) && dbCurators.length > 0) {
+    for (const cp of place.curatorPlaces || []) {
+      const cid = String(cp.curator_id ?? "").trim().toLowerCase();
+      if (!cid) continue;
+      for (const c of dbCurators) {
+        const rowUid = String(c.userId ?? "").trim().toLowerCase();
+        const rowPk = String(c.id ?? "").trim().toLowerCase();
+        if ((rowUid && rowUid === cid) || (rowPk && rowPk === cid)) {
+          add(c.username);
+          add(c.displayName);
+          add(c.filterKey);
+          add(c.name);
+          add(c.slug);
+          add(c.id);
+          if (rowUid) add(rowUid);
+        }
+      }
+    }
+  }
+  addLegacyPlaceCuratorAliasesToKeySet(keys);
+  return keys;
+}
+
+/** 칩에서 넘긴 문자열(@제거·소문자)을 dbCurators 행의 모든 별칭으로 확장 */
+function expandCuratorChipSelectionKeys(raw, dbCurators) {
+  const sel = String(raw ?? "")
+    .trim()
+    .replace(/^@+/u, "")
+    .toLowerCase();
+  const out = new Set();
+  if (!sel) return out;
+  out.add(sel);
+  expandLegacyPlaceCuratorIdIfAny(sel, (x) => out.add(x));
+  for (const c of dbCurators || []) {
+    const aliases = [
+      c.username,
+      c.displayName,
+      c.name,
+      c.filterKey,
+      c.slug,
+      c.id,
+      c.userId,
+    ]
+      .map((x) =>
+        String(x ?? "")
+          .trim()
+          .replace(/^@+/u, "")
+          .toLowerCase()
+      )
+      .filter(Boolean);
+    if (!aliases.includes(sel)) continue;
+    aliases.forEach((a) => out.add(a));
+    const handleLc =
+      String(c.username ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/^@+/u, "") ||
+      String(c.slug ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/^@+/u, "") ||
+      String(c.filterKey ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/^@+/u, "");
+    if (handleLc) {
+      addLegacyPlaceCuratorIdsForUsername(handleLc, (x) => out.add(x));
+    }
+  }
+  return out;
 }
 
 /** localStorage(savedMap) + Supabase(user_saved_places → userSavedPlaces) 저장 키 합집합 */
@@ -659,33 +751,56 @@ export default function Home() {
           kakaoId: kakaoPlace.id,
         };
 
-        // Supabase에 업데이트 (선택적)
+        // Supabase places 스키마(앱 전반): name, address, lat, lng, category, kakao_place_id, phone 등만 존재.
+        // category_name / x / y / kakaoId / isKakaoEnriched 는 DB 컬럼이 아니면 400.
         try {
-          await supabase
-            .from('places')
-            .update({
-              category_name: kakaoPlace.category_name || place.category_name,
-              phone: kakaoPlace.phone,
-              road_address_name: kakaoPlace.road_address_name,
-              address_name: kakaoPlace.address_name,
-              place_url: kakaoPlace.place_url,
-              x: kakaoPlace.x,
-              y: kakaoPlace.y,
-              ...(Number.isFinite(ky) && Number.isFinite(kx)
-                ? { lat: ky, lng: kx }
-                : {}),
-              isKakaoEnriched: true,
-              kakaoId: kakaoPlace.id,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', place.id);
-          
-          if (import.meta.env.DEV) {
-            console.log("🔄 Supabase 장소 정보 업데이트 완료");
+          const kid =
+            kakaoPlace.id != null ? String(kakaoPlace.id).trim() : "";
+          const nextAddr =
+            (kakaoPlace.road_address_name &&
+              String(kakaoPlace.road_address_name).trim()) ||
+            (kakaoPlace.address_name &&
+              String(kakaoPlace.address_name).trim()) ||
+            null;
+          const nextCat =
+            (kakaoPlace.category_name &&
+              String(kakaoPlace.category_name).trim()) ||
+            (place.category && String(place.category).trim()) ||
+            null;
+          const patch = {};
+          if (nextCat) patch.category = nextCat;
+          if (nextAddr) patch.address = nextAddr;
+          if (kakaoPlace.phone != null && String(kakaoPlace.phone).trim() !== "") {
+            patch.phone = String(kakaoPlace.phone).trim();
+          }
+          if (Number.isFinite(ky) && Number.isFinite(kx)) {
+            patch.lat = ky;
+            patch.lng = kx;
+          }
+          if (/^\d+$/.test(kid)) {
+            patch.kakao_place_id = kid;
+          }
+
+          if (Object.keys(patch).length === 0) {
+            if (import.meta.env.DEV) {
+              console.log("⏭️ Supabase places PATCH 생략: 갱신할 필드 없음");
+            }
+          } else {
+            const { error: updErr } = await supabase
+              .from("places")
+              .update(patch)
+              .eq("id", place.id);
+            if (updErr) {
+              if (import.meta.env.DEV) {
+                console.warn("⚠️ Supabase places PATCH 실패:", updErr.message);
+              }
+            } else if (import.meta.env.DEV) {
+              console.log("🔄 Supabase 장소 정보 PATCH 완료");
+            }
           }
         } catch (updateError) {
           if (import.meta.env.DEV) {
-            console.log("⚠️ Supabase 업데이트 실패:", updateError.message);
+            console.log("⚠️ Supabase 업데이트 예외:", updateError.message);
           }
         }
 
@@ -1119,6 +1234,8 @@ export default function Home() {
   const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
+  const selectedCuratorsRef = useRef([]);
+  selectedCuratorsRef.current = selectedCurators;
   const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
   const [userSavedPlaces, setUserSavedPlaces] = useState({}); // 사용자 저장 장소 폴더 정보
 
@@ -1174,39 +1291,58 @@ export default function Home() {
     courseOptions,
     selectedCourse,
     altSecondCourses,
+    altFirstCourses,
     courseError,
     isCourseMode,
     isRegeneratingSecond,
+    isRegeneratingFirst,
     isRefreshingCourses,
     runCourseSearch,
     resetCourseSearch,
     chooseCourse,
     regenerateSelectedCourseSecond,
+    regenerateSelectedCourseFirst,
     rerunDifferentCourses,
     applyAlternativeSecond,
+    applyAlternativeFirst,
+    applyComposedCourseFromPicks,
+    applyMapPickAsFirstStep,
+    courseQueryParsed,
   } = useCourseSearch();
 
-  const [courseMapOverlay, setCourseMapOverlay] = useState(null);
-
-  const coursePeekLegSummary = useMemo(() => {
-    const course = selectedCourse ?? courseOptions?.[0] ?? null;
-    if (
-      courseMapOverlay?.key &&
-      String(courseMapOverlay.key).includes("-routed") &&
-      String(courseMapOverlay.legLabel || "").trim()
-    ) {
-      return String(courseMapOverlay.legLabel).trim();
+  const courseStepPatternHint = useMemo(() => {
+    if (!isCourseMode || !courseQueryParsed) return "";
+    const mode =
+      courseQueryParsed.mode ?? courseQueryParsed.dateMode ?? "casual";
+    const walk = courseQueryParsed.walkable ? " 도보·근거리 반영." : "";
+    if (mode === "date") {
+      return `1차·2차 구분: 데이트 패턴(1차 식사·분위기 → 2차 가볍게).${walk}`;
     }
-    return formatCourseLegDistanceSummary(course);
-  }, [selectedCourse, courseOptions, courseMapOverlay]);
+    return `1차·2차 구분: 일반 야장 패턴(1차 식사·안주 → 2차 술집·바).${walk}`;
+  }, [isCourseMode, courseQueryParsed]);
+
+  const [courseMapOverlay, setCourseMapOverlay] = useState(null);
+  /** 지도 미리보기에서 「1차 선택」까지 눌렀을 때만 「2차 찾기」 활성 */
+  const [mapCourseModalFirstLocked, setMapCourseModalFirstLocked] =
+    useState(false);
+  /** 코스 카드에서 각각 담은 코스 조합 (미리보기 후 적용) */
+  const [courseComposePick1, setCourseComposePick1] = useState(null);
+  const [courseComposePick2, setCourseComposePick2] = useState(null);
+
+  useEffect(() => {
+    if (!isCourseMode) {
+      setCourseComposePick1(null);
+      setCourseComposePick2(null);
+    }
+  }, [isCourseMode]);
 
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
     if (!isCourseMode || !String(query || "").trim() || isAiSearching) return 0;
-    if (typeof window === "undefined") return 280;
+    if (typeof window === "undefined") return 360;
     const h = window.innerHeight;
     if (aiSheetOpen) {
-      return Math.min(Math.round(h * 0.44) + 44, 440);
+      return Math.min(Math.round(h * 0.58) + 52, 560);
     }
     return Math.min(Math.round(h * 0.17) + 56, 180);
   }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
@@ -1214,6 +1350,8 @@ export default function Home() {
   /** 코스 카드 가로 스와이프 — 스크롤이 멈춘 뒤에만 선택·지도 반영 (스크롤 중 휙휙 변경 방지) */
   const courseSwipeRowRef = useRef(null);
   const courseSwipeSettleTimerRef = useRef(null);
+  const courseMergedHeaderRef = useRef(null);
+  const coursePullStripRef = useRef(null);
 
   const settleCourseFromSwipe = useCallback(() => {
     const el = courseSwipeRowRef.current;
@@ -1249,7 +1387,80 @@ export default function Home() {
     };
     el.addEventListener("scrollend", onScrollEnd, { passive: true });
     return () => el.removeEventListener("scrollend", onScrollEnd);
-  }, [isCourseMode, aiSheetOpen, courseOptions.length, settleCourseFromSwipe]);
+  }, [
+    isCourseMode,
+    aiSheetOpen,
+    courseOptions.length,
+    settleCourseFromSwipe,
+  ]);
+
+  /** 코스 시트 펼침 상태에서 아래로 슥 밀어 접기 (모바일) */
+  useLayoutEffect(() => {
+    if (
+      !isCourseMode ||
+      !String(query || "").trim() ||
+      isAiSearching ||
+      !aiSheetOpen
+    ) {
+      return undefined;
+    }
+    const nodes = [courseMergedHeaderRef.current, coursePullStripRef.current].filter(
+      (n) => n instanceof HTMLElement
+    );
+    if (!nodes.length) return undefined;
+
+    const state = { startY: 0, startX: 0, vertical: false };
+
+    const onStart = (e) => {
+      if (e.touches.length !== 1) return;
+      state.startY = e.touches[0].clientY;
+      state.startX = e.touches[0].clientX;
+      state.vertical = false;
+    };
+
+    const onMove = (e) => {
+      if (e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - state.startY;
+      const dx = e.touches[0].clientX - state.startX;
+      if (!state.vertical) {
+        if (dy <= 10 || Math.abs(dx) >= dy) return;
+        state.vertical = true;
+      }
+      if (state.vertical && dy > 0) {
+        e.preventDefault();
+      }
+    };
+
+    const onEnd = (e) => {
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dy = t.clientY - state.startY;
+      const dx = t.clientX - state.startX;
+      const shouldClose =
+        state.vertical && dy > 56 && dy > Math.abs(dx) * 0.85;
+      state.vertical = false;
+      if (shouldClose) {
+        setAiSheetOpen(false);
+      }
+    };
+
+    const passiveTrue = { passive: true };
+    const passiveFalse = { passive: false };
+    for (const el of nodes) {
+      el.addEventListener("touchstart", onStart, passiveTrue);
+      el.addEventListener("touchmove", onMove, passiveFalse);
+      el.addEventListener("touchend", onEnd, passiveTrue);
+      el.addEventListener("touchcancel", onEnd, passiveTrue);
+    }
+    return () => {
+      for (const el of nodes) {
+        el.removeEventListener("touchstart", onStart);
+        el.removeEventListener("touchmove", onMove);
+        el.removeEventListener("touchend", onEnd);
+        el.removeEventListener("touchcancel", onEnd);
+      }
+    };
+  }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
 
   useEffect(
     () => () => {
@@ -1260,7 +1471,12 @@ export default function Home() {
   );
 
   useLayoutEffect(() => {
-    if (!isCourseMode || !aiSheetOpen || !courseOptions?.length || !selectedCourse) {
+    if (
+      !isCourseMode ||
+      !aiSheetOpen ||
+      !courseOptions?.length ||
+      !selectedCourse
+    ) {
       return;
     }
     const el = courseSwipeRowRef.current;
@@ -1358,6 +1574,7 @@ export default function Home() {
     if (!isCourseMode || !courseOptions?.length) return;
     const pick = selectedCourse ?? courseOptions[0];
     if (!pick?.steps?.length) return;
+
     setKakaoPlaces(courseOptionsToMapPlaces([pick]));
   }, [isCourseMode, selectedCourse, courseOptions]);
 
@@ -1431,6 +1648,49 @@ export default function Home() {
     },
     [user, curatorPlaceCatalogForMerge]
   );
+
+  useEffect(() => {
+    setMapCourseModalFirstLocked(false);
+  }, [
+    selectedPlace?.id,
+    selectedPlace?.place_id,
+    selectedPlace?.kakao_place_id,
+    selectedPlace?.y,
+    selectedPlace?.x,
+    selectedPlace?.lat,
+    selectedPlace?.lng,
+  ]);
+
+  const handleCourseMapFirstFromPreview = useCallback(() => {
+    if (!selectedPlace) return;
+    const merged = mergePickedPlaceWithCuratorCatalog(
+      selectedPlace,
+      curatorPlaceCatalogForMerge
+    );
+    if (!merged) return;
+    if (applyMapPickAsFirstStep(merged)) {
+      setMapCourseModalFirstLocked(true);
+      showToast(
+        "1차로 넣었어요. 이어서 「2차 찾기」를 눌러보세요.",
+        "info",
+        4000
+      );
+    } else {
+      showToast("이 코스에 1차를 넣을 수 없어요.", "error", 2800);
+    }
+  }, [
+    selectedPlace,
+    curatorPlaceCatalogForMerge,
+    applyMapPickAsFirstStep,
+    showToast,
+  ]);
+
+  const handleCourseMapSecondFromPreview = useCallback(async () => {
+    await regenerateSelectedCourseSecond("same");
+    setSelectedPlace(null);
+    setMapCourseModalFirstLocked(false);
+    setAiSheetOpen(true);
+  }, [regenerateSelectedCourseSecond]);
 
   /**
    * 지도 빈 곳 탭: 근처 Places → 있으면 카카오 장소 카드, 없으면 Geocoder + “못 찾음” 카드
@@ -1665,6 +1925,7 @@ export default function Home() {
 
         setCuratorProfile({
           id: data.id,
+          user_id: data.user_id,
           username: data.username,
           displayName: data.display_name,
           bio: data.bio,
@@ -1680,6 +1941,7 @@ export default function Home() {
         // 기존 큐레이터도 팔로우 알림 확인
         setCuratorProfile({
           id: data.id,
+          user_id: data.user_id,
           username: data.username,
           displayName: data.display_name,
           bio: data.bio,
@@ -1746,7 +2008,9 @@ export default function Home() {
       try {
         const { data, error } = await supabase
           .from("curators")
-          .select("username, display_name, bio, image")
+          .select(
+            "id, user_id, username, slug, name, display_name, bio, image, grade"
+          )
           .order("created_at", { ascending: false });
           
         if (error) {
@@ -1755,15 +2019,36 @@ export default function Home() {
           return;
         }
         
-        // CuratorFilterBar에 맞는 형식으로 변환
-        const formattedCurators = data.map(curator => ({
-          id: curator.username,
-          name: curator.username,
-          displayName: curator.display_name,
-          bio: curator.bio,
-          avatar: curator.image,
-          color: "#2ECC71" // 기본 색상
-        }));
+        // CuratorFilterBar: 칩 키는 username → slug → display_name → name → id 순
+        const formattedCurators = data.map((curator) => {
+          const slug =
+            curator.slug != null ? String(curator.slug).trim() : "";
+          const u =
+            curator.username != null ? String(curator.username).trim() : "";
+          const d =
+            curator.display_name != null
+              ? String(curator.display_name).trim()
+              : "";
+          const nm =
+            curator.name != null ? String(curator.name).trim() : "";
+          const pk = curator.id != null ? String(curator.id).trim() : "";
+          const userId =
+            curator.user_id != null ? String(curator.user_id).trim() : "";
+          const filterKey = u || slug || d || nm || pk;
+          return {
+            id: pk || filterKey,
+            filterKey,
+            name: filterKey,
+            slug: slug || null,
+            username: u || slug || null,
+            userId: userId || null,
+            displayName: d || nm || u || slug || "큐레이터",
+            bio: curator.bio,
+            avatar: curator.image,
+            grade: curator.grade || "default",
+            color: "#2ECC71",
+          };
+        });
         
         setDbCurators(formattedCurators);
         console.log("✅ 큐레이터 목록 로드:", formattedCurators.length, "개");
@@ -1782,8 +2067,11 @@ export default function Home() {
         (joinRows || []).forEach((curatorPlace) => {
           const place = curatorPlace.places;
           if (!place) return;
-          
-          const key = `${place.lat}_${place.lng}`; // 위치 기반 중복 체크
+
+          const wgsMerge = resolvePlaceWgs84(place);
+          const key = wgsMerge
+            ? `${wgsMerge.lat}_${wgsMerge.lng}`
+            : `id:${place.id ?? curatorPlace.place_id ?? "unknown"}`;
           
           if (placeMap.has(key)) {
             // 중복 장소: 큐레이터 수 증가
@@ -1873,7 +2161,25 @@ export default function Home() {
             isKakaoPlace: Boolean(place.place_url || kakaoNumId),
             curatorCount: place.curatorCount, // 큐레이터 수
             curators: curatorNames, // 큐레이터 이름 목록 (display_name)
-            curatorUsernames: place.curatorPlaces?.map(cp => cp.curators?.username || cp.curator_id), // username 목록 추가
+            curatorUsernames: (() => {
+              const ids = [];
+              const seen = new Set();
+              const add = (v) => {
+                if (v == null) return;
+                const s = String(v).trim();
+                if (!s || seen.has(s)) return;
+                seen.add(s);
+                ids.push(s);
+              };
+              for (const cp of place.curatorPlaces || []) {
+                add(cp.curator_id);
+                add(cp.curators?.username);
+                add(cp.curators?.display_name);
+                add(cp.curators?.user_id);
+                add(cp.curators?.id);
+              }
+              return ids;
+            })(),
             curatorReasons, // 큐레이터별 한 줄 평
             curatorPlaces: place.curatorPlaces, // 추천 정보
             comment: "",
@@ -1929,7 +2235,7 @@ export default function Home() {
           .select(`
             *,
             places (*),
-            curators!curator_places_curator_id_fkey (username, display_name)
+            curators!curator_places_curator_id_fkey (id, user_id, username, display_name)
           `)
           .eq("is_archived", false)
           .order("created_at", { ascending: false });
@@ -1995,6 +2301,8 @@ export default function Home() {
           
           if (data) {
             const profile = {
+              id: data.id,
+              user_id: data.user_id,
               username: data.username,
               displayName: data.display_name,
               bio: data.bio,
@@ -2105,19 +2413,7 @@ export default function Home() {
   useEffect(() => {
     localStorage.removeItem("judo_custom_places");
     setCustomPlaces([]);
-    
-    // 임시로 큐레이터 데이터 직접 설정 (테스트용)
-    const testCurator = {
-      id: 'nopokiller',
-      name: 'nopokiller',
-      displayName: '노포킬러',
-      bio: '안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.',
-      avatar: null,
-      color: '#2ECC71'
-    };
-    setDbCurators([testCurator]);
-    console.log("🧪 테스트: 큐레이터 데이터 직접 설정:", testCurator);
-    
+
     // 최초 방문 확인
     const hasVisitedBefore = localStorage.getItem("judo_has_visited");
     const isFirstVisit = !hasVisitedBefore;
@@ -2288,13 +2584,13 @@ export default function Home() {
       }
 
       if (isCurator) {
-        const myCuratorId = curatorProfile?.id;
         const myUsername = curatorProfile?.username;
         const myPlaces = dbPlaces.filter((place) => {
           if (!Array.isArray(place.curatorPlaces)) return false;
-          if (myCuratorId) {
-            return place.curatorPlaces.some((cp) => cp.curator_id === myCuratorId);
-          }
+          const byMode = place.curatorPlaces.some((cp) =>
+            curatorPlaceMatchesLoggedInCurator(cp, curatorProfile, user.id)
+          );
+          if (byMode) return true;
           if (myUsername) {
             return place.curatorPlaces.some(
               (cp) => cp.curators?.username === myUsername
@@ -2313,66 +2609,39 @@ export default function Home() {
       console.log("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
       return folderSaved;
     }
-    
-    if (showAll) {
-      // 일반 모드에서는 공개 추천만 표시
-      const filtered = dbPlaces.filter(place => {
-        // curatorCount가 1 이상인 장소만 표시 (적어도 한 명의 큐레이터가 추천)
-        return place.curatorCount && place.curatorCount > 0;
-      });
-      console.log("🌍 일반 모드 - 공개 추천 필터링 적용:", filtered.length);
-      return filtered;
-    }
-    
-    // 큐레이터가 선택되지 않았으면
+
+    const publicCuratorPlaces = (place) =>
+      Boolean(place.curatorCount && place.curatorCount > 0);
+
+    // 큐레이터 칩 미선택: «전체» on → 공개 큐레이터 추천만 / off → 빈 목록(버튼으로 끌 수 있게)
     if (selectedCurators.length === 0) {
-      if (showAll) {
-        // showAll이 true일 때만 모든 장소 표시
-        console.log("🔍 선택된 큐레이터 없음 - showAll: true, 모든 장소 표시");
-        return dbPlaces.filter(place => {
-          // curatorCount가 1 이상인 장소만 표시 (적어도 한 명의 큐레이터가 추천)
-          return place.curatorCount && place.curatorCount > 0;
-        });
-      } else {
-        // showAll이 false이면 아무것도 표시 안함
-        console.log("🔍 선택된 큐레이터 없음 - showAll: false, 아무것도 표시 안함");
-        return [];
-      }
+      if (!showAll) return [];
+      return dbPlaces.filter(publicCuratorPlaces);
     }
-    
-    // 선택된 큐레이터에 따라 필터링
+
+    // 선택된 큐레이터에 따라 필터링 (curator_id = 행 id 또는 auth uid, 칩=핸들 등 별칭 확장)
     const filtered = dbPlaces.filter((place) => {
-      // 해당 장소를 추천한 큐레이터 목록 확인 (username으로 필터링)
-      const placeCuratorUsernames = place.curatorUsernames || [];
-      
-      console.log("🔍 장소 필터링 확인:", { 
-        placeName: place.name, 
-        placeCuratorUsernames, 
-        selectedCurators,
-        placeCurators: place.curators
+      const placeKeys = buildPlaceCuratorFilterKeySet(place, dbCurators);
+      return selectedCurators.some((selectedCurator) => {
+        const want = expandCuratorChipSelectionKeys(selectedCurator, dbCurators);
+        for (const w of want) {
+          if (placeKeys.has(w)) return true;
+        }
+        return false;
       });
-      
-      // 선택된 큐레이터 중 한 명이라도 해당 장소를 추천했으면 표시
-      const hasSelectedCurator = selectedCurators.some(selectedCurator => {
-        return placeCuratorUsernames.some(curatorUsername => {
-          console.log(`🔍 큐레이터 매칭 확인: ${selectedCurator} vs ${curatorUsername}`);
-          return selectedCurator === curatorUsername;
-        });
-      });
-      
-      return hasSelectedCurator;
     });
-    
-    console.log("✅ 큐레이터 필터링 결과:", filtered.length, "개");
+
     return filtered;
   }, [
     showSavedOnly,
     showAll,
     selectedCurators,
     dbPlaces,
+    dbCurators,
     user,
     isCurator,
     curatorProfile?.id,
+    curatorProfile?.user_id,
     savedMap,
     userSavedPlaces,
   ]);
@@ -2416,12 +2685,26 @@ export default function Home() {
     );
 
     // 외부 데이터 우선, 내부 데이터 보조, 네이버 장소 추가
-    const finalPlaces = [...externalRecommendedPlaces, ...internalRecommendedPlaces, ...naverPlaces];
-    
+    const finalPlaces = [
+      ...externalRecommendedPlaces,
+      ...internalRecommendedPlaces,
+      ...naverPlaces,
+    ];
+    const seen = new Set(
+      finalPlaces.map((p) => String(p?.id ?? "")).filter(Boolean)
+    );
+    const rest = filteredByCuratorPlaces.filter(
+      (p) => p && !seen.has(String(p.id ?? ""))
+    );
+    const merged = [...finalPlaces, ...rest];
+
     if (import.meta.env.DEV) {
-      console.log("🔍 displayedPlaces:", finalPlaces.length);
+      console.log("🔍 displayedPlaces:", merged.length, {
+        highlighted: finalPlaces.length,
+        dbRest: rest.length,
+      });
     }
-    return finalPlaces;
+    return merged;
   }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
 
   const mapDisplayedPlacesWithLegend = useMemo(() => {
@@ -2436,6 +2719,15 @@ export default function Home() {
       });
     };
 
+    /** 칩으로 특정 큐레이터만 볼 때는 카카오·타이핑 핀이 남으면 필터가 안 먹는 것처럼 보임 (코스 모드는 kakaoPlaces 로 핀을 쓰므로 제외) */
+    const curatorPinsOnly =
+      !isCourseMode &&
+      Array.isArray(selectedCurators) &&
+      selectedCurators.length > 0 &&
+      !showSavedOnly;
+    const kPins = curatorPinsOnly ? [] : kakaoPlaces;
+    const kTypingPins = curatorPinsOnly ? [] : kakaoTypingPreviewPlaces;
+
     // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
     if (showSavedOnly) {
       if (import.meta.env.DEV) {
@@ -2444,7 +2736,7 @@ export default function Home() {
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return applyLegendCategoryFilter(
         dedupeMapPlacesByKakaoId(
-          mergePlaces(mergePlaces(kakaoPlaces, displayedPlaces), kakaoTypingPreviewPlaces)
+          mergePlaces(mergePlaces(kPins, displayedPlaces), kTypingPins)
         ),
         legendCategory
       );
@@ -2467,13 +2759,13 @@ export default function Home() {
     if (aiRecommendedIds.length > 0 || query) {
       const filteredBase = displayedPlaces.filter((place) => place.is_public !== false);
       const merged = mergePlaces(
-        mergePlaces(kakaoPlaces, filteredBase),
-        kakaoTypingPreviewPlaces
+        mergePlaces(kPins, filteredBase),
+        kTypingPins
       );
       if (import.meta.env.DEV) {
         console.log("🔍 AI+기존 마커 병합:", merged.length, {
           base: filteredBase.length,
-          kakao: kakaoPlaces.length,
+          kakao: kPins.length,
         });
       }
       return applyLegendCategoryFilter(dedupeMapPlacesByKakaoId(merged), legendCategory);
@@ -2493,7 +2785,7 @@ export default function Home() {
     }
 
     const result = dedupeMapPlacesByKakaoId(
-      mergePlaces(mergePlaces(kakaoPlaces, filtered), kakaoTypingPreviewPlaces)
+      mergePlaces(mergePlaces(kPins, filtered), kTypingPins)
     ); // 동일 id면 kakaoPlaces·DB가 타이핑 미리보기보다 우선; 카카오 숫자 id로 이중 마커 제거
     if (import.meta.env.DEV) {
       console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
@@ -2512,6 +2804,7 @@ export default function Home() {
     isCourseMode,
     courseError,
     courseOptions,
+    selectedCurators,
   ]);
 
   // 카카오 자동완성 후보가 전국·광역으로 퍼질 수 있어 fitToPlaces(setBounds)를 쓰면
@@ -3746,15 +4039,18 @@ const handleClearSearch = () => {
               backgroundColor: "white",
               borderRadius: "12px",
               padding: "25px",
-              minWidth: "300px",
+              width: "min(380px, calc(100vw - 32px))",
+              maxWidth: "100%",
+              boxSizing: "border-box",
               textAlign: "center",
+              overflowWrap: "break-word",
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* 큐레이터 프로필 정보 */}
             <div style={{ marginBottom: "20px" }}>
               {/* 프로필 이미지와 이름 */}
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px", minWidth: 0 }}>
                 {testCurator.avatar ? (
                   <img
                     src={testCurator.avatar}
@@ -3784,8 +4080,8 @@ const handleClearSearch = () => {
                     {testCurator.displayName.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div>
-                  <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", color: "#333", fontWeight: "bold" }}>
+                <div style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
+                  <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", color: "#333", fontWeight: "bold", overflowWrap: "break-word", wordBreak: "break-word" }}>
                     @{testCurator.username}
                   </h3>
                   <div style={{ 
@@ -3848,28 +4144,36 @@ const handleClearSearch = () => {
             </div>
             
             {/* 팔로우 버튼 */}
-            <div>
+            <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {testCurator.username === curatorProfile?.username ? (
                 <div
                   style={{
                     width: "100%",
-                    padding: "16px",
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    padding: "14px 12px",
                     backgroundColor: "#e9ecef",
                     color: "#6c757d",
                     border: "none",
                     borderRadius: "10px",
-                    fontSize: "16px",
+                    fontSize: "15px",
                     fontWeight: "bold",
                     textAlign: "center",
-                    cursor: "not-allowed"
+                    cursor: "not-allowed",
+                    overflowWrap: "break-word",
+                    wordBreak: "break-word",
+                    lineHeight: 1.35,
                   }}
                 >
                   자기 자신은 팔로우할 수 없습니다
                 </div>
               ) : (
                 <button
+                  type="button"
                   style={{
                     width: "100%",
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
                     padding: "16px",
                     backgroundColor: "#2ECC71",
                     color: "white",
@@ -3879,7 +4183,9 @@ const handleClearSearch = () => {
                     fontWeight: "bold",
                     cursor: "pointer",
                     transition: "all 0.2s ease",
-                    boxShadow: "0 4px 12px rgba(46, 204, 113, 0.3)"
+                    boxShadow: "0 4px 12px rgba(46, 204, 113, 0.3)",
+                    overflowWrap: "break-word",
+                    wordBreak: "break-word",
                   }}
                   onMouseOver={(e) => {
                     e.target.style.backgroundColor = "#27AE60";
@@ -3979,38 +4285,36 @@ const handleClearSearch = () => {
             <CuratorFilterBar
               curators={dbCurators}
               selectedCurators={selectedCurators}
-              allActive={showAll}
+              allActive={showAll && selectedCurators.length === 0}
               onToggle={(name) => {
-                console.log("🔘 CuratorFilterBar onToggle 호출:", name);
-                console.log("🔍 현재 selectedCurators:", selectedCurators);
-                console.log("🔍 prev.includes(name):", selectedCurators.includes(name));
-                
-                setShowSavedOnly(false);
-                setSelectedCurators((prev) => {
-                  // undefined 제거
-                  const cleanPrev = prev.filter(item => item !== undefined);
-                  const next = cleanPrev.includes(name)
-                    ? cleanPrev.filter((c) => c !== name)
-                    : [...cleanPrev, name];
-                  console.log("🔄 selectedCurators 변경:", { prev: cleanPrev, next });
+                const key = String(name ?? "").trim();
+                if (!key) return;
 
-                  // 큐레이터를 선택하면 showAll을 false로 설정
-                  if (next.length > 0) {
-                    console.log("🎯 showAll을 false로 설정");
-                    setShowAll(false);
-                  } else {
-                    // 모든 큐레이터가 해제되면 showAll도 false로 설정 (아무것도 선택되지 않은 상태)
-                    console.log("🎯 showAll을 false로 설정 (모두 해제 - 아무것도 선택되지 않음)");
-                    setShowAll(false);
-                  }
-                  return next;
-                });
+                setShowSavedOnly(false);
+                const cleanPrev = selectedCuratorsRef.current.filter(
+                  (item) => item != null && String(item).trim() !== ""
+                );
+                const lower = key.toLowerCase();
+                const idx = cleanPrev.findIndex(
+                  (c) => String(c).trim().toLowerCase() === lower
+                );
+                const next =
+                  idx >= 0
+                    ? cleanPrev.filter((_, i) => i !== idx)
+                    : [...cleanPrev, key];
+                setSelectedCurators(next);
+                setShowAll(next.length === 0);
               }}
               onSelectAll={() => {
                 setShowSavedOnly(false);
-                setSelectedCurators([]);
-                setShowAll(prev => !prev); // 토글 기능
-                console.log("🌍 전체 선택 버튼 토글 - showAll:", !showAll);
+                setLegendCategory(null);
+                if (selectedCurators.length > 0) {
+                  setSelectedCurators([]);
+                  setShowAll(true);
+                } else {
+                  setShowAll((prev) => !prev);
+                }
+                handleClearSearch();
               }}
               onProfileClick={(curator) => {
                 console.log("👤 큐레이터 프로필 클릭:", curator);
@@ -4319,6 +4623,21 @@ const handleClearSearch = () => {
                 onClose={() => setSelectedPlace(null)}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
+                courseMapLegActions={
+                  isCourseMode &&
+                  String(query || "").trim() &&
+                  !isAiSearching &&
+                  selectedCourse &&
+                  selectedPlace
+                    ? {
+                        show: true,
+                        secondEnabled: mapCourseModalFirstLocked,
+                        secondBusy: isRegeneratingSecond,
+                        onSelectAsFirst: handleCourseMapFirstFromPreview,
+                        onFindSecond: handleCourseMapSecondFromPreview,
+                      }
+                    : null
+                }
               />
             </div>
           ) : searchExpandUX && query.trim() && !isAiSearching ? (
@@ -4373,68 +4692,64 @@ const handleClearSearch = () => {
               </div>
             </div>
           ) : isCourseMode && query.trim() && !isAiSearching ? (
-            <>
-              <button
-                type="button"
-                style={{
-                  ...styles.aiPeekBar,
-                  ...styles.courseAiPeekBar,
-                  opacity: isAiSearching ? 0.92 : 1,
-                }}
-                onClick={() => setAiSheetOpen((open) => !open)}
-              >
-                <div style={{ ...styles.aiPeekLeft, gap: "8px" }}>
-                  <span style={{ ...styles.aiPeekBadge, ...styles.courseAiPeekBadge }}>
-                    코스
-                  </span>
-                  <div style={styles.aiPeekTextWrap}>
-                    <div style={{ ...styles.aiPeekTitle, ...styles.courseAiPeekTitle }}>
-                      {courseError && !courseOptions.length
-                        ? "코스를 찾지 못했어요"
-                        : `추천 코스 ${courseOptions.length}가지`}
-                    </div>
-                    <div
-                      style={{
-                        ...styles.aiPeekSubtitle,
-                        ...styles.courseAiPeekSubtitle,
-                      }}
-                    >
-                      {courseError && !courseOptions.length ? (
-                        courseError
-                      ) : (
-                        <>
-                          {coursePeekLegSummary ? (
-                            <span
-                              style={{
-                                display: "block",
-                                fontWeight: 600,
-                                color: "#5b21b6",
-                                marginBottom: 2,
-                              }}
-                            >
-                              {coursePeekLegSummary}
-                            </span>
-                          ) : null}
+            <div style={styles.courseMergedShell}>
+              <div ref={courseMergedHeaderRef} style={styles.courseMergedHeader}>
+                <button
+                  type="button"
+                  style={styles.courseSearchClearButton}
+                  onClick={handleClearSearch}
+                  aria-label="코스 추천 취소 및 검색어 지우기"
+                  title="검색어 지우고 새로 검색"
+                >
+                  ×
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.aiPeekBar,
+                    ...styles.courseAiPeekBar,
+                    ...styles.courseMergedPeekToggle,
+                    flex: 1,
+                    minWidth: 0,
+                    opacity: isAiSearching ? 0.92 : 1,
+                  }}
+                  onClick={() => setAiSheetOpen((open) => !open)}
+                >
+                  <div style={{ ...styles.aiPeekLeft, gap: "8px" }}>
+                    <div style={styles.aiPeekTextWrap}>
+                      <div style={{ ...styles.aiPeekTitle, ...styles.courseAiPeekTitle }}>
+                        {courseError && !courseOptions.length
+                          ? "코스를 찾지 못했어요"
+                          : `추천 코스 ${courseOptions.length}가지`}
+                      </div>
+                      <div
+                        style={{
+                          ...styles.aiPeekSubtitle,
+                          ...styles.courseAiPeekSubtitle,
+                        }}
+                      >
+                        {courseError && !courseOptions.length ? (
+                          courseError
+                        ) : (
                           <span>
                             {aiSummary || "눌러서 코스 상세 보기"}
                           </span>
-                        </>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
-              </button>
+                  <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
+                </button>
+              </div>
 
               {aiSheetOpen ? (
-                <div
-                  style={{
-                    ...styles.aiBottomSheet,
-                    ...styles.courseAiBottomSheet,
-                  }}
-                >
-                  <div style={{ ...styles.aiSheetHandleWrap, paddingTop: "6px" }}>
-                    <div style={styles.aiSheetHandle} />
+                <div style={styles.courseMergedBody}>
+                  <div
+                    ref={coursePullStripRef}
+                    style={styles.courseSheetPullStrip}
+                    aria-hidden
+                  >
+                    <div style={styles.courseSheetPullStripBar} />
                   </div>
                   {courseError ? (
                     <p
@@ -4449,6 +4764,132 @@ const handleClearSearch = () => {
                     </p>
                   ) : null}
                   <div style={styles.courseSheetBody}>
+                    {courseStepPatternHint ? (
+                      <p
+                        style={{
+                          margin: "6px 10px 0",
+                          padding: "8px 10px",
+                          fontSize: 11,
+                          lineHeight: 1.45,
+                          color: "#5c4033",
+                          background: "rgba(255,255,255,0.72)",
+                          borderRadius: 10,
+                          border: "1px solid rgba(124, 58, 237, 0.15)",
+                        }}
+                      >
+                        {courseStepPatternHint}
+                      </p>
+                    ) : null}
+                    {!courseError && courseOptions.length > 0 ? (
+                      <div
+                        style={{
+                          flexShrink: 0,
+                          padding: "8px 10px 10px",
+                          background: "rgba(250,245,255,0.55)",
+                          borderBottom: "1px solid rgba(124, 58, 237, 0.12)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 800,
+                            color: "#5b21b6",
+                            marginBottom: 6,
+                          }}
+                        >
+                          조합 만들기
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#3d2914",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <span style={{ color: "#888" }}>1차</span>{" "}
+                          {courseComposePick1?.steps?.[0]?.place?.name ?? "—"}
+                          <span style={{ margin: "0 8px", color: "#d4c4f0" }}>|</span>
+                          <span style={{ color: "#888" }}>2차</span>{" "}
+                          {courseComposePick2?.steps?.[1]?.place?.name ?? "—"}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            marginTop: 8,
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            disabled={!courseComposePick1 && !courseComposePick2}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                              border: "1px solid rgba(92, 64, 51, 0.2)",
+                              background: "rgba(255,255,255,0.95)",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: "#5c4033",
+                              cursor:
+                                courseComposePick1 || courseComposePick2
+                                  ? "pointer"
+                                  : "default",
+                              opacity:
+                                courseComposePick1 || courseComposePick2 ? 1 : 0.45,
+                            }}
+                            onClick={() => {
+                              setCourseComposePick1(null);
+                              setCourseComposePick2(null);
+                            }}
+                          >
+                            초기화
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!courseComposePick1 || !courseComposePick2}
+                            style={{
+                              flex: "1 1 120px",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "none",
+                              background:
+                                courseComposePick1 && courseComposePick2
+                                  ? "rgba(124, 58, 237, 0.95)"
+                                  : "rgba(0,0,0,0.08)",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              color: "#fff",
+                              cursor:
+                                courseComposePick1 && courseComposePick2
+                                  ? "pointer"
+                                  : "not-allowed",
+                              opacity:
+                                courseComposePick1 && courseComposePick2 ? 1 : 0.55,
+                            }}
+                            onClick={() => {
+                              if (
+                                !courseComposePick1 ||
+                                !courseComposePick2 ||
+                                !applyComposedCourseFromPicks(
+                                  courseComposePick1,
+                                  courseComposePick2
+                                )
+                              ) {
+                                return;
+                              }
+                              setCourseComposePick1(null);
+                              setCourseComposePick2(null);
+                            }}
+                          >
+                            이 조합으로 코스 적용
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <>
                     <div
                       ref={courseSwipeRowRef}
                       style={styles.courseOptionsSwipeRow}
@@ -4460,6 +4901,20 @@ const handleClearSearch = () => {
                       const courseWalkHint =
                         legM != null ? getCourseWalkComfortHint(legM) : "";
                       const legSummary = formatCourseLegDistanceSummary(course);
+                      const pick1This = courseComposePick1?.key === course.key;
+                      const pick2This = courseComposePick2?.key === course.key;
+                      const pickChip = {
+                        flexShrink: 0,
+                        padding: "4px 10px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(124, 58, 237, 0.35)",
+                        background: "rgba(255,255,255,0.98)",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#5b21b6",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      };
                       return (
                       <div
                         key={course.key || index}
@@ -4485,6 +4940,7 @@ const handleClearSearch = () => {
                             : "0 4px 14px rgba(0,0,0,0.06)",
                           cursor: "pointer",
                           outline: "none",
+                          textAlign: "left",
                         }}
                       >
                         <div
@@ -4535,37 +4991,67 @@ const handleClearSearch = () => {
                         <div style={{ fontSize: 13, lineHeight: 1.55, color: "#333" }}>
                           <div style={{ marginBottom: 8 }}>
                             <strong>{course.steps[0]?.label}</strong>
-                            <button
-                              type="button"
+                            <div
                               style={{
-                                display: "block",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                alignItems: "center",
+                                gap: 8,
                                 marginTop: 4,
-                                padding: 0,
-                                border: "none",
-                                background: "none",
-                                color: "#6b4f2a",
-                                fontWeight: 600,
-                                textAlign: "left",
-                                cursor: "pointer",
-                                textDecoration: "underline",
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const raw =
-                                  course.steps[0]?.place?._raw ||
-                                  course.steps[0]?.place;
-                                if (!raw) return;
-                                setSelectedPlaceWithAnalytics(
-                                  mergePickedPlaceWithCuratorCatalog(
-                                    raw,
-                                    curatorPlaceCatalogForMerge
-                                  ),
-                                  "course_step1"
-                                );
                               }}
                             >
-                              {course.steps[0]?.place?.name}
-                            </button>
+                              <button
+                                type="button"
+                                style={{
+                                  flex: "1 1 120px",
+                                  minWidth: 0,
+                                  padding: 0,
+                                  border: "none",
+                                  background: "none",
+                                  color: "#6b4f2a",
+                                  fontWeight: 600,
+                                  textAlign: "left",
+                                  cursor: "pointer",
+                                  textDecoration: "underline",
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const raw =
+                                    course.steps[0]?.place?._raw ||
+                                    course.steps[0]?.place;
+                                  if (!raw) return;
+                                  setSelectedPlaceWithAnalytics(
+                                    mergePickedPlaceWithCuratorCatalog(
+                                      raw,
+                                      curatorPlaceCatalogForMerge
+                                    ),
+                                    "course_step1"
+                                  );
+                                }}
+                              >
+                                {course.steps[0]?.place?.name}
+                              </button>
+                              <button
+                                type="button"
+                                style={{
+                                  ...pickChip,
+                                  background: pick1This
+                                    ? "rgba(250,245,255,0.98)"
+                                    : "rgba(255,255,255,0.98)",
+                                  border: pick1This
+                                    ? "1px solid rgba(124, 58, 237, 0.65)"
+                                    : "1px solid rgba(124, 58, 237, 0.35)",
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCourseComposePick1((prev) =>
+                                    prev?.key === course.key ? null : course
+                                  );
+                                }}
+                              >
+                                {pick1This ? "1차 담음" : "1차 담기"}
+                              </button>
+                            </div>
                             <div style={{ color: "#666", marginTop: 4 }}>
                               체류 약{" "}
                               {formatCourseStayMinutes(
@@ -4597,37 +5083,67 @@ const handleClearSearch = () => {
                           </div>
                           <div>
                             <strong>{course.steps[1]?.label}</strong>
-                            <button
-                              type="button"
+                            <div
                               style={{
-                                display: "block",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                alignItems: "center",
+                                gap: 8,
                                 marginTop: 4,
-                                padding: 0,
-                                border: "none",
-                                background: "none",
-                                color: "#6b4f2a",
-                                fontWeight: 600,
-                                textAlign: "left",
-                                cursor: "pointer",
-                                textDecoration: "underline",
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const raw =
-                                  course.steps[1]?.place?._raw ||
-                                  course.steps[1]?.place;
-                                if (!raw) return;
-                                setSelectedPlaceWithAnalytics(
-                                  mergePickedPlaceWithCuratorCatalog(
-                                    raw,
-                                    curatorPlaceCatalogForMerge
-                                  ),
-                                  "course_step2"
-                                );
                               }}
                             >
-                              {course.steps[1]?.place?.name}
-                            </button>
+                              <button
+                                type="button"
+                                style={{
+                                  flex: "1 1 120px",
+                                  minWidth: 0,
+                                  padding: 0,
+                                  border: "none",
+                                  background: "none",
+                                  color: "#6b4f2a",
+                                  fontWeight: 600,
+                                  textAlign: "left",
+                                  cursor: "pointer",
+                                  textDecoration: "underline",
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const raw =
+                                    course.steps[1]?.place?._raw ||
+                                    course.steps[1]?.place;
+                                  if (!raw) return;
+                                  setSelectedPlaceWithAnalytics(
+                                    mergePickedPlaceWithCuratorCatalog(
+                                      raw,
+                                      curatorPlaceCatalogForMerge
+                                    ),
+                                    "course_step2"
+                                  );
+                                }}
+                              >
+                                {course.steps[1]?.place?.name}
+                              </button>
+                              <button
+                                type="button"
+                                style={{
+                                  ...pickChip,
+                                  background: pick2This
+                                    ? "rgba(250,245,255,0.98)"
+                                    : "rgba(255,255,255,0.98)",
+                                  border: pick2This
+                                    ? "1px solid rgba(124, 58, 237, 0.65)"
+                                    : "1px solid rgba(124, 58, 237, 0.35)",
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCourseComposePick2((prev) =>
+                                    prev?.key === course.key ? null : course
+                                  );
+                                }}
+                              >
+                                {pick2This ? "2차 담음" : "2차 담기"}
+                              </button>
+                            </div>
                             <div style={{ color: "#666", marginTop: 4 }}>
                               체류 약{" "}
                               {formatCourseStayMinutes(
@@ -4664,153 +5180,144 @@ const handleClearSearch = () => {
                             marginBottom: 2,
                           }}
                         >
-                          지도 선은 길을 따라 표시됩니다. 턴 단위 안내는 외부 지도 길찾기를
-                          이용해 주세요.
+                          지도 선은 길을 따라 표시됩니다.
                         </div>
-                        <button
-                          type="button"
-                          disabled={isRefreshingCourses || isRegeneratingSecond}
-                          style={{
-                            border: "1px solid rgba(124, 58, 237, 0.35)",
+                        {(() => {
+                          const courseChipBusy =
+                            isRefreshingCourses ||
+                            isRegeneratingSecond ||
+                            isRegeneratingFirst;
+                          const neutralChip = {
+                            border: "1px solid rgba(92, 64, 51, 0.18)",
                             borderRadius: 999,
                             padding: "8px 12px",
-                            background: "rgba(250,245,255,0.98)",
+                            background: "rgba(255,255,255,0.95)",
                             fontSize: 12,
-                            fontWeight: 700,
-                            color: "#5b21b6",
-                            cursor:
-                              isRefreshingCourses || isRegeneratingSecond
-                                ? "wait"
-                                : "pointer",
-                            opacity:
-                              isRefreshingCourses || isRegeneratingSecond
-                                ? 0.65
-                                : 1,
-                          }}
-                          onClick={() => rerunDifferentCourses()}
-                        >
-                          {isRefreshingCourses
-                            ? "다른 코스 찾는 중…"
-                            : "다른 코스로 다시 추천"}
-                        </button>
-                        {[
-                          { v: "same", label: "2차만 다시" },
-                          { v: "mood", label: "2차 분위기" },
-                          { v: "closer", label: "2차 더 가까이" },
-                          { v: "featured", label: "2차 큐레이터" },
-                        ].map(({ v, label }) => (
-                          <button
-                            key={v}
-                            type="button"
-                            disabled={isRegeneratingSecond || isRefreshingCourses}
-                            style={{
-                              border: "1px solid rgba(92, 64, 51, 0.18)",
-                              borderRadius: 999,
-                              padding: "8px 12px",
-                              background: "rgba(255,255,255,0.95)",
-                              fontSize: 12,
-                              color: "#3d2914",
-                              cursor:
-                                isRegeneratingSecond || isRefreshingCourses
-                                  ? "wait"
-                                  : "pointer",
-                              opacity:
-                                isRegeneratingSecond || isRefreshingCourses
-                                  ? 0.65
-                                  : 1,
-                            }}
-                            onClick={() => regenerateSelectedCourseSecond(v)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                        {(() => {
-                          const p0 = selectedCourse?.steps?.[0]?.place;
-                          const p1 = selectedCourse?.steps?.[1]?.place;
-                          const w0 = resolvePlaceWgs84(p0);
-                          const w1 = resolvePlaceWgs84(p1);
-                          if (!w0 || !w1) return null;
-                          const googleUrl = buildGoogleMapsWalkingDirectionsUrl(
-                            {
-                              lat: w0.lat,
-                              lng: w0.lng,
-                              name: p0?.name,
-                            },
-                            {
-                              lat: w1.lat,
-                              lng: w1.lng,
-                              name: p1?.name,
-                            }
-                          );
-                          const { toUrl } = buildKakaoMapFromToUrls(
-                            {
-                              lat: w0.lat,
-                              lng: w0.lng,
-                              name: p0?.name,
-                            },
-                            {
-                              lat: w1.lat,
-                              lng: w1.lng,
-                              name: p1?.name,
-                            }
-                          );
+                            color: "#3d2914",
+                            cursor: courseChipBusy ? "wait" : "pointer",
+                            opacity: courseChipBusy ? 0.65 : 1,
+                          };
                           return (
                             <>
                               <button
                                 type="button"
-                                disabled={isRegeneratingSecond || isRefreshingCourses}
+                                disabled={courseChipBusy}
                                 style={{
-                                  border: "1px solid rgba(37, 99, 235, 0.35)",
+                                  border: "1px solid rgba(124, 58, 237, 0.35)",
                                   borderRadius: 999,
                                   padding: "8px 12px",
-                                  background: "rgba(239,246,255,0.98)",
+                                  background: "rgba(250,245,255,0.98)",
                                   fontSize: 12,
-                                  fontWeight: 600,
-                                  color: "#1d4ed8",
-                                  cursor:
-                                    isRegeneratingSecond || isRefreshingCourses
-                                      ? "wait"
-                                      : "pointer",
-                                  opacity:
-                                    isRegeneratingSecond || isRefreshingCourses
-                                      ? 0.65
-                                      : 1,
+                                  fontWeight: 700,
+                                  color: "#5b21b6",
+                                  cursor: courseChipBusy ? "wait" : "pointer",
+                                  opacity: courseChipBusy ? 0.65 : 1,
                                 }}
-                                onClick={() => openInNewTab(googleUrl)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void rerunDifferentCourses();
+                                }}
                               >
-                                구글 지도 도보 길찾기
+                                {isRefreshingCourses
+                                  ? "다른 코스 찾는 중…"
+                                  : "다른 코스로 다시 추천"}
                               </button>
-                              {toUrl ? (
-                                <button
-                                  type="button"
-                                  disabled={
-                                    isRegeneratingSecond || isRefreshingCourses
-                                  }
-                                  style={{
-                                    border: "1px solid rgba(234, 179, 8, 0.45)",
-                                    borderRadius: 999,
-                                    padding: "8px 12px",
-                                    background: "rgba(254,252,232,0.98)",
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    color: "#a16207",
-                                    cursor:
-                                      isRegeneratingSecond || isRefreshingCourses
-                                        ? "wait"
-                                        : "pointer",
-                                    opacity:
-                                      isRegeneratingSecond || isRefreshingCourses
-                                        ? 0.65
-                                        : 1,
-                                  }}
-                                  onClick={() => openInNewTab(toUrl)}
-                                >
-                                  카카오맵에서 2차 위치
-                                </button>
-                              ) : null}
+                              <button
+                                type="button"
+                                disabled={courseChipBusy}
+                                style={neutralChip}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void regenerateSelectedCourseFirst();
+                                }}
+                              >
+                                {isRegeneratingFirst
+                                  ? "1차 찾는 중…"
+                                  : "1차만 다시"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={courseChipBusy}
+                                style={neutralChip}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void regenerateSelectedCourseSecond("same");
+                                }}
+                              >
+                                {isRegeneratingSecond
+                                  ? "2차 찾는 중…"
+                                  : "2차만 다시"}
+                              </button>
                             </>
                           );
                         })()}
+                      </div>
+                    ) : null}
+                    {altFirstCourses.length > 0 ? (
+                      <div style={{ padding: "0 12px 16px" }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: "#3d2914",
+                            marginBottom: 10,
+                          }}
+                        >
+                          다른 1차 추천
+                        </div>
+                        {altFirstCourses.map((course) => (
+                          <div
+                            key={course.key}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => applyAlternativeFirst(course)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                applyAlternativeFirst(course);
+                              }
+                            }}
+                            style={{
+                              border: "1px solid rgba(92, 64, 51, 0.14)",
+                              borderRadius: 14,
+                              padding: "12px 14px",
+                              background: "rgba(255,255,255,0.96)",
+                              marginBottom: 10,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: "#5c4033" }}>
+                              <strong>2차 유지</strong>
+                              <div style={{ marginTop: 4 }}>
+                                {course.steps[1]?.place?.name}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#6b7280",
+                                padding: "8px 0",
+                              }}
+                            >
+                              도보 약{" "}
+                              {formatCourseWalkApprox(
+                                course.steps[1]?.walkDistanceMeters
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#5c4033" }}>
+                              <strong>새 1차</strong>
+                              <div style={{ marginTop: 4 }}>
+                                {course.steps[0]?.place?.name}
+                              </div>
+                              <div style={{ color: "#666", marginTop: 4 }}>
+                                체류 약{" "}
+                                {formatCourseStayMinutes(
+                                  course.steps[0]?.stayMinutes
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                     {altSecondCourses.length > 0 ? (
@@ -4880,10 +5387,12 @@ const handleClearSearch = () => {
                         ))}
                       </div>
                     ) : null}
+                    </>
+
                   </div>
                 </div>
               ) : null}
-            </>
+            </div>
           ) : aiRecommendedIds.length > 0 ? (
             <>
               <button
@@ -5280,7 +5789,11 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "14px",
-    zIndex: 50,
+    /** 지도 SDK·하단 UI(z~1e4)보다 위에 두고, 새 스택킹 문맥으로 히트 테스트 안정화 */
+    zIndex: 25000,
+    isolation: "isolate",
+    pointerEvents: "auto",
+    touchAction: "manipulation",
   },
 
   logoStack: {
@@ -5289,6 +5802,7 @@ const styles = {
     alignItems: "flex-start",
     gap: "6px",
     flexShrink: 0,
+    pointerEvents: "auto",
   },
 
   /** 로고 = 홈 전체 새로고침(상태 초기화) */
@@ -5310,13 +5824,15 @@ const styles = {
 
   filterWrapper: {
     flex: 1,
+    minWidth: 0,
     display: "flex",
     alignItems: "center",
     overflowX: "auto",
     msOverflowStyle: "none",
     scrollbarWidth: "none",
-    WebkitMaskImage:
-      "linear-gradient(to right, transparent, black 0%, black 95%, transparent)",
+    pointerEvents: "auto",
+    position: "relative",
+    zIndex: 1,
   },
 
   legendOverlay: {
@@ -5862,10 +6378,90 @@ const styles = {
     boxShadow: "0 6px 16px rgba(0,0,0,0.18)",
   },
 
-  courseAiPeekBadge: {
-    width: "22px",
-    height: "22px",
-    fontSize: "10px",
+  /** 코스 모드 — 검색어 지우고 완전히 취소 (작은 원형) */
+  courseSearchClearButton: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "26px",
+    height: "26px",
+    minWidth: "26px",
+    padding: 0,
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.28)",
+    background: "rgba(0,0,0,0.28)",
+    color: "rgba(255,255,255,0.88)",
+    fontSize: "15px",
+    lineHeight: 1,
+    fontWeight: 400,
+    cursor: "pointer",
+    boxShadow: "none",
+    WebkitTapHighlightColor: "transparent",
+  },
+
+  /** 코스 피크(제목) + 스와이프·액션을 한 덩어리 바텀시트로 */
+  courseMergedShell: {
+    width: "100%",
+    marginTop: "6px",
+    borderRadius: "16px 16px 0 0",
+    overflow: "hidden",
+    boxShadow: "0 -6px 24px rgba(0,0,0,0.14)",
+    background: "transparent",
+    pointerEvents: "auto",
+    maxHeight: "min(58vh, 520px)",
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  courseMergedHeader: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: "8px",
+    padding: "6px 8px 8px 10px",
+    background: "rgba(17,17,17,0.9)",
+    flexShrink: 0,
+    borderRadius: "16px 16px 0 0",
+  },
+
+  courseMergedBody: {
+    flex: 1,
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    borderTop: "1px solid rgba(17,17,17,0.08)",
+    background: "rgba(255,255,255,0.94)",
+    backdropFilter: "blur(14px)",
+    WebkitBackdropFilter: "blur(14px)",
+  },
+
+  /** 아래로 드래그해 시트 접기 — 손가락 당김 영역 */
+  courseSheetPullStrip: {
+    flexShrink: 0,
+    height: "30px",
+    touchAction: "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  },
+
+  courseSheetPullStripBar: {
+    width: "40px",
+    height: "4px",
+    borderRadius: "999px",
+    background: "rgba(17,17,17,0.16)",
+  },
+
+  /** 헤더 안에서는 별도 떠 있는 카드처럼 보이지 않게 */
+  courseMergedPeekToggle: {
+    background: "transparent",
+    boxShadow: "none",
+    borderRadius: 0,
+    border: "none",
   },
 
   courseAiPeekTitle: {
@@ -5953,15 +6549,6 @@ const styles = {
     pointerEvents: "auto",
     position: "relative",
     zIndex: 100,
-  },
-
-  /** 코스 바텀시트 — 핵심만 보이도록 낮은 높이 */
-  courseAiBottomSheet: {
-    marginTop: "6px",
-    maxHeight: "min(38vh, 300px)",
-    borderRadius: "16px 16px 0 0",
-    /** 부모 오버레이 z-index(40) 안에서만 쓰이도록 — 하단 검색바(160)와 동숫자 방지 */
-    zIndex: 0,
   },
 
   aiSheetHandleWrap: {
@@ -6069,7 +6656,7 @@ const styles = {
     scrollbarWidth: "thin",
     touchAction: "pan-x",
     overscrollBehaviorX: "contain",
-    maxHeight: "min(24vh, 208px)",
+    maxHeight: "min(30vh, 248px)",
   },
 
   courseOptionCardSwipe: {
@@ -6078,7 +6665,7 @@ const styles = {
     maxWidth: "min(calc(100vw - 56px), 288px)",
     scrollSnapAlign: "center",
     boxSizing: "border-box",
-    maxHeight: "min(22vh, 188px)",
+    maxHeight: "min(28vh, 228px)",
     overflowY: "auto",
   },
 
