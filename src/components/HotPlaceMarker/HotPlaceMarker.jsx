@@ -165,7 +165,7 @@ const HotPlaceMarker = ({ placeId, placeName, children }) => {
             🔥 핫플레이스!
             <br />
             <span style={{ fontSize: '11px', fontWeight: 'normal' }}>
-              현재 {checkinCount}명이 체크인 중
+              최근 {checkinCount}명 한잔
             </span>
           </>
         ) : (
@@ -173,7 +173,7 @@ const HotPlaceMarker = ({ placeId, placeName, children }) => {
             📍 {placeName}
             <br />
             <span style={{ fontSize: '11px', fontWeight: 'normal' }}>
-              {checkinCount > 0 ? `${checkinCount}명이 체크인 중` : '첫 체크인을 기다려요'}
+              {checkinCount > 0 ? `${checkinCount}명 한잔` : '첫 한잔을 기다려요'}
             </span>
           </>
         )}

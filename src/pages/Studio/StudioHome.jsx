@@ -212,6 +212,61 @@ function parseDbStringArray(raw) {
   return [];
 }
 
+/** studio_archive_extended_insights RPC → UI용 객체 */
+function normalizeStudioArchiveExtendedInsights(raw) {
+  if (!raw || typeof raw !== "object") {
+    return {
+      oneLineTop: [],
+      style: {
+        alcohol: [],
+        moods: [],
+        tags: [],
+        categories: [],
+      },
+      followers: {
+        savesOnPicks: 0,
+        distinctSavers: 0,
+        regions: [],
+        checkinsTotal: 0,
+      },
+    };
+  }
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const pctRows = (rows) =>
+    arr(rows)
+      .map((r) => ({
+        label: String(r?.label ?? "").trim(),
+        pct: Math.min(100, Math.max(0, Number(r?.pct) || 0)),
+      }))
+      .filter((r) => r.label);
+  return {
+    oneLineTop: arr(raw.one_line_top)
+      .map((r) => ({
+        text: String(r?.text ?? "").trim(),
+        saves: Number(r?.saves) || 0,
+      }))
+      .filter((r) => r.text),
+    style: {
+      alcohol: pctRows(raw.style?.alcohol),
+      moods: pctRows(raw.style?.moods),
+      tags: pctRows(raw.style?.tags),
+      categories: pctRows(raw.style?.categories),
+    },
+    followers: {
+      savesOnPicks: Number(raw.followers?.saves_on_picks) || 0,
+      distinctSavers: Number(raw.followers?.distinct_savers) || 0,
+      regions: arr(raw.followers?.regions).map((r) => ({
+        label: (String(r?.label ?? "기타").trim() || "기타"),
+        saves: Number(r?.saves) || 0,
+      })),
+      checkinsTotal:
+        Number(
+          raw.followers?.checkins_total ?? raw.followers?.checkins_30d
+        ) || 0,
+    },
+  };
+}
+
 /** 잔 올리기 카테고리 셀렉트 고정 목록 — 그 외 저장값은 동적 option 으로 표시 */
 const STUDIO_PLACE_CATEGORY_OPTIONS = [
   "한식",
@@ -1956,7 +2011,8 @@ export default function StudioHome() {
     saveCount: 0,
     followerCount: 0,
     followingCount: 0,
-    overlappingCurators: 0,
+    /** 내 잔(place) 중 다른 큐레이터도 올린 장소 개수 — studio_curator_overlap_place_count RPC */
+    overlapSharedPlaceCount: 0,
     /** studio_week_save_insights RPC */
     weekTopReactingPlace: null,
     weekTopReactingSaves: 0,
@@ -1971,6 +2027,9 @@ export default function StudioHome() {
       newFollowers: 0
     }
   });
+  const [archiveExtInsights, setArchiveExtInsights] = useState(() =>
+    normalizeStudioArchiveExtendedInsights(null)
+  );
 
   // 큐레이터 프로필 ID 확인 (테스트용)
   useEffect(() => {
@@ -2190,10 +2249,16 @@ export default function StudioHome() {
         top_save_count: 0,
         week_total_saves: 0,
       };
-      const { data: insightJson, error: insightErr } = await supabase.rpc(
-        "studio_week_save_insights",
-        { p_curator_id: userId }
-      );
+      const [{ data: insightJson, error: insightErr }, overlapRpc, extRpc] =
+        await Promise.all([
+          supabase.rpc("studio_week_save_insights", { p_curator_id: userId }),
+          supabase.rpc("studio_curator_overlap_place_count", {
+            p_curator_id: userId,
+          }),
+          supabase.rpc("studio_archive_extended_insights", {
+            p_curator_id: userId,
+          }),
+        ]);
       if (!insightErr && insightJson && typeof insightJson === "object") {
         weekInsight = {
           top_place_name: insightJson.top_place_name ?? null,
@@ -2207,12 +2272,36 @@ export default function StudioHome() {
         );
       }
 
+      let overlapSharedPlaceCount = 0;
+      const { data: overlapRaw, error: overlapErr } = overlapRpc || {};
+      if (!overlapErr && overlapRaw != null) {
+        overlapSharedPlaceCount = Number(overlapRaw) || 0;
+      } else if (overlapErr) {
+        console.warn(
+          "studio_curator_overlap_place_count (Supabase에 마이그레이션 적용 필요):",
+          overlapErr.message
+        );
+      }
+
+      const { data: extRaw, error: extErr } = extRpc || {};
+      if (!extErr && extRaw != null) {
+        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(extRaw));
+      } else {
+        if (extErr) {
+          console.warn(
+            "studio_archive_extended_insights (Supabase에 마이그레이션 적용 필요):",
+            extErr.message
+          );
+        }
+        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(null));
+      }
+
       const stats = {
         placeCount: totalPlaces,
         saveCount: totalLikes, // likes 필드가 없으므로 0
         followerCount: followerCount, // 실제 팔로워 수
         followingCount,
-        overlappingCurators: 0, // TODO: 중복 큐레이터 기능 구현 시 실제 데이터
+        overlapSharedPlaceCount,
         weekTopReactingPlace: weekInsight.top_place_name,
         weekTopReactingSaves: weekInsight.top_save_count,
         weeklyStats: {
@@ -5901,10 +5990,15 @@ export default function StudioHome() {
               <div style={styles.archiveStatLabel}>잔 기록</div>
               <div style={styles.archiveStatSub}>공개·비공개 포함</div>
             </div>
-            <div style={styles.archiveStatCell} title="취향 겹친 큐레이터">
-              <div style={styles.archiveStatValue}>{curatorStats.overlappingCurators}</div>
-              <div style={styles.archiveStatLabel}>겹친 잔</div>
-              <div style={styles.archiveStatSub}>취향 겹친 큐레이터</div>
+            <div
+              style={styles.archiveStatCell}
+              title="내 잔 중 다른 큐레이터도 올린 장소 개수"
+            >
+              <div style={styles.archiveStatValue}>
+                {curatorStats.overlapSharedPlaceCount ?? 0}
+              </div>
+              <div style={styles.archiveStatLabel}>겹친 장소</div>
+              <div style={styles.archiveStatSub}>다른 큐레이터와 같은 곳</div>
             </div>
             <div style={styles.archiveStatCell} title="유저들이 내 추천 장소에 저장한 횟수">
               <div style={styles.archiveStatValue}>{curatorStats.saveCount || 0}</div>
@@ -5938,6 +6032,270 @@ export default function StudioHome() {
               <div style={styles.archiveStatLabel}>picked · picks</div>
               <div style={styles.archiveStatSub}>탭하여 목록</div>
             </button>
+          </div>
+
+          {/* 잔 아카이브 인사이트: 한 줄 TOP · 스타일 · 팔로워 행동 */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              marginBottom: "20px",
+            }}
+            role="region"
+            aria-label="잔 아카이브 인사이트"
+          >
+            <div
+              style={{
+                backgroundColor: "#2a2a2a",
+                borderRadius: "10px",
+                padding: "14px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  marginBottom: "4px",
+                }}
+              >
+                💬 한 줄 TOP
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: "11px",
+                  marginBottom: "10px",
+                  lineHeight: 1.35,
+                }}
+              >
+                같은 한 줄이 붙은 장소들에 달린 저장 건수 합산
+              </div>
+              {archiveExtInsights.oneLineTop.length === 0 ? (
+                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
+                  아직 한 줄이 없거나, 저장 반응이 없어요.
+                </div>
+              ) : (
+                <ol
+                  style={{
+                    margin: 0,
+                    paddingLeft: "18px",
+                    color: "#eee",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {archiveExtInsights.oneLineTop.map((row, idx) => (
+                    <li key={`${idx}-${row.text.slice(0, 24)}`} style={{ marginBottom: "6px" }}>
+                      <span style={{ fontWeight: 600 }}>“{row.text}”</span>
+                      <span style={{ color: "rgba(255,255,255,0.5)", marginLeft: "6px" }}>
+                        → 저장 {row.saves}건
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#2a2a2a",
+                borderRadius: "10px",
+                padding: "14px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  marginBottom: "4px",
+                }}
+              >
+                🎨 내 스타일 분석
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: "11px",
+                  marginBottom: "12px",
+                  lineHeight: 1.35,
+                }}
+              >
+                내 잔에 적어 둔 주종·분위기·태그·업종 비율(태그 개수 기준)
+              </div>
+              {(() => {
+                const blocks = [
+                  { title: "주종", key: "alcohol", rows: archiveExtInsights.style.alcohol },
+                  { title: "분위기", key: "moods", rows: archiveExtInsights.style.moods },
+                  { title: "태그", key: "tags", rows: archiveExtInsights.style.tags },
+                  { title: "업종", key: "categories", rows: archiveExtInsights.style.categories },
+                ];
+                const any = blocks.some((b) => b.rows.length > 0);
+                if (!any) {
+                  return (
+                    <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
+                      잔 올리기에서 주종·분위기·태그·카테고리를 넣으면 비율이 잡혀요.
+                    </div>
+                  );
+                }
+                return blocks.map((b) =>
+                  b.rows.length === 0 ? null : (
+                    <div key={b.key} style={{ marginBottom: "12px" }}>
+                      <div
+                        style={{
+                          color: "rgba(255,255,255,0.75)",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          marginBottom: "6px",
+                        }}
+                      >
+                        {b.title}
+                      </div>
+                      {b.rows.map((r) => (
+                        <div
+                          key={`${b.key}-${r.label}`}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            marginBottom: "5px",
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              flex: "0 0 38%",
+                              fontSize: "11px",
+                              color: "#ddd",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={r.label}
+                          >
+                            {r.label}
+                          </span>
+                          <div
+                            style={{
+                              flex: "1 1 auto",
+                              height: "6px",
+                              borderRadius: "4px",
+                              backgroundColor: "rgba(255,255,255,0.12)",
+                              overflow: "hidden",
+                              minWidth: 0,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${r.pct}%`,
+                                height: "100%",
+                                borderRadius: "4px",
+                                backgroundColor: "#F39C12",
+                              }}
+                            />
+                          </div>
+                          <span
+                            style={{
+                              flex: "0 0 32px",
+                              fontSize: "11px",
+                              color: "rgba(255,255,255,0.65)",
+                              textAlign: "right",
+                            }}
+                          >
+                            {r.pct}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                );
+              })()}
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#2a2a2a",
+                borderRadius: "10px",
+                padding: "14px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  marginBottom: "4px",
+                }}
+              >
+                🤝 팔로워 행동
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: "11px",
+                  marginBottom: "10px",
+                  lineHeight: 1.35,
+                }}
+              >
+                picked 가 내 픽에 남긴 저장 · 그 저장이 몰린 지역 · 내 픽 장소 한잔 누적(전체
+                사용자)
+              </div>
+              <div style={{ color: "#eee", fontSize: "12px", marginBottom: "8px" }}>
+                <span style={{ fontWeight: 700 }}>
+                  {archiveExtInsights.followers.savesOnPicks}
+                </span>
+                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
+                  건 저장
+                </span>
+                <span style={{ color: "rgba(255,255,255,0.35)", margin: "0 6px" }}>·</span>
+                <span style={{ fontWeight: 700 }}>
+                  {archiveExtInsights.followers.distinctSavers}
+                </span>
+                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
+                  명이 참여
+                </span>
+              </div>
+              <div style={{ color: "#eee", fontSize: "12px", marginBottom: "10px" }}>
+                <span style={{ fontWeight: 700 }}>
+                  {archiveExtInsights.followers.checkinsTotal}
+                </span>
+                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
+                  한잔 누적 (내 픽 장소)
+                </span>
+              </div>
+              {archiveExtInsights.followers.regions.length === 0 ? (
+                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
+                  팔로워 저장이 생기면 주소 앞부분 기준으로 지역이 모여요.
+                </div>
+              ) : (
+                <ul
+                  style={{
+                    margin: 0,
+                    paddingLeft: "18px",
+                    color: "#eee",
+                    fontSize: "12px",
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {archiveExtInsights.followers.regions.map((r) => (
+                    <li key={r.label}>
+                      {r.label}{" "}
+                      <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                        (+{r.saves} 저장)
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
           
           {/* 📈 이번 주 성장 피드백 */}

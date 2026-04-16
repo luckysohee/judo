@@ -9,15 +9,24 @@ export function haversineMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function parseCoordField(v) {
+  if (v == null || v === "") return NaN;
+  if (typeof v === "number") return v;
+  const s = String(v).trim().replace(",", ".");
+  return parseFloat(s);
+}
+
 /**
  * 카카오 로컬 API 및 DB 장소 공통: y=위도, x=경도.
  * DB lat/lng가 오래됐을 수 있으므로 y/x를 우선한다.
  */
 export function resolvePlaceWgs84(place) {
   if (!place || typeof place !== "object") return null;
-  const lat = parseFloat(place.y ?? place.lat ?? place.latitude);
-  const lng = parseFloat(place.x ?? place.lng ?? place.longitude);
+  const lat = parseCoordField(place.y ?? place.lat ?? place.latitude);
+  const lng = parseCoordField(place.x ?? place.lng ?? place.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  // DB/임포트 placeholder — (0,0) 으로 200+ 건이 한 핀으로 뭉치고 지도에서 전부 탈락하는 경우 방지
+  if (lat === 0 && lng === 0) return null;
   return { lat, lng };
 }
 

@@ -45,8 +45,8 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
         ]
       },
       checkin: {
-        title: '체크인 기능',
-        description: '방문한 장소를 체크인하고\n기록을 남겨보세요!',
+        title: '한잔함',
+        description: '가본 술집에 한잔 흔적을 남기고\n분위기를 같이 나눠 보세요.',
         icon: '📸',
         benefits: [
           '방문 기록 저장',

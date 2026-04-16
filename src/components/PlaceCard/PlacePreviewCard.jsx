@@ -4,6 +4,7 @@ import { motion, useDragControls } from "framer-motion";
 import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
 
 const MotionCard = motion.div;
+import { supabase } from "../../lib/supabase";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
@@ -22,6 +23,10 @@ import {
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
+import {
+  normalizeHanjanStats,
+  pickHanjanSocialLines,
+} from "../../utils/hanjanSocialCopy";
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -94,6 +99,54 @@ export default function PlacePreviewCard({
       : typeof rawKakaoPlaceId === "number"
       ? String(rawKakaoPlaceId)
       : null;
+
+  /** check_ins·한잔함 통계 키 — 카카오 ID 우선 */
+  const checkinPlaceKey = useMemo(() => {
+    if (kakaoPlaceId) return String(kakaoPlaceId);
+    const id = place?.id;
+    if (id != null && String(id).trim() !== "") return String(id).trim();
+    return null;
+  }, [kakaoPlaceId, place?.id]);
+
+  const [hanjanStatsNorm, setHanjanStatsNorm] = useState(null);
+
+  useEffect(() => {
+    if (!checkinPlaceKey) {
+      setHanjanStatsNorm(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.rpc("get_place_hanjan_stats", {
+        p_place_id: String(checkinPlaceKey),
+      });
+      if (cancelled) return;
+      if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
+      else setHanjanStatsNorm(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [checkinPlaceKey]);
+
+  const refetchHanjanStats = useCallback(() => {
+    if (!checkinPlaceKey) return;
+    void supabase
+      .rpc("get_place_hanjan_stats", { p_place_id: String(checkinPlaceKey) })
+      .then(({ data, error }) => {
+        if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
+      });
+  }, [checkinPlaceKey]);
+
+  const hanjanSocialLines = useMemo(
+    () =>
+      pickHanjanSocialLines({
+        savedCount: place?.savedCount,
+        stats: hanjanStatsNorm,
+        maxLines: 2,
+      }),
+    [place?.savedCount, hanjanStatsNorm]
+  );
 
   const internalPlaceIdForPhotos =
     typeof place?.id === "string" &&
@@ -1616,11 +1669,39 @@ export default function PlacePreviewCard({
             </div>
           ) : null}
 
+          {hanjanSocialLines.length > 0 && (
+            <div
+              style={{
+                marginTop: "10px",
+                marginBottom: "2px",
+                padding: "8px 10px",
+                borderRadius: "10px",
+                backgroundColor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+              aria-label="한잔함 요약"
+            >
+              {hanjanSocialLines.map((line, idx) => (
+                <div
+                  key={`${idx}-${line}`}
+                  style={{
+                    color: "rgba(255,255,255,0.88)",
+                    fontSize: "12px",
+                    lineHeight: 1.45,
+                    fontWeight: 600,
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={styles.actionRow}>
             <CheckinButton
               compact
               place={place}
-              placeId={place.id}
+              placeId={checkinPlaceKey ?? String(place.id ?? "")}
               placeName={place.name}
               placeAddress={
                 place.address ??
@@ -1637,6 +1718,8 @@ export default function PlacePreviewCard({
                 place.kakaoId ??
                 null
               }
+              hanjanStats={hanjanStatsNorm}
+              onHanjanRecorded={refetchHanjanStats}
             />
 
             {isCurator ? (

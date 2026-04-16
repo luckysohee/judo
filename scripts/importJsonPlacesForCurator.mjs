@@ -1,10 +1,11 @@
 /**
  * JSON 배열 → 카카오 지오코딩 → places INSERT → curator_places INSERT
  *
- * JSON 필드: name, category, address, region?, curator_id (curators.id · user_id · auth uid), lat?, lng?, note? → curator_places.one_line_reason
+ * JSON 필드: name, category, address, region?, curator_id (선택·--curator-id 로 대체 가능), lat?, lng?, note? → curator_places.one_line_reason
  *
  * 사용:
  *   node scripts/importJsonPlacesForCurator.mjs data/curator_batch_c0aca_places.json
+ *   node scripts/importJsonPlacesForCurator.mjs data/places.json --curator-id=<uuid> [--sleep-ms=0]
  *
  * curator_places.curator_id 스키마마다 다름:
  *   - 많은 프로젝트: FK → public.curators(user_id) → 컬럼 값은 auth uid (= curators.user_id)
@@ -210,11 +211,23 @@ const MAX_ONE_LINE = 2000;
 
 async function main() {
   loadEnvFromDotenvFiles();
-  const jsonPath = process.argv[2];
-  const SKIP_GEO = process.argv.includes("--skip-geo");
+  const argv = process.argv.slice(2);
+  const SKIP_GEO = argv.includes("--skip-geo");
+  const curatorIdArg = argv.find((a) => a.startsWith("--curator-id="));
+  const curatorFromCli = curatorIdArg
+    ? curatorIdArg.slice("--curator-id=".length).trim()
+    : "";
+  const sleepArg = argv.find((a) => a.startsWith("--sleep-ms="));
+  const SLEEP_MS = sleepArg
+    ? Math.max(0, parseInt(sleepArg.slice("--sleep-ms=".length), 10) || 0)
+    : 130;
+
+  const jsonPath = argv.find((a) => !a.startsWith("--"));
 
   if (!jsonPath) {
-    console.error("사용: node scripts/importJsonPlacesForCurator.mjs <경로.json>");
+    console.error(
+      "사용: node scripts/importJsonPlacesForCurator.mjs <경로.json> [--curator-id=UUID] [--sleep-ms=130] [--skip-geo]"
+    );
     process.exit(1);
   }
 
@@ -249,7 +262,13 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const curatorProfileId = rows[0].curator_id;
+  const curatorProfileId = curatorFromCli || rows[0]?.curator_id;
+  if (!curatorProfileId) {
+    console.error(
+      "curator_id 가 필요합니다. JSON 첫 객체에 curator_id 를 넣거나 --curator-id=<uuid> 로 지정하세요."
+    );
+    process.exit(1);
+  }
   const curatorPk = await resolveCuratorPlaceRowId(supabase, curatorProfileId);
   const cpIdMode = String(
     process.env.CURATOR_PLACES_CURATOR_ID_MODE ||
@@ -314,7 +333,7 @@ async function main() {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const label = `${i + 1}/${rows.length} ${row.name}`;
-    await sleep(130);
+    await sleep(SLEEP_MS);
 
     let lat = row.lat != null ? Number(row.lat) : null;
     let lng = row.lng != null ? Number(row.lng) : null;

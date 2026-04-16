@@ -2397,6 +2397,48 @@ app.post("/api/kakao/search", async (req, res) => {
   }
 });
 
+/** 주소 문자열 → 좌표 (DB places 무좌표 보강·지도 마커용) */
+app.post("/api/kakao/address", async (req, res) => {
+  try {
+    const key = getKakaoRestApiKey();
+    if (!key) {
+      return res.status(503).json({
+        error:
+          "카카오 REST 키 없음: KAKAO_REST_API_KEY 또는 VITE_KAKAO_REST_API_KEY를 .env에 설정하세요.",
+      });
+    }
+    const { query: q, size } = req.body ?? {};
+    const kw = typeof q === "string" ? q.trim() : "";
+    if (!kw) {
+      return res.status(400).json({ error: "query가 필요합니다." });
+    }
+    const params = {
+      query: kw.slice(0, 100),
+      size: Number(size) > 0 ? Math.min(Number(size), 30) : 10,
+    };
+    const response = await axios.get(
+      "https://dapi.kakao.com/v2/local/search/address.json",
+      {
+        params,
+        headers: { Authorization: `KakaoAK ${key}` },
+        timeout: 12000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      }
+    );
+    if (response.status !== 200) {
+      return res.status(502).json({
+        error: "카카오 주소 검색 비정상 응답",
+        status: response.status,
+        kakao: response.data,
+      });
+    }
+    res.json(response.data);
+  } catch (error) {
+    console.error("kakao address:", error.message);
+    res.status(500).json({ error: "카카오 주소 검색 API 호출 실패" });
+  }
+});
+
 /** Google Places API (New) — 장소명·좌표로 사진 후보 (API 키·과금 필요) */
 function isValidGooglePhotoResourceName(name) {
   if (typeof name !== "string" || name.includes("..")) return false;

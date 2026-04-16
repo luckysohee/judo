@@ -62,12 +62,18 @@ export default function CuratorFilterBar({
               pick(curator.id) ||
               ""
           ).trim();
-          const active = selectedCurators.some(
-            (s) =>
-              String(s ?? "")
-                .trim()
-                .toLowerCase() === curatorKey.toLowerCase()
-          );
+          const uid = pick(curator.userId);
+          const pid = pick(curator.id);
+          const active = selectedCurators.some((s) => {
+            const sel = String(s ?? "")
+              .trim()
+              .toLowerCase();
+            if (!sel) return false;
+            if (sel === curatorKey.toLowerCase()) return true;
+            if (uid && sel === uid.toLowerCase()) return true;
+            if (pid && sel === String(pid).trim().toLowerCase()) return true;
+            return false;
+          });
           // 등급별 설정 가져오기
           const rankConfig = RANK_CONFIG[curator.grade] || RANK_CONFIG.default;
 

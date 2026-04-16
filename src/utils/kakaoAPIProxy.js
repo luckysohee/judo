@@ -113,6 +113,41 @@ export async function getKakaoPlaceBasicInfoViaProxy(placeId, opts = {}) {
  * 브라우저 → Vite proxy → 서버 → 카카오 키워드 검색 (CORS 회피)
  * @param {{ query: string, x?: number, y?: number, radius?: number, size?: number }} opts
  */
+/**
+ * 지번·도로명 주소 → 좌표 (키워드 검색 실패·무좌표 장소 보강용)
+ * @param {{ query: string, size?: number }} opts
+ */
+export async function searchKakaoAddressViaProxy(opts) {
+  const query = typeof opts?.query === "string" ? opts.query.trim() : "";
+  if (!query) {
+    return { documents: [] };
+  }
+  try {
+    const base = API_BASE_URL;
+    const url = base ? `${base}/api/kakao/address` : "/api/kakao/address";
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        size:
+          opts.size != null && Number.isFinite(Number(opts.size))
+            ? Math.min(15, Math.max(1, Number(opts.size)))
+            : 5,
+      }),
+    });
+    if (!response.ok) {
+      console.warn("searchKakaoAddressViaProxy HTTP", response.status);
+      return { documents: [] };
+    }
+    const data = await response.json();
+    return { documents: Array.isArray(data.documents) ? data.documents : [] };
+  } catch (e) {
+    console.error("searchKakaoAddressViaProxy:", e);
+    return { documents: [] };
+  }
+}
+
 export async function searchKakaoKeywordViaProxy(opts) {
   const query = typeof opts?.query === "string" ? opts.query.trim() : "";
   if (!query) {

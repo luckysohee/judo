@@ -20,7 +20,7 @@ const CheckInConfirmModal = ({
       >
         {/* 헤더 */}
         <div className="text-center mb-4">
-          <div className="text-3xl mb-2">🎯</div>
+          <div className="text-3xl mb-2">🍶</div>
           <h3 className="text-lg font-bold text-gray-900">{place.name}</h3>
           <p className="text-sm text-gray-600 mt-1">{place.address || '장소 정보'}</p>
         </div>
@@ -30,12 +30,12 @@ const CheckInConfirmModal = ({
           <div className="flex items-start gap-3">
             <div className="text-blue-500 text-xl">ℹ️</div>
             <div className="text-sm text-gray-700">
-              <p className="font-medium mb-1">체크인 정보 공유 안내</p>
+              <p className="font-medium mb-1">한잔함 기록 안내</p>
               <p className="text-gray-600">
-                체크인 시 <span className="font-semibold text-blue-600">"{userNickname}"</span> 닉네임으로
+                기록 시 <span className="font-semibold text-blue-600">"{userNickname}"</span> 닉네임으로
               </p>
               <p className="text-gray-600">
-                장소 체크인 상황이 다른 사용자에게 공유됩니다.
+                이 장소에 대한 한잔 흔적이 다른 사용자에게도 비슷하게 보일 수 있어요.
               </p>
             </div>
           </div>
@@ -53,7 +53,7 @@ const CheckInConfirmModal = ({
             onClick={onConfirm}
             className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl font-medium transition-all duration-200 hover:shadow-lg"
           >
-            동의하고 체크인하기
+            동의하고 한잔 남기기
           </button>
         </div>
       </motion.div>

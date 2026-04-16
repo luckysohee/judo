@@ -41,17 +41,35 @@ export const useRealtimeCheckins = () => {
     }
   };
 
-  // 특정 장소의 체크인 수 가져오기
+  // 지도 마커 배지: 한잔 누적(total_dedup) — 카드 get_place_hanjan_stats·DB와 동일 기준
   const fetchPlaceCheckinCount = async (placeId) => {
     try {
-      const { data, error } = await supabase.rpc('get_place_checkin_count', { 
-        p_place_id: placeId 
+      const { data, error } = await supabase.rpc("get_place_hanjan_stats", {
+        p_place_id: String(placeId).trim(),
       });
       if (error) throw error;
-      return data || 0;
-    } catch (error) {
-      console.error('장소 체크인 수 로드 오류:', error);
+      if (data && typeof data === "object") {
+        return Math.max(0, Number(data.total_dedup) || 0);
+      }
       return 0;
+    } catch (error) {
+      console.error("장소 한잔 집계 로드 오류:", error);
+      return 0;
+    }
+  };
+
+  /** 장소 카드용 한잔함 집계 (get_place_hanjan_stats) */
+  const fetchPlaceHanjanStats = async (placeId) => {
+    if (placeId == null || String(placeId).trim() === "") return null;
+    try {
+      const { data, error } = await supabase.rpc("get_place_hanjan_stats", {
+        p_place_id: String(placeId).trim(),
+      });
+      if (error) throw error;
+      return data ?? null;
+    } catch (error) {
+      console.warn("한잔함 통계 로드(get_place_hanjan_stats 마이그레이션 확인):", error?.message || error);
+      return null;
     }
   };
 
@@ -184,6 +202,7 @@ export const useRealtimeCheckins = () => {
     placeCheckinCounts,
     performCheckin,
     fetchPlaceCheckinCount,
+    fetchPlaceHanjanStats,
     updateAllPlaceCheckinCounts
   };
 };

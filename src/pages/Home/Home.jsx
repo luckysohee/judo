@@ -82,7 +82,11 @@ import {
   fetchCuratorPlaceDbSearch,
   mergeDbPlaceIdsFirst,
 } from "../../utils/fetchCuratorPlaceDbSearch";
-import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
+import {
+  resolvePlaceWgs84,
+  kakaoNumericPlaceId,
+  isLikelyKoreaWgs84,
+} from "../../utils/placeCoords";
 import {
   isWalkingRouteReasonable,
   walkingRouteDisplayMinutes,
@@ -90,6 +94,7 @@ import {
 import {
   getKakaoPlaceDetailsViaProxy,
   searchKakaoKeywordViaProxy,
+  searchKakaoAddressViaProxy,
 } from "../../utils/kakaoAPIProxy";
 import {
   mergePickedPlaceWithCuratorCatalog,
@@ -124,7 +129,10 @@ import { courseOptionsToMapPlaces } from "../../utils/generateCourseOptions.js";
 import {
   addLegacyPlaceCuratorAliasesToKeySet,
   addLegacyPlaceCuratorIdsForUsername,
+  addLegacyPlaceCuratorIdsForCuratorProfile,
   expandLegacyPlaceCuratorIdIfAny,
+  legacyCompactUuidToDashed,
+  legacyPlaceCuratorIdCompactsForProfile,
 } from "../../utils/curatorLegacyPlaceIds";
 
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
@@ -152,11 +160,22 @@ function applyLegendCategoryFilter(places, legendCategory) {
  * 장소에 붙은 추천(curator_places) ↔ 칩 키(username·display_name·행 id·auth uid) 교차 매칭.
  * curator_id 가 auth.uid 인 경우 조인이 비어도 dbCurators.userId 로 핸들·닉네임을 풀어 넣음.
  */
+function collapseCuratorMatchToken(s) {
+  return String(s ?? "")
+    .trim()
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/gu, "");
+}
+
 function buildPlaceCuratorFilterKeySet(place, dbCurators) {
   const keys = new Set();
   const add = (v) => {
     const s = String(v ?? "").trim().toLowerCase();
-    if (s) keys.add(s);
+    if (!s) return;
+    keys.add(s);
+    const collapsed = collapseCuratorMatchToken(s);
+    if (collapsed && collapsed !== s) keys.add(collapsed);
   };
   for (const v of place.curatorUsernames || []) add(v);
   for (const v of place.curators || []) add(v);
@@ -199,7 +218,13 @@ function expandCuratorChipSelectionKeys(raw, dbCurators) {
   const out = new Set();
   if (!sel) return out;
   out.add(sel);
+  const selCollapsed = collapseCuratorMatchToken(sel);
+  if (selCollapsed && selCollapsed !== sel) out.add(selCollapsed);
   expandLegacyPlaceCuratorIdIfAny(sel, (x) => out.add(x));
+  addLegacyPlaceCuratorIdsForUsername(sel, (x) => out.add(x));
+  if (selCollapsed && selCollapsed !== sel) {
+    addLegacyPlaceCuratorIdsForUsername(selCollapsed, (x) => out.add(x));
+  }
   for (const c of dbCurators || []) {
     const aliases = [
       c.username,
@@ -217,8 +242,17 @@ function expandCuratorChipSelectionKeys(raw, dbCurators) {
           .toLowerCase()
       )
       .filter(Boolean);
-    if (!aliases.includes(sel)) continue;
-    aliases.forEach((a) => out.add(a));
+    const aliasMatch = new Set(aliases);
+    for (const a of aliases) {
+      const ac = collapseCuratorMatchToken(a);
+      if (ac) aliasMatch.add(ac);
+    }
+    if (!aliasMatch.has(sel) && !aliasMatch.has(selCollapsed)) continue;
+    aliases.forEach((a) => {
+      out.add(a);
+      const ac = collapseCuratorMatchToken(a);
+      if (ac) out.add(ac);
+    });
     const handleLc =
       String(c.username ?? "")
         .trim()
@@ -235,8 +269,156 @@ function expandCuratorChipSelectionKeys(raw, dbCurators) {
     if (handleLc) {
       addLegacyPlaceCuratorIdsForUsername(handleLc, (x) => out.add(x));
     }
+    addLegacyPlaceCuratorIdsForCuratorProfile(c, (x) => out.add(x));
   }
   return out;
+}
+
+/**
+ * PostgREST 임베드가 «칩·필터에 쓸 표시명/핸들»까지 있는지.
+ * id·user_id 만 오고 username/display_name 이 비는 경우가 있어, 그때는 attach 로 덮어쓴다.
+ */
+function curatorJoinRowLooksComplete(c) {
+  if (c == null) return false;
+  if (Array.isArray(c)) {
+    if (c.length === 0) return false;
+    return curatorJoinRowLooksComplete(c[0]);
+  }
+  if (typeof c !== "object") return false;
+  const u = c.username != null ? String(c.username).trim() : "";
+  const d = c.display_name != null ? String(c.display_name).trim() : "";
+  return Boolean(u || d);
+}
+
+/**
+ * curator_places.curator_id 가 curators.user_id 인 스키마에서
+ * PostgREST embedded `curators` 가 FK(curators.id) 기준이면 null → 칩 필터·표시용으로 보강.
+ */
+function attachCuratorsToCuratorPlaceRows(rows, curatorRows) {
+  const map = new Map();
+  for (const c of curatorRows || []) {
+    const uid = String(c.user_id ?? "").trim().toLowerCase();
+    const pk = String(c.id ?? "").trim().toLowerCase();
+    if (uid) map.set(uid, c);
+    if (pk) map.set(pk, c);
+    for (const lc of legacyPlaceCuratorIdCompactsForProfile(c)) {
+      const dashed = legacyCompactUuidToDashed(lc);
+      if (!dashed) continue;
+      map.set(dashed, c);
+      map.set(lc, c);
+    }
+  }
+  return (rows || []).map((row) => {
+    const key = String(row?.curator_id ?? "").trim().toLowerCase();
+    const compact = key.replace(/-/g, "");
+    const hit = key
+      ? map.get(key) || (compact ? map.get(compact) : null)
+      : null;
+    if (!hit) return row;
+    if (curatorJoinRowLooksComplete(row?.curators)) return row;
+    return { ...row, curators: hit };
+  });
+}
+
+/** 칩 문자열·uuid → `dbCurators` 포맷 행 한 개 (필터 구조 보강용) */
+function findDbCuratorRowForChip(rawSel, dbCurators) {
+  const raw = String(rawSel ?? "").trim();
+  if (!raw) return null;
+  const selLower = raw.toLowerCase();
+  const selCollapsed = collapseCuratorMatchToken(raw);
+  for (const c of dbCurators || []) {
+    const parts = [
+      c.username,
+      c.displayName,
+      c.name,
+      c.filterKey,
+      c.slug,
+      c.id != null ? String(c.id).trim() : "",
+      c.userId != null ? String(c.userId).trim() : "",
+    ].filter(Boolean);
+    for (const p of parts) {
+      const pl = String(p).trim().toLowerCase();
+      if (pl === selLower) return c;
+      if (collapseCuratorMatchToken(p) === selCollapsed) return c;
+    }
+  }
+  const compact = selLower.replace(/-/g, "");
+  if (/^[0-9a-f]{32}$/.test(compact)) {
+    for (const c of dbCurators || []) {
+      const idc = String(c.id ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, "");
+      const uidc = String(c.userId ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, "");
+      if (idc && idc === compact) return c;
+      if (uidc && uidc === compact) return c;
+    }
+  }
+  return null;
+}
+
+/** `curator_places.curator_id` 가 이 큐레이터와 같은지 판별할 id·레거시 uuid 집합 */
+function collectCuratorIdsForRescueMatch(c) {
+  const s = new Set();
+  const add = (v) => {
+    const t = String(v ?? "").trim().toLowerCase();
+    if (!t) return;
+    s.add(t);
+    s.add(t.replace(/-/g, ""));
+  };
+  if (!c) return s;
+  add(c.id);
+  add(c.userId);
+  const profile = {
+    username: c.username,
+    display_name: c.displayName,
+    displayName: c.displayName,
+    name: c.name,
+    slug: c.slug,
+    filterKey: c.filterKey,
+  };
+  for (const lc of legacyPlaceCuratorIdCompactsForProfile(profile)) {
+    add(lc);
+    const dashed = legacyCompactUuidToDashed(lc);
+    if (dashed) add(dashed);
+  }
+  return s;
+}
+
+/**
+ * 칩에서 넘긴 문자열(닉·핸들·filterKey)을 `curator_places.curator_id` 와 맞추기 위해
+ * 가능하면 `user_id`, 없으면 `curators.id` 로 정규화한다.
+ */
+function canonicalCuratorChipToken(key, dbCurators) {
+  const k = String(key ?? "").trim();
+  if (!k) return "";
+  const kLower = k.toLowerCase();
+  const kColl = collapseCuratorMatchToken(k);
+  for (const c of dbCurators || []) {
+    const candidates = [
+      c.filterKey,
+      c.username,
+      c.displayName,
+      c.name,
+      c.slug,
+      c.id != null ? String(c.id) : "",
+      c.userId != null ? String(c.userId) : "",
+    ]
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean);
+    for (const t of candidates) {
+      if (t.toLowerCase() === kLower) {
+        return String(c.userId || c.id || k).trim();
+      }
+      if (collapseCuratorMatchToken(t) === kColl) {
+        return String(c.userId || c.id || k).trim();
+      }
+    }
+  }
+  return k;
 }
 
 /** localStorage(savedMap) + Supabase(user_saved_places → userSavedPlaces) 저장 키 합집합 */
@@ -661,22 +843,39 @@ export default function Home() {
   // 네이버 블로그 검색 함수
   // 카카오 API로 장소 추가 정보 가져오기
   const enrichPlaceWithKakaoInfo = async (place) => {
-    if (!place?.name) {
-      return place;
-    }
     const hasUsefulCategory = Boolean(
       (place.category_name && String(place.category_name).trim()) ||
         (place.category &&
           String(place.category).trim() &&
           place.category !== "미분류")
     );
-    if (place.isKakaoEnriched && hasUsefulCategory) {
+    const wgs0 = resolvePlaceWgs84(place);
+    const coordsOk =
+      wgs0 && isLikelyKoreaWgs84(wgs0.lat, wgs0.lng);
+    if (place.isKakaoEnriched && hasUsefulCategory && coordsOk) {
       return place;
     }
 
+    const labelForSearch =
+      (place?.name && String(place.name).trim()) ||
+      (place?.place_name && String(place.place_name).trim()) ||
+      "";
+    const firstAddr = [
+      place?.address,
+      place?.road_address_name,
+      place?.address_name,
+    ]
+      .map((x) => (typeof x === "string" ? x.trim() : ""))
+      .find((s) => s.length > 0);
+
+    if (!labelForSearch && !firstAddr) {
+      return place;
+    }
+    const keywordQuery = labelForSearch || firstAddr.slice(0, 80);
+
     try {
       if (import.meta.env.DEV) {
-        console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", place.name);
+        console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", keywordQuery);
       }
 
       const py = parseFloat(place.lat ?? place.y);
@@ -694,7 +893,7 @@ export default function Home() {
       let kakaoPlace = null;
       for (const kid of idCandidates) {
         kakaoPlace = await getKakaoPlaceDetailsViaProxy(kid, {
-          query: place.name,
+          query: keywordQuery,
           x: Number.isFinite(px) ? px : undefined,
           y: Number.isFinite(py) ? py : undefined,
         });
@@ -705,7 +904,7 @@ export default function Home() {
 
       if (!kakaoPlace) {
         const { documents: docs } = await searchKakaoKeywordViaProxy({
-          query: place.name,
+          query: keywordQuery,
           x: Number.isFinite(px) ? px : undefined,
           y: Number.isFinite(py) ? py : undefined,
           radius: 500,
@@ -718,6 +917,39 @@ export default function Home() {
         }
         if (!kakaoPlace && docs.length) {
           kakaoPlace = docs[0];
+        }
+      }
+
+      if (!kakaoPlace) {
+        const addrQ = [
+          place.address,
+          place.road_address_name,
+          place.address_name,
+        ]
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .find((s) => s.length >= 4);
+        if (addrQ) {
+          const { documents: adocs } = await searchKakaoAddressViaProxy({
+            query: addrQ,
+            size: 5,
+          });
+          const d0 = Array.isArray(adocs) ? adocs[0] : null;
+          if (d0) {
+            const ky = parseFloat(d0.y);
+            const kx = parseFloat(d0.x);
+            if (Number.isFinite(ky) && Number.isFinite(kx)) {
+              kakaoPlace = {
+                ...d0,
+                place_name: d0.place_name || place.name,
+                category_name:
+                  d0.category_name ||
+                  place.category_name ||
+                  place.category ||
+                  "",
+                id: d0.id,
+              };
+            }
+          }
         }
       }
 
@@ -734,8 +966,15 @@ export default function Home() {
           place.category ||
           "";
 
+        const resolvedName =
+          (kakaoPlace.place_name && String(kakaoPlace.place_name).trim()) ||
+          (place.name && String(place.name).trim()) ||
+          (place.place_name && String(place.place_name).trim()) ||
+          keywordQuery;
+
         const enrichedPlace = {
           ...place,
+          name: resolvedName,
           category: catFromKakao || place.category,
           category_name: catFromKakao || place.category_name,
           phone: kakaoPlace.phone || place.phone,
@@ -768,6 +1007,7 @@ export default function Home() {
             (place.category && String(place.category).trim()) ||
             null;
           const patch = {};
+          if (resolvedName) patch.name = resolvedName;
           if (nextCat) patch.category = nextCat;
           if (nextAddr) patch.address = nextAddr;
           if (kakaoPlace.phone != null && String(kakaoPlace.phone).trim() !== "") {
@@ -1600,6 +1840,33 @@ export default function Home() {
     () => (Array.isArray(checkinRanking) ? checkinRanking.slice(0, 5) : []),
     [checkinRanking]
   );
+
+  const [risingCurators, setRisingCurators] = useState([]);
+  const loadRisingCurators = useCallback(async () => {
+    const { data, error } = await supabase.rpc("home_rising_curators", {
+      p_limit: 8,
+    });
+    if (error) {
+      console.warn("home_rising_curators:", error.message);
+      setRisingCurators([]);
+      return;
+    }
+    setRisingCurators(Array.isArray(data) ? data : []);
+  }, []);
+
+  useEffect(() => {
+    void loadRisingCurators();
+  }, [loadRisingCurators, checkinRanking]);
+
+  const handleRisingCuratorPick = useCallback((row) => {
+    const u = String(row?.username ?? "").trim();
+    if (!u) return;
+    setShowSavedOnly(false);
+    setLegendCategory(null);
+    setShowAll(false);
+    setSelectedCurators([canonicalCuratorChipToken(u, dbCurators)]);
+  }, [dbCurators]);
+
   const hotRankTopPlaceIds = useMemo(
     () => new Set(rankingTop5.map((r) => String(r.place_id))),
     [rankingTop5]
@@ -2069,7 +2336,12 @@ export default function Home() {
           if (!place) return;
 
           const wgsMerge = resolvePlaceWgs84(place);
-          const key = wgsMerge
+          const useLatLngMergeKey =
+            wgsMerge &&
+            Number.isFinite(wgsMerge.lat) &&
+            Number.isFinite(wgsMerge.lng) &&
+            isLikelyKoreaWgs84(wgsMerge.lat, wgsMerge.lng);
+          const key = useLatLngMergeKey
             ? `${wgsMerge.lat}_${wgsMerge.lng}`
             : `id:${place.id ?? curatorPlace.place_id ?? "unknown"}`;
           
@@ -2230,6 +2502,14 @@ export default function Home() {
 
     const loadPlaces = async () => {
       try {
+        const { data: curatorSnap, error: curErr } = await supabase
+          .from("curators")
+          .select("id, user_id, username, display_name")
+          .order("created_at", { ascending: false });
+        if (curErr && import.meta.env.DEV) {
+          console.warn("curators snap (join 보강):", curErr.message);
+        }
+
         const { data, error } = await supabase
           .from("curator_places")
           .select(`
@@ -2250,7 +2530,10 @@ export default function Home() {
           return;
         }
 
-        const rows = data || [];
+        const rows = attachCuratorsToCuratorPlaceRows(
+          data || [],
+          curatorSnap || []
+        );
         if (rows.length === 0) {
           setDbPlaces([]);
           return;
@@ -2506,6 +2789,21 @@ export default function Home() {
     console.log("📋 dbCurators 상세:", dbCurators);
   }, [showAll, selectedCurators, dbCurators]);
 
+  /** 큐레이터 목록이 늦게 오면 닉네임으로만 저장된 선택을 user_id / id 로 맞춤 */
+  useEffect(() => {
+    if (!Array.isArray(dbCurators) || dbCurators.length === 0) return;
+    setSelectedCurators((prev) => {
+      if (!Array.isArray(prev) || prev.length === 0) return prev;
+      const next = prev.map((s) =>
+        canonicalCuratorChipToken(String(s ?? "").trim(), dbCurators)
+      );
+      const same =
+        next.length === prev.length &&
+        next.every((v, i) => v === String(prev[i] ?? "").trim());
+      return same ? prev : next;
+    });
+  }, [dbCurators]);
+
   const refreshStorage = () => {
     setFolders(getFolders());
     setSavedMap(getSavedPlacesMap());
@@ -2630,6 +2928,23 @@ export default function Home() {
         return false;
       });
     });
+
+    if (filtered.length === 0 && selectedCurators.length > 0) {
+      const rescued = dbPlaces.filter((place) =>
+        selectedCurators.some((rawSel) => {
+          const row = findDbCuratorRowForChip(rawSel, dbCurators);
+          if (!row) return false;
+          const ids = collectCuratorIdsForRescueMatch(row);
+          return (place.curatorPlaces || []).some((cp) => {
+            const cid = String(cp.curator_id ?? "").trim().toLowerCase();
+            if (!cid) return false;
+            const cCompact = cid.replace(/-/g, "");
+            return ids.has(cid) || ids.has(cCompact);
+          });
+        })
+      );
+      if (rescued.length > 0) return rescued;
+    }
 
     return filtered;
   }, [
@@ -2756,7 +3071,7 @@ export default function Home() {
     }
 
     // AI/검색 결과가 있어도 기존 마커는 유지하고 검색 마커를 추가 표시
-    if (aiRecommendedIds.length > 0 || query) {
+    if (aiRecommendedIds.length > 0 || query.trim()) {
       const filteredBase = displayedPlaces.filter((place) => place.is_public !== false);
       const merged = mergePlaces(
         mergePlaces(kPins, filteredBase),
@@ -3800,8 +4115,6 @@ const handleClearSearch = () => {
     }
   };
 
-  console.log("🗺️ MapView에 전달되는 장소 데이터:", mapDisplayedPlacesWithLegend.length, mapDisplayedPlacesWithLegend);
-
   // 팔로우 모달 핸들러
   const handleFollow = async (curatorName) => {
     // 로그인 체크
@@ -4223,12 +4536,14 @@ const handleClearSearch = () => {
 
         <HotCheckinStrip
           rankingTop5={rankingTop5}
+          risingCurators={risingCurators}
           placesOnMap={mapDisplayedPlacesWithLegend}
           mapRef={mapRef}
           hideWhenPreviewOpen={Boolean(selectedPlace)}
           onPickPlace={(place) =>
             setSelectedPlaceWithAnalytics(place, "hot_strip")
           }
+          onPickCurator={handleRisingCuratorPick}
         />
 
         <MapView
@@ -4262,6 +4577,12 @@ const handleClearSearch = () => {
           preserveViewportOnPlacesChange={Boolean(
             String(query || "").trim()
           )}
+          skipKoreaBBoxForCuratorPins={
+            !isCourseMode &&
+            Array.isArray(selectedCurators) &&
+            selectedCurators.length > 0 &&
+            !showSavedOnly
+          }
           courseOverlay={courseMapOverlay}
           courseOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
         />
@@ -4291,17 +4612,23 @@ const handleClearSearch = () => {
                 if (!key) return;
 
                 setShowSavedOnly(false);
+                setLegendCategory(null);
                 const cleanPrev = selectedCuratorsRef.current.filter(
                   (item) => item != null && String(item).trim() !== ""
                 );
-                const lower = key.toLowerCase();
-                const idx = cleanPrev.findIndex(
-                  (c) => String(c).trim().toLowerCase() === lower
-                );
+                const token = canonicalCuratorChipToken(key, dbCurators);
+                const idx = cleanPrev.findIndex((c) => {
+                  const prev = String(c ?? "").trim();
+                  if (!prev) return false;
+                  return (
+                    canonicalCuratorChipToken(prev, dbCurators).toLowerCase() ===
+                    token.toLowerCase()
+                  );
+                });
                 const next =
                   idx >= 0
                     ? cleanPrev.filter((_, i) => i !== idx)
-                    : [...cleanPrev, key];
+                    : [...cleanPrev, token];
                 setSelectedCurators(next);
                 setShowAll(next.length === 0);
               }}
@@ -5609,7 +5936,12 @@ const handleClearSearch = () => {
                             style={styles.aiCuratorHighlight}
                             onClick={() => {
                               setShowAll(false);
-                              setSelectedCurators([h.curatorUsername]);
+                              setSelectedCurators([
+                                canonicalCuratorChipToken(
+                                  h.curatorUsername,
+                                  dbCurators
+                                ),
+                              ]);
                               setAiSheetOpen(false);
                             }}
                           >

@@ -178,7 +178,7 @@ export const findCoSavedPlaces = (placeId, userActions) => {
 
 // 📊 큐레이터 등급 계산
 export const calculateCuratorLevel = (curatorStats) => {
-  const { placeCount, saveCount, followerCount, overlappingCurators } = curatorStats;
+  const { placeCount, saveCount, followerCount } = curatorStats;
   
   if (placeCount >= 50 && saveCount >= 1000 && followerCount >= 100) {
     return {

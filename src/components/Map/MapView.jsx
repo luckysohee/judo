@@ -18,8 +18,68 @@ import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
 
 const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
 
+/** 클러스터 안 마커 개수 표기 (멀리서도 읽기 쉽게) */
+function formatClusterMarkerCount(size) {
+  const n = Math.max(0, Math.floor(Number(size) || 0));
+  if (n < 1000) return String(n);
+  if (n < 10000) {
+    const k = n / 1000;
+    const t = k >= 10 ? Math.round(k) : Math.round(k * 10) / 10;
+    return `${String(t).replace(/\.0$/, "")}k`;
+  }
+  return `${Math.round(n / 1000)}k`;
+}
+
+/**
+ * Kakao MarkerClusterer: calculator 길이 N → 스타일은 N+1단계
+ * @see https://apis.map.kakao.com/web/documentation/#MarkerClusterer
+ */
+const MAP_CLUSTER_CALCULATOR = [10, 40, 100, 200, 400, 800, 1600, 3200];
+
+function mapClusterStyleAtIndex(index) {
+  const i = Math.min(Math.max(0, index), MAP_CLUSTER_CALCULATOR.length);
+  const px = 44 + i * 7;
+  const fs = Math.min(17, 11 + Math.floor(i * 0.75));
+  return {
+    width: `${px}px`,
+    height: `${px}px`,
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle at 32% 28%, rgba(255,255,255,0.35) 0%, #fb7185 42%, #be123c 72%, #881337 100%)",
+    color: "#fff",
+    textAlign: "center",
+    lineHeight: `${px}px`,
+    fontSize: `${fs}px`,
+    fontWeight: "800",
+    fontFamily:
+      'system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif',
+    boxShadow: "0 4px 16px rgba(190,18,60,0.35), 0 1px 0 rgba(255,255,255,0.65) inset",
+    border: "2px solid rgba(255,255,255,0.9)",
+    opacity: "0.98",
+  };
+}
+
+const MAP_CLUSTER_STYLES = Array.from(
+  { length: MAP_CLUSTER_CALCULATOR.length + 1 },
+  (_, idx) => mapClusterStyleAtIndex(idx)
+);
+
 function resolvePlaceCoords(place) {
   return resolvePlaceWgs84(place);
+}
+
+function placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins) {
+  const c = resolvePlaceCoords(p);
+  if (!c) return false;
+  if (p.isKakaoTypingPreview) return true;
+  if (
+    skipKoreaBBoxForCuratorPins &&
+    Array.isArray(p.curatorPlaces) &&
+    p.curatorPlaces.length > 0
+  ) {
+    return Number.isFinite(c.lat) && Number.isFinite(c.lng);
+  }
+  return isLikelyKoreaWgs84(c.lat, c.lng);
 }
 
 /** JSON.stringify(places) 대신 뷰포트 재맞춤용 가벼운 시그니처 */
@@ -68,7 +128,7 @@ const MapView = forwardRef(({
   userSavedPlaces,
   onLocationButtonClick,
   onMapViewportChange,
-  /** 장소 id → 최근 3h 체크인 수 (get_place_checkin_count 등) */
+  /** 장소 id → 한잔 누적 수(total_dedup, get_place_hanjan_stats 와 동일 기준) */
   checkinCountByPlaceId = {},
   /** Set<string> 랭킹 TOP place_id */
   hotRankTopPlaceIds = null,
@@ -103,6 +163,11 @@ const MapView = forwardRef(({
    * `{ top, right, bottom, left }` 또는 네 면 동일한 숫자
    */
   placesFitBoundsPadding = null,
+  /**
+   * true: 큐레이터 칩만 켠 DB 추천 장소는 한국 bbox 밖이어도 핀 표시(해외·오타 좌표까지 보임).
+   * 좌표가 아예 없는 행은 여전히 제외.
+   */
+  skipKoreaBBoxForCuratorPins = false,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -654,7 +719,11 @@ const MapView = forwardRef(({
                   map,
                   averageCenter: true,
                   minLevel: 6,
-                  gridSize: 60,
+                  gridSize: 64,
+                  minClusterSize: 2,
+                  calculator: MAP_CLUSTER_CALCULATOR,
+                  styles: MAP_CLUSTER_STYLES,
+                  texts: (size) => formatClusterMarkerCount(size),
                 });
               }
               viewportNotifyReadyRef.current = false;
@@ -696,13 +765,9 @@ const MapView = forwardRef(({
     const liveMarkers = [];
     const clusterMarkers = [];
 
-    const validPlaces = places.filter((p) => {
-      const c = resolvePlaceCoords(p);
-      if (!c) return false;
-      const { lat, lng } = c;
-      if (p.isKakaoTypingPreview) return true;
-      return isLikelyKoreaWgs84(lat, lng);
-    });
+    const validPlaces = places.filter((p) =>
+      placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins)
+    );
 
     const nextMarkers = validPlaces.map((p) => {
       const { lat, lng } = resolvePlaceCoords(p);
@@ -861,19 +926,16 @@ const MapView = forwardRef(({
     hotRankTopPlaceIds,
     preserveViewportOnPlacesChange,
     placesFitBoundsPadding,
+    skipKoreaBBoxForCuratorPins,
   ]);
 
   /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */
   useEffect(() => {
     if (!mapReady || !markersRef.current?.length) return;
 
-    const validPlaces = places.filter((p) => {
-      const c = resolvePlaceCoords(p);
-      if (!c) return false;
-      const { lat, lng } = c;
-      if (p.isKakaoTypingPreview) return true;
-      return isLikelyKoreaWgs84(lat, lng);
-    });
+    const validPlaces = places.filter((p) =>
+      placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins)
+    );
 
     const intervals = [];
     markersRef.current.forEach((marker, idx) => {
@@ -905,7 +967,7 @@ const MapView = forwardRef(({
         }
       });
     };
-  }, [places, mapReady]);
+  }, [places, mapReady, skipKoreaBBoxForCuratorPins]);
 
   // 3. 선택된 장소로 부드럽게 이동 (검색 결과는 y/x만 있고 lat/lng 없는 경우 많음)
   useEffect(() => {
