@@ -373,8 +373,15 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
   };
 
   // 검색·카카오 API 전용 핀 (DB 큐레이터 추천은 아래 등급 마커 사용)
-  if (place.isKakaoPlace && !isCuratorListedPlace(place)) {
+  // 코스 2차 후보(`courseMarkerPulse`): 큐레이터 추천집은 녹색 등급 마커+깜빡임, 그 외만 일반 핀
+  const curatorListed = isCuratorListedPlace(place);
+  const useKakaoGenericPin =
+    !curatorListed &&
+    (Boolean(place.isKakaoPlace) || Boolean(place.courseMarkerPulse));
+
+  if (useKakaoGenericPin) {
     const name = place.name || place.place_name || '알 수 없는 장소';
+    const nameSafe = escapeSvgText(name);
     const nameWidth = Math.min(name.length * 8 + 10, 120);
     const totalWidth = Math.max(30, nameWidth);
     const totalHeight = 35 + 25; // 핀 + 상호명 라벨
@@ -414,7 +421,7 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
           fill="#ffffff"
           font-weight="bold"
         >
-          ${name}
+          ${nameSafe}
         </text>
         
         <!-- 카카오 기본 빨간 핀 모양 -->

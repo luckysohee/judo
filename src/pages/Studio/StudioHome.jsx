@@ -34,6 +34,10 @@ import {
   insertSystemFolderRow,
   deleteOwnCustomSystemFolder,
 } from "../../utils/systemFoldersSupabase";
+import {
+  STUDIO_ATMOSPHERE_OPTIONS,
+  STUDIO_LIQUOR_TYPE_OPTIONS,
+} from "../../utils/placeTaxonomy.js";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -4347,14 +4351,11 @@ export default function StudioHome() {
               tabIndex={4}
             >
               <option value="">선택하세요</option>
-              <option value="소주">소주</option>
-              <option value="맥주">맥주</option>
-              <option value="막걸리">막걸리</option>
-              <option value="하이볼">하이볼</option>
-              <option value="위스키">위스키</option>
-              <option value="고량주">고량주</option>
-              <option value="사케">사케</option>
-              <option value="칵테일">칵테일</option>
+              {STUDIO_LIQUOR_TYPE_OPTIONS.map((a) => (
+                <option key={`alc-opt-${a}`} value={a}>
+                  {a}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -4378,15 +4379,11 @@ export default function StudioHome() {
               tabIndex={5}
             >
               <option value="">선택하세요</option>
-              <option value="조용한">조용한</option>
-              <option value="활기찬">활기찬</option>
-              <option value="아기자기한">아기자기한</option>
-              <option value="세련된">세련된</option>
-              <option value="편안한">편안한</option>
-              <option value="로맨틱한">로맨틱한</option>
-              <option value="빈티지">빈티지</option>
-              <option value="모던한">모던한</option>
-              <option value="전통적인">전통적인</option>
+              {STUDIO_ATMOSPHERE_OPTIONS.map((m) => (
+                <option key={`atm-opt-${m}`} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
           </div>
 

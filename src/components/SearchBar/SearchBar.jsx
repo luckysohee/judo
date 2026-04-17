@@ -72,6 +72,8 @@ export default function SearchBar({
   /** Enter/제출 후 늦게 도착하는 카카오 콜백이 바텀시트를 다시 열지 않게 함 */
   const kakaoSearchTokenRef = useRef(0);
   const kakaoResultsScrollRef = useRef(null);
+  /** 카카오 목록 + 검색줄 루트 — 전체화면 백드롭 없이 바깥 탭으로 닫기 */
+  const searchRootRef = useRef(null);
   const [thinkDots, setThinkDots] = useState(".");
 
   useEffect(() => {
@@ -84,6 +86,22 @@ export default function SearchBar({
     }, 420);
     return () => clearInterval(id);
   }, [isLoading]);
+
+  /** 전체화면 fixed 백드롭 대신: 지도 팬·드래그는 통과, 검색 블록 밖 탭이면 목록만 닫음 */
+  useEffect(() => {
+    if (!showKakaoSearch || !showKakaoResults || !kakaoResults.length) {
+      return undefined;
+    }
+    const onDocPointerDown = (e) => {
+      const root = searchRootRef.current;
+      if (!root || !(e.target instanceof Node)) return;
+      if (!root.contains(e.target)) {
+        setShowKakaoResultsState(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown, true);
+  }, [showKakaoSearch, showKakaoResults, kakaoResults.length]);
 
   const cancelPendingKakaoSearch = () => {
     if (searchTimeoutRef.current) {
@@ -652,7 +670,7 @@ export default function SearchBar({
   };
 
   return (
-    <section style={{ ...styles.section, position: 'relative' }}>
+    <section ref={searchRootRef} style={{ ...styles.section, position: "relative" }}>
       {/* 상태별 UI 렌더링 */}
       <AnimatePresence>
         {/* 입력 중 상태: 자동완성 + 상황 태그 */}
@@ -943,21 +961,6 @@ export default function SearchBar({
         </div>
       ) : null}
 
-      {/* 바깥 클릭 시 카카오 결과 닫기 — 결과 목록이 실제로 있을 때만(없으면 투명 레이어가 지도만 가림) */}
-      {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
-        <div
-          role="presentation"
-          onClick={() => setShowKakaoResultsState(false)}
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999,
-          }}
-        />
-      )}
     </section>
   );
 }

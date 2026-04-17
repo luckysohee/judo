@@ -158,6 +158,10 @@ const MapView = forwardRef(({
    * 코스 경로 setBounds 시 화면 하단 여백(px) — 바텀시트·피크에 가리지 않게 지도를 위로 맞춤
    */
   courseOverlayFitBottomPaddingPx = 0,
+  /** 보라 경로 라벨 옆 × — 지도에서만 경로·라벨 제거 */
+  onCourseOverlayDismiss = null,
+  /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 2차 확정 UI */
+  courseSecondPickMode = false,
   /**
    * 마커 여러 개일 때 setBounds 패딩(px) — 코스 2차 후보처럼 살짝 줌아웃해 전부 보이게
    * `{ top, right, bottom, left }` 또는 네 면 동일한 숫자
@@ -201,6 +205,16 @@ const MapView = forwardRef(({
   useEffect(() => {
     onMapBlankClickRef.current = onMapBlankClick;
   }, [onMapBlankClick]);
+
+  const courseSecondPickModeRef = useRef(courseSecondPickMode);
+  useEffect(() => {
+    courseSecondPickModeRef.current = courseSecondPickMode;
+  }, [courseSecondPickMode]);
+
+  const onCourseOverlayDismissRef = useRef(onCourseOverlayDismiss);
+  useEffect(() => {
+    onCourseOverlayDismissRef.current = onCourseOverlayDismiss;
+  }, [onCourseOverlayDismiss]);
 
   const selectedPlaceRef = useRef(selectedPlace);
   useEffect(() => {
@@ -689,6 +703,7 @@ const MapView = forwardRef(({
                   if (selectedPlaceRef.current) {
                     setSelectedPlaceRef.current?.(null);
                   } else if (
+                    !courseSecondPickModeRef.current &&
                     onMapBlankClickRef.current &&
                     typeof lat === "number" &&
                     typeof lng === "number" &&
@@ -832,6 +847,10 @@ const MapView = forwardRef(({
             walkingTime: cp.walkingTime,
             blogInsight: cp.blogInsight,
           };
+
+          if (courseSecondPickMode && cp.courseMarkerPulse) {
+            formattedPlace.courseSecondCandidatePick = true;
+          }
           
           if (import.meta.env.DEV) {
             console.log("🗺️ 마커 클릭:", formattedPlace?.name, formattedPlace?.id);
@@ -927,6 +946,7 @@ const MapView = forwardRef(({
     preserveViewportOnPlacesChange,
     placesFitBoundsPadding,
     skipKoreaBBoxForCuratorPins,
+    courseSecondPickMode,
   ]);
 
   /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */
@@ -985,7 +1005,14 @@ const MapView = forwardRef(({
 
     const desiredLevel = 4;
     const currentLevel = mapRef.current.getLevel?.();
-    const panUpPx = 130;
+    /** 하단 미리보기 카드에 핀이 가리지 않도록, 뷰포트 높이에 맞춰 위로 더 밀어 올림 */
+    const panUpPx =
+      typeof window !== "undefined"
+        ? Math.min(
+            320,
+            Math.max(150, Math.round(window.innerHeight * 0.26) + 48)
+          )
+        : 180;
     const { lat, lng } = wgs;
     const targetLatLng = new window.kakao.maps.LatLng(lat, lng);
 
@@ -1098,36 +1125,100 @@ const MapView = forwardRef(({
 
     const legLabel = String(courseOverlay?.legLabel || "").trim();
     const lp = courseOverlay?.labelPosition;
+    let overlayLat = null;
+    let overlayLng = null;
     if (
-      legLabel &&
       lp &&
       Number.isFinite(Number(lp.lat)) &&
-      Number.isFinite(Number(lp.lng)) &&
-      typeof window.kakao.maps.CustomOverlay === "function"
+      Number.isFinite(Number(lp.lng))
     ) {
-      const el = document.createElement("div");
-      el.textContent = legLabel;
-      el.style.cssText = [
-        "padding:5px 10px",
-        "background:rgba(255,255,255,0.96)",
-        "border:1px solid rgba(124,58,237,0.45)",
-        "border-radius:10px",
-        "font-size:11px",
-        "font-weight:700",
-        "color:#5b21b6",
+      overlayLat = Number(lp.lat);
+      overlayLng = Number(lp.lng);
+    } else if (kakaoPath.length) {
+      const mid = kakaoPath[Math.floor(kakaoPath.length / 2)];
+      overlayLat = mid.getLat();
+      overlayLng = mid.getLng();
+    }
+
+    const canDismiss = typeof onCourseOverlayDismissRef.current === "function";
+    if (
+      overlayLat != null &&
+      overlayLng != null &&
+      typeof window.kakao.maps.CustomOverlay === "function" &&
+      (legLabel || canDismiss)
+    ) {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = [
+        "display:flex",
+        "flex-direction:row",
+        "align-items:flex-start",
+        "gap:6px",
         "pointer-events:none",
-        "white-space:nowrap",
-        "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
       ].join(";");
+
+      if (legLabel) {
+        const labelEl = document.createElement("div");
+        labelEl.textContent = legLabel;
+        labelEl.style.cssText = [
+          "padding:5px 10px",
+          "background:rgba(255,255,255,0.96)",
+          "border:1px solid rgba(124,58,237,0.45)",
+          "border-radius:10px",
+          "font-size:11px",
+          "font-weight:700",
+          "color:#5b21b6",
+          "pointer-events:none",
+          "white-space:nowrap",
+          "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
+        ].join(";");
+        wrap.appendChild(labelEl);
+      }
+
+      if (canDismiss) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("aria-label", "경로 끄기");
+        btn.title = "경로 숨기기";
+        btn.textContent = "×";
+        btn.style.cssText = [
+          "flex-shrink:0",
+          "width:28px",
+          "height:28px",
+          "min-width:28px",
+          "padding:0",
+          "margin:0",
+          "border-radius:999px",
+          "border:1px solid rgba(124,58,237,0.55)",
+          "background:rgba(255,255,255,0.98)",
+          "color:#5b21b6",
+          "font-size:17px",
+          "line-height:1",
+          "font-weight:500",
+          "cursor:pointer",
+          "pointer-events:auto",
+          "display:flex",
+          "align-items:center",
+          "justify-content:center",
+          "box-shadow:0 2px 10px rgba(0,0,0,0.12)",
+          "-webkit-tap-highlight-color:transparent",
+        ].join(";");
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onCourseOverlayDismissRef.current?.();
+        });
+        wrap.appendChild(btn);
+      }
+
       try {
         courseLegLabelOverlayRef.current = new window.kakao.maps.CustomOverlay({
           map: mapRef.current,
-          position: new window.kakao.maps.LatLng(Number(lp.lat), Number(lp.lng)),
-          content: el,
+          position: new window.kakao.maps.LatLng(overlayLat, overlayLng),
+          content: wrap,
           xAnchor: 0.5,
-          yAnchor: 0.45,
-          zIndex: 4,
-          clickable: false,
+          yAnchor: legLabel ? 0.45 : 0.5,
+          zIndex: 5,
+          clickable: true,
         });
       } catch {
         courseLegLabelOverlayRef.current = null;

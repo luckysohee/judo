@@ -12,6 +12,10 @@ import {
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
 import { regenerateSecondStep } from "../utils/regenerateSecondStep.js";
 import { regenerateFirstStep } from "../utils/regenerateFirstStep.js";
+import {
+  fetchKakaoPlacesForCourseSecondAround,
+  mergeCoursePlacePoolsWithKakao,
+} from "../utils/augmentCourseSecondPlacesWithKakao.js";
 
 function appendSeenFromCourses(courses = []) {
   const keys = courses.map((c) => c.key).filter(Boolean);
@@ -19,6 +23,19 @@ function appendSeenFromCourses(courses = []) {
     .map((c) => courseVenuePairKey(c))
     .filter(Boolean);
   return { keys, pairs };
+}
+
+/** 지도 「코스 담기」로 처음 만들 때: 1차만 두고, 2차·지도 깜빡임은 「다음 코스」 이후에만 */
+function buildBootstrapOneStepCourse(mergedFirst) {
+  const key = `map-draft-${Date.now()}`;
+  return {
+    key,
+    profileKey: "normal",
+    profileTitle: "지도에서 만든 코스",
+    profileDescription: "",
+    totalScore: 0,
+    steps: [{ step: 1, label: "1차", place: mergedFirst }],
+  };
 }
 
 /** 가로 코스 카드·시트 본문이 `selectedCourse`와 같이 보이도록, 선택 슬롯만 교체 */
@@ -94,9 +111,10 @@ export function useCourseSearch() {
     setAltSecondCourses([]);
   }, []);
 
-  const runCourseSearch = useCallback(async (query) => {
-    const q = String(query || "").trim();
-    if (!isCourseQuery(q)) {
+  /** 코스 검색·홈 「코스」바로가기 공통 */
+  const loadCourseOptionsFromQuery = useCallback(async (q) => {
+    const trimmed = String(q || "").trim();
+    if (!trimmed) {
       return { handled: false, options: [], mapPlaces: [], parsed: null };
     }
 
@@ -109,7 +127,7 @@ export function useCourseSearch() {
     setIsCourseMode(true);
     setIsLoadingCourse(true);
 
-    const parsed = parseCourseQuery(q);
+    const parsed = parseCourseQuery(trimmed);
     setCourseQueryParsed(parsed);
 
     try {
@@ -152,7 +170,10 @@ export function useCourseSearch() {
         );
       }
 
-      setCourseOptions(options);
+      setCourseOptions((prev) => {
+        const preserved = (prev || []).filter((c) => c?.profileKey === "my_own");
+        return [...options, ...preserved];
+      });
       setSelectedCourse(options[0] ?? null);
       const { keys, pairs } = appendSeenFromCourses(options);
       setSeenCourseKeys(keys);
@@ -165,8 +186,29 @@ export function useCourseSearch() {
     }
   }, []);
 
+  const runCourseSearch = useCallback(
+    async (query) => {
+      const q = String(query || "").trim();
+      if (!isCourseQuery(q)) {
+        return { handled: false, options: [], mapPlaces: [], parsed: null };
+      }
+      return loadCourseOptionsFromQuery(q);
+    },
+    [loadCourseOptionsFromQuery]
+  );
+
+  /** 검색 없이 홈에서 바로 코스 UI (조합·추천 동일 시트) */
+  const openCourseComposer = useCallback(async () => {
+    return loadCourseOptionsFromQuery("코스 짜기");
+  }, [loadCourseOptionsFromQuery]);
+
+  /**
+   * @param {"same"|"mood"|"closer"|"featured"} variant
+   * @param {{ apply?: boolean }} [opts] — `apply: false`면 후보만 계산하고 선택 코스·옵션 슬롯은 바꾸지 않음(지도 펄스용)
+   */
   const regenerateSelectedCourseSecond = useCallback(
-    async (variant = "same") => {
+    async (variant = "same", opts = {}) => {
+      const applyPick = opts.apply !== false;
       if (!selectedCourse || !courseQueryParsed) return [];
 
       const slotKey = selectedCourse.key;
@@ -192,7 +234,7 @@ export function useCourseSearch() {
           if (error) {
             console.error("regenerate second places:", error);
             setCourseError("2차 재추천용 장소를 불러오지 못했어요.");
-            setAltSecondCourses([]);
+            if (applyPick) setAltSecondCourses([]);
             return [];
           }
 
@@ -208,22 +250,26 @@ export function useCourseSearch() {
         });
 
         if (results.length) {
-          const picked = results[0];
-          setCourseOptions((prev) =>
-            replaceCourseOptionsSlot(prev, slotKey, picked)
-          );
-          setSelectedCourse(picked);
-          setAltSecondCourses(results.slice(1));
+          if (applyPick) {
+            const picked = results[0];
+            setCourseOptions((prev) =>
+              replaceCourseOptionsSlot(prev, slotKey, picked)
+            );
+            setSelectedCourse(picked);
+            setAltSecondCourses(results.slice(1));
+          }
         } else {
-          setAltSecondCourses([]);
-          setCourseError("바꿔볼 만한 2차 후보를 찾지 못했어요.");
+          if (applyPick) {
+            setAltSecondCourses([]);
+            setCourseError("바꿔볼 만한 2차 후보를 찾지 못했어요.");
+          }
         }
 
         return results;
       } catch (e) {
         console.error(e);
         setCourseError("2차 재추천 중 문제가 생겼어요.");
-        setAltSecondCourses([]);
+        if (applyPick) setAltSecondCourses([]);
         return [];
       } finally {
         setIsRegeneratingSecond(false);
@@ -231,6 +277,91 @@ export function useCourseSearch() {
     },
     [selectedCourse, courseQueryParsed, coursePlaces]
   );
+
+  /**
+   * 2차 후보만 계산(슬롯·selectedCourse 미변경). `applyMapPickAsFirstStepAsync` 직후에는
+   * 아직 리렌더 전이라 `regenerateSelectedCourseSecond` 대신 인자로 받은 코스·파서를 씀.
+   */
+  const computeSecondStepCandidatesOnly = useCallback(
+    async (course, parsedQuery, variant = "same", opts = {}) => {
+      if (!course || !parsedQuery) return [];
+
+      setIsRegeneratingSecond(true);
+      setCourseError("");
+
+      try {
+        let places = coursePlaces;
+
+        if (!places.length) {
+          let { data, error } = await supabase
+            .from("places")
+            .select("*")
+            .eq("is_archived", false);
+
+          if (error) {
+            const retry = await supabase.from("places").select("*");
+            data = retry.data;
+            error = retry.error;
+          }
+
+          if (error) {
+            console.error("computeSecondStepCandidatesOnly places:", error);
+            setCourseError("2차 재추천용 장소를 불러오지 못했어요.");
+            return [];
+          }
+
+          places = normalizePlaces(data || []);
+          setCoursePlaces(places);
+        }
+
+        if (opts.augmentPlacesWithKakaoNearFirst && course?.steps?.[0]?.place) {
+          try {
+            const kakaoNear = await fetchKakaoPlacesForCourseSecondAround(
+              course.steps[0].place,
+              {
+                anjuHints: opts.userSecondPreferences?.anjuHints,
+                radius: opts.kakaoSecondSearchRadius ?? 2200,
+              }
+            );
+            if (kakaoNear.length) {
+              places = mergeCoursePlacePoolsWithKakao(places, kakaoNear);
+            }
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              console.warn("computeSecondStepCandidatesOnly kakao augment:", e);
+            }
+          }
+        }
+
+        return regenerateSecondStep({
+          selectedCourse: course,
+          parsedQuery,
+          places,
+          variant,
+          userSecondPreferences: opts.userSecondPreferences ?? null,
+        });
+      } catch (e) {
+        console.error(e);
+        setCourseError("2차 재추천 중 문제가 생겼어요.");
+        return [];
+      } finally {
+        setIsRegeneratingSecond(false);
+      }
+    },
+    [coursePlaces]
+  );
+
+  /** 지도에서 고른 2차 후보 코스를 현재 슬롯에 확정 */
+  const applySecondStepPick = useCallback((pickedCourse) => {
+    const slotKey = selectedCourse?.key;
+    if (!pickedCourse || !slotKey) return false;
+    setCourseOptions((prev) =>
+      replaceCourseOptionsSlot(prev, slotKey, pickedCourse)
+    );
+    setSelectedCourse(pickedCourse);
+    setAltSecondCourses([]);
+    return true;
+  }, [selectedCourse]);
 
   const regenerateSelectedCourseFirst = useCallback(async () => {
     if (!selectedCourse || !courseQueryParsed) return [];
@@ -341,7 +472,10 @@ export function useCourseSearch() {
         return [];
       }
 
-      setCourseOptions(results);
+      setCourseOptions((prev) => {
+        const preserved = (prev || []).filter((c) => c?.profileKey === "my_own");
+        return [...results, ...preserved];
+      });
       setSelectedCourse(results[0] ?? null);
 
       const { keys, pairs } = appendSeenFromCourses(results);
@@ -358,16 +492,18 @@ export function useCourseSearch() {
     }
   }, [courseQueryParsed, coursePlaces, seenCourseKeys, seenVenuePairKeys]);
 
-  /** 지도 미리보기에서 고른 장소를 현재 선택 코스의 1차로 넣음 (2차는 유지, 도보 거리만 갱신) */
+  /**
+   * 지도 미리보기에서 고른 장소를 현재 선택 코스의 1차로 넣음.
+   * 2단 코스면 2차는 유지하고 도보만 갱신, 1단(지도 부트스트랩)이면 1차만 교체.
+   */
   const applyMapPickAsFirstStep = useCallback((place) => {
-    if (!selectedCourse) return false;
+    if (!selectedCourse) return null;
     const steps = selectedCourse.steps || [];
-    if (steps.length < 2) return false;
+    if (steps.length < 1) return null;
     const slotKey = selectedCourse.key;
     const st0 = steps[0];
-    const st1 = steps[1];
     const w = resolvePlaceWgs84(place);
-    if (!w) return false;
+    if (!w) return null;
 
     const mergedPlace = {
       ...(st0?.place && typeof st0.place === "object" ? st0.place : {}),
@@ -378,13 +514,30 @@ export function useCourseSearch() {
       y: String(w.lat),
     };
 
+    const newStep0 = { ...st0, step: 1, place: mergedPlace };
+
+    if (steps.length < 2) {
+      const newCourse = {
+        ...selectedCourse,
+        key: `${slotKey}-m1-${Date.now()}`,
+        steps: [newStep0],
+      };
+      setCourseOptions((prev) =>
+        replaceCourseOptionsSlot(prev, slotKey, newCourse)
+      );
+      setSelectedCourse(newCourse);
+      setAltFirstCourses([]);
+      setAltSecondCourses([]);
+      return newCourse;
+    }
+
+    const st1 = steps[1];
     const w1 = resolvePlaceWgs84(st1.place);
     let walkM = st1.walkDistanceMeters;
     if (w1 && Number.isFinite(w1.lat) && Number.isFinite(w1.lng)) {
       walkM = Math.round(haversineMeters(w.lat, w.lng, w1.lat, w1.lng));
     }
 
-    const newStep0 = { ...st0, step: 1, place: mergedPlace };
     const newStep1 = {
       ...st1,
       step: 2,
@@ -400,59 +553,101 @@ export function useCourseSearch() {
     setSelectedCourse(newCourse);
     setAltFirstCourses([]);
     setAltSecondCourses([]);
-    return true;
+    return newCourse;
   }, [selectedCourse]);
 
-  /** 1차만·2차만에서 각각 고른 코스의 1차·2차를 한 코스로 합침 */
-  const applyComposedCourseFromPicks = useCallback(
-    (pick1Course, pick2Course) => {
-      if (!selectedCourse || !pick1Course || !pick2Course) return false;
-      const slotKey = selectedCourse.key;
-      const st0 = pick1Course.steps?.[0];
-      const st1 = pick2Course.steps?.[1];
-      if (!st0?.place || !st1?.place) return false;
+  /**
+   * 지도 미리보기 1차 반영. 반환값으로 같은 틱에서 2차 후보 계산에 쓸 코스·파서를 넘김(React state 지연 보정).
+   */
+  const applyMapPickAsFirstStepAsync = useCallback(
+    async (place) => {
+      const w = resolvePlaceWgs84(place);
+      if (!w) return { ok: false };
 
-      const w0 = resolvePlaceWgs84(st0.place);
-      const w1 = resolvePlaceWgs84(st1.place);
-      if (!w0 || !w1) return false;
-      const d = haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
-      if (!Number.isFinite(d)) return false;
+      const existing = selectedCourse;
+      const existingSteps = existing?.steps || [];
+      if (existing && existingSteps.length >= 1) {
+        const next = applyMapPickAsFirstStep(place);
+        if (!next) return { ok: false };
+        return {
+          ok: true,
+          courseForSecond: next,
+          parsedForSecond: courseQueryParsed ?? parseCourseQuery("코스 짜기"),
+        };
+      }
 
-      const idPart = `${placeId(st0.place) ?? "p0"}-${placeId(st1.place) ?? "p1"}`;
-      const newCourse = {
-        key: `${slotKey}-compose-${idPart}`,
-        profileKey: selectedCourse.profileKey,
-        profileTitle: selectedCourse.profileTitle,
-        profileDescription: [selectedCourse.profileDescription, "직접 조합"]
-          .filter(Boolean)
-          .join(" · "),
-        totalScore: selectedCourse.totalScore,
-        composedFromPicks: true,
-        steps: [
-          {
-            ...st0,
-            step: 1,
-            label: st0.label ?? "1차",
-            place: st0.place,
-          },
-          {
-            ...st1,
-            step: 2,
-            label: st1.label ?? "2차",
-            place: st1.place,
-            walkDistanceMeters: Math.round(d),
-          },
-        ],
+      const mergedPlace = {
+        ...place,
+        lat: w.lat,
+        lng: w.lng,
+        x: String(w.lng),
+        y: String(w.lat),
       };
-
-      setCourseOptions((prev) => replaceCourseOptionsSlot(prev, slotKey, newCourse));
-      setSelectedCourse(newCourse);
+      const parsed = parseCourseQuery("코스 짜기");
+      const baseCourse = buildBootstrapOneStepCourse(mergedPlace);
+      setCourseQueryParsed(parsed);
+      setIsCourseMode(true);
+      setCourseOptions((prev) => {
+        const preserved = (prev || []).filter((c) => c?.profileKey === "my_own");
+        return [baseCourse, ...preserved];
+      });
+      setSelectedCourse(baseCourse);
       setAltFirstCourses([]);
       setAltSecondCourses([]);
-      return true;
+      return {
+        ok: true,
+        courseForSecond: baseCourse,
+        parsedForSecond: parsed,
+      };
     },
-    [selectedCourse]
+    [selectedCourse, applyMapPickAsFirstStep, courseQueryParsed]
   );
+
+  /** 1차만·2차만에서 각각 고른 코스의 1차·2차를 한 코스로 합쳐 목록 하단에 「나만의 코스」로 추가 */
+  const applyComposedCourseFromPicks = useCallback((pick1Course, pick2Course) => {
+    if (!pick1Course || !pick2Course) return false;
+    const st0 = pick1Course.steps?.[0];
+    const st1 = pick2Course.steps?.[1];
+    if (!st0?.place || !st1?.place) return false;
+
+    const w0 = resolvePlaceWgs84(st0.place);
+    const w1 = resolvePlaceWgs84(st1.place);
+    if (!w0 || !w1) return false;
+    const d = haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
+    if (!Number.isFinite(d)) return false;
+
+    const idPart = `${placeId(st0.place) ?? "p0"}-${placeId(st1.place) ?? "p1"}`;
+    const newCourse = {
+      key: `my-own-${Date.now()}-${idPart}`,
+      profileKey: "my_own",
+      profileTitle: "나만의 코스",
+      profileDescription: `${st0.place?.name ?? "1차"} → ${st1.place?.name ?? "2차"}`,
+      totalScore: 0,
+      composedFromPicks: true,
+      isMyOwnCourse: true,
+      steps: [
+        {
+          ...st0,
+          step: 1,
+          label: st0.label ?? "1차",
+          place: st0.place,
+        },
+        {
+          ...st1,
+          step: 2,
+          label: st1.label ?? "2차",
+          place: st1.place,
+          walkDistanceMeters: Math.round(d),
+        },
+      ],
+    };
+
+    setCourseOptions((prev) => [...(prev || []), newCourse]);
+    setSelectedCourse(newCourse);
+    setAltFirstCourses([]);
+    setAltSecondCourses([]);
+    return true;
+  }, []);
 
   return {
     courseOptions,
@@ -471,6 +666,7 @@ export function useCourseSearch() {
     isRegeneratingFirst,
     isRefreshingCourses,
     runCourseSearch,
+    openCourseComposer,
     resetCourseSearch,
     chooseCourse,
     regenerateSelectedCourseSecond,
@@ -480,6 +676,9 @@ export function useCourseSearch() {
     applyAlternativeFirst,
     applyComposedCourseFromPicks,
     applyMapPickAsFirstStep,
+    applyMapPickAsFirstStepAsync,
+    computeSecondStepCandidatesOnly,
+    applySecondStepPick,
     clearAlternativeSecond,
   };
 }

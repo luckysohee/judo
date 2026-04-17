@@ -84,6 +84,7 @@ import {
 } from "../../utils/fetchCuratorPlaceDbSearch";
 import {
   resolvePlaceWgs84,
+  haversineMeters,
   kakaoNumericPlaceId,
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
@@ -125,7 +126,21 @@ import { fetchCourseWalkingRoute } from "../../utils/fetchCourseWalkingRoute.js"
 import { getRegenerateSecondLabel } from "../../utils/regenerateSecondStep.js";
 import { buildCourseSummary } from "../../utils/buildCourseSummary";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
-import { courseOptionsToMapPlaces } from "../../utils/generateCourseOptions.js";
+import {
+  courseOptionsToMapPlaces,
+  courseSecondCandidatesToPulseMapPlaces,
+  placeId,
+} from "../../utils/generateCourseOptions.js";
+import {
+  COURSE_SECOND_SNACK_OPTIONS,
+  STUDIO_ATMOSPHERE_OPTIONS,
+  STUDIO_LIQUOR_TYPE_OPTIONS,
+} from "../../utils/placeTaxonomy.js";
+import { snapshotFromMyOwnCourse } from "../../utils/savedMyCoursesStorage.js";
+import {
+  fetchMySavedCoursePairKeys,
+  insertSavedMyCourse,
+} from "../../utils/savedMyCoursesSupabase.js";
 import {
   addLegacyPlaceCuratorAliasesToKeySet,
   addLegacyPlaceCuratorIdsForUsername,
@@ -156,6 +171,7 @@ function applyLegendCategoryFilter(places, legendCategory) {
   return places;
 }
 
+/** 지도 「2차 찾기」팝업 — 후보 점수 가산(place.vibes / liquorTypes 메타와 맞출 때) */
 /**
  * 장소에 붙은 추천(curator_places) ↔ 칩 키(username·display_name·행 id·auth uid) 교차 매칭.
  * curator_id 가 auth.uid 인 경우 조인이 비어도 dbCurators.userId 로 핸들·닉네임을 풀어 넣음.
@@ -1546,7 +1562,9 @@ export default function Home() {
     applyAlternativeSecond,
     applyAlternativeFirst,
     applyComposedCourseFromPicks,
-    applyMapPickAsFirstStep,
+    applyMapPickAsFirstStepAsync,
+    computeSecondStepCandidatesOnly,
+    applySecondStepPick,
     courseQueryParsed,
   } = useCourseSearch();
 
@@ -1562,19 +1580,110 @@ export default function Home() {
   }, [isCourseMode, courseQueryParsed]);
 
   const [courseMapOverlay, setCourseMapOverlay] = useState(null);
-  /** 지도 미리보기에서 「1차 선택」까지 눌렀을 때만 「2차 찾기」 활성 */
-  const [mapCourseModalFirstLocked, setMapCourseModalFirstLocked] =
+  /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
+  const coursePathDismissedForCourseKeyRef = useRef(null);
+  const [mapCourseFirstBusy, setMapCourseFirstBusy] = useState(false);
+  /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 「2차는 여기로」 */
+  const [courseSecondPickMode, setCourseSecondPickMode] = useState(false);
+  const lastSecondCandidatesRef = useRef([]);
+  /** 2차 추천 직후: 후보 가게 마커 깜빡임(MapView courseMarkerPulse) */
+  const [courseSecondPulseMapPlaces, setCourseSecondPulseMapPlaces] = useState(
+    []
+  );
+  /** 지도 미리보기 「2차 찾기」— 분위기·주종 등 선택 후 후보 계산 */
+  const [courseSecondFindModalOpen, setCourseSecondFindModalOpen] =
+    useState(false);
+  const [courseSecondFindVibes, setCourseSecondFindVibes] = useState([]);
+  const [courseSecondFindLiquors, setCourseSecondFindLiquors] = useState([]);
+  const [courseSecondFindAnju, setCourseSecondFindAnju] = useState([]);
+  const [courseSecondFindPreferCloser, setCourseSecondFindPreferCloser] =
+    useState(false);
+  const [courseSecondFindPrioritizeCurators, setCourseSecondFindPrioritizeCurators] =
     useState(false);
   /** 코스 카드에서 각각 담은 코스 조합 (미리보기 후 적용) */
   const [courseComposePick1, setCourseComposePick1] = useState(null);
   const [courseComposePick2, setCourseComposePick2] = useState(null);
 
+  const clearCourseSecondPickPulse = useCallback(() => {
+    setCourseSecondPickMode(false);
+    lastSecondCandidatesRef.current = [];
+    setCourseSecondPulseMapPlaces([]);
+  }, []);
+
   useEffect(() => {
     if (!isCourseMode) {
       setCourseComposePick1(null);
       setCourseComposePick2(null);
+      clearCourseSecondPickPulse();
+      setCourseSecondFindModalOpen(false);
     }
-  }, [isCourseMode]);
+  }, [isCourseMode, clearCourseSecondPickPulse]);
+
+  /** 조합 미리보기: 1차/2차 담기만 해도 지도 마커·경로에 반영 */
+  const composePreviewCourse = useMemo(() => {
+    if (!courseComposePick1 && !courseComposePick2) return null;
+    if (courseComposePick1 && courseComposePick2) {
+      const st0 = courseComposePick1.steps?.[0];
+      const st1 = courseComposePick2.steps?.[1];
+      if (!st0?.place || !st1?.place) return null;
+      const w0 = resolvePlaceWgs84(st0.place);
+      const w1 = resolvePlaceWgs84(st1.place);
+      const d =
+        w0 && w1
+          ? haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng)
+          : NaN;
+      return {
+        key: "__compose_preview__",
+        steps: [
+          { ...st0, step: 1, label: st0.label ?? "1차", place: st0.place },
+          {
+            ...st1,
+            step: 2,
+            label: st1.label ?? "2차",
+            place: st1.place,
+            walkDistanceMeters: Number.isFinite(d) ? Math.round(d) : st1.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+    if (courseComposePick1?.steps?.[0]?.place) {
+      const st0 = courseComposePick1.steps[0];
+      return {
+        key: "__compose_preview__",
+        steps: [{ ...st0, step: 1, label: st0.label ?? "1차" }],
+      };
+    }
+    if (courseComposePick2?.steps?.[1]?.place) {
+      const st1 = courseComposePick2.steps[1];
+      return {
+        key: "__compose_preview__",
+        steps: [{ ...st1, step: 2, label: st1.label ?? "2차" }],
+      };
+    }
+    return null;
+  }, [courseComposePick1, courseComposePick2]);
+
+  const courseDrivingMap = composePreviewCourse ?? selectedCourse;
+
+  const [savedMyCoursesTick, setSavedMyCoursesTick] = useState(0);
+  const [savedMyCoursePairKeys, setSavedMyCoursePairKeys] = useState(
+    () => new Set()
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!isCourseMode || !user?.id) {
+        setSavedMyCoursePairKeys(new Set());
+        return;
+      }
+      const keys = await fetchMySavedCoursePairKeys(supabase, user.id);
+      if (!cancelled) setSavedMyCoursePairKeys(keys);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isCourseMode, user?.id, savedMyCoursesTick]);
 
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
@@ -1611,6 +1720,86 @@ export default function Home() {
       settleCourseFromSwipe();
     }, 220);
   }, [settleCourseFromSwipe]);
+
+  const handleSaveMyOwnCourse = useCallback(
+    async (course, e) => {
+      e?.stopPropagation?.();
+      if (!user?.id) {
+        showToast("코스 저장은 로그인 후 이용할 수 있어요.", "error", 2800);
+        return;
+      }
+      const snap = snapshotFromMyOwnCourse(course);
+      if (!snap.pairKey) {
+        showToast("저장할 장소 정보가 부족해요.", "error", 2500);
+        return;
+      }
+      const r = await insertSavedMyCourse(supabase, user.id, snap);
+      if (r.ok) {
+        showToast("코스를 저장했어요.", "success", 2600);
+        setSavedMyCoursesTick((x) => x + 1);
+      } else if (r.reason === "exists") {
+        showToast("이미 저장된 조합이에요.", "info", 2400);
+      } else if (r.reason === "auth") {
+        showToast("로그인이 필요해요.", "error", 2500);
+      } else {
+        showToast(
+          r.message ? `저장 실패: ${r.message}` : "저장하지 못했어요.",
+          "error",
+          3200
+        );
+      }
+    },
+    [user?.id, showToast]
+  );
+
+  /** 1차·2차 장소가 모두 잡힌 선택 코스 */
+  const courseHasFinalTwoSteps = useMemo(() => {
+    const steps = selectedCourse?.steps;
+    if (!Array.isArray(steps) || steps.length < 2) return false;
+    return Boolean(steps[0]?.place && steps[1]?.place);
+  }, [selectedCourse]);
+
+  /**
+   * 검색 문장은 두고 코스만 비움. 먼저 초기화 확인 후, 저장 여부를 묻고(로그인 시 저장 시도) 리셋.
+   */
+  const dismissCourseMapPath = useCallback(() => {
+    const k = String(courseDrivingMap?.key ?? "");
+    if (k) coursePathDismissedForCourseKeyRef.current = k;
+    setCourseMapOverlay(null);
+  }, [courseDrivingMap?.key]);
+
+  const handleResetCoursePickWithSavePrompt = useCallback(async () => {
+    const course = selectedCourse;
+    if (!course?.steps?.[0]?.place || !course?.steps?.[1]?.place) return;
+
+    const okClear = window.confirm(
+      "선택한 코스(1차·2차)를 지울까요?\n검색 문장은 그대로 두고 코스만 비워요."
+    );
+    if (!okClear) return;
+
+    const wantSave = window.confirm(
+      "이 코스 조합을 내 코스에 저장할까요?\n\n「확인」저장한 뒤 비우기\n「취소」저장 없이 비우기"
+    );
+    if (wantSave) {
+      if (!user?.id) {
+        showToast("코스 저장은 로그인 후에 할 수 있어요.", "info", 2800);
+      } else {
+        await handleSaveMyOwnCourse(course, null);
+      }
+    }
+
+    clearCourseSecondPickPulse();
+    resetCourseSearch();
+    setSelectedPlace(null);
+    setAiSheetOpen(false);
+  }, [
+    selectedCourse,
+    user?.id,
+    handleSaveMyOwnCourse,
+    showToast,
+    clearCourseSecondPickPulse,
+    resetCourseSearch,
+  ]);
 
   useEffect(() => {
     if (!isCourseMode || !aiSheetOpen || courseOptions.length < 2) {
@@ -1740,7 +1929,22 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    const base = buildCourseMapData(selectedCourse);
+    const myKey = String(courseDrivingMap?.key ?? "");
+    const dismissed = coursePathDismissedForCourseKeyRef.current;
+    if (dismissed != null && dismissed !== myKey) {
+      coursePathDismissedForCourseKeyRef.current = null;
+    }
+    const skipDismissed = () =>
+      Boolean(myKey && coursePathDismissedForCourseKeyRef.current === myKey);
+
+    if (myKey && skipDismissed()) {
+      setCourseMapOverlay(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const base = buildCourseMapData(courseDrivingMap);
     if (!base?.polylinePath?.length) {
       setCourseMapOverlay(null);
       return undefined;
@@ -1748,22 +1952,26 @@ export default function Home() {
     const a = base.polylinePath[0];
     const b = base.polylinePath[base.polylinePath.length - 1];
 
-    setCourseMapOverlay({
-      polylinePath: base.polylinePath,
-      legLabel: base.legLabel,
-      labelPosition: base.labelPosition,
-      key: `${selectedCourse?.key ?? ""}-straight`,
-    });
+    if (!skipDismissed()) {
+      setCourseMapOverlay({
+        polylinePath: base.polylinePath,
+        legLabel: base.legLabel,
+        labelPosition: base.labelPosition,
+        key: `${myKey}-straight`,
+      });
+    }
 
     fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
       if (cancelled) return;
-      const straightM = getCourseLegMeters(selectedCourse);
+      if (skipDismissed()) return;
+      const straightM = getCourseLegMeters(courseDrivingMap);
       const fallbackStraight = () => {
+        if (skipDismissed()) return;
         setCourseMapOverlay({
           polylinePath: base.polylinePath,
           legLabel: base.legLabel,
           labelPosition: base.labelPosition,
-          key: `${selectedCourse?.key ?? ""}-straight`,
+          key: `${myKey}-straight`,
         });
       };
 
@@ -1794,11 +2002,12 @@ export default function Home() {
         } else {
           legLabel = base.legLabel;
         }
+        if (skipDismissed()) return;
         setCourseMapOverlay({
           polylinePath: route.path,
           legLabel,
           labelPosition: lp,
-          key: `${selectedCourse?.key ?? ""}-routed`,
+          key: `${myKey}-routed`,
         });
       } else {
         fallbackStraight();
@@ -1808,15 +2017,31 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCourse]);
+  }, [courseDrivingMap]);
 
   useEffect(() => {
     if (!isCourseMode || !courseOptions?.length) return;
-    const pick = selectedCourse ?? courseOptions[0];
+    /** 펄스 후보가 있으면 항상 kakaoPlaces를 후보로 유지(코스 1핀만으로 덮어쓰지 않음) */
+    if (
+      Array.isArray(courseSecondPulseMapPlaces) &&
+      courseSecondPulseMapPlaces.length > 0
+    ) {
+      setKakaoPlaces(courseSecondPulseMapPlaces);
+      return;
+    }
+    const driveKey = String(courseDrivingMap?.key ?? "");
+    if (
+      driveKey &&
+      coursePathDismissedForCourseKeyRef.current === driveKey
+    ) {
+      setKakaoPlaces([]);
+      return;
+    }
+    const pick = courseDrivingMap ?? courseOptions[0];
     if (!pick?.steps?.length) return;
 
     setKakaoPlaces(courseOptionsToMapPlaces([pick]));
-  }, [isCourseMode, selectedCourse, courseOptions]);
+  }, [isCourseMode, courseDrivingMap, courseOptions, courseSecondPulseMapPlaces]);
 
   // 현재 위치 상태
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -1878,11 +2103,81 @@ export default function Home() {
     [dbPlaces, customPlaces]
   );
 
+  const findSecondCandidateCourseForPlace = useCallback((pickPlace, courses) => {
+    if (!pickPlace || !Array.isArray(courses) || !courses.length) return null;
+    const want = placeId(pickPlace);
+    if (want != null && String(want) !== "") {
+      const byId = courses.find((c) => {
+        const p2 = c?.steps?.[1]?.place;
+        const id2 = placeId(p2);
+        return id2 != null && String(id2) === String(want);
+      });
+      if (byId) return byId;
+    }
+    const name = String(pickPlace?.name ?? "").trim();
+    if (name) {
+      const byName = courses.find(
+        (c) => String(c?.steps?.[1]?.place?.name ?? "").trim() === name
+      );
+      if (byName) return byName;
+    }
+    return courses[0] ?? null;
+  }, []);
+
+  /** 2차 후보 고르는 동안: 지도에서 연 카드(빈 곳·근처·마커)는 펄스 유지 — 검색·핫스트립 등만 펄스 종료 */
+  const MAP_SOURCES_KEEP_SECOND_PULSE = useMemo(
+    () =>
+      new Set(["map_click", "map_nearby_pick", "map_empty_pick"]),
+    []
+  );
+
   const setSelectedPlaceWithAnalytics = useCallback(
     (place, clickSource = "map_click") => {
+      if (
+        place &&
+        !place.courseSecondCandidatePick &&
+        courseSecondPickMode &&
+        !MAP_SOURCES_KEEP_SECOND_PULSE.has(String(clickSource || ""))
+      ) {
+        clearCourseSecondPickPulse();
+      }
       const resolved = place
         ? mergePickedPlaceWithCuratorCatalog(place, curatorPlaceCatalogForMerge)
         : null;
+      if (resolved && place?.courseSecondCandidatePick) {
+        resolved.courseSecondCandidatePick = true;
+        const matched = findSecondCandidateCourseForPlace(
+          resolved,
+          lastSecondCandidatesRef.current
+        );
+        const firstPlace = selectedCourse?.steps?.[0]?.place;
+        let meters =
+          matched?.steps?.[1]?.walkDistanceMeters != null &&
+          Number.isFinite(matched.steps[1].walkDistanceMeters)
+            ? Math.round(matched.steps[1].walkDistanceMeters)
+            : null;
+        const w0 = resolvePlaceWgs84(firstPlace);
+        const w1 = resolvePlaceWgs84(resolved);
+        if ((meters == null || meters <= 0) && w0 && w1) {
+          meters = Math.round(haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng));
+        }
+        if (Number.isFinite(meters) && meters > 0) {
+          resolved.courseSecondDistanceFromFirstMeters = meters;
+        } else {
+          delete resolved.courseSecondDistanceFromFirstMeters;
+        }
+        const nm = String(
+          firstPlace?.name ?? firstPlace?.place_name ?? ""
+        ).trim();
+        if (nm) {
+          resolved.courseSecondFromFirstPlaceName = nm;
+        } else {
+          delete resolved.courseSecondFromFirstPlaceName;
+        }
+      } else if (resolved && !place?.courseSecondCandidatePick) {
+        delete resolved.courseSecondDistanceFromFirstMeters;
+        delete resolved.courseSecondFromFirstPlaceName;
+      }
       if (resolved) {
         const sid = searchSessionIdRef.current;
         const placeId =
@@ -1913,57 +2208,152 @@ export default function Home() {
       }
       setSelectedPlace(resolved);
     },
-    [user, curatorPlaceCatalogForMerge]
+    [
+      user,
+      curatorPlaceCatalogForMerge,
+      courseSecondPickMode,
+      clearCourseSecondPickPulse,
+      MAP_SOURCES_KEEP_SECOND_PULSE,
+      findSecondCandidateCourseForPlace,
+      selectedCourse,
+    ]
   );
 
+  const openCourseSecondFindModal = useCallback(() => {
+    if (!selectedPlace || mapCourseFirstBusy) return;
+    setCourseSecondFindVibes([]);
+    setCourseSecondFindLiquors([]);
+    setCourseSecondFindAnju([]);
+    setCourseSecondFindPreferCloser(Boolean(courseQueryParsed?.walkable));
+    setCourseSecondFindPrioritizeCurators(false);
+    setCourseSecondFindModalOpen(true);
+  }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable]);
+
+  const cancelCourseSecondFindModal = useCallback(() => {
+    setCourseSecondFindModalOpen(false);
+  }, []);
+
   useEffect(() => {
-    setMapCourseModalFirstLocked(false);
-  }, [
-    selectedPlace?.id,
-    selectedPlace?.place_id,
-    selectedPlace?.kakao_place_id,
-    selectedPlace?.y,
-    selectedPlace?.x,
-    selectedPlace?.lat,
-    selectedPlace?.lng,
-  ]);
+    if (!courseSecondFindModalOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") cancelCourseSecondFindModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [courseSecondFindModalOpen, cancelCourseSecondFindModal]);
 
-  const handleCourseMapFirstFromPreview = useCallback(() => {
-    if (!selectedPlace) return;
-    const merged = mergePickedPlaceWithCuratorCatalog(
-      selectedPlace,
-      curatorPlaceCatalogForMerge
-    );
-    if (!merged) return;
-    if (applyMapPickAsFirstStep(merged)) {
-      setMapCourseModalFirstLocked(true);
-      showToast(
-        "1차로 넣었어요. 이어서 「2차 찾기」를 눌러보세요.",
-        "info",
-        4000
+  /** 지도 미리보기: 1차 반영 + 2차 후보만 계산·펄스(확정은 마커 탭 후 「2차는 여기로」) */
+  const runMapCourseSecondFind = useCallback(
+    async (userSecondPreferences) => {
+      if (!selectedPlace || mapCourseFirstBusy) return;
+      const merged = mergePickedPlaceWithCuratorCatalog(
+        selectedPlace,
+        curatorPlaceCatalogForMerge
       );
-    } else {
-      showToast("이 코스에 1차를 넣을 수 없어요.", "error", 2800);
-    }
+      if (!merged) return;
+      setMapCourseFirstBusy(true);
+      try {
+        const pack = await applyMapPickAsFirstStepAsync(merged);
+        if (!pack?.ok) {
+          showToast("지금은 코스에 담기 어려워요.", "error", 2800);
+          return;
+        }
+        const hasPrefs =
+          userSecondPreferences &&
+          typeof userSecondPreferences === "object" &&
+          ((Array.isArray(userSecondPreferences.vibes) &&
+            userSecondPreferences.vibes.length > 0) ||
+            (Array.isArray(userSecondPreferences.liquorTypes) &&
+              userSecondPreferences.liquorTypes.length > 0) ||
+            (Array.isArray(userSecondPreferences.anjuHints) &&
+              userSecondPreferences.anjuHints.length > 0) ||
+            userSecondPreferences.preferCloser === true ||
+            userSecondPreferences.prioritizeCurators === true);
+        const results = await computeSecondStepCandidatesOnly(
+          pack.courseForSecond,
+          pack.parsedForSecond,
+          "same",
+          {
+            userSecondPreferences: hasPrefs ? userSecondPreferences : {},
+            /** 1차 주변 카카오 키워드로 풀 보강 — 지도에 보이는 포장마차·횟집 등 반영 */
+            augmentPlacesWithKakaoNearFirst: true,
+          }
+        );
+        const pulse = courseSecondCandidatesToPulseMapPlaces(results || []);
+        if (pulse.length > 0) {
+          lastSecondCandidatesRef.current = results || [];
+          setCourseSecondPulseMapPlaces(pulse);
+          setCourseSecondPickMode(true);
+          setSelectedPlace(null);
+          showToast(
+            "주변 2차 후보가 깜빡여요. 마커를 눌러 골라 주세요.",
+            "info",
+            4200
+          );
+        } else {
+          showToast("2차 후보를 찾지 못했어요.", "error", 2800);
+        }
+      } finally {
+        setMapCourseFirstBusy(false);
+      }
+    },
+    [
+      selectedPlace,
+      curatorPlaceCatalogForMerge,
+      applyMapPickAsFirstStepAsync,
+      computeSecondStepCandidatesOnly,
+      showToast,
+      mapCourseFirstBusy,
+    ]
+  );
+
+  const confirmCourseSecondFindModal = useCallback(() => {
+    setCourseSecondFindModalOpen(false);
+    const prefs = {
+      vibes: [...courseSecondFindVibes],
+      liquorTypes: [...courseSecondFindLiquors],
+      anjuHints: [...courseSecondFindAnju],
+      preferCloser: courseSecondFindPreferCloser,
+      prioritizeCurators: courseSecondFindPrioritizeCurators,
+    };
+    void runMapCourseSecondFind(prefs);
   }, [
-    selectedPlace,
-    curatorPlaceCatalogForMerge,
-    applyMapPickAsFirstStep,
-    showToast,
+    courseSecondFindVibes,
+    courseSecondFindLiquors,
+    courseSecondFindAnju,
+    courseSecondFindPreferCloser,
+    courseSecondFindPrioritizeCurators,
+    runMapCourseSecondFind,
   ]);
 
-  const handleCourseMapSecondFromPreview = useCallback(async () => {
-    await regenerateSelectedCourseSecond("same");
-    setSelectedPlace(null);
-    setMapCourseModalFirstLocked(false);
-    setAiSheetOpen(true);
-  }, [regenerateSelectedCourseSecond]);
+  const handleConfirmCourseSecondHere = useCallback(
+    (pickPlace) => {
+      const courses = lastSecondCandidatesRef.current;
+      const picked = findSecondCandidateCourseForPlace(pickPlace, courses);
+      if (!picked || !applySecondStepPick(picked)) {
+        showToast("선택을 반영하지 못했어요.", "error", 2600);
+        return;
+      }
+      clearCourseSecondPickPulse();
+      setSelectedPlace(null);
+      setAiSheetOpen(true);
+      showToast("2차로 확정했어요. 길 안내를 확인해 보세요.", "success", 3200);
+    },
+    [
+      findSecondCandidateCourseForPlace,
+      applySecondStepPick,
+      clearCourseSecondPickPulse,
+      showToast,
+    ]
+  );
 
   /**
    * 지도 빈 곳 탭: 근처 Places → 있으면 카카오 장소 카드, 없으면 Geocoder + “못 찾음” 카드
    */
   const handleMapBlankPick = useCallback(
     async ({ lat, lng }) => {
+      /** 2차 후보 고르는 중엔 빈 지도 탭으로 새 카드·지오코더 열지 않음 — 후보 마커 유지 */
+      if (courseSecondPickMode) return;
       const level = mapRef.current?.getLevel?.();
       if (typeof level === "number" && level > 7) return;
       const resolved = await resolveMapClickVenue(lat, lng);
@@ -1982,7 +2372,7 @@ export default function Home() {
         );
       }
     },
-    [setSelectedPlaceWithAnalytics]
+    [setSelectedPlaceWithAnalytics, courseSecondPickMode]
   );
 
   const livePlaceIdsText = useMemo(() => {
@@ -3022,6 +3412,18 @@ export default function Home() {
     return merged;
   }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
 
+  /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
+  const courseSecondPulsePlacesForMap = useMemo(() => {
+    if (
+      !courseSecondPickMode ||
+      !Array.isArray(courseSecondPulseMapPlaces) ||
+      courseSecondPulseMapPlaces.length === 0
+    ) {
+      return null;
+    }
+    return courseSecondPulseMapPlaces.map((p) => ({ ...p }));
+  }, [courseSecondPickMode, courseSecondPulseMapPlaces]);
+
   const mapDisplayedPlacesWithLegend = useMemo(() => {
     const mergePlaces = (basePlaces, extraPlaces) => {
       const merged = [...basePlaces, ...extraPlaces];
@@ -3057,17 +3459,22 @@ export default function Home() {
       );
     }
 
-    // 코스 추천: 선택 코스 1·2차 핀만 표시(DB·검색 마커·타이핑 미리보기 제외)
-    if (
-      isCourseMode &&
-      !courseError &&
-      Array.isArray(courseOptions) &&
-      courseOptions.length > 0
-    ) {
-      return applyLegendCategoryFilter(
-        dedupeMapPlacesByKakaoId([...kakaoPlaces]),
-        legendCategory
-      );
+    // 코스 모드: 코스 핀만(없으면 빈 지도 — 일반 검색 마커와 섞이지 않게)
+    if (isCourseMode) {
+      if (!courseError && Array.isArray(courseOptions) && courseOptions.length > 0) {
+        /** 2차 후보 고르는 중엔 펄스 전용 스냅샷 사용(미리보기 열어도 깜빡임 유지) */
+        if (courseSecondPulsePlacesForMap) {
+          return applyLegendCategoryFilter(
+            courseSecondPulsePlacesForMap,
+            legendCategory
+          );
+        }
+        return applyLegendCategoryFilter(
+          dedupeMapPlacesByKakaoId([...kakaoPlaces]),
+          legendCategory
+        );
+      }
+      return applyLegendCategoryFilter(dedupeMapPlacesByKakaoId([]), legendCategory);
     }
 
     // AI/검색 결과가 있어도 기존 마커는 유지하고 검색 마커를 추가 표시
@@ -3120,6 +3527,7 @@ export default function Home() {
     courseError,
     courseOptions,
     selectedCurators,
+    courseSecondPulsePlacesForMap,
   ]);
 
   // 카카오 자동완성 후보가 전국·광역으로 퍼질 수 있어 fitToPlaces(setBounds)를 쓰면
@@ -3291,6 +3699,39 @@ const handleClearSearch = () => {
       curatorPlaceCatalogForMerge,
       setSelectedPlaceWithAnalytics,
     ]
+  );
+
+  /** 검색바 엔터/검색 버튼으로 나온 결과: 첫 장소에 핀과 동시에 미리보기 카드 */
+  const openPreviewForFirstSearchResult = useCallback(
+    (kakaoFormattedPlaces, analyticsSource = "search_bar_submit") => {
+      if (
+        !Array.isArray(kakaoFormattedPlaces) ||
+        kakaoFormattedPlaces.length === 0
+      ) {
+        return;
+      }
+      const first = kakaoFormattedPlaces[0];
+      const merged = mergePickedPlaceWithCuratorCatalog(
+        first,
+        curatorPlaceCatalogForMerge
+      );
+      setSelectedPlaceWithAnalytics(merged, analyticsSource);
+
+      const panLat = Number.isFinite(parseFloat(merged.y))
+        ? parseFloat(merged.y)
+        : merged.lat;
+      const panLng = Number.isFinite(parseFloat(merged.x))
+        ? parseFloat(merged.x)
+        : merged.lng;
+      if (Number.isFinite(panLat) && Number.isFinite(panLng)) {
+        const pan = () =>
+          mapRef.current?.moveToLocation?.(panLat, panLng);
+        pan();
+        window.requestAnimationFrame(pan);
+        window.setTimeout(pan, 120);
+      }
+    },
+    [curatorPlaceCatalogForMerge, setSelectedPlaceWithAnalytics]
   );
 
   // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
@@ -3634,6 +4075,10 @@ const handleClearSearch = () => {
         }));
         
         setKakaoPlaces(kakaoFormattedPlaces);
+        openPreviewForFirstSearchResult(
+          kakaoFormattedPlaces,
+          "search_bar_submit_nearby"
+        );
         searchResultIdsForLog = mergedNear.map((id) => String(id));
 
       } else {
@@ -4052,6 +4497,10 @@ const handleClearSearch = () => {
         }));
 
         setKakaoPlaces(kakaoFormattedPlaces);
+        openPreviewForFirstSearchResult(
+          kakaoFormattedPlaces,
+          "search_bar_submit_map"
+        );
         searchResultIdsForLog = mergedMap.map((id) => String(id));
 
         // 검색 결과는 현재 뷰 유지 — 마커만 갱신(MapView preserveViewport와 동일 정책)
@@ -4553,6 +5002,9 @@ const handleClearSearch = () => {
           places={mapDisplayedPlacesWithLegend}
           selectedPlace={selectedPlace}
           setSelectedPlace={setSelectedPlaceWithAnalytics}
+          closePlacePreviewOnMapClick={
+            !(courseSecondPickMode && Boolean(selectedPlace))
+          }
           curatorColorMap={curatorColorMap}
           savedColorMap={savedColorMap}
           livePlaceIds={livePlaceIds}
@@ -4585,7 +5037,325 @@ const handleClearSearch = () => {
           }
           courseOverlay={courseMapOverlay}
           courseOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
+          onCourseOverlayDismiss={dismissCourseMapPath}
+          courseSecondPickMode={courseSecondPickMode}
         />
+
+        {courseSecondFindModalOpen ? (
+          <div
+            role="presentation"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 240,
+              background: "rgba(0,0,0,0.45)",
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              padding: "12px 12px max(16px, env(safe-area-inset-bottom))",
+              pointerEvents: "auto",
+            }}
+            onClick={cancelCourseSecondFindModal}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="course-second-find-title"
+              style={{
+                width: "100%",
+                maxWidth: 420,
+                maxHeight: "min(72vh, 520px)",
+                overflow: "auto",
+                borderRadius: 16,
+                background: "rgba(255,255,255,0.98)",
+                boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
+                padding: "16px 16px 14px",
+                pointerEvents: "auto",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                id="course-second-find-title"
+                style={{
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color: "#3d2914",
+                  marginBottom: 4,
+                }}
+              >
+                2차 후보 조건
+              </div>
+              <p
+                style={{
+                  margin: "0 0 14px",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: "#666",
+                }}
+              >
+                골라 주시면 그에 맞춰 가산점을 줘요. 분위기·주종은 잔 올리기와
+                같은 목록이에요. 안 고르면 예전과 같이 기본 룰만 씁니다.
+              </p>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#5b21b6",
+                  marginBottom: 6,
+                }}
+              >
+                분위기
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 14,
+                }}
+              >
+                {STUDIO_ATMOSPHERE_OPTIONS.map((v) => {
+                  const on = courseSecondFindVibes.includes(v);
+                  return (
+                    <button
+                      key={`2fv-${v}`}
+                      type="button"
+                      onClick={() =>
+                        setCourseSecondFindVibes((prev) =>
+                          prev.includes(v)
+                            ? prev.filter((x) => x !== v)
+                            : [...prev, v]
+                        )
+                      }
+                      style={{
+                        padding: "6px 11px",
+                        borderRadius: 999,
+                        border: on
+                          ? "1px solid rgba(124, 58, 237, 0.65)"
+                          : "1px solid rgba(92, 64, 51, 0.18)",
+                        background: on
+                          ? "rgba(250,245,255,0.98)"
+                          : "rgba(255,255,255,0.95)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: on ? "#5b21b6" : "#5c4033",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#5b21b6",
+                  marginBottom: 6,
+                }}
+              >
+                주종
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 14,
+                }}
+              >
+                {STUDIO_LIQUOR_TYPE_OPTIONS.map((v) => {
+                  const on = courseSecondFindLiquors.includes(v);
+                  return (
+                    <button
+                      key={`2fl-${v}`}
+                      type="button"
+                      onClick={() =>
+                        setCourseSecondFindLiquors((prev) =>
+                          prev.includes(v)
+                            ? prev.filter((x) => x !== v)
+                            : [...prev, v]
+                        )
+                      }
+                      style={{
+                        padding: "6px 11px",
+                        borderRadius: 999,
+                        border: on
+                          ? "1px solid rgba(124, 58, 237, 0.65)"
+                          : "1px solid rgba(92, 64, 51, 0.18)",
+                        background: on
+                          ? "rgba(250,245,255,0.98)"
+                          : "rgba(255,255,255,0.95)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: on ? "#5b21b6" : "#5c4033",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#5b21b6",
+                  marginBottom: 6,
+                }}
+              >
+                안주
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 14,
+                }}
+              >
+                {COURSE_SECOND_SNACK_OPTIONS.map((v) => {
+                  const on = courseSecondFindAnju.includes(v);
+                  return (
+                    <button
+                      key={`2fa-${v}`}
+                      type="button"
+                      onClick={() =>
+                        setCourseSecondFindAnju((prev) =>
+                          prev.includes(v)
+                            ? prev.filter((x) => x !== v)
+                            : [...prev, v]
+                        )
+                      }
+                      style={{
+                        padding: "6px 11px",
+                        borderRadius: 999,
+                        border: on
+                          ? "1px solid rgba(124, 58, 237, 0.65)"
+                          : "1px solid rgba(92, 64, 51, 0.18)",
+                        background: on
+                          ? "rgba(250,245,255,0.98)"
+                          : "rgba(255,255,255,0.95)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: on ? "#5b21b6" : "#5c4033",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#3d2914",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={courseSecondFindPreferCloser}
+                  onChange={(e) =>
+                    setCourseSecondFindPreferCloser(e.target.checked)
+                  }
+                />
+                더 가까운 곳 우선
+              </label>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  marginBottom: 16,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#3d2914",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={courseSecondFindPrioritizeCurators}
+                  onChange={(e) =>
+                    setCourseSecondFindPrioritizeCurators(e.target.checked)
+                  }
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  큐레이터 추천 우선
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: 4,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "#777",
+                    }}
+                  >
+                    여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점
+                  </span>
+                </span>
+              </label>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  justifyContent: "flex-end",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={cancelCourseSecondFindModal}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(92, 64, 51, 0.22)",
+                    background: "#fff",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "#5c4033",
+                    cursor: "pointer",
+                  }}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={mapCourseFirstBusy}
+                  onClick={confirmCourseSecondFindModal}
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: "rgba(124, 58, 237, 0.92)",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#fff",
+                    cursor: mapCourseFirstBusy ? "default" : "pointer",
+                    opacity: mapCourseFirstBusy ? 0.65 : 1,
+                  }}
+                >
+                  {mapCourseFirstBusy ? "찾는 중…" : "후보 찾기"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div style={styles.headerOverlay}>
           <div style={styles.logoStack}>
@@ -4654,6 +5424,22 @@ const handleClearSearch = () => {
         </div>
 
         <div style={styles.legendOverlay}>
+          {courseSecondPickMode &&
+          Array.isArray(courseSecondPulseMapPlaces) &&
+          courseSecondPulseMapPlaces.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                clearCourseSecondPickPulse();
+                setSelectedPlace(null);
+              }}
+              style={styles.legendSecondPickResetButton}
+              title="2차 후보 깜빡임·후보 마커 끄기"
+              aria-label="2차 후보 끄기"
+            >
+              후보 끄기
+            </button>
+          ) : null}
           <MarkerLegend
             mapCloseTick={markerGuideMapCloseTick}
             savedOnly={showSavedOnly}
@@ -4950,21 +5736,14 @@ const handleClearSearch = () => {
                 onClose={() => setSelectedPlace(null)}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
-                courseMapLegActions={
-                  isCourseMode &&
-                  String(query || "").trim() &&
-                  !isAiSearching &&
-                  selectedCourse &&
-                  selectedPlace
-                    ? {
-                        show: true,
-                        secondEnabled: mapCourseModalFirstLocked,
-                        secondBusy: isRegeneratingSecond,
-                        onSelectAsFirst: handleCourseMapFirstFromPreview,
-                        onFindSecond: handleCourseMapSecondFromPreview,
-                      }
-                    : null
+                onCourseMapFindSecond={openCourseSecondFindModal}
+                courseMapFindSecondEnabled={Boolean(
+                  selectedPlace && !isAiSearching
+                )}
+                courseMapFindSecondBusy={
+                  mapCourseFirstBusy || isRegeneratingSecond
                 }
+                onConfirmCourseSecondHere={handleConfirmCourseSecondHere}
               />
             </div>
           ) : searchExpandUX && query.trim() && !isAiSearching ? (
@@ -5030,6 +5809,17 @@ const handleClearSearch = () => {
                 >
                   ×
                 </button>
+                {courseHasFinalTwoSteps ? (
+                  <button
+                    type="button"
+                    style={styles.courseResetPickButton}
+                    onClick={() => void handleResetCoursePickWithSavePrompt()}
+                    aria-label="선택한 코스만 비우기"
+                    title="1차·2차 코스만 초기화 (검색어는 유지)"
+                  >
+                    ×
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   style={{
@@ -5247,10 +6037,20 @@ const handleClearSearch = () => {
                         key={course.key || index}
                         role="button"
                         tabIndex={0}
-                        onClick={() => chooseCourse(course)}
+                        onClick={() => {
+                          if (course.key !== selectedCourse?.key) {
+                            setCourseComposePick1(null);
+                            setCourseComposePick2(null);
+                          }
+                          chooseCourse(course);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
+                            if (course.key !== selectedCourse?.key) {
+                              setCourseComposePick1(null);
+                              setCourseComposePick2(null);
+                            }
                             chooseCourse(course);
                           }
                         }}
@@ -5315,6 +6115,51 @@ const handleClearSearch = () => {
                         >
                           {buildCourseSummary(course)}
                         </p>
+                        {course.profileKey === "my_own" ? (
+                          <div
+                            style={{
+                              marginBottom: 10,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            {(() => {
+                              const snap = snapshotFromMyOwnCourse(course);
+                              const saved =
+                                snap.pairKey &&
+                                savedMyCoursePairKeys.has(snap.pairKey);
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={Boolean(saved)}
+                                  style={{
+                                    padding: "8px 14px",
+                                    borderRadius: 999,
+                                    border: saved
+                                      ? "1px solid rgba(34, 197, 94, 0.45)"
+                                      : "1px solid rgba(124, 58, 237, 0.45)",
+                                    background: saved
+                                      ? "rgba(220, 252, 231, 0.95)"
+                                      : "rgba(250,245,255,0.98)",
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    color: saved ? "#166534" : "#5b21b6",
+                                    cursor: saved ? "default" : "pointer",
+                                    opacity: saved ? 0.9 : 1,
+                                  }}
+                                  onClick={(e) => {
+                                    if (saved) return;
+                                    void handleSaveMyOwnCourse(course, e);
+                                  }}
+                                >
+                                  {saved ? "저장됨" : "코스 저장"}
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        ) : null}
                         <div style={{ fontSize: 13, lineHeight: 1.55, color: "#333" }}>
                           <div style={{ marginBottom: 8 }}>
                             <strong>{course.steps[0]?.label}</strong>
@@ -5572,7 +6417,7 @@ const handleClearSearch = () => {
                                 }}
                               >
                                 {isRegeneratingSecond
-                                  ? "2차 찾는 중…"
+                                  ? "2차 추천 중…"
                                   : "2차만 다시"}
                               </button>
                             </>
@@ -6182,6 +7027,25 @@ const styles = {
     pointerEvents: "auto",
   },
 
+  legendSecondPickResetButton: {
+    pointerEvents: "auto",
+    padding: "0 10px",
+    height: "28px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.28)",
+    background: "rgba(124, 58, 237, 0.35)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px rgba(0,0,0,0.14)",
+    cursor: "pointer",
+    fontSize: "11px",
+    fontWeight: 800,
+    color: "rgba(250, 245, 255, 0.96)",
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  },
+
   legendMyLocationButton: {
     pointerEvents: "auto",
     width: "28px",
@@ -6732,6 +7596,28 @@ const styles = {
     WebkitTapHighlightColor: "transparent",
   },
 
+  /** 코스 모드 — 1차·2차 확정된 선택 코스만 비움 (검색어 유지). 검색 전체 취소 버튼과 구분 */
+  courseResetPickButton: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "26px",
+    height: "26px",
+    minWidth: "26px",
+    padding: 0,
+    borderRadius: "999px",
+    border: "1px solid rgba(196, 181, 253, 0.7)",
+    background: "rgba(124, 58, 237, 0.42)",
+    color: "rgba(255,255,255,0.96)",
+    fontSize: "15px",
+    lineHeight: 1,
+    fontWeight: 500,
+    cursor: "pointer",
+    boxShadow: "none",
+    WebkitTapHighlightColor: "transparent",
+  },
+
   /** 코스 피크(제목) + 스와이프·액션을 한 덩어리 바텀시트로 */
   courseMergedShell: {
     width: "100%",
@@ -6740,7 +7626,8 @@ const styles = {
     overflow: "hidden",
     boxShadow: "0 -6px 24px rgba(0,0,0,0.14)",
     background: "transparent",
-    pointerEvents: "auto",
+    /** 셸 전체에 auto 두면 투명 여백이 지도 팬을 가릴 수 있음 — 자식만 클릭 받음 */
+    pointerEvents: "none",
     maxHeight: "min(58vh, 520px)",
     display: "flex",
     flexDirection: "column",
@@ -6755,6 +7642,7 @@ const styles = {
     background: "rgba(17,17,17,0.9)",
     flexShrink: 0,
     borderRadius: "16px 16px 0 0",
+    pointerEvents: "auto",
   },
 
   courseMergedBody: {
@@ -6767,6 +7655,7 @@ const styles = {
     background: "rgba(255,255,255,0.94)",
     backdropFilter: "blur(14px)",
     WebkitBackdropFilter: "blur(14px)",
+    pointerEvents: "auto",
   },
 
   /** 아래로 드래그해 시트 접기 — 손가락 당김 영역 */

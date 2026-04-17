@@ -1,6 +1,10 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import {
+  STUDIO_ATMOSPHERE_OPTIONS,
+  STUDIO_LIQUOR_TYPE_OPTIONS,
+} from "../src/utils/placeTaxonomy.js";
 
 // ES 모듈에서 __dirname 대체
 const __filename = fileURLToPath(import.meta.url);
@@ -651,7 +655,12 @@ app.post("/api/search-intent-assist", async (req, res) => {
                 "카카오 키워드 검색용 짧은 kakaoKeywordHint, " +
                 "broadKakaoKeyword는 조건을 최대한 넓힌 한 줄(예: 강남 술집, 압구정 술집, 서울 이자카야). 상호명·주소 금지. " +
                 "결과가 비었을 때 쓸 짧은 대체 검색어 fallbackSearchIdeas(2~4개).\n" +
-                "모르는 필드는 빈 문자열. 장소 이름은 출력하지 마라.",
+                "모르는 필드는 빈 문자열. 장소 이름은 출력하지 마라.\n" +
+                "[표준값] filterHints.alcoholScope(주종)는 가능하면 다음 중 하나 또는 짧은 조합: " +
+                STUDIO_LIQUOR_TYPE_OPTIONS.join(", ") +
+                ". filterHints.vibe(분위기)는 가능하면 다음 중 하나: " +
+                STUDIO_ATMOSPHERE_OPTIONS.join(", ") +
+                ". 국물·해장·안주 무게는 foodOrSnackWeight에 요약.",
             },
           ],
         },

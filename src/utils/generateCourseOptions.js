@@ -89,6 +89,78 @@ function includesAny(source, target) {
   return target.some((t) => set.has(String(t).toLowerCase()));
 }
 
+/**
+ * 코스 룰의 category 토큰(포차·해산물 등)과 장소 매칭.
+ * 카카오 `음식점 > 포장마차`, `횟집` 등은 완전일치만으로는 누락되므로 동의어·부분문자열 사용.
+ */
+const RULE_CATEGORY_NEEDLES = {
+  포차: ["포차", "포장마차", "포장"],
+  술집: ["술집", "주점", "호프", "노가리"],
+  해산물: [
+    "해산물",
+    "횟집",
+    "생선회",
+    "해물",
+    "조개",
+    "새우",
+    "낙지",
+    "문어",
+    "게장",
+    "회집",
+  ],
+  이자카야: ["이자카야"],
+  와인바: ["와인바", "와인"],
+  바: ["pub", "펍", "칵테일", "칵테일바", "와이드바"],
+  한식: ["한식", "한정식", "백반"],
+  고깃집: ["고깃집", "삼겹살", "갈비", "육류", "고기"],
+  식사: ["식사", "음식점", "식당", "레스토랑"],
+  육류: ["육류", "고기", "삼겹살", "갈비", "스테이크"],
+  고기: ["고기", "고깃집", "삼겹살", "갈비", "육류"],
+  양식: ["양식", "이탈리", "프렌치", "파스타", "스테이크"],
+  다이닝: ["다이닝", "파인", "코스"],
+  카페: ["카페", "커피"],
+  칵테일: ["칵테일", "칵테일바"],
+};
+
+function coursePlaceMatchesRuleCategories(place, ruleCategories) {
+  if (!Array.isArray(ruleCategories) || !ruleCategories.length) return false;
+  const tokens = placeCategories(place).map((c) => String(c).toLowerCase());
+  const catHay = [...tokens, String(place.category_name || "").toLowerCase()]
+    .join(" ")
+    .trim();
+  const nameHay = `${String(place.name || "").toLowerCase()} ${String(
+    place.place_name || ""
+  ).toLowerCase()}`.trim();
+  const fullHay = `${catHay} ${nameHay}`;
+
+  for (const rc of ruleCategories) {
+    const rcl = String(rc).toLowerCase();
+    if (includesAny(placeCategories(place), [rc])) return true;
+
+    if (rcl === "바") {
+      if (tokens.includes("바")) return true;
+      if (
+        fullHay.includes("pub") ||
+        fullHay.includes("펍") ||
+        fullHay.includes("칵테일")
+      ) {
+        return true;
+      }
+      continue;
+    }
+
+    const needles = RULE_CATEGORY_NEEDLES[rcl] || [rc];
+    for (const n of needles) {
+      const nl = String(n).toLowerCase();
+      if (!nl) continue;
+      if (nl.length <= 2) {
+        if (catHay.includes(nl)) return true;
+      } else if (fullHay.includes(nl)) return true;
+    }
+  }
+  return false;
+}
+
 function countMatches(source, target) {
   if (!source.length || !target.length) return 0;
   const set = new Set(target.map((t) => String(t).toLowerCase()));
@@ -201,13 +273,13 @@ export function calculateCoursePlaceScore(
   profile = DEFAULT_PROFILE
 ) {
   const w = profile.weights;
-  const categories = placeCategories(place);
   const vibes = normalizeArray(place.vibes);
   const liquorTypes = normalizeArray(place.liquorTypes ?? place.liquor_types);
   const tags = normalizeArray(place.tags);
 
   let score = 0;
-  if (includesAny(categories, rule.categories)) score += 30 * w.category;
+  if (coursePlaceMatchesRuleCategories(place, rule.categories))
+    score += 30 * w.category;
   if (includesAny(vibes, rule.vibes)) score += 20 * w.vibe;
   if (includesAny(liquorTypes, rule.liquorTypes)) score += 15 * w.liquor;
 
@@ -552,6 +624,67 @@ export function courseOptionsToMapPlaces(options = []) {
         courseStepIndex: stepNum,
       });
     }
+  }
+  return out;
+}
+
+/**
+ * 2차 재추천 결과(코스 배열) → 지도: 1차 고정 + 2차 후보마다 깜빡임(MapView courseMarkerPulse)
+ */
+export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
+  if (!Array.isArray(courses) || courses.length === 0) return [];
+  const out = [];
+  const firstPlace = courses[0]?.steps?.[0]?.place;
+  if (firstPlace) {
+    const w = resolvePlaceWgs84(firstPlace);
+    if (w && Number.isFinite(w.lat) && Number.isFinite(w.lng)) {
+      const id = placeId(firstPlace);
+      const sid = id != null ? String(id) : "course_1st";
+      out.push({
+        ...firstPlace,
+        id: sid,
+        name: firstPlace.name,
+        place_name: firstPlace.place_name || firstPlace.name,
+        lat: w.lat,
+        lng: w.lng,
+        y: String(w.lat),
+        x: String(w.lng),
+        category_name: firstPlace.category_name || "",
+        address_name: firstPlace.address_name || "",
+        isCoursePin: true,
+        courseMapCaption: "1차",
+        courseStepIndex: 1,
+        courseMarkerPulse: false,
+      });
+    }
+  }
+  const seenSecond = new Set();
+  for (let i = 0; i < courses.length; i++) {
+    const p = courses[i]?.steps?.[1]?.place;
+    if (!p) continue;
+    const w = resolvePlaceWgs84(p);
+    if (!w || !Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
+    const id = placeId(p);
+    const key =
+      id != null ? String(id) : `course_2_${i}_${String(p.name || "").slice(0, 24)}`;
+    if (seenSecond.has(key)) continue;
+    seenSecond.add(key);
+    out.push({
+      ...p,
+      id: key,
+      name: p.name,
+      place_name: p.place_name || p.name,
+      lat: w.lat,
+      lng: w.lng,
+      y: String(w.lat),
+      x: String(w.lng),
+      category_name: p.category_name || "",
+      address_name: p.address_name || "",
+      isCoursePin: true,
+      courseMapCaption: "2차",
+      courseStepIndex: 2,
+      courseMarkerPulse: true,
+    });
   }
   return out;
 }

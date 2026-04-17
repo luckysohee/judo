@@ -1,8 +1,10 @@
+import { STUDIO_LIQUOR_TYPE_OPTIONS } from "./placeTaxonomy.js";
+
 /**
  * 코스 생성 엔진용 스텝 룰. 체류 시간·매칭 축은 제품에서 고정(평균값)으로 두고
  * AI는 요청 파싱·카피 보조만 담당하는 구조에 맞춤.
+ * 2차 주종은 `placeTaxonomy`의 잔 올리기 표준 목록과 동일.
  */
-
 export const COURSE_PATTERNS = {
   casual_2step: [
     {
@@ -20,7 +22,7 @@ export const COURSE_PATTERNS = {
       stayMinutes: 80,
       categories: ["포차", "술집", "해산물", "이자카야", "와인바", "바"],
       vibes: ["가볍게", "분위기좋은", "편안한", "조용한"],
-      liquorTypes: ["소주", "맥주", "하이볼", "와인"],
+      liquorTypes: [...STUDIO_LIQUOR_TYPE_OPTIONS],
       tags: ["2차", "가볍게", "한잔", "늦게까지"],
     },
   ],
@@ -41,7 +43,7 @@ export const COURSE_PATTERNS = {
       stayMinutes: 70,
       categories: ["바", "와인바", "카페", "술집", "칵테일"],
       vibes: ["조용한", "분위기좋은", "가볍게"],
-      liquorTypes: ["와인", "하이볼", "칵테일"],
+      liquorTypes: [...STUDIO_LIQUOR_TYPE_OPTIONS],
       tags: ["데이트", "2차", "가볍게"],
     },
   ],

@@ -8,6 +8,10 @@ import {
   isSameVenueForCourseStep,
   placeId,
 } from "./generateCourseOptions.js";
+import {
+  expandAnjuHintTokens,
+  expandVibePrefTokens,
+} from "./placeTaxonomy.js";
 
 function choosePattern(parsedQuery) {
   if (parsedQuery.steps !== 2) return null;
@@ -20,6 +24,39 @@ function chooseProfile(profileKey) {
   return COURSE_PROFILES[profileKey] || COURSE_PROFILES.normal;
 }
 
+function prefStringList(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const out = arr.map((s) => String(s).trim()).filter(Boolean);
+  return out.length ? out : null;
+}
+
+function placeLiquorTokens(place) {
+  const raw = place?.liquorTypes ?? place?.liquor_types;
+  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+  if (raw == null || raw === "") return [];
+  return [String(raw).trim()].filter(Boolean);
+}
+
+/** tags·categories·category_name 에서 안주 힌트 매칭용 */
+function placeAnjuHaystack(place) {
+  const out = [];
+  const push = (s) => {
+    const t = String(s ?? "").trim().toLowerCase();
+    if (t) out.push(t);
+  };
+  if (Array.isArray(place?.tags)) {
+    for (const t of place.tags) push(t);
+  }
+  if (Array.isArray(place?.categories)) {
+    for (const t of place.categories) push(t);
+  }
+  const cn = place?.category_name;
+  if (typeof cn === "string") {
+    for (const part of cn.split(/[>,]/g)) push(part);
+  }
+  return out;
+}
+
 /**
  * 1차는 유지하고 2차만 다시 스코어링해 상위 후보 코스를 반환.
  * @param {object} opts
@@ -27,12 +64,14 @@ function chooseProfile(profileKey) {
  * @param {object} opts.parsedQuery parseCourseQuery 결과
  * @param {object[]} [opts.places] normalizePlaces 결과
  * @param {"same"|"mood"|"closer"|"featured"} [opts.variant]
+ * @param {{ vibes?: string[], liquorTypes?: string[], anjuHints?: string[], preferCloser?: boolean, prioritizeCurators?: boolean }} [opts.userSecondPreferences] 지도 2차 찾기 등 사용자가 고른 가산점
  */
 export function regenerateSecondStep({
   selectedCourse,
   parsedQuery,
   places = [],
   variant = "same",
+  userSecondPreferences = null,
 }) {
   if (!selectedCourse?.steps?.length) return [];
 
@@ -103,7 +142,7 @@ export function regenerateSecondStep({
       let distanceWeight = profile.weights.distance;
       let extraBonus = 0;
 
-      if (variant === "closer") {
+      if (variant === "closer" || userSecondPreferences?.preferCloser) {
         distanceWeight *= 1.8;
       }
 
@@ -119,6 +158,68 @@ export function regenerateSecondStep({
 
       if (variant === "featured") {
         extraBonus += Math.min((place.overlapCuratorCount || 0) * 6, 30);
+      }
+
+      const pv = prefStringList(userSecondPreferences?.vibes);
+      if (pv?.length) {
+        const placeTokens = new Set();
+        for (const v of place.vibes || []) {
+          const t = String(v).trim().toLowerCase();
+          if (t) placeTokens.add(t);
+        }
+        const at = String(place.atmosphere ?? "").trim().toLowerCase();
+        if (at) placeTokens.add(at);
+        const hay = [...placeTokens];
+        let hits = 0;
+        for (const pref of pv) {
+          const expanded = expandVibePrefTokens(pref);
+          if (
+            expanded.some((ex) =>
+              hay.some((t) => t.includes(ex) || ex.includes(t) || t === ex)
+            )
+          ) {
+            hits += 1;
+          }
+        }
+        extraBonus += hits * 14;
+      }
+      const pl = prefStringList(userSecondPreferences?.liquorTypes);
+      if (pl?.length) {
+        const set = new Set(pl.map((s) => s.toLowerCase()));
+        const hits = placeLiquorTokens(place).filter((t) =>
+          set.has(String(t).toLowerCase())
+        ).length;
+        extraBonus += hits * 12;
+      }
+
+      const pa = prefStringList(userSecondPreferences?.anjuHints);
+      if (pa?.length) {
+        const hay = placeAnjuHaystack(place);
+        let hits = 0;
+        for (const hint of pa) {
+          const tokens = expandAnjuHintTokens(hint);
+          if (
+            tokens.some((tok) =>
+              hay.some((t) => t.includes(tok) || tok.includes(t) || t === tok)
+            )
+          ) {
+            hits += 1;
+          }
+        }
+        extraBonus += hits * 11;
+      }
+
+      if (userSecondPreferences?.prioritizeCurators) {
+        const overlap = Number(
+          place.overlapCuratorCount ?? place.overlap_curator_count
+        );
+        if (Number.isFinite(overlap) && overlap > 0) {
+          extraBonus += Math.min(overlap * 7, 42);
+        }
+        const curators = Number(place.curatorCount ?? place.curator_count);
+        if (Number.isFinite(curators) && curators > 0) {
+          extraBonus += Math.min(curators * 3, 24);
+        }
       }
 
       const distanceBonus = Math.max(0, 30 - distance / 25) * distanceWeight;

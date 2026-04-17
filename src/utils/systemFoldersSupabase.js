@@ -19,6 +19,35 @@ export function systemFoldersHasCreatedByColumn() {
   return createdByColumnAvailable;
 }
 
+/**
+ * custom_* 행은 본인(created_by) 것만 목록에 남김. 시스템 시드 폴더는 공통.
+ * (RLS와 동일 규칙 — 구 클라이언트/캐시 대비 이중 필터)
+ */
+export function filterSystemFoldersVisibleToUser(rows, viewerUserId) {
+  const uid =
+    viewerUserId != null && viewerUserId !== ""
+      ? String(viewerUserId).trim()
+      : "";
+  return (rows || []).filter((r) => {
+    const k = String(r.key ?? "");
+    if (!/^custom_/u.test(k)) return true;
+    if (!uid) return false;
+    if (!createdByColumnAvailable) return false;
+    return String(r.created_by ?? "").trim() === uid;
+  });
+}
+
+async function selectSystemFoldersOrderedWithViewerFilter(supabase, result) {
+  if (result.error || !Array.isArray(result.data)) return result;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return {
+    ...result,
+    data: filterSystemFoldersVisibleToUser(result.data, user?.id ?? null),
+  };
+}
+
 export async function selectSystemFoldersOrdered(supabase) {
   const full = "key, name, color, icon, sort_order, created_by";
   const minimal = "key, name, color, icon, sort_order";
@@ -30,14 +59,15 @@ export async function selectSystemFoldersOrdered(supabase) {
     .order("sort_order", { ascending: true });
   if (!rFull.error) {
     createdByColumnAvailable = true;
-    return rFull;
+    return selectSystemFoldersOrderedWithViewerFilter(supabase, rFull);
   }
   if (missingCreatedByColumnError(rFull.error)) {
     createdByColumnAvailable = false;
-    return supabase
+    const rMin = await supabase
       .from("system_folders")
       .select(minimal)
       .order("sort_order", { ascending: true });
+    return selectSystemFoldersOrderedWithViewerFilter(supabase, rMin);
   }
   return rFull;
 }

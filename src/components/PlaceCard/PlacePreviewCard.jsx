@@ -39,11 +39,12 @@ export default function PlacePreviewCard({
   onClose,
   getUserRole,
   searchSessionIdRef,
-  /**
-   * 코스 모드: 지도 미리보기에서 1차 확정 → 2차 재탐색
-   * `{ show, secondEnabled, secondBusy, onSelectAsFirst, onFindSecond }`
-   */
-  courseMapLegActions = null,
+  /** 지도 카드: 1차 반영 후 2차 후보 펄스까지 한 번에 (폴더 저장과 무관) */
+  onCourseMapFindSecond,
+  courseMapFindSecondEnabled = false,
+  courseMapFindSecondBusy = false,
+  /** 펄스 2차 후보 카드에서 확정 시 호출 */
+  onConfirmCourseSecondHere,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -386,6 +387,22 @@ export default function PlacePreviewCard({
       typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
     return s || null;
   }, [place?.phone, place?.contact, kakaoDetails?.phone]);
+
+  /** 2차 후보 카드: 1차 장소 기준 직선 거리·도보 추정(약 67m/분) */
+  const courseSecondFromFirstCaption = useMemo(() => {
+    if (!place?.courseSecondCandidatePick) return null;
+    const m = place.courseSecondDistanceFromFirstMeters;
+    if (!Number.isFinite(m) || m <= 0) return null;
+    const distPart =
+      m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`;
+    const walkMin = Math.max(1, Math.round(m / 67));
+    const firstName = String(place.courseSecondFromFirstPlaceName || "").trim();
+    return { firstName, distPart, walkMin };
+  }, [
+    place?.courseSecondCandidatePick,
+    place?.courseSecondDistanceFromFirstMeters,
+    place?.courseSecondFromFirstPlaceName,
+  ]);
 
   // 카카오맵 상세보기 URL
   const handleKakaoView = () => {
@@ -816,6 +833,7 @@ export default function PlacePreviewCard({
       setShowSaveModal(true);
     }
   };
+
   const handleSaveClick = async () => {
     const userRole = getUserRole?.() || "user"; // 기본값 user
     console.log('🔍 handleSaveClick - userRole:', userRole, 'isKakaoPlace:', place.isKakaoPlace);
@@ -1401,6 +1419,71 @@ export default function PlacePreviewCard({
             </div>
           </div>
 
+          {courseSecondFromFirstCaption ? (
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(255,255,255,0.62)",
+                marginTop: 8,
+                lineHeight: 1.45,
+              }}
+              aria-label="1차 장소와의 거리"
+            >
+              {courseSecondFromFirstCaption.firstName ? (
+                <>
+                  1차 ·{" "}
+                  <span style={{ color: "rgba(255,255,255,0.88)" }}>
+                    {courseSecondFromFirstCaption.firstName}
+                  </span>
+                  에서 직선 약 {courseSecondFromFirstCaption.distPart} · 도보 약{" "}
+                  {courseSecondFromFirstCaption.walkMin}분
+                </>
+              ) : (
+                <>
+                  1차에서 직선 약 {courseSecondFromFirstCaption.distPart} · 도보
+                  약 {courseSecondFromFirstCaption.walkMin}분
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {place.courseSecondCandidatePick ? (
+            <div style={styles.mapCourseActionRow}>
+              <button
+                type="button"
+                onClick={() => onConfirmCourseSecondHere?.(place)}
+                title="이 가게를 코스 2차로 확정하고 길 안내를 열어요"
+                style={styles.mapConfirmSecondButton}
+              >
+                2차는 여기로
+              </button>
+            </div>
+          ) : (
+            <div style={styles.mapCourseActionRow}>
+              <button
+                type="button"
+                disabled={
+                  !courseMapFindSecondEnabled ||
+                  Boolean(courseMapFindSecondBusy)
+                }
+                onClick={() => void onCourseMapFindSecond?.()}
+                title={
+                  courseMapFindSecondEnabled
+                    ? "이 장소를 1차로 넣고, 주변 2차 후보를 지도에서 깜빡여 보여줘요"
+                    : "지금은 2차 찾기를 쓸 수 없어요"
+                }
+                style={{
+                  ...styles.mapFindSecondFullButton,
+                  ...(!courseMapFindSecondEnabled || courseMapFindSecondBusy
+                    ? styles.mapCollectButtonDisabled
+                    : {}),
+                }}
+              >
+                {courseMapFindSecondBusy ? "찾는 중…" : "2차 찾기"}
+              </button>
+            </div>
+          )}
+
           {place.blogInsight && place.blogInsight.reviewCount > 0 ? (
             <div style={styles.blogInsightBlock} aria-label="블로그 기반 정보">
               <div style={styles.blogInsightLabel}>
@@ -1600,74 +1683,6 @@ export default function PlacePreviewCard({
               })}
             </div>
           </div>
-
-          {courseMapLegActions?.show ? (
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                alignItems: "center",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => courseMapLegActions.onSelectAsFirst?.()}
-                style={{
-                  flex: "1 1 120px",
-                  minHeight: 40,
-                  padding: "0 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(124, 58, 237, 0.45)",
-                  background: "rgba(250,245,255,0.98)",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: "#5b21b6",
-                  cursor: "pointer",
-                }}
-              >
-                1차 선택
-              </button>
-              <button
-                type="button"
-                disabled={
-                  !courseMapLegActions.secondEnabled ||
-                  Boolean(courseMapLegActions.secondBusy)
-                }
-                onClick={() => courseMapLegActions.onFindSecond?.()}
-                style={{
-                  flex: "1 1 120px",
-                  minHeight: 40,
-                  padding: "0 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(92, 64, 51, 0.22)",
-                  background:
-                    courseMapLegActions.secondEnabled &&
-                    !courseMapLegActions.secondBusy
-                      ? "rgba(255,255,255,0.98)"
-                      : "rgba(0,0,0,0.06)",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: "#3d2914",
-                  cursor:
-                    courseMapLegActions.secondEnabled &&
-                    !courseMapLegActions.secondBusy
-                      ? "pointer"
-                      : "default",
-                  opacity:
-                    courseMapLegActions.secondEnabled &&
-                    !courseMapLegActions.secondBusy
-                      ? 1
-                      : 0.5,
-                }}
-              >
-                {courseMapLegActions.secondBusy
-                  ? "2차 찾는 중…"
-                  : "2차 찾기"}
-              </button>
-            </div>
-          ) : null}
 
           {hanjanSocialLines.length > 0 && (
             <div
@@ -2379,5 +2394,44 @@ const styles = {
     fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
+  },
+  mapCourseActionRow: {
+    marginTop: 12,
+    display: "flex",
+    gap: 8,
+    alignItems: "stretch",
+  },
+  mapFindSecondFullButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid rgba(124, 58, 237, 0.45)",
+    background: "rgba(250,245,255,0.98)",
+    color: "#5b21b6",
+    fontSize: "14px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
+  mapCollectButtonDisabled: {
+    opacity: 0.45,
+    cursor: "not-allowed",
+    background: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.55)",
+    border: "1px solid rgba(255,255,255,0.12)",
+  },
+  mapConfirmSecondButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    backgroundColor: "#2ECC71",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxSizing: "border-box",
   },
 };

@@ -7,7 +7,10 @@ import {
   getAuthProviderLabel,
 } from "../../lib/syncAuthProviderToProfile";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
-import { insertSystemFolderRow } from "../../utils/systemFoldersSupabase";
+import {
+  insertSystemFolderRow,
+  selectSystemFoldersOrdered,
+} from "../../utils/systemFoldersSupabase";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -915,10 +918,8 @@ const UserCard = ({
       }));
 
       if (!useEmbedded) {
-        const { data: sfRows, error: sfErr } = await supabase
-          .from("system_folders")
-          .select("key, name, color, icon, sort_order")
-          .order("sort_order", { ascending: true });
+        const { data: sfRows, error: sfErr } =
+          await selectSystemFoldersOrdered(supabase);
         if (!sfErr && sfRows?.length) {
           folderDefsForGrid = sfRows;
         }

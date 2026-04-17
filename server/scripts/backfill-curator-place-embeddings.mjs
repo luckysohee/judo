@@ -19,6 +19,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
+import { taxonomyContextBlockForMl } from "../../src/utils/placeTaxonomy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +34,7 @@ const DIM = 1536;
 
 function embeddingSource(row) {
   const parts = [
+    taxonomyContextBlockForMl(),
     row.one_line_reason,
     ...(Array.isArray(row.tags) ? row.tags : []),
     ...(Array.isArray(row.moods) ? row.moods : []),
