@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
+import { TOAST_LAYER_Z_INDEX } from "../../constants/toastLayer.js";
 
-const Toast = ({ message, type = 'success', duration = 3000, onClose }) => {
+const Toast = ({
+  message,
+  type = "success",
+  duration = 3000,
+  onClose,
+  stackIndex = 0,
+}) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
@@ -10,23 +17,25 @@ const Toast = ({ message, type = 'success', duration = 3000, onClose }) => {
   }, [duration, onClose]);
 
   const getToastStyle = () => {
+    const topPx = 20 + Math.min(stackIndex, 8) * 72;
     const baseStyle = {
-      position: 'fixed',
-      top: '20px',
-      right: '20px',
-      padding: '16px 24px',
-      borderRadius: '8px',
-      color: 'white',
-      fontWeight: '500',
-      fontSize: '14px',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-      zIndex: 9999,
-      minWidth: '250px',
-      maxWidth: '350px',
-      wordBreak: 'break-word',
-      transform: 'translateX(0)',
-      transition: 'transform 0.3s ease-in-out, opacity 0.3s ease-in-out',
-      opacity: 1
+      position: "fixed",
+      top: `${topPx}px`,
+      right: "20px",
+      padding: "16px 24px",
+      borderRadius: "8px",
+      color: "white",
+      fontWeight: "500",
+      fontSize: "14px",
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+      zIndex: TOAST_LAYER_Z_INDEX + 2 + stackIndex,
+      minWidth: "250px",
+      maxWidth: "350px",
+      wordBreak: "break-word",
+      transform: "translateX(0)",
+      transition: "transform 0.3s ease-in-out, opacity 0.3s ease-in-out",
+      opacity: 1,
+      pointerEvents: "auto",
     };
 
     switch (type) {

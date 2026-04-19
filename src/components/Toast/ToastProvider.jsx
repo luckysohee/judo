@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState } from 'react';
-import Toast from './Toast';
+import React, { createContext, useContext, useState } from "react";
+import { createPortal } from "react-dom";
+import Toast from "./Toast";
+import { TOAST_LAYER_Z_INDEX } from "../../constants/toastLayer.js";
 
 const ToastContext = createContext();
 
@@ -34,18 +36,38 @@ export const ToastProvider = ({ children }) => {
     addToast(message, type, duration);
   };
 
+  const toastLayer =
+    typeof document !== "undefined"
+      ? createPortal(
+          <div
+            id="judo-app-toast-layer"
+            aria-live="polite"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: TOAST_LAYER_Z_INDEX,
+              pointerEvents: "none",
+            }}
+          >
+            {toasts.map((toast, index) => (
+              <Toast
+                key={toast.id}
+                stackIndex={index}
+                message={toast.message}
+                type={toast.type}
+                duration={toast.duration}
+                onClose={() => removeToast(toast.id)}
+              />
+            ))}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <ToastContext.Provider value={{ showToast, addToast, removeToast }}>
       {children}
-      {toasts.map(toast => (
-        <Toast
-          key={toast.id}
-          message={toast.message}
-          type={toast.type}
-          duration={toast.duration}
-          onClose={() => removeToast(toast.id)}
-        />
-      ))}
+      {toastLayer}
     </ToastContext.Provider>
   );
 };

@@ -100,17 +100,12 @@ function chunkIds(ids) {
   return out;
 }
 
-/** curator_places 가 auth.uid() 또는 curators.id 로 저장된 레거시 모두 제거 */
+/** curator_places.curator_id = auth.uid() (= curators.user_id) 만 삭제 */
 async function deleteCuratorPlacesForPlaceBatches(
   supabase,
   authUserId,
-  curatorRowId,
   placeIdBatches
 ) {
-  const alt =
-    curatorRowId && String(curatorRowId) !== String(authUserId)
-      ? String(curatorRowId)
-      : null;
   for (const batch of placeIdBatches) {
     if (!batch.length) continue;
     const { error: e1 } = await supabase
@@ -119,14 +114,6 @@ async function deleteCuratorPlacesForPlaceBatches(
       .eq("curator_id", authUserId)
       .in("place_id", batch);
     if (e1) return e1;
-    if (alt) {
-      const { error: e2 } = await supabase
-        .from("curator_places")
-        .delete()
-        .eq("curator_id", alt)
-        .in("place_id", batch);
-      if (e2) return e2;
-    }
   }
   return null;
 }
@@ -239,7 +226,6 @@ async function deleteOwnCustomSystemFolderClient(
   const cpErr = await deleteCuratorPlacesForPlaceBatches(
     supabase,
     userId,
-    hint?.curatorRowId,
     chunkIds(deletedPlaceIds)
   );
   if (cpErr) return { error: cpErr, deletedPlaceIds };
@@ -285,7 +271,6 @@ export async function deleteOwnCustomSystemFolder(
         const mopErr = await deleteCuratorPlacesForPlaceBatches(
           supabase,
           userId,
-          hint?.curatorRowId,
           chunkIds(merged)
         );
         if (mopErr) {

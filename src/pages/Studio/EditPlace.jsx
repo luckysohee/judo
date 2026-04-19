@@ -26,14 +26,14 @@ export default function EditPlace() {
 
       if (error) throw error;
       
-      // 권한 확인
-      const { data: curator } = await supabase
-        .from("curators")
+      const { data: cp } = await supabase
+        .from("curator_places")
         .select("id")
-        .eq("user_id", user.id)
-        .single();
+        .eq("place_id", id)
+        .eq("curator_id", user.id)
+        .maybeSingle();
 
-      if (data.curator_id !== curator?.id) {
+      if (!cp) {
         navigate("/studio");
         return;
       }

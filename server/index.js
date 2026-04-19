@@ -516,6 +516,125 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+/** Nominatim 이용 정책(초당 1회) — 서버에서만 호출 */
+let lastOsmNominatimAt = 0;
+
+function decimateLatLngRing(ring, maxPoints = 720) {
+  if (!Array.isArray(ring) || ring.length <= maxPoints) return ring;
+  const step = Math.ceil(ring.length / maxPoints);
+  const out = [];
+  for (let i = 0; i < ring.length; i += step) {
+    out.push(ring[i]);
+  }
+  const a = ring[0];
+  const b = out[out.length - 1];
+  if (
+    a &&
+    b &&
+    (Number(a.lat) !== Number(b.lat) || Number(a.lng) !== Number(b.lng))
+  ) {
+    out.push({ ...a });
+  }
+  return out;
+}
+
+/**
+ * GeoJSON Polygon / MultiPolygon → 외곽 링만(구멍 제외) { lat, lng }[] 배열.
+ * 카카오 Polygon 부하를 줄이기 위해 점 수 상한 적용.
+ */
+function extractOuterRingsFromGeoJSONGeometry(geometry) {
+  const rings = [];
+  if (!geometry || typeof geometry !== "object") return rings;
+  const { type, coordinates } = geometry;
+  if (type === "Polygon" && Array.isArray(coordinates) && coordinates[0]) {
+    const outer = coordinates[0]
+      .map(([lng, lat]) => ({
+        lat: Number(lat),
+        lng: Number(lng),
+      }))
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (outer.length >= 3) rings.push(decimateLatLngRing(outer));
+    return rings;
+  }
+  if (type === "MultiPolygon" && Array.isArray(coordinates)) {
+    for (const poly of coordinates) {
+      if (!Array.isArray(poly) || !poly[0]) continue;
+      const outer = poly[0]
+        .map(([lng, lat]) => ({
+          lat: Number(lat),
+          lng: Number(lng),
+        }))
+        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+      if (outer.length >= 3) rings.push(decimateLatLngRing(outer));
+    }
+    return rings;
+  }
+  return rings;
+}
+
+/**
+ * 지역명(부산, 서초구 등) 행정 경계 근사 — OpenStreetMap Nominatim (서버 프록시).
+ * 프로덕션에서 정밀·약관이 필요하면 V-World 등으로 교체 가능.
+ */
+app.get("/api/region-outline", async (req, res) => {
+  const raw = req.query.query ?? req.query.q;
+  const query = typeof raw === "string" ? raw.trim() : "";
+  if (!query || query.length > 80) {
+    return res.status(400).json({ ok: false, error: "invalid_query" });
+  }
+
+  const now = Date.now();
+  const waitMs = Math.max(0, 1100 - (now - lastOsmNominatimAt));
+  if (waitMs > 0) {
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  lastOsmNominatimAt = Date.now();
+
+  const nominatimQ = `${query}, 대한민국`;
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(
+    nominatimQ
+  )}&polygon_geojson=1&limit=1`;
+
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "JudoMap/1.0 (region-outline)",
+        Accept: "application/json",
+        "Accept-Language": "ko",
+      },
+    });
+    if (!r.ok) {
+      return res.json({
+        ok: false,
+        error: "nominatim_http",
+        status: r.status,
+      });
+    }
+    const list = await r.json();
+    const first = Array.isArray(list) ? list[0] : null;
+    const gj = first?.geojson;
+    const rings = extractOuterRingsFromGeoJSONGeometry(gj);
+    if (!rings.length) {
+      return res.json({
+        ok: false,
+        error: "no_polygon",
+        displayName: first?.display_name || "",
+      });
+    }
+    return res.json({
+      ok: true,
+      query,
+      rings,
+      displayName: first?.display_name || "",
+      osmType: first?.osm_type || "",
+      osmId: first?.osm_id ?? null,
+    });
+  } catch (e) {
+    console.error("/api/region-outline", e);
+    return res.json({ ok: false, error: "fetch_failed" });
+  }
+});
+
 /**
  * 코스 1차→2차 보행 경로 (OSRM 공개 데모 — 프로덕션은 자체 OSRM/키 있는 라우팅으로 교체 권장)
  * Query: slat, slng, dlat, dlng (WGS84)

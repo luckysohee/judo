@@ -160,8 +160,23 @@ const MapView = forwardRef(({
   courseOverlayFitBottomPaddingPx = 0,
   /** 보라 경로 라벨 옆 × — 지도에서만 경로·라벨 제거 */
   onCourseOverlayDismiss = null,
+  /**
+   * 미리보기 「도착 길찾기」: 내 위치 → 선택 장소 도보 경로 (코스 보라선과 별도, 주황)
+   * `{ polylinePath, legLabel?, labelPosition?, key }`
+   */
+  arrivalWalkingOverlay = null,
+  /** `arrivalWalkingOverlay` setBounds 시 화면 하단 패딩(px) */
+  arrivalWalkingOverlayFitBottomPaddingPx = 0,
+  /** 주황 경로 라벨 옆 × */
+  onArrivalWalkingOverlayDismiss = null,
   /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 2차 확정 UI */
   courseSecondPickMode = false,
+  /**
+   * 지역명 검색 등 — 행정구역 근사 경계 `{ key, rings: [[{lat,lng},...], ...], fitBounds? }`
+   */
+  regionBoundaryOverlay = null,
+  /** `regionBoundaryOverlay` fitBounds 시 화면 하단 패딩(px) */
+  regionBoundaryFitBottomPaddingPx = 0,
   /**
    * 마커 여러 개일 때 setBounds 패딩(px) — 코스 2차 후보처럼 살짝 줌아웃해 전부 보이게
    * `{ top, right, bottom, left }` 또는 네 면 동일한 숫자
@@ -181,6 +196,12 @@ const MapView = forwardRef(({
   const clustererRef = useRef(null);
   const coursePolylineRef = useRef(null);
   const courseLegLabelOverlayRef = useRef(null);
+  const arrivalPolylineRef = useRef(null);
+  const arrivalLegLabelOverlayRef = useRef(null);
+  /** 동일 key면 setBounds 생략 — 패딩만 바뀐 effect 재실행에 지도가 붙잡히지 않게 */
+  const coursePathFitKeyRef = useRef("");
+  const arrivalPathFitKeyRef = useRef("");
+  const regionBoundaryPolygonsRef = useRef([]);
   const ignoreMapClickRef = useRef(false);
   const closePlacePreviewOnMapClickRef = useRef(closePlacePreviewOnMapClick);
   useEffect(() => {
@@ -215,6 +236,11 @@ const MapView = forwardRef(({
   useEffect(() => {
     onCourseOverlayDismissRef.current = onCourseOverlayDismiss;
   }, [onCourseOverlayDismiss]);
+
+  const onArrivalWalkingOverlayDismissRef = useRef(onArrivalWalkingOverlayDismiss);
+  useEffect(() => {
+    onArrivalWalkingOverlayDismissRef.current = onArrivalWalkingOverlayDismiss;
+  }, [onArrivalWalkingOverlayDismiss]);
 
   const selectedPlaceRef = useRef(selectedPlace);
   useEffect(() => {
@@ -255,10 +281,25 @@ const MapView = forwardRef(({
     } catch {
       level = undefined;
     }
+    let boundsPayload;
+    try {
+      const b = mapRef.current.getBounds?.();
+      if (b) {
+        const sw = b.getSouthWest();
+        const ne = b.getNorthEast();
+        boundsPayload = {
+          sw: { lat: sw.getLat(), lng: sw.getLng() },
+          ne: { lat: ne.getLat(), lng: ne.getLng() },
+        };
+      }
+    } catch {
+      boundsPayload = undefined;
+    }
     onViewportChangeRef.current?.({
       lat,
       lng,
       level: typeof level === "number" && Number.isFinite(level) ? level : undefined,
+      bounds: boundsPayload,
     });
   }, []);
 
@@ -720,11 +761,7 @@ const MapView = forwardRef(({
                 closeOverlay(); // KakaoPlaceOverlay만 지도 탭으로 닫기
               });
 
-              window.kakao.maps.event.addListener(map, "dragend", () => {
-                markUserInteracted();
-                notifyViewportCenterChanged();
-              });
-              window.kakao.maps.event.addListener(map, "zoom_changed", () => {
+              window.kakao.maps.event.addListener(map, "idle", () => {
                 markUserInteracted();
                 notifyViewportCenterChanged();
               });
@@ -1009,10 +1046,10 @@ const MapView = forwardRef(({
     const panUpPx =
       typeof window !== "undefined"
         ? Math.min(
-            320,
-            Math.max(150, Math.round(window.innerHeight * 0.26) + 48)
+            460,
+            Math.max(200, Math.round(window.innerHeight * 0.36) + 72)
           )
-        : 180;
+        : 220;
     const { lat, lng } = wgs;
     const targetLatLng = new window.kakao.maps.LatLng(lat, lng);
 
@@ -1090,6 +1127,7 @@ const MapView = forwardRef(({
 
     const rawPath = courseOverlay?.polylinePath;
     if (!Array.isArray(rawPath) || rawPath.length < 2) {
+      coursePathFitKeyRef.current = "";
       return undefined;
     }
 
@@ -1105,7 +1143,10 @@ const MapView = forwardRef(({
           new window.kakao.maps.LatLng(Number(p.lat), Number(p.lng))
       );
 
-    if (kakaoPath.length < 2) return undefined;
+    if (kakaoPath.length < 2) {
+      coursePathFitKeyRef.current = "";
+      return undefined;
+    }
 
     coursePolylineRef.current = new window.kakao.maps.Polyline({
       path: kakaoPath,
@@ -1113,6 +1154,8 @@ const MapView = forwardRef(({
       strokeColor: "#7c3aed",
       strokeOpacity: 0.88,
       strokeStyle: "solid",
+      clickable: false,
+      zIndex: 0,
     });
     coursePolylineRef.current.setMap(mapRef.current);
     try {
@@ -1218,7 +1261,8 @@ const MapView = forwardRef(({
           xAnchor: 0.5,
           yAnchor: legLabel ? 0.45 : 0.5,
           zIndex: 5,
-          clickable: true,
+          /** true면 지도 클릭·드래그가 막히는 구간이 넓어질 수 있음 — × 버튼은 DOM pointer-events로 유지 */
+          clickable: false,
         });
       } catch {
         courseLegLabelOverlayRef.current = null;
@@ -1227,18 +1271,22 @@ const MapView = forwardRef(({
 
     const bounds = new window.kakao.maps.LatLngBounds();
     kakaoPath.forEach((ll) => bounds.extend(ll));
-    ignoreViewportEventRef.current = true;
-    const padB = Math.round(Number(courseOverlayFitBottomPaddingPx) || 0);
-    if (padB > 0) {
-      const padT = 56;
-      const padX = 44;
-      mapRef.current.setBounds(bounds, padT, padX, padB, padX);
-    } else {
-      mapRef.current.setBounds(bounds);
+    const courseFitKey = String(courseOverlay?.key ?? "");
+    if (courseFitKey && courseFitKey !== coursePathFitKeyRef.current) {
+      coursePathFitKeyRef.current = courseFitKey;
+      ignoreViewportEventRef.current = true;
+      const padB = Math.round(Number(courseOverlayFitBottomPaddingPx) || 0);
+      if (padB > 0) {
+        const padT = 56;
+        const padX = 44;
+        mapRef.current.setBounds(bounds, padT, padX, padB, padX);
+      } else {
+        mapRef.current.setBounds(bounds);
+      }
+      releaseIgnoreTimer = setTimeout(() => {
+        ignoreViewportEventRef.current = false;
+      }, 480);
     }
-    releaseIgnoreTimer = setTimeout(() => {
-      ignoreViewportEventRef.current = false;
-    }, 480);
 
     return () => {
       if (releaseIgnoreTimer) {
@@ -1264,6 +1312,323 @@ const MapView = forwardRef(({
       }
     };
   }, [mapReady, courseOverlay, courseOverlayFitBottomPaddingPx]);
+
+  // 미리보기 도착 도보 경로 (주황) + 라벨
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !window.kakao?.maps) return;
+
+    let releaseIgnoreTimer = null;
+
+    if (arrivalLegLabelOverlayRef.current) {
+      try {
+        arrivalLegLabelOverlayRef.current.setMap(null);
+      } catch {
+        /* ignore */
+      }
+      arrivalLegLabelOverlayRef.current = null;
+    }
+
+    if (arrivalPolylineRef.current) {
+      try {
+        arrivalPolylineRef.current.setMap(null);
+      } catch {
+        /* ignore */
+      }
+      arrivalPolylineRef.current = null;
+    }
+
+    const rawPath = arrivalWalkingOverlay?.polylinePath;
+    if (!Array.isArray(rawPath) || rawPath.length < 2) {
+      arrivalPathFitKeyRef.current = "";
+      return undefined;
+    }
+
+    const kakaoPath = rawPath
+      .filter(
+        (p) =>
+          p &&
+          Number.isFinite(Number(p.lat)) &&
+          Number.isFinite(Number(p.lng))
+      )
+      .map(
+        (p) =>
+          new window.kakao.maps.LatLng(Number(p.lat), Number(p.lng))
+      );
+
+    if (kakaoPath.length < 2) {
+      arrivalPathFitKeyRef.current = "";
+      return undefined;
+    }
+
+    arrivalPolylineRef.current = new window.kakao.maps.Polyline({
+      path: kakaoPath,
+      strokeWeight: 4,
+      strokeColor: "#E67E22",
+      strokeOpacity: 0.9,
+      strokeStyle: "solid",
+      clickable: false,
+      zIndex: 0,
+    });
+    arrivalPolylineRef.current.setMap(mapRef.current);
+    try {
+      if (typeof arrivalPolylineRef.current.setClickable === "function") {
+        arrivalPolylineRef.current.setClickable(false);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const legLabel = String(arrivalWalkingOverlay?.legLabel || "").trim();
+    const lp = arrivalWalkingOverlay?.labelPosition;
+    let overlayLat = null;
+    let overlayLng = null;
+    if (
+      lp &&
+      Number.isFinite(Number(lp.lat)) &&
+      Number.isFinite(Number(lp.lng))
+    ) {
+      overlayLat = Number(lp.lat);
+      overlayLng = Number(lp.lng);
+    } else if (kakaoPath.length) {
+      const mid = kakaoPath[Math.floor(kakaoPath.length / 2)];
+      overlayLat = mid.getLat();
+      overlayLng = mid.getLng();
+    }
+
+    const canDismiss =
+      typeof onArrivalWalkingOverlayDismissRef.current === "function";
+    if (
+      overlayLat != null &&
+      overlayLng != null &&
+      typeof window.kakao.maps.CustomOverlay === "function" &&
+      (legLabel || canDismiss)
+    ) {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = [
+        "display:flex",
+        "flex-direction:row",
+        "align-items:flex-start",
+        "gap:6px",
+        "pointer-events:none",
+      ].join(";");
+
+      if (legLabel) {
+        const labelEl = document.createElement("div");
+        labelEl.textContent = legLabel;
+        labelEl.style.cssText = [
+          "padding:5px 10px",
+          "background:rgba(255,250,245,0.98)",
+          "border:1px solid rgba(230,126,34,0.55)",
+          "border-radius:10px",
+          "font-size:11px",
+          "font-weight:700",
+          "color:#9a3412",
+          "pointer-events:none",
+          "white-space:nowrap",
+          "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
+        ].join(";");
+        wrap.appendChild(labelEl);
+      }
+
+      if (canDismiss) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("aria-label", "도착 경로 끄기");
+        btn.title = "경로 숨기기";
+        btn.textContent = "×";
+        btn.style.cssText = [
+          "flex-shrink:0",
+          "width:28px",
+          "height:28px",
+          "min-width:28px",
+          "padding:0",
+          "margin:0",
+          "border-radius:999px",
+          "border:1px solid rgba(230,126,34,0.65)",
+          "background:rgba(255,255,255,0.98)",
+          "color:#9a3412",
+          "font-size:17px",
+          "line-height:1",
+          "font-weight:500",
+          "cursor:pointer",
+          "pointer-events:auto",
+          "display:flex",
+          "align-items:center",
+          "justify-content:center",
+          "box-shadow:0 2px 10px rgba(0,0,0,0.12)",
+          "-webkit-tap-highlight-color:transparent",
+        ].join(";");
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onArrivalWalkingOverlayDismissRef.current?.();
+        });
+        wrap.appendChild(btn);
+      }
+
+      try {
+        arrivalLegLabelOverlayRef.current = new window.kakao.maps.CustomOverlay({
+          map: mapRef.current,
+          position: new window.kakao.maps.LatLng(overlayLat, overlayLng),
+          content: wrap,
+          xAnchor: 0.5,
+          yAnchor: legLabel ? 0.45 : 0.5,
+          zIndex: 6,
+          clickable: false,
+        });
+      } catch {
+        arrivalLegLabelOverlayRef.current = null;
+      }
+    }
+
+    const bounds = new window.kakao.maps.LatLngBounds();
+    kakaoPath.forEach((ll) => bounds.extend(ll));
+    const arrivalFitKey = String(arrivalWalkingOverlay?.key ?? "");
+    if (arrivalFitKey && arrivalFitKey !== arrivalPathFitKeyRef.current) {
+      arrivalPathFitKeyRef.current = arrivalFitKey;
+      ignoreViewportEventRef.current = true;
+      const padB = Math.round(Number(arrivalWalkingOverlayFitBottomPaddingPx) || 0);
+      if (padB > 0) {
+        const padT = 56;
+        const padX = 44;
+        mapRef.current.setBounds(bounds, padT, padX, padB, padX);
+      } else {
+        mapRef.current.setBounds(bounds);
+      }
+      releaseIgnoreTimer = setTimeout(() => {
+        ignoreViewportEventRef.current = false;
+      }, 480);
+    }
+
+    return () => {
+      if (releaseIgnoreTimer) {
+        clearTimeout(releaseIgnoreTimer);
+        releaseIgnoreTimer = null;
+      }
+      ignoreViewportEventRef.current = false;
+      if (arrivalLegLabelOverlayRef.current) {
+        try {
+          arrivalLegLabelOverlayRef.current.setMap(null);
+        } catch {
+          /* ignore */
+        }
+        arrivalLegLabelOverlayRef.current = null;
+      }
+      if (arrivalPolylineRef.current) {
+        try {
+          arrivalPolylineRef.current.setMap(null);
+        } catch {
+          /* ignore */
+        }
+        arrivalPolylineRef.current = null;
+      }
+    };
+  }, [
+    mapReady,
+    arrivalWalkingOverlay,
+    arrivalWalkingOverlayFitBottomPaddingPx,
+  ]);
+
+  /** 행정구역(근사) 경계 폴리곤 — OSM 등에서 받은 링을 카카오 Polygon으로 */
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !window.kakao?.maps) return undefined;
+
+    for (const poly of regionBoundaryPolygonsRef.current) {
+      try {
+        poly.setMap(null);
+      } catch {
+        /* ignore */
+      }
+    }
+    regionBoundaryPolygonsRef.current = [];
+
+    const rings = regionBoundaryOverlay?.rings;
+    if (!Array.isArray(rings) || !rings.length) {
+      return undefined;
+    }
+
+    const LatLng = window.kakao.maps.LatLng;
+    const Polygon = window.kakao.maps.Polygon;
+    const bounds = new window.kakao.maps.LatLngBounds();
+
+    const ensureClosed = (ring) => {
+      if (!Array.isArray(ring) || ring.length < 3) return [];
+      const pts = ring
+        .map((p) => ({
+          lat: Number(p.lat),
+          lng: Number(p.lng),
+        }))
+        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+      if (pts.length < 3) return [];
+      const a = pts[0];
+      const b = pts[pts.length - 1];
+      if (a.lat !== b.lat || a.lng !== b.lng) {
+        pts.push({ ...a });
+      }
+      return pts;
+    };
+
+    for (const ring of rings) {
+      const pts = ensureClosed(ring);
+      if (pts.length < 4) continue;
+      const path = pts.map((p) => new LatLng(p.lat, p.lng));
+      path.forEach((ll) => bounds.extend(ll));
+      try {
+        const pg = new Polygon({
+          path,
+          strokeWeight: 2,
+          strokeColor: "#1d4ed8",
+          strokeOpacity: 0.9,
+          strokeStyle: "solid",
+          fillColor: "#2563eb",
+          fillOpacity: 0.07,
+        });
+        pg.setMap(mapRef.current);
+        if (typeof pg.setClickable === "function") {
+          pg.setClickable(false);
+        }
+        regionBoundaryPolygonsRef.current.push(pg);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    let releaseTimer = null;
+    if (
+      regionBoundaryOverlay?.fitBounds &&
+      regionBoundaryPolygonsRef.current.length > 0
+    ) {
+      ignoreViewportEventRef.current = true;
+      const padB = Math.round(Number(regionBoundaryFitBottomPaddingPx) || 0);
+      if (padB > 0) {
+        const padT = 56;
+        const padX = 44;
+        mapRef.current.setBounds(bounds, padT, padX, padB, padX);
+      } else {
+        mapRef.current.setBounds(bounds);
+      }
+      releaseTimer = setTimeout(() => {
+        ignoreViewportEventRef.current = false;
+      }, 480);
+    }
+
+    return () => {
+      if (releaseTimer) clearTimeout(releaseTimer);
+      ignoreViewportEventRef.current = false;
+      for (const poly of regionBoundaryPolygonsRef.current) {
+        try {
+          poly.setMap(null);
+        } catch {
+          /* ignore */
+        }
+      }
+      regionBoundaryPolygonsRef.current = [];
+    };
+  }, [
+    mapReady,
+    regionBoundaryOverlay,
+    regionBoundaryFitBottomPaddingPx,
+  ]);
 
   // center prop이 변경될 때 지도 중심 이동
   useEffect(() => {

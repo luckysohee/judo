@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { isCourseQuery } from "../utils/isCourseQuery";
 import { parseCourseQuery } from "../utils/parseCourseQuery";
+import { findAreaKeywordInQuery } from "../utils/searchParser.js";
 import { normalizePlaces } from "../utils/normalizePlace";
 import {
   generateCourseOptions,
@@ -560,19 +561,46 @@ export function useCourseSearch() {
    * 지도 미리보기 1차 반영. 반환값으로 같은 틱에서 2차 후보 계산에 쓸 코스·파서를 넘김(React state 지연 보정).
    */
   const applyMapPickAsFirstStepAsync = useCallback(
-    async (place) => {
+    async (place, opts = {}) => {
       const w = resolvePlaceWgs84(place);
       if (!w) return { ok: false };
+
+      const mapSearchHint = String(opts.mapSearchQuery || "").trim();
+
+      const parsedHintOrPlace = (p0) => {
+        const hint = String(mapSearchHint || "").trim();
+        let p = hint.length >= 2 ? parseCourseQuery(hint) : parseCourseQuery(p0);
+        if (!p.area) {
+          const blob = [
+            place?.address_name,
+            place?.road_address_name,
+            place?.address,
+            place?.place_name,
+            place?.name,
+            place?.region,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const tail = findAreaKeywordInQuery(blob);
+          if (tail) p = parseCourseQuery(`${tail} 코스`);
+        }
+        return p;
+      };
 
       const existing = selectedCourse;
       const existingSteps = existing?.steps || [];
       if (existing && existingSteps.length >= 1) {
         const next = applyMapPickAsFirstStep(place);
         if (!next) return { ok: false };
+        let parsedForSecond =
+          courseQueryParsed ?? parseCourseQuery("코스 짜기");
+        if (!parsedForSecond.area) {
+          parsedForSecond = parsedHintOrPlace("코스 짜기");
+        }
         return {
           ok: true,
           courseForSecond: next,
-          parsedForSecond: courseQueryParsed ?? parseCourseQuery("코스 짜기"),
+          parsedForSecond,
         };
       }
 
@@ -583,7 +611,7 @@ export function useCourseSearch() {
         x: String(w.lng),
         y: String(w.lat),
       };
-      const parsed = parseCourseQuery("코스 짜기");
+      const parsed = parsedHintOrPlace("코스 짜기");
       const baseCourse = buildBootstrapOneStepCourse(mergedPlace);
       setCourseQueryParsed(parsed);
       setIsCourseMode(true);

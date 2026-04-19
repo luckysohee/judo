@@ -7,13 +7,9 @@
  *   node scripts/importJsonPlacesForCurator.mjs data/curator_batch_c0aca_places.json
  *   node scripts/importJsonPlacesForCurator.mjs data/places.json --curator-id=<uuid> [--sleep-ms=0]
  *
- * curator_places.curator_id 스키마마다 다름:
- *   - 많은 프로젝트: FK → public.curators(user_id) → 컬럼 값은 auth uid (= curators.user_id)
- *   - 일부: FK → public.curators(id) → 컬럼 값은 큐레이터 PK
- * 기본은 둘 다 시도(user_id 우선). user_id 만 쓰는 DB는 환경변수로 고정:
- *   CURATOR_PLACES_CURATOR_ID_MODE=user_id   # curator_places.curator_id = curators.user_id 만 INSERT
- *   CURATOR_PLACES_CURATOR_ID_MODE=id       # curators.id 만 INSERT
- *   CURATOR_PLACES_CURATOR_ID_MODE=both     # 기본: user_id 있으면 먼저, 실패 시 id
+ * curator_places.curator_id 는 **항상** public.curators.user_id(= auth uid) 한 가지.
+ * (레거시 id 모드는 제거 — 앱·마이그레이션과 동일 규칙)
+ * 필요 시에만 덮어쓰기: CURATOR_PLACES_CURATOR_ID_MODE=user_id|id|both (기본 user_id)
  *
  * 환경: 프로젝트 루트 .env.local / .env
  *   VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (또는 VITE_SUPABASE_SERVICE_ROLE_KEY)
@@ -273,7 +269,7 @@ async function main() {
   const cpIdMode = String(
     process.env.CURATOR_PLACES_CURATOR_ID_MODE ||
       process.env.VITE_CURATOR_PLACES_CURATOR_ID_MODE ||
-      "both"
+      "user_id"
   )
     .toLowerCase()
     .trim();

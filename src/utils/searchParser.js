@@ -128,6 +128,120 @@ export function findAreaKeywordInQuery(query) {
   return best;
 }
 
+/**
+ * 쿼리에서 `OO역`, `OO동`, `OO구`, `OO대로`, `OO로`, `OO거리`, `OO시장` 형태의 지리 앵커 추출.
+ * JS `\\w+역`은 한글을 포함하지 않아 `문정역` 등에서 매칭되지 않음.
+ */
+export function extractLocationAnchorFromQuery(query) {
+  const q = String(query || "").trim();
+  if (!q) return null;
+  const HN = "[\\uAC00-\\uD7A30-9()]";
+  const H = "[\\uAC00-\\uD7A3]";
+  const bodies = [
+    `${HN}+역`,
+    `${HN}+동`,
+    `${HN}+구`,
+    `${H}[\\uAC00-\\uD7A30-9A-Za-z\\s]+대로`,
+    `${H}[\\uAC00-\\uD7A30-9A-Za-z\\s]+로(?:\\s*\\d+가)?`,
+    `${HN}+거리`,
+    `${HN}+시장`,
+  ];
+  for (const body of bodies) {
+    const m = q.match(new RegExp(`(${body})`));
+    if (m) return m[1].replace(/\s+/g, " ").trim();
+  }
+  const ascii = q.match(
+    /(\w+역|\w+동|\w+구|\w+대로|\w+로|\w+거리|\w+시장)/
+  );
+  return ascii ? ascii[1] : null;
+}
+
+/**
+ * 짧은 「지명·역·동 + 메뉴·키워드」 단순 검색 — 자연어 추천 UI 대신 지도 마커 위주로 둘 때 쓴다.
+ */
+export function isSimpleLocationMenuMapQuery(query) {
+  const q = String(query || "").trim();
+  if (!q || q.length > 44) return false;
+  const loc = extractLocationAnchorFromQuery(q);
+  if (!loc) return false;
+  const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let tail;
+  try {
+    tail = q.replace(new RegExp(escapedLoc, "g"), "").trim();
+  } catch {
+    tail = q.split(loc).join("").trim();
+  }
+  if (!tail || tail.length < 2) return false;
+  if (/[?.!]/.test(tail)) return false;
+  if (/어디|추천\s|같은\s*맛|하고\s*싶|하면\s*좋|알려줘|찾아줘/.test(tail)) {
+    return false;
+  }
+  const words = tail.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+  if (q.length > 32 && words.length > 4) return false;
+  return true;
+}
+
+/**
+ * 자연어·조건이 많은 검색으로 보이면 단순 마커 전용 UX를 쓰지 않는다.
+ * (`parseNaturalQuery`의 wantsWalkingDistance에는 "근처"가 포함되어 있어 여기서는 쓰지 않음.)
+ */
+export function isLikelyNaturalLanguageSearchQuery(query, naturalQ) {
+  const q = String(query || "").trim();
+  if (!naturalQ) return q.length > 28;
+  if (q.length > 40) return true;
+  if (naturalQ.sortBySaved) return true;
+  if (naturalQ.curator) return true;
+  if (
+    /걸어서|걸어가기|걸어갈|걸어다니|도보\s|가까운\s*곳|분위기|데이트|연인|회식|혼술|늦게까지|가성비|조용한|시끌|로맨틱|조용히|혼자|친구랑|가족이랑/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  const tags = naturalQ.tags || [];
+  if (tags.length >= 4) return true;
+  const rem = String(naturalQ.remainingText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (rem.length > 16) return true;
+  return false;
+}
+
+/**
+ * `extractLocationAnchorFromQuery`가 이미 잡은 OO구·OO동 등은
+ * «강남» 같은 짧은 별칭으로 덮어쓰지 않는다. ("강남구" → 강남 치환 시 tail이 "구"만 남는 버그 방지)
+ */
+export function shouldKeepExtractedLocationForMapSearch(extracted) {
+  const s = String(extracted || "").replace(/\s+/g, "").trim();
+  if (!s) return false;
+  return /(구|시|군|동|읍|면|리|역|로|거리|시장|대로)$/.test(s);
+}
+
+function mapSearchGeoOnlyTailIsEffectivelyEmpty(tail) {
+  const t = String(tail || "").trim();
+  if (!t) return true;
+  const c = t.replace(/\s+/g, "");
+  /** 별칭 치환 찌꺼기 */
+  if (/^(구|시|군)$/u.test(c)) return true;
+  /** 지명만 + 근처/주변 (맛집 의도 없음) */
+  if (/^(근처|주변|부근|일대|쪽)$/u.test(c)) return true;
+  return false;
+}
+
+/**
+ * 지도 검색에서 «지역·역·동 등만» 입력한 경우(맛집·술집 등 의도 없음) — 줌만 하고 결과·마커는 생략.
+ */
+export function isMapGeographicPanOnlyQuery({
+  locationName,
+  intentPhraseMap,
+  tailAfterLocationMap,
+}) {
+  if (!locationName) return false;
+  if (intentPhraseMap) return false;
+  return mapSearchGeoOnlyTailIsEffectivelyEmpty(tailAfterLocationMap);
+}
+
 function buildAlcoholKeywords() {
   const LEGACY = {
     소주: ["소주", "새로", "참이슬", "시원", "한잔"],

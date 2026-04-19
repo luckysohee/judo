@@ -84,8 +84,20 @@ export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {
     }
   }
 
-  if (hints.some((h) => /해산물|횟|생선|해물|조개|회/.test(String(h)))) {
-    ["횟집", "해물", "포장마차", "생선회", "조개구이"].forEach((q) => queries.add(q));
+  if (
+    hints.some((h) =>
+      /해산물|해산물\/회|횟|생선|해물|조개|회/.test(String(h))
+    )
+  ) {
+    [
+      "횟집",
+      "회집",
+      "해물",
+      "포장마차",
+      "생선회",
+      "모둠회",
+      "조개구이",
+    ].forEach((q) => queries.add(q));
   }
   if (hints.some((h) => /국물|해장|찌개|국밥/.test(String(h)))) {
     ["포장마차", "곱창", "전골"].forEach((q) => queries.add(q));

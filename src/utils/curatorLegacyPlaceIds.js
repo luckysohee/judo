@@ -7,9 +7,9 @@ function curatorLabelNorm(s) {
 }
 
 /**
- * curator_places.curator_id 에 과거 public.curators.id 가 남아 있고,
- * curators 행 PK 를 바꾼 뒤에는 필터·조인 별칭이 어긋날 수 있음.
- * 이 맵으로 칩 키(username) ↔ 레거시 uuid 를 양방향 보강한다.
+ * 신규 DB 정책: `curator_places.curator_id` = `curators.user_id` 만 사용 (앱·마이그레이션과 동일).
+ *
+ * 여기서 다루는 것은 **과거에 curators.id(PK)가 들어간 시드·임포트**와의 칩 매칭 보강뿐이다.
  */
 const LEGACY_CURATOR_PLACE_ID_TO_USERNAMES_LC = {
   c57a5dc38d634a7781e1bfb22065c5b7: ["soju_anjo", "소주안조"],

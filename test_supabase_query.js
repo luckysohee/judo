@@ -13,13 +13,12 @@ supabase
     }
   });
 
-// 2. curator_places 조인 조회 (Home.jsx와 동일)
+// 2. curator_places + places (Home.jsx: curators 는 별도 attach / FK 임베드 없음)
 supabase
   .from('curator_places')
   .select(`
     *,
-    places (*),
-    curators!curator_places_curator_id_fkey (username, display_name)
+    places (*)
   `)
   .eq('is_archived', false)
   .then(({ data, error }) => {

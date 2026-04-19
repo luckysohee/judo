@@ -50,6 +50,10 @@ export default function SearchBar({
   rightActions = null,
   /** 좁은 화면에서 검색 입력 폭 확보 (우측 버튼 간격 축소) */
   compactRightActions = false,
+  /** Home 등: 왼쪽 아이콘으로 장소(빠름) ↔ 주도 전환 + 안내 말풍선 */
+  showChannelTabs = false,
+  searchChannel = "basic",
+  onSearchChannelChange = null,
   mapRef = null,
   placeholder = 'Search for places...',
   /** 검색 중 하단 GPT 스타일 상태 문구 */
@@ -74,7 +78,11 @@ export default function SearchBar({
   const kakaoResultsScrollRef = useRef(null);
   /** 카카오 목록 + 검색줄 루트 — 전체화면 백드롭 없이 바깥 탭으로 닫기 */
   const searchRootRef = useRef(null);
+  const channelModeWrapRef = useRef(null);
   const [thinkDots, setThinkDots] = useState(".");
+  /** 장소/주도 전환 시 짧은 설명 말풍선 */
+  const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
+  const channelPopoverCloseTimerRef = useRef(null);
 
   useEffect(() => {
     if (!isLoading) {
@@ -86,6 +94,27 @@ export default function SearchBar({
     }, 420);
     return () => clearInterval(id);
   }, [isLoading]);
+
+  useEffect(() => {
+    return () => {
+      if (channelPopoverCloseTimerRef.current) {
+        clearTimeout(channelPopoverCloseTimerRef.current);
+        channelPopoverCloseTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /** 검색 방식 말풍선: 바깥 탭으로 닫기 */
+  useEffect(() => {
+    if (!channelPopoverOpen) return undefined;
+    const onDocPointerDown = (e) => {
+      const w = channelModeWrapRef.current;
+      if (!w || !(e.target instanceof Node)) return;
+      if (!w.contains(e.target)) setChannelPopoverOpen(false);
+    };
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown, true);
+  }, [channelPopoverOpen]);
 
   /** 전체화면 fixed 백드롭 대신: 지도 팬·드래그는 통과, 검색 블록 밖 탭이면 목록만 닫음 */
   useEffect(() => {
@@ -306,11 +335,7 @@ export default function SearchBar({
   const handleKakaoPlaceSelect = (place) => {
     cancelPendingKakaoSearch();
 
-    const lat = parseFloat(place?.y);
-    const lng = parseFloat(place?.x);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      mapRef?.current?.moveToLocation?.(lat, lng);
-    }
+    /** 지도 중심·패닝은 부모/MapView(미리보기 카드 높이 보정)에서 처리 — 여기 setCenter가 pan 보정을 덮어쓰지 않게 */
 
     onKakaoPlaceSelect?.(place);
 
@@ -394,6 +419,8 @@ export default function SearchBar({
 
       cancelPendingKakaoSearch();
 
+      // 장소 자동완성이 열려 있으면 엔터 = 목록에서 1건 확정(마커·모달은 부모 onKakaoPlaceSelect).
+      // 화살표로 고른 항목이 있으면 그걸, 없으면 첫 번째 후보(키보드만으로도 선택 가능).
       if (showKakaoResults && kakaoResults.length > 0) {
         const idx =
           selectedKakaoIndex >= 0
@@ -669,6 +696,27 @@ export default function SearchBar({
     }
   };
 
+  const useChannelToggle =
+    showChannelTabs && typeof onSearchChannelChange === "function";
+
+  const scheduleChannelPopoverClose = () => {
+    if (channelPopoverCloseTimerRef.current) {
+      clearTimeout(channelPopoverCloseTimerRef.current);
+    }
+    channelPopoverCloseTimerRef.current = setTimeout(() => {
+      setChannelPopoverOpen(false);
+      channelPopoverCloseTimerRef.current = null;
+    }, 4000);
+  };
+
+  const toggleSearchChannel = () => {
+    if (!onSearchChannelChange || isLoading) return;
+    const next = searchChannel === "basic" ? "ai" : "basic";
+    onSearchChannelChange(next);
+    setChannelPopoverOpen(true);
+    scheduleChannelPopoverClose();
+  };
+
   return (
     <section ref={searchRootRef} style={{ ...styles.section, position: "relative" }}>
       {/* 상태별 UI 렌더링 */}
@@ -700,7 +748,7 @@ export default function SearchBar({
           />
         )}
       </AnimatePresence>
-      
+
       {/* 카카오 장소 검색 결과 - 위쪽으로 표시 */}
       <AnimatePresence>
         {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
@@ -732,7 +780,9 @@ export default function SearchBar({
                 flexShrink: 0,
               }}
             >
-              타이핑 · 카카오 음식점 이름 매칭 — 지도에 후보 전부 표시됨 · 엔터는 전체 검색
+              {searchChannel === "basic"
+                ? "타이핑 · 카카오 장소 매칭 — 지도에 후보 표시 · 엔터는 카카오 검색(빠른 모드)"
+                : "타이핑 · 카카오 음식점 이름 매칭 — 지도에 후보 표시 · 엔터는 AI 주도 통합 검색"}
             </div>
             {kakaoResults.map((place, index) => (
               <motion.button
@@ -803,23 +853,124 @@ export default function SearchBar({
         ...styles.searchWrap,
         borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px" // 바텀시트 있을 때만 상단 각지게
       }}>
-        <motion.button
-          type="button"
-          onClick={handleSubmit}
-          style={styles.iconButton}
-          aria-label="검색"
-          disabled={isLoading}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <motion.span 
-            style={styles.icon}
-            animate={{ rotate: isLoading ? 360 : 0 }}
-            transition={{ duration: 1, repeat: isLoading ? Infinity : 0, ease: "linear" }}
+        {useChannelToggle ? (
+          <div
+            ref={channelModeWrapRef}
+            style={{ position: "relative", flexShrink: 0 }}
           >
-            {isLoading ? "🔄" : "🔎"}
-          </motion.span>
-        </motion.button>
+            <AnimatePresence>
+              {channelPopoverOpen ? (
+                <motion.div
+                  key="channel-pop"
+                  role="tooltip"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.16 }}
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    minWidth: "196px",
+                    maxWidth: "min(92vw, 280px)",
+                    padding: "10px 12px 11px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(22, 24, 22, 0.97)",
+                    boxShadow: "0 10px 28px rgba(0,0,0,0.38)",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1001,
+                    pointerEvents: "auto",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#e8f7ec",
+                      marginBottom: "5px",
+                      letterSpacing: "-0.02em",
+                    }}
+                  >
+                    {searchChannel === "basic"
+                      ? "장소 검색"
+                      : "AI 주도 검색"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      lineHeight: 1.45,
+                      color: "rgba(255,255,255,0.7)",
+                    }}
+                  >
+                    {searchChannel === "basic"
+                      ? "한 번 더 누르면 AI 주도 검색으로 바뀌어요. 지금은 카카오 키워드로 빠르게 찾습니다."
+                      : "한 번 더 누르면 장소 검색으로 돌아가요. 지금은 문장·의도 보조와 통합 검색을 씁니다."}
+                  </div>
+                  <div
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      bottom: "-7px",
+                      marginLeft: "-7px",
+                      width: 0,
+                      height: 0,
+                      borderLeft: "7px solid transparent",
+                      borderRight: "7px solid transparent",
+                      borderTop: "7px solid rgba(22, 24, 22, 0.97)",
+                    }}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+            <motion.button
+              type="button"
+              onClick={toggleSearchChannel}
+              style={styles.channelModeButton}
+              aria-label={
+                searchChannel === "basic"
+                  ? "검색 방식: 장소 검색. 한 번 더 누르면 AI 주도 검색."
+                  : "검색 방식: AI 주도 검색. 한 번 더 누르면 장소 검색."
+              }
+              title={
+                searchChannel === "basic"
+                  ? "한 번 더 누르면 AI 주도 검색"
+                  : "한 번 더 누르면 장소 검색"
+              }
+              disabled={isLoading}
+              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.03 }}
+            >
+              <span style={{ fontSize: "15px", lineHeight: 1 }} aria-hidden>
+                {searchChannel === "basic" ? "🔎" : "✨"}
+              </span>
+            </motion.button>
+          </div>
+        ) : (
+          <motion.button
+            type="button"
+            onClick={handleSubmit}
+            style={styles.iconButton}
+            aria-label="검색"
+            disabled={isLoading}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <motion.span
+              style={styles.icon}
+              animate={{ rotate: isLoading ? 360 : 0 }}
+              transition={{
+                duration: 1,
+                repeat: isLoading ? Infinity : 0,
+                ease: "linear",
+              }}
+            >
+              {isLoading ? "🔄" : "🔎"}
+            </motion.span>
+          </motion.button>
+        )}
 
         <div
           style={{
@@ -843,8 +994,13 @@ export default function SearchBar({
             value={query}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            enterKeyHint={useChannelToggle ? "search" : undefined}
             placeholder=""  // placeholder 비우기
-            title="타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 주도 전체 검색."
+            title={
+              searchChannel === "basic"
+                ? "타이핑 시 카카오 장소 제안. 엔터는 카카오 키워드 검색(빠른 모드)."
+                : "타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 AI 주도 통합 검색."
+            }
             onFocus={() => {
               if (!showKakaoSearch) return;
               // 포커스만으로 showKakaoResults를 켜면 결과가 없을 때도 전체 화면 백드롭이 올라가 지도 터치 드래그가 막힘(모바일)
@@ -892,6 +1048,30 @@ export default function SearchBar({
           )}
           </div>
         </div>
+
+        {useChannelToggle && query.trim() ? (
+          <motion.button
+            type="button"
+            onClick={handleSubmit}
+            style={styles.inlineSubmitButton}
+            aria-label="검색 실행"
+            disabled={isLoading}
+            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.04 }}
+          >
+            <motion.span
+              style={styles.icon}
+              animate={{ rotate: isLoading ? 360 : 0 }}
+              transition={{
+                duration: 1,
+                repeat: isLoading ? Infinity : 0,
+                ease: "linear",
+              }}
+            >
+              {isLoading ? "🔄" : "🔎"}
+            </motion.span>
+          </motion.button>
+        ) : null}
 
         {query ? (
           <motion.button
@@ -1021,6 +1201,41 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  /** 돋보기 자리: 장소↔주도 전환 (작은 정사각 터치 타깃) */
+  channelModeButton: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    padding: 0,
+    margin: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+  },
+
+  /** 모드 분리 시: 모바일용 실행 돋보기 (입력 옆 소형) */
+  inlineSubmitButton: {
+    width: "30px",
+    height: "30px",
+    border: "none",
+    borderRadius: "999px",
+    backgroundColor: "rgba(46, 204, 113, 0.16)",
+    color: "#ffffff",
+    fontSize: "12px",
+    flexShrink: 0,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    margin: 0,
   },
 
   icon: {

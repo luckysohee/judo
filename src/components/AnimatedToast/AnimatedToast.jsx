@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRealtimeCheckins } from '../../hooks/useRealtimeCheckins';
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
+import { TOAST_LAYER_Z_INDEX } from "../../constants/toastLayer.js";
 
 const AnimatedToast = ({ position = 'top-right', maxToasts = 5 }) => {
   const [toasts, setToasts] = useState([]);
@@ -36,9 +38,9 @@ const AnimatedToast = ({ position = 'top-right', maxToasts = 5 }) => {
 
   const getPositionStyles = () => {
     const baseStyles = {
-      position: 'fixed',
-      zIndex: 9999,
-      pointerEvents: 'none'
+      position: "fixed",
+      zIndex: TOAST_LAYER_Z_INDEX,
+      pointerEvents: "none",
     };
 
     switch (position) {
@@ -207,7 +209,7 @@ const AnimatedToast = ({ position = 'top-right', maxToasts = 5 }) => {
     }
   };
 
-  return (
+  const tree = (
     <div style={toastStyles.container}>
       <AnimatePresence mode="popLayout">
         {toasts.map((toast, index) => {
@@ -223,8 +225,7 @@ const AnimatedToast = ({ position = 'top-right', maxToasts = 5 }) => {
               exit="exit"
               style={{
                 ...toastStyles.toast,
-                // 나중에 나타나는 Toast가 위로 겹치지 않도록 z-index 조정
-                zIndex: 9999 - index
+                zIndex: TOAST_LAYER_Z_INDEX + 2 + index,
               }}
               layout
             >
@@ -295,6 +296,9 @@ const AnimatedToast = ({ position = 'top-right', maxToasts = 5 }) => {
       </AnimatePresence>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(tree, document.body);
 };
 
 export default AnimatedToast;

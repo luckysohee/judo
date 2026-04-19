@@ -102,7 +102,7 @@ function growthTrendLineYPercent(value, scale) {
   return Math.min(96, Math.max(4, pct));
 }
 
-/** 같은 place에 curator_id 가 auth.uid() / curators.id 로 중복이면 최신 행 하나만 */
+/** 같은 place에 본인 curator_id(auth uid) 중복이면 최신 행 하나만 */
 function dedupeCuratorPlacesByPlaceId(curatorPlacesData) {
   const best = new Map();
   for (const cp of curatorPlacesData || []) {
@@ -123,7 +123,6 @@ function dedupeCuratorPlacesByPlaceId(curatorPlacesData) {
 async function upsertCuratorPlaceForStudio(
   supabase,
   authUserId,
-  curatorProfilePk,
   placeUuid,
   {
     display_name,
@@ -142,16 +141,11 @@ async function upsertCuratorPlaceForStudio(
     moods,
   };
 
-  let q = supabase
+  const { data: rows, error: selErr } = await supabase
     .from("curator_places")
     .select("id, curator_id, created_at")
-    .eq("place_id", pid);
-  if (curatorProfilePk && String(curatorProfilePk) !== String(authUserId)) {
-    q = q.or(`curator_id.eq.${authUserId},curator_id.eq.${curatorProfilePk}`);
-  } else {
-    q = q.eq("curator_id", authUserId);
-  }
-  const { data: rows, error: selErr } = await q;
+    .eq("place_id", pid)
+    .eq("curator_id", authUserId);
   if (selErr) return { data: null, error: selErr };
 
   const list = rows || [];
@@ -1531,16 +1525,21 @@ export default function StudioHome() {
   // DB 저장 함수
   const saveToDatabase = async (updatedPlace) => {
     try {
+      if (!user?.id) {
+        alert("로그인이 필요합니다.");
+        return;
+      }
       console.log("💾 curator_places 테이블 업데이트 시도:", updatedPlace.id);
       
       // is_public을 is_archived로 변환 (true=공개=false=archived, false=비공개=true=archived)
       const isArchived = !updatedPlace.is_public;
       
-      // curator_places 테이블 업데이트
+      // curator_places: curator_id = curators.user_id (= auth uid) 만 본인 행 갱신
       const { error } = await supabase
         .from("curator_places")
         .update({ is_archived: isArchived })
-        .eq("place_id", updatedPlace.id);
+        .eq("place_id", updatedPlace.id)
+        .eq("curator_id", user.id);
       
       if (error) {
         console.error("❌ curator_places 저장 오류:", error);
@@ -2150,7 +2149,6 @@ export default function StudioHome() {
   // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
     try {
-      const curPk = curatorProfile?.id;
       let statsCpQ = supabase
         .from("curator_places")
         .select(
@@ -2159,14 +2157,8 @@ export default function StudioHome() {
           created_at,
           places (created_at)
         `
-        );
-      if (curPk && String(curPk) !== String(userId)) {
-        statsCpQ = statsCpQ.or(
-          `curator_id.eq.${userId},curator_id.eq.${curPk}`
-        );
-      } else {
-        statsCpQ = statsCpQ.eq("curator_id", userId);
-      }
+        )
+        .eq("curator_id", userId);
       const { data: statsCpRaw, error: placesError } = await statsCpQ;
 
       if (placesError) {
@@ -2398,9 +2390,6 @@ export default function StudioHome() {
   const loadStudioData = async () => {
     try {
       setLoading(true);
-      /** curators 행 PK — 잔 목록 조회 시 curator_id 가 이 값인 레거시 행 포함 */
-      let curatorsRowPk = null;
-
       // 현재 인증된 사용자 정보 가져오기
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
@@ -2453,8 +2442,6 @@ export default function StudioHome() {
           warning_count: 0
         };
 
-        curatorsRowPk = currentUser.id ?? null;
-        
         console.log("📂 프로필 데이터 로드:", currentUser);
         
         setCuratorProfile(prev => ({
@@ -2477,7 +2464,6 @@ export default function StudioHome() {
           username_changed_at: currentUser.username_changed_at ?? null,
         }));
 
-        // curator_places.curator_id 는 auth.uid() 또는 레거시로 curators.id 일 수 있음 — 집계는 auth 기준
         await loadCuratorActivity(user.id);
       }
       
@@ -2494,25 +2480,15 @@ export default function StudioHome() {
         return;
       }
       
-      // Supabase에서 저장된 장소 불러오기 (curator_places 기준, 공개·비공개 모두 — 잔 리스트·통계 일치)
-      const curatorsPk = curatorsRowPk;
-      let cpReq = supabase
+      // curator_places.curator_id = auth.uid() (= curators.user_id)
+      const cpReq = supabase
         .from("curator_places")
         .select(`
           *,
           places (*)
         `)
+        .eq("curator_id", user.id)
         .order("created_at", { ascending: false });
-      if (
-        curatorsPk &&
-        String(curatorsPk) !== String(user.id)
-      ) {
-        cpReq = cpReq.or(
-          `curator_id.eq.${user.id},curator_id.eq.${curatorsPk}`
-        );
-      } else {
-        cpReq = cpReq.eq("curator_id", user.id);
-      }
       const { data: curatorPlacesRaw, error: placesError } = await cpReq;
 
       const curatorPlacesData = dedupeCuratorPlacesByPlaceId(
@@ -2694,26 +2670,16 @@ export default function StudioHome() {
     [sortedSavedFolders]
   );
 
-  /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 — curator_id 가 auth.uid() / curators.id 인 행 모두 반영 */
+  /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 */
   const reloadStudioMyPlaces = useCallback(async () => {
     const { data: authData } = await supabase.auth.getUser();
     const u = authData?.user;
     if (!u?.id) return;
-    const { data: cr } = await supabase
-      .from("curators")
-      .select("id")
-      .eq("user_id", u.id)
-      .maybeSingle();
-    const ck = cr?.id;
-    let q = supabase
+    const q = supabase
       .from("curator_places")
       .select(`*, places (*)`)
+      .eq("curator_id", u.id)
       .order("created_at", { ascending: false });
-    if (ck && String(ck) !== String(u.id)) {
-      q = q.or(`curator_id.eq.${u.id},curator_id.eq.${ck}`);
-    } else {
-      q = q.eq("curator_id", u.id);
-    }
     const { data, error } = await q;
     if (error) {
       console.warn("reloadStudioMyPlaces:", error.message);
@@ -2971,12 +2937,6 @@ export default function StudioHome() {
           return;
         }
 
-        const { data: crRowForCp } = await supabase
-          .from("curators")
-          .select("id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
         const effectiveEditPlaceId =
           editingPlaceId ||
           (typeof localStorage !== "undefined"
@@ -3014,7 +2974,6 @@ export default function StudioHome() {
           const { error: cpMergeErr } = await upsertCuratorPlaceForStudio(
             supabase,
             user.id,
-            crRowForCp?.id ?? null,
             effectiveEditPlaceId,
             {
               display_name:
@@ -3165,7 +3124,6 @@ export default function StudioHome() {
               await upsertCuratorPlaceForStudio(
                 supabase,
                 user.id,
-                crRowForCp?.id ?? null,
                 placeData.data[0].id,
                 curatorFields
               );
@@ -5158,6 +5116,7 @@ export default function StudioHome() {
           {/* 잔 리스트 검색 — flex 부모·긴 플레이스홀더로 가로 넘침 방지 */}
           <div
             style={{
+              position: "relative",
               marginBottom: "14px",
               width: "100%",
               maxWidth: "100%",
@@ -5181,6 +5140,7 @@ export default function StudioHome() {
                 minWidth: 0,
                 boxSizing: "border-box",
                 padding: "10px 12px",
+                paddingRight: listSearchQuery.trim() ? "38px" : "12px",
                 borderRadius: "8px",
                 border: "1px solid #3a3a3a",
                 backgroundColor: "#1f1f1f",
@@ -5189,6 +5149,37 @@ export default function StudioHome() {
                 outline: "none",
               }}
             />
+            {listSearchQuery.trim() ? (
+              <button
+                type="button"
+                aria-label="검색어 지우기"
+                title="검색어 지우기"
+                onClick={() => setListSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: "6px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: "28px",
+                  height: "28px",
+                  padding: 0,
+                  margin: 0,
+                  border: "none",
+                  borderRadius: "6px",
+                  background: "rgba(255,255,255,0.1)",
+                  color: "rgba(255,255,255,0.85)",
+                  fontSize: "18px",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                ×
+              </button>
+            ) : null}
           </div>
 
           {/* 필터 버튼 */}

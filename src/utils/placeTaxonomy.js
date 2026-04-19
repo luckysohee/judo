@@ -32,7 +32,7 @@ export const STUDIO_ATMOSPHERE_OPTIONS = [
 /** 2차 찾기 안주 칩 (국물은 해장·국물류와 연결) */
 export const COURSE_SECOND_SNACK_OPTIONS = [
   "국물",
-  "해산물",
+  "해산물/회",
   "육류",
   "치즈",
   "튀김",
@@ -124,11 +124,14 @@ export function expandAnjuHintTokens(hint) {
       "안주",
     ];
   }
-  if (h === "해산물") {
+  if (h === "해산물" || h === "해산물/회") {
     return [
       "해산물",
       "횟집",
       "생선회",
+      "모둠회",
+      "물회",
+      "회덮밥",
       "해물",
       "조개",
       "새우",
@@ -137,12 +140,46 @@ export function expandAnjuHintTokens(hint) {
       "게장",
       "회집",
       "해산",
+      "사시미",
+      "오마카세",
+      "스시",
+      "초밥",
+      "활어",
+      "수산",
+      /** 단독 «회»는 `anjuExpandedTokenMatchesHaystack`에서 회식 등 제외 후 매칭 */
+      "회",
     ];
   }
   if (h === "육류") {
     return ["육류", "고기", "삼겹살", "갈비", "고깃집", "스테이크"];
   }
   return [h];
+}
+
+/**
+ * 2차 안주 가산점: `expandAnjuHintTokens`의 짧은 토큰(특히 «회»)이 상호·태그에서 오탐하지 않게.
+ * @param {string} hayLower placeAnjuHaystack 한 조각(이미 소문자화했다고 가정)
+ * @param {string} tok expand 토큰(소문자)
+ */
+export function anjuExpandedTokenMatchesHaystack(hayLower, tok) {
+  const t = String(hayLower ?? "").toLowerCase();
+  const k = String(tok ?? "").toLowerCase();
+  if (!t || !k) return false;
+  if (k !== "회") {
+    return t.includes(k) || k.includes(t) || t === k;
+  }
+  if (/회식|회의|회원|학회|사회|대회|총회|주주|이사회|위원회|동호회/.test(t)) {
+    return false;
+  }
+  if (
+    /(생선|모둠|물|참치|연어|광어|우럭|방어|도미|참돔|전복|활어|꽁치|키조개)회|횟집|회집|회덮밥|회\s*전문|회전초밥|사시미|오마카세|수산시장|해물탕|해물찜/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (t === "회") return true;
+  return false;
 }
 
 /** 임베딩·의도 파서가 같은 어휘 집합을 보도록 짧은 문맥 블록 */

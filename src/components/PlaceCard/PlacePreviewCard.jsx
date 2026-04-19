@@ -45,6 +45,12 @@ export default function PlacePreviewCard({
   courseMapFindSecondBusy = false,
   /** 펄스 2차 후보 카드에서 확정 시 호출 */
   onConfirmCourseSecondHere,
+  /** 홈 지도에서 잡은 내 위치 — 있으면 길찾기 출발지로 우선 사용 */
+  userLocation = null,
+  /** 내 위치→이 장소 도보 경로를 주도 지도(폴리라인)로 표시 */
+  onShowArrivalWalkingOnMap,
+  /** 지도에 도착 도보 경로가 떠 있을 때 — 넓은 화면에서도 핸들 스와이프로 카드 닫기 */
+  arrivalWalkingRouteShown = false,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -62,6 +68,7 @@ export default function PlacePreviewCard({
   const navigate = useNavigate();
   const dragControls = useDragControls();
   const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
+  const [directionsLoading, setDirectionsLoading] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
@@ -999,6 +1006,66 @@ export default function PlacePreviewCard({
     return isSaved ? "저장 폴더" : "저장";
   };
 
+  const openWalkingDirections = useCallback(() => {
+    const dLat = checkinWgs?.lat;
+    const dLng = checkinWgs?.lng;
+    if (!Number.isFinite(dLat) || !Number.isFinite(dLng)) {
+      showToast("이 장소 좌표가 없어 길찾기를 열 수 없습니다.", "error");
+      return;
+    }
+    if (typeof onShowArrivalWalkingOnMap !== "function") {
+      showToast("지도에서 길찾기를 쓸 수 없는 화면이에요.", "error");
+      return;
+    }
+
+    const ul = userLocation;
+    const fromProp =
+      ul != null &&
+      Number.isFinite(Number(ul.lat)) &&
+      Number.isFinite(Number(ul.lng))
+        ? { lat: Number(ul.lat), lng: Number(ul.lng) }
+        : null;
+
+    if (fromProp) {
+      onShowArrivalWalkingOnMap({
+        fromLat: fromProp.lat,
+        fromLng: fromProp.lng,
+        toLat: dLat,
+        toLng: dLng,
+      });
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      showToast("이 기기에서 위치를 사용할 수 없습니다.", "error");
+      return;
+    }
+
+    setDirectionsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDirectionsLoading(false);
+        onShowArrivalWalkingOnMap({
+          fromLat: pos.coords.latitude,
+          fromLng: pos.coords.longitude,
+          toLat: dLat,
+          toLng: dLng,
+        });
+      },
+      (err) => {
+        setDirectionsLoading(false);
+        if (err?.code === 1) {
+          showToast("위치 권한이 필요합니다. 지도에서 내 위치를 켜 주세요.", "error");
+        } else if (err?.code === 3) {
+          showToast("위치 확인이 시간 초과되었습니다. 다시 시도해 주세요.", "error");
+        } else {
+          showToast("현재 위치를 가져올 수 없습니다.", "error");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+    );
+  }, [checkinWgs, userLocation, showToast, onShowArrivalWalkingOnMap]);
+
   const handleShare = (place) => {
     const shareUrl = `${window.location.origin}/place/${place.id}`;
     const shareText = `${place.name} - ${place.curators?.join(', ')} 추천 장소!`;
@@ -1040,7 +1107,9 @@ export default function PlacePreviewCard({
   };
 
   const swipeOn =
-    sheetSwipeEnabled && !showSaveModal && typeof onClose === "function";
+    (sheetSwipeEnabled || arrivalWalkingRouteShown) &&
+    !showSaveModal &&
+    typeof onClose === "function";
 
   return (
     <div style={styles.wrap}>
@@ -1073,8 +1142,17 @@ export default function PlacePreviewCard({
           <div
             role="separator"
             aria-orientation="horizontal"
-            title="아래로 밀어 닫기"
-            style={styles.sheetDragHandle}
+            title={
+              arrivalWalkingRouteShown
+                ? "아래로 밀어 닫기 · 지도에서 도보 경로를 볼 수 있어요"
+                : "아래로 밀어 닫기"
+            }
+            style={{
+              ...styles.sheetDragHandle,
+              ...(arrivalWalkingRouteShown
+                ? { paddingTop: "10px", paddingBottom: "10px" }
+                : {}),
+            }}
             onPointerDown={(e) => dragControls.start(e)}
           >
             <span style={styles.sheetDragHandleBar} aria-hidden />
@@ -1457,6 +1535,18 @@ export default function PlacePreviewCard({
               >
                 2차는 여기로
               </button>
+              <button
+                type="button"
+                onClick={openWalkingDirections}
+                disabled={directionsLoading}
+                title="주도 지도에 내 위치에서 이 장소까지 도보 경로 표시"
+                style={{
+                  ...styles.directionsButton,
+                  ...(directionsLoading ? { opacity: 0.65, cursor: "wait" } : {}),
+                }}
+              >
+                {directionsLoading ? "위치 확인…" : "도착 길찾기"}
+              </button>
             </div>
           ) : (
             <div style={styles.mapCourseActionRow}>
@@ -1480,6 +1570,18 @@ export default function PlacePreviewCard({
                 }}
               >
                 {courseMapFindSecondBusy ? "찾는 중…" : "2차 찾기"}
+              </button>
+              <button
+                type="button"
+                onClick={openWalkingDirections}
+                disabled={directionsLoading}
+                title="주도 지도에 내 위치에서 이 장소까지 도보 경로 표시"
+                style={{
+                  ...styles.directionsButton,
+                  ...(directionsLoading ? { opacity: 0.65, cursor: "wait" } : {}),
+                }}
+              >
+                {directionsLoading ? "위치 확인…" : "도착 길찾기"}
               </button>
             </div>
           )}
@@ -2328,6 +2430,23 @@ const styles = {
     display: "flex",
     gap: "8px",
     alignItems: "stretch",
+  },
+  directionsButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid #b8732a",
+    backgroundColor: "#E67E22",
+    color: "#ffffff",
+    fontSize: "12px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    cursor: "pointer",
+    boxSizing: "border-box",
   },
   saveButton: {
     flex: 1,

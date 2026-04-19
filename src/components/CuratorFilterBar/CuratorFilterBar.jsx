@@ -64,14 +64,16 @@ export default function CuratorFilterBar({
           ).trim();
           const uid = pick(curator.userId);
           const pid = pick(curator.id);
+          /** 닉·표시명이 겹치면 filterKey 문자열이 동일해져 토글이 꼬임 — 항상 auth uid 또는 curators PK 로 구분 */
+          const stableToggleId = uid || pid || curatorKey;
           const active = selectedCurators.some((s) => {
             const sel = String(s ?? "")
               .trim()
               .toLowerCase();
             if (!sel) return false;
-            if (sel === curatorKey.toLowerCase()) return true;
             if (uid && sel === uid.toLowerCase()) return true;
             if (pid && sel === String(pid).trim().toLowerCase()) return true;
+            if (sel === curatorKey.toLowerCase()) return true;
             return false;
           });
           // 등급별 설정 가져오기
@@ -79,7 +81,7 @@ export default function CuratorFilterBar({
 
           return (
             <div
-              key={curator.id || curatorKey || curator.name}
+              key={`cp-${uid || pid || curatorKey}`}
               style={{
                 ...styles.curatorChip,
                 ...(active ? styles.curatorChipActive : null),
@@ -90,29 +92,21 @@ export default function CuratorFilterBar({
                   boxShadow: curator.grade === 'diamond' ? `0 0 12px ${rankConfig.glow}` : 'none'
                 })
               }}
-              onClick={(e) => {
-                // 클릭된 영역에 따라 다른 기능 실행
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                
-                // 등급 뱃지 영역 (오른쪽 30px)
-                if (clickX > rect.width - 30) {
-                  onProfileClick?.(curator);
-                } else {
-                  // 이름 영역 (나머지)
-                  const toggleId = curatorKey;
-                  if (toggleId) onToggle?.(toggleId);
-                }
-              }}
             >
-              {/* 큐레이터 이름 영역 */}
-              <div
+              {/* 이름: 좌표로 영역 나누지 않음 — 좁은 칩에서 rect.width-30<0 이면 전부 프로필로만 잡히는 버그 방지 */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (stableToggleId) onToggle?.(stableToggleId);
+                }}
                 style={{
                   ...styles.nameButton,
                   ...(active ? styles.nameButtonActive : null),
-                  // 등급별 텍스트 색상 적용 (활성 상태가 아닐 때만)
                   ...(active ? {} : { color: rankConfig.text }),
-                  pointerEvents: "none", // 부모의 onClick만 사용
+                  flex: 1,
+                  minWidth: 0,
+                  textAlign: "left",
                 }}
               >
                 {curator.displayName ||
@@ -120,10 +114,15 @@ export default function CuratorFilterBar({
                   curator.name ||
                   curator.username ||
                   curator.id}
-              </div>
-              
-              {/* 등급 뱃지 */}
-              <div 
+              </button>
+
+              <button
+                type="button"
+                title={`${curator.displayName || curator.name} 프로필 보기 (등급: ${curator.grade || 'default'})`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProfileClick?.(curator);
+                }}
                 style={{
                   fontSize: "9px",
                   fontWeight: "700",
@@ -136,16 +135,12 @@ export default function CuratorFilterBar({
                   flexShrink: 0,
                   backdropFilter: "blur(8px)",
                   WebkitBackdropFilter: "blur(8px)",
-                  cursor: "pointer", // 클릭 가능하도록 변경
-                }}
-                title={`${curator.displayName || curator.name} 프로필 보기 (등급: ${curator.grade || 'default'})`}
-                onClick={(e) => {
-                  e.stopPropagation(); // 부모 클릭 이벤트 방지
-                  onProfileClick?.(curator);
+                  cursor: "pointer",
+                  lineHeight: 1.2,
                 }}
               >
-                {rankConfig.label.split(' ')[0]} {/* 👑, 🏆, ⭐ 만 표시 */}
-              </div>
+                {rankConfig.label.split(' ')[0]}
+              </button>
             </div>
           );
         })}

@@ -9,6 +9,7 @@ import {
   placeId,
 } from "./generateCourseOptions.js";
 import {
+  anjuExpandedTokenMatchesHaystack,
   expandAnjuHintTokens,
   expandVibePrefTokens,
 } from "./placeTaxonomy.js";
@@ -28,6 +29,24 @@ function prefStringList(arr) {
   if (!Array.isArray(arr) || !arr.length) return null;
   const out = arr.map((s) => String(s).trim()).filter(Boolean);
   return out.length ? out : null;
+}
+
+/**
+ * 1차 기준 2차 후보 허용 거리(m) 단계.
+ * `maxSecondDistanceM`(지도 2차 찾기 팝업)이 있으면 그 상한까지만 넓혀 가며 후보를 채움.
+ */
+function resolveSecondStepDistanceLimits(walkable, userSecondPreferences) {
+  const raw = userSecondPreferences?.maxSecondDistanceM;
+  if (raw != null && Number.isFinite(Number(raw))) {
+    const maxM = Math.min(8000, Math.max(500, Number(raw)));
+    const tiers = [
+      500, 700, 1000, 1200, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000,
+    ].filter((x) => x <= maxM);
+    if (!tiers.length) return [maxM];
+    if (tiers[tiers.length - 1] < maxM) return [...tiers, maxM];
+    return tiers;
+  }
+  return walkable ? [500, 700, 1000] : [2000];
 }
 
 function placeLiquorTokens(place) {
@@ -64,7 +83,7 @@ function placeAnjuHaystack(place) {
  * @param {object} opts.parsedQuery parseCourseQuery 결과
  * @param {object[]} [opts.places] normalizePlaces 결과
  * @param {"same"|"mood"|"closer"|"featured"} [opts.variant]
- * @param {{ vibes?: string[], liquorTypes?: string[], anjuHints?: string[], preferCloser?: boolean, prioritizeCurators?: boolean }} [opts.userSecondPreferences] 지도 2차 찾기 등 사용자가 고른 가산점
+ * @param {{ vibes?: string[], liquorTypes?: string[], anjuHints?: string[], preferCloser?: boolean, prioritizeCurators?: boolean, maxSecondDistanceM?: number }} [opts.userSecondPreferences] 지도 2차 찾기 등 사용자가 고른 가산점·1차 기준 최대 거리(m)
  */
 export function regenerateSecondStep({
   selectedCourse,
@@ -96,7 +115,10 @@ export function regenerateSecondStep({
   }
 
   const walkable = Boolean(effectiveParsed.walkable);
-  const distanceLimits = walkable ? [500, 700, 1000] : [2000];
+  const distanceLimits = resolveSecondStepDistanceLimits(
+    walkable,
+    userSecondPreferences
+  );
 
   const candidates = areaPlaces
     .map((place) => {
@@ -200,7 +222,9 @@ export function regenerateSecondStep({
           const tokens = expandAnjuHintTokens(hint);
           if (
             tokens.some((tok) =>
-              hay.some((t) => t.includes(tok) || tok.includes(t) || t === tok)
+              hay.some((t) =>
+                anjuExpandedTokenMatchesHaystack(t, tok)
+              )
             )
           ) {
             hits += 1;
