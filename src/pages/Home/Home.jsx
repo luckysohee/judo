@@ -101,7 +101,8 @@ import {
   filterJoinRowsToBounds,
 } from "../../utils/fetchCuratorPlacesInBounds";
 import { debounce } from "../../utils/debounce";
-import { fetchPlaceDetail } from "../../api/places";
+import { fetchPlaceDetail, fetchPlacesByBounds } from "../../api/places";
+import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   isWalkingRouteReasonable,
   walkingRouteDisplayMinutes,
@@ -1589,11 +1590,7 @@ export default function Home() {
       if (String(query || "").trim()) return;
 
       const seq = ++mapViewportLoadSeqRef.current;
-      const snap = curatorAttachRowsRef.current;
-      if (!Array.isArray(snap) || snap.length === 0) {
-        setMapViewportDbLoading(false);
-        return;
-      }
+      const snap = curatorAttachRowsRef.current || [];
 
       const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.12);
       if (!padded) {
@@ -1601,20 +1598,53 @@ export default function Home() {
         return;
       }
 
+      const { south, west, north, east } = {
+        south: padded.sw.lat,
+        west: padded.sw.lng,
+        north: padded.ne.lat,
+        east: padded.ne.lng,
+      };
+
       setMapViewportDbLoading(true);
       try {
-        const { rows, error } = await fetchCuratorPlaceRowsInBounds(
-          supabase,
-          padded
-        );
+        const [plainRows, joinResult] = await Promise.all([
+          fetchPlacesByBounds({ south, west, north, east }),
+          fetchCuratorPlaceRowsInBounds(supabase, padded),
+        ]);
         if (seq !== mapViewportLoadSeqRef.current) return;
-        if (error) {
-          console.error("❌ 뷰포트 추천 로드 오류:", error);
+
+        if (joinResult.error) {
+          console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
+          setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
+          if (import.meta.env.DEV) {
+            console.log(
+              "📦 bounds fetch 결과:",
+              (plainRows || []).length,
+              "(join 오류·places만)"
+            );
+          }
           return;
         }
-        const filtered = filterJoinRowsToBounds(rows, padded);
+
+        const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
         const attached = attachCuratorsToCuratorPlaceRows(filtered, snap);
-        setDbPlaces(buildFormattedPlacesFromJoin(attached));
+        const fromJoin = buildFormattedPlacesFromJoin(attached);
+        const joinIdSet = new Set(fromJoin.map((p) => String(p.id)));
+        const extraPlain = (plainRows || []).filter(
+          (r) => r?.id != null && !joinIdSet.has(String(r.id))
+        );
+        const merged = [
+          ...fromJoin,
+          ...formatBoundsPlaceRowsForMap(extraPlain),
+        ];
+        setDbPlaces(merged);
+
+        if (import.meta.env.DEV) {
+          console.log("📦 bounds fetch 결과:", merged.length, {
+            큐레이터연결: fromJoin.length,
+            places만: extraPlain.length,
+          });
+        }
       } catch (e) {
         console.error("❌ 뷰포트 추천 로드 실패:", e);
       } finally {
@@ -3455,13 +3485,14 @@ export default function Home() {
       return folderSaved;
     }
 
-    const publicCuratorPlaces = (place) =>
-      Boolean(place.curatorCount && place.curatorCount > 0);
-
-    // 큐레이터 칩 미선택: «전체» on → 공개 큐레이터 추천만 / off → 빈 목록(버튼으로 끌 수 있게)
+    // 큐레이터 칩 미선택: «전체» on → 뷰포트 bbox 장소 전부(좌표만 확인) / off → 빈 목록
+    // 큐레이터 연결 여부는 마커·범례 스타일용이지, 여기서는 거르지 않음
     if (selectedCurators.length === 0) {
       if (!showAll) return [];
-      return dbPlaces.filter(publicCuratorPlaces);
+      return dbPlaces.filter((place) => {
+        const c = resolvePlaceWgs84(place);
+        return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
+      });
     }
 
     // 선택된 큐레이터에 따라 필터링 (curator_id = curators.user_id, 칩=핸들 등 별칭 확장)

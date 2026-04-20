@@ -2,7 +2,7 @@
  * 주도 검색바: 채팅 UI가 아니라 자연어 1줄 → 파싱·지도 후보·스코어·확장 제안.
  * 최종 형태·구현 매핑: `src/utils/searchPhase8SearchBar.js`
  */
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
@@ -83,6 +83,8 @@ export default function SearchBar({
   /** 장소/주도 전환 시 짧은 설명 말풍선 */
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const channelPopoverCloseTimerRef = useRef(null);
+  const firstAiTipTimerRef = useRef(null);
+  const [showFirstAiSearchTip, setShowFirstAiSearchTip] = useState(false);
 
   useEffect(() => {
     if (!isLoading) {
@@ -699,6 +701,50 @@ export default function SearchBar({
   const useChannelToggle =
     showChannelTabs && typeof onSearchChannelChange === "function";
 
+  const FIRST_AI_TIP_KEY = "judo_first_ai_search_tip_v1";
+  const FIRST_AI_TIP_DELAY_MS = 1150;
+  const FIRST_AI_TIP_VISIBLE_MS = 5200;
+
+  const dismissFirstAiSearchTip = useCallback(() => {
+    if (firstAiTipTimerRef.current) {
+      clearTimeout(firstAiTipTimerRef.current);
+      firstAiTipTimerRef.current = null;
+    }
+    setShowFirstAiSearchTip(false);
+    try {
+      localStorage.setItem(FIRST_AI_TIP_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!useChannelToggle) return undefined;
+    try {
+      if (localStorage.getItem(FIRST_AI_TIP_KEY)) return undefined;
+    } catch {
+      /* ignore */
+    }
+    firstAiTipTimerRef.current = setTimeout(() => {
+      firstAiTipTimerRef.current = null;
+      setShowFirstAiSearchTip(true);
+    }, FIRST_AI_TIP_DELAY_MS);
+    return () => {
+      if (firstAiTipTimerRef.current) {
+        clearTimeout(firstAiTipTimerRef.current);
+        firstAiTipTimerRef.current = null;
+      }
+    };
+  }, [useChannelToggle]);
+
+  useEffect(() => {
+    if (!showFirstAiSearchTip) return undefined;
+    const t = setTimeout(() => {
+      dismissFirstAiSearchTip();
+    }, FIRST_AI_TIP_VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, [showFirstAiSearchTip, dismissFirstAiSearchTip]);
+
   const scheduleChannelPopoverClose = () => {
     if (channelPopoverCloseTimerRef.current) {
       clearTimeout(channelPopoverCloseTimerRef.current);
@@ -710,6 +756,7 @@ export default function SearchBar({
   };
 
   const toggleSearchChannel = () => {
+    dismissFirstAiSearchTip();
     if (!onSearchChannelChange || isLoading) return;
     const next = searchChannel === "basic" ? "ai" : "basic";
     onSearchChannelChange(next);
@@ -859,7 +906,73 @@ export default function SearchBar({
             style={{ position: "relative", flexShrink: 0 }}
           >
             <AnimatePresence>
-              {channelPopoverOpen ? (
+              {showFirstAiSearchTip ? (
+                <motion.div
+                  key="first-ai-search-tip"
+                  role="status"
+                  aria-live="polite"
+                  initial={{ opacity: 0, y: 10, scale: 0.94 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    minWidth: "200px",
+                    maxWidth: "min(90vw, 280px)",
+                    padding: "11px 13px 12px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(134, 239, 172, 0.35)",
+                    background: "rgba(15, 28, 18, 0.98)",
+                    boxShadow:
+                      "0 12px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1002,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 800,
+                      color: "#86efac",
+                      marginBottom: "6px",
+                      letterSpacing: "-0.03em",
+                    }}
+                  >
+                    AI 주도 검색
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      lineHeight: 1.5,
+                      color: "rgba(255,255,255,0.82)",
+                    }}
+                  >
+                    돋보기를 눌러 전환해 보세요. 문장으로 술집·분위기까지 찾을 수
+                    있어요.
+                  </div>
+                  <div
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      bottom: "-7px",
+                      marginLeft: "-7px",
+                      width: 0,
+                      height: 0,
+                      borderLeft: "7px solid transparent",
+                      borderRight: "7px solid transparent",
+                      borderTop: "7px solid rgba(15, 28, 18, 0.98)",
+                    }}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+            <AnimatePresence>
+              {channelPopoverOpen && !showFirstAiSearchTip ? (
                 <motion.div
                   key="channel-pop"
                   role="tooltip"
@@ -940,8 +1053,24 @@ export default function SearchBar({
                   : "한 번 더 누르면 장소 검색"
               }
               disabled={isLoading}
+              animate={
+                showFirstAiSearchTip && !isLoading
+                  ? { y: [0, -6, 0, -5, 0] }
+                  : { y: 0 }
+              }
+              transition={
+                showFirstAiSearchTip && !isLoading
+                  ? {
+                      repeat: Infinity,
+                      duration: 0.72,
+                      ease: "easeInOut",
+                    }
+                  : { duration: 0.2 }
+              }
               whileTap={{ scale: 0.9 }}
-              whileHover={{ scale: 1.03 }}
+              whileHover={
+                showFirstAiSearchTip && !isLoading ? false : { scale: 1.03 }
+              }
             >
               <span style={{ fontSize: "15px", lineHeight: 1 }} aria-hidden>
                 {searchChannel === "basic" ? "🔎" : "✨"}

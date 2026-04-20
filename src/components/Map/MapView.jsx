@@ -44,18 +44,17 @@ function mapClusterStyleAtIndex(index) {
     width: `${px}px`,
     height: `${px}px`,
     borderRadius: "50%",
-    background:
-      "radial-gradient(circle at 32% 28%, rgba(255,255,255,0.35) 0%, #fb7185 42%, #be123c 72%, #881337 100%)",
-    color: "#fff",
+    background: "rgba(255,255,255,0.08)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    color: "#0a0a0a",
     textAlign: "center",
     lineHeight: `${px}px`,
     fontSize: `${fs}px`,
     fontWeight: "800",
     fontFamily:
       'system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif',
-    boxShadow: "0 4px 16px rgba(190,18,60,0.35), 0 1px 0 rgba(255,255,255,0.65) inset",
-    border: "2px solid rgba(255,255,255,0.9)",
-    opacity: "0.98",
+    border: "1px solid rgba(255,255,255,0.42)",
   };
 }
 
@@ -727,6 +726,10 @@ const MapView = forwardRef(({
                 userInteractedRef.current = true;
               };
 
+              /** idle 전에만 켜지던 플래그 때문에: 첫 팬/줌 중 places 갱신 → setBounds가 드래그를 덮어씀 */
+              window.kakao.maps.event.addListener(map, "dragstart", markUserInteracted);
+              window.kakao.maps.event.addListener(map, "zoom_start", markUserInteracted);
+
               window.kakao.maps.event.addListener(map, "click", (mouseEvent) => {
                 if (ignoreMapClickRef.current) return;
                 try {
@@ -763,6 +766,24 @@ const MapView = forwardRef(({
 
               window.kakao.maps.event.addListener(map, "idle", () => {
                 markUserInteracted();
+
+                try {
+                  const bounds = map.getBounds();
+                  if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+
+                    console.log("📍 현재 지도 bounds:", {
+                      south: sw.getLat(),
+                      west: sw.getLng(),
+                      north: ne.getLat(),
+                      east: ne.getLng(),
+                    });
+                  }
+                } catch (e) {
+                  console.warn("idle bounds:", e);
+                }
+
                 notifyViewportCenterChanged();
               });
 
@@ -1151,7 +1172,7 @@ const MapView = forwardRef(({
     coursePolylineRef.current = new window.kakao.maps.Polyline({
       path: kakaoPath,
       strokeWeight: 4,
-      strokeColor: "#7c3aed",
+      strokeColor: "#ea580c",
       strokeOpacity: 0.88,
       strokeStyle: "solid",
       clickable: false,

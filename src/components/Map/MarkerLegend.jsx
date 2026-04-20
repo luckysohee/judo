@@ -24,9 +24,9 @@ export default function MarkerLegend({
   }, [mapCloseTick]);
 
   const items = [
-    { key: "basic", label: "단일 추천", color: "#10b981", icon: "🟢" },
-    { key: "hot", label: "공동 추천", color: "#8b5cf6", icon: "🟣" },
-    { key: "premium", label: "프리미엄 스팟", color: "#f59e0b", icon: "🟠" },
+    { key: "basic", label: "단일 추천", color: "#16a34a" },
+    { key: "hot", label: "공동 추천", color: "#ea580c" },
+    { key: "premium", label: "프리미엄 스팟", color: "#7c3aed" },
   ];
 
   return (

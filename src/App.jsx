@@ -19,10 +19,12 @@ import StudioHome from "./pages/Studio/StudioHome";
 import StudioFollowersPage from "./pages/Studio/StudioFollowersPage";
 import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
+import EntrySplash from "./components/SplashScreen/EntrySplash";
 
 function App() {
   return (
     <ToastProvider>
+    <EntrySplash />
     <PostLoginAdminRedirect />
     <Routes>
       <Route path="/" element={<Home />} />

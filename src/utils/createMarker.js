@@ -1,3 +1,5 @@
+import { buildCuratorPinSvg } from "./curatorPinMarker.js";
+
 // 폴더 색상 매핑
 const FOLDER_COLORS = {
   after_party: '#FF8C42',    // orange
@@ -50,7 +52,7 @@ export function isCuratorListedPlace(place) {
   return false;
 }
 
-// 큐레이터 등급 마커 (기존 로직 유지)
+// 큐레이터 등급 — Bootstrap geo-alt-fill 핀 색 (단일 / 공동 / 프리미엄)
 export function getMarkerTier(place) {
   let curatorCount = 1;
   if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
@@ -62,67 +64,24 @@ export function getMarkerTier(place) {
   if (curatorCount >= 3) {
     return {
       level: "premium",
-      fill: "#F5C451",
-      emoji: "👑",
+      fill: "#7c3aed",
       label: `${curatorCount}`,
     };
   }
 
   if (curatorCount === 2) {
     return {
-      level: "hot", 
-      fill: "#8B5CF6",
-      emoji: "✨",
+      level: "hot",
+      fill: "#ea580c",
       label: "2",
     };
   }
 
   return {
     level: "basic",
-    fill: "#2ECC71", // 초록색으로 복원
-    emoji: "🍶",
+    fill: "#16a34a",
     label: "",
   };
-}
-
-// 카카오 카테고리별 마커 아이콘 매핑
-const KAKAO_CATEGORY_ICONS = {
-  '음식점': '🍽️',
-  '술집': '🍺', 
-  '카페': '☕',
-  '한식': '🍚',
-  '양식': '🍝',
-  '일식': '🍱',
-  '중식': '🥡',
-  '분식': '🥟',
-  '치킨': '🍗',
-  '피자': '🍕',
-  '햄버거': '🍔',
-  '아시아음식': '🥘',
-  '제과': '🍰',
-  '베이커리': '🥖',
-  '패스트푸드': '🍟',
-  '주점': '🍻',
-  '이자카야': '🏮',
-  '포장마차': '🚐',
-  '육류': '🥩',
-  '해산물': '🦐',
-  '채소': '🥬',
-  '과일': '🍎'
-};
-
-// 카카오 카테고리에서 아이콘 가져오기
-function getKakaoCategoryIcon(category) {
-  if (!category) return '📍';
-  
-  // 카테고리 문자열에 포함된 키워드로 아이콘 찾기
-  for (const [key, icon] of Object.entries(KAKAO_CATEGORY_ICONS)) {
-    if (category.includes(key)) {
-      return icon;
-    }
-  }
-  
-  return '📍'; // 기본 아이콘
 }
 
 // 폴더 기반 마커 색상 가져오기
@@ -154,32 +113,59 @@ function escapeSvgText(s) {
 function checkinMarkerDecorations(size, checkinMeta) {
   const cc = Number(checkinMeta?.checkinCount) || 0;
   const showFlame = Boolean(checkinMeta?.showHotFlame);
+  const topY = Math.min(18, Math.max(12, size * 0.36));
+  const flameFs = Math.max(11, size * 0.3);
   const flame = showFlame
-    ? `<text x="${size - 1}" y="17" text-anchor="end" font-size="14" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
+    ? `<text x="${size - 1}" y="${topY}" text-anchor="end" font-size="${flameFs}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
     : "";
   if (cc <= 0) return flame;
   const label = cc > 99 ? "99+" : String(cc);
+  const pillH = Math.max(11, size * 0.32);
+  const pillW = Math.max(26, size * 0.72);
+  const pillY = size - pillH - 3;
   const pill = `
     <g>
-      <rect x="${size / 2 - 15}" y="${size - 17}" width="30" height="14" rx="7" fill="#E11D48" stroke="#ffffff" stroke-width="1.2"/>
-      <text x="${size / 2}" y="${size - 9}" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-size="9" font-weight="800" font-family="Arial, sans-serif">${label}</text>
+      <rect x="${size / 2 - pillW / 2}" y="${pillY}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" fill="#E11D48" stroke="#ffffff" stroke-width="1"/>
+      <text x="${size / 2}" y="${pillY + pillH / 2 + 1}" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-size="8" font-weight="800" font-family="system-ui, Arial, sans-serif">${label}</text>
     </g>`;
   return flame + pill;
 }
 
-function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
-  // 폴더 기반 마커 정보 우선 사용
-  const markerInfo = getFolderMarkerColor(place, userFolders);
-  const tier = markerInfo.level === 'folder' ? markerInfo : getMarkerTier(place);
+/** 직사각형 캔버스(핀)용 체크인 뱃지 */
+function checkinMarkerDecorationsRect(w, h, checkinMeta) {
+  const cc = Number(checkinMeta?.checkinCount) || 0;
+  const showFlame = Boolean(checkinMeta?.showHotFlame);
+  const topY = Math.min(17, Math.max(11, h * 0.32));
+  const flameFs = Math.max(11, Math.min(14, h * 0.3));
+  const flame = showFlame
+    ? `<text x="${w - 1}" y="${topY}" text-anchor="end" font-size="${flameFs}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
+    : "";
+  if (cc <= 0) return flame;
+  const label = cc > 99 ? "99+" : String(cc);
+  const pillH = Math.max(11, h * 0.28);
+  const pillW = Math.max(26, w * 0.72);
+  const pillY = h - pillH - 2;
+  const pill = `
+    <g>
+      <rect x="${w / 2 - pillW / 2}" y="${pillY}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" fill="#E11D48" stroke="#ffffff" stroke-width="1"/>
+      <text x="${w / 2}" y="${pillY + pillH / 2 + 1}" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-size="8" font-weight="800" font-family="system-ui, Arial, sans-serif">${label}</text>
+    </g>`;
+  return flame + pill;
+}
 
-  const size = isSelected ? 64 : 50;
-  const circleRadius = isSelected ? 22 : 18;
-  const emojiFontSize = isSelected ? 18 : 15;
+/** 저장 폴더 전용 원형 마커 (큐레이터 등급 핀은 createMarkerImage 에서 buildCuratorPinSvg) */
+function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
+  const markerInfo = getFolderMarkerColor(place, userFolders);
+  const tier = markerInfo;
+
+  const size = isSelected ? 48 : 38;
+  const circleRadius = isSelected ? 15 : 13;
+  const emojiFontSize = isSelected ? 14 : 12;
   /** 컬러 이모지 글리프가 원 중심보다 왼쪽으로 치우침 → 3시 방향으로 시각 보정 */
-  const emojiOpticalX = isSelected ? 3 : 2;
-  const emojiOpticalY = isSelected ? -1 : -0.5;
-  const stroke = isSelected ? "#ffffff" : "#f3f3f3";
-  const shadowOpacity = isSelected ? 0.34 : 0.2;
+  const emojiOpticalX = isSelected ? 2 : 1.5;
+  const emojiOpticalY = isSelected ? -0.5 : -0.5;
+  const stroke = isSelected ? "rgba(255,255,255,0.95)" : "rgba(248,250,252,0.88)";
+  const shadowOpacity = isSelected ? 0.26 : 0.16;
 
   // 폴더 기반 외곽 링
   let outerRing = "";
@@ -187,46 +173,40 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     const { folderInfo } = tier;
     
     if (folderInfo.count >= 3) {
-      // 3개 이상 폴더: 두꺼운 링 + "+N"
-      outerRing = `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 6}" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="4" />`;
+      // 3개 이상 폴더: 얇은 이중 링
+      outerRing = `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.5" />`;
     } else if (folderInfo.count === 2 && folderInfo.secondary) {
       // 2개 폴더: 이중 링
       const primaryColor = FOLDER_COLORS[folderInfo.primary.key];
       const secondaryColor = FOLDER_COLORS[folderInfo.secondary.key];
       outerRing = `
-        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="${secondaryColor}" stroke-width="3" opacity="0.7" />
-        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 2}" fill="none" stroke="${primaryColor}" stroke-width="2" opacity="0.8" />
+        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 4}" fill="none" stroke="${secondaryColor}" stroke-width="1.5" opacity="0.65" />
+        <circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 1.5}" fill="none" stroke="${primaryColor}" stroke-width="1.5" opacity="0.75" />
       `;
     }
     // 1개 폴더: 기본 링 (아래에서 처리)
-  } else {
-    // 기존 큐레이터 등급 시스템
-    outerRing =
-      tier.level === "premium"
-        ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 6}" fill="none" stroke="rgba(245,196,81,0.45)" stroke-width="4" />`
-        : tier.level === "hot"
-        ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 5}" fill="none" stroke="rgba(139,92,246,0.35)" stroke-width="3" />`
-        : "";
   }
 
   const savedDot = savedColor
-    ? `<circle cx="${size - 11}" cy="11" r="6.5" fill="${savedColor}" stroke="#ffffff" stroke-width="2" />`
+    ? `<circle cx="${size - 8}" cy="8" r="5" fill="${savedColor}" stroke="#ffffff" stroke-width="1.5" />`
     : "";
 
+  const badgeR = tier.label && String(tier.label).length > 1 ? 7 : 6;
+  const badgeFs = tier.label && String(tier.label).length > 1 ? 8 : 9;
   const overlapBadge =
     tier.label
       ? `
       <g>
-        <circle cx="${size - 14}" cy="${size - 14}" r="9" fill="#111111" stroke="#ffffff" stroke-width="1.5" />
+        <circle cx="${size - 11}" cy="${size - 11}" r="${badgeR}" fill="#1a1d24" stroke="rgba(255,255,255,0.88)" stroke-width="1" />
         <text
-          x="${size - 14}"
-          y="${size - 14}"
+          x="${size - 11}"
+          y="${size - 11}"
           dominant-baseline="central"
           text-anchor="middle"
-          font-size="10"
-          font-weight="700"
-          fill="#ffffff"
-          font-family="Arial, sans-serif"
+          font-size="${badgeFs}"
+          font-weight="600"
+          fill="#f8fafc"
+          font-family="system-ui, -apple-system, Arial, sans-serif"
         >
           ${tier.label}
         </text>
@@ -235,16 +215,16 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     : tier.level === 'folder' && tier.folderInfo && tier.folderInfo.count >= 3
       ? `
       <g>
-        <circle cx="${size - 14}" cy="${size - 14}" r="9" fill="#111111" stroke="#ffffff" stroke-width="1.5" />
+        <circle cx="${size - 11}" cy="${size - 11}" r="6" fill="#1a1d24" stroke="rgba(255,255,255,0.88)" stroke-width="1" />
         <text
-          x="${size - 14}"
-          y="${size - 14}"
+          x="${size - 11}"
+          y="${size - 11}"
           dominant-baseline="central"
           text-anchor="middle"
-          font-size="9"
-          font-weight="700"
-          fill="#ffffff"
-          font-family="Arial, sans-serif"
+          font-size="8"
+          font-weight="600"
+          fill="#f8fafc"
+          font-family="system-ui, -apple-system, Arial, sans-serif"
         >
           +${tier.folderInfo.count - 1}
         </text>
@@ -252,10 +232,7 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     `
     : "";
 
-  const premiumGlow =
-    tier.level === "premium"
-      ? `<circle cx="${size / 2}" cy="${size / 2}" r="${circleRadius + 1}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" />`
-      : "";
+  const premiumGlow = "";
 
   const liveRing = isLive
     ? `
@@ -323,7 +300,7 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <defs>
         <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="${shadowOpacity}" />
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
         </filter>
       </defs>
 
@@ -336,7 +313,7 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
           r="${circleRadius}"
           fill="${tier.fill}"
           stroke="${stroke}"
-          stroke-width="2.5"
+          stroke-width="1.65"
         />
 
         ${premiumGlow}
@@ -466,10 +443,38 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
     return null;
   }
 
-  // 기존 큐레이터 마커 로직
+  const folderMarkerInfo = getFolderMarkerColor(place, userFolders);
+  const folderMode = folderMarkerInfo.level === "folder";
+
+  if (!folderMode) {
+    const pin = buildCuratorPinSvg({
+      tier: getMarkerTier(place),
+      isSelected,
+      savedColor,
+      isLive,
+      place,
+      checkinMarkerDecorationsSvg: checkinMarkerDecorationsRect(
+        isSelected ? 42 : 34,
+        isSelected ? 50 : 40,
+        meta
+      ),
+      shadowOpacity: isSelected ? 0.26 : 0.17,
+    });
+    const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+      pin.svg
+    )}`;
+    return new window.kakao.maps.MarkerImage(
+      encoded,
+      new window.kakao.maps.Size(pin.width, pin.height),
+      {
+        offset: new window.kakao.maps.Point(pin.width / 2, pin.height),
+      }
+    );
+  }
+
   const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, meta);
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
-  const size = isSelected ? 64 : 50;
+  const size = isSelected ? 48 : 38;
 
   return new window.kakao.maps.MarkerImage(
     encoded,
