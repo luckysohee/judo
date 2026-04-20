@@ -13,6 +13,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
+    // 초기 하이드레이션: getSession()은 로컬에 저장된 세션을 빠르게 복원한다.
+    // getUser()는 서버에서 세션을 재검증하지만 호출마다 락·네트워크 비용이 있다.
+    // 여기서는 세션 소스를 Provider 한 곳으로 두고, 이후 갱신은 onAuthStateChange로만
+    // 맞춘다. 권한이 민감한 UI는 RLS·서버 검증에 의존하고, 컴포넌트에서는 useAuth()를 쓴다.
     supabase.auth
       .getSession()
       .then(({ data, error }) => {

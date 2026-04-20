@@ -869,9 +869,7 @@ export default function PlacePreviewCard({
       try {
         // 일반 장소는 기존 방식으로 저장
         const { supabase } = await import("../../lib/supabase");
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (user) {
+        if (user?.id) {
           // 잔 채우기 테이블에 저장 (curator_places 테이블)
           const { error } = await supabase
             .from('curator_places')
@@ -903,10 +901,7 @@ export default function PlacePreviewCard({
   // 백그라운드 임시저장 함수
   const saveToCuratorDrafts = async (place) => {
     try {
-      const { supabase } = await import("../../lib/supabase");
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
+      if (!user?.id) {
         console.log('⚠️ 로그인된 사용자 없음');
         return 'error';
       }

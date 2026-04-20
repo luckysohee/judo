@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../context/AuthContext";
 import { markSearchSessionBookmarked } from "../../utils/searchAnalytics";
 import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
 import {
@@ -34,6 +35,7 @@ export default function SaveModal({
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderSaving, setNewFolderSaving] = useState(false);
   const [folderDefs, setFolderDefs] = useState(DEFAULT_FOLDER_DEFS);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (!isOpen) {
@@ -43,12 +45,15 @@ export default function SaveModal({
       return;
     }
     (async () => {
-      const { data, error } = await selectSystemFoldersOrdered(supabase);
+      const { data, error } = await selectSystemFoldersOrdered(
+        supabase,
+        user?.id ?? null
+      );
       if (!error && data?.length) {
         setFolderDefs(data);
       }
     })();
-  }, [isOpen]);
+  }, [isOpen, user?.id]);
 
   // 폴더 추천: 장소가 바뀔 때만 (DB에서 폴더 목록이 늦게 와도 추천 키는 시스템 7개 안에서만 나옴)
   useEffect(() => {
@@ -137,9 +142,7 @@ export default function SaveModal({
     setIsLoading(true);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
+      if (!user?.id) {
         alert('로그인이 필요합니다.');
         return;
       }
@@ -153,6 +156,7 @@ export default function SaveModal({
         extraSavedPlaceFields: sessionId
           ? { search_session_id: sessionId }
           : undefined,
+        authUser: user,
       });
 
       if (!folderRes.ok) {
@@ -185,14 +189,11 @@ export default function SaveModal({
 
     setNewFolderSaving(true);
     try {
-      const {
-        data: { user: authUser },
-        error: authErr,
-      } = await supabase.auth.getUser();
-      if (authErr || !authUser?.id) {
+      if (!user?.id) {
         alert('로그인이 필요합니다.');
         return;
       }
+      const authUser = user;
       const key = `custom_${Date.now()}`;
       const maxSo = Math.max(
         0,

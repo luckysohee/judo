@@ -38,6 +38,7 @@ import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
 } from "../../utils/placeTaxonomy.js";
+import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -102,18 +103,28 @@ function growthTrendLineYPercent(value, scale) {
   return Math.min(96, Math.max(4, pct));
 }
 
-/** 같은 place에 본인 curator_id(auth uid) 중복이면 최신 행 하나만 */
+/** 같은 place에 본인 curator_id(auth uid) 중복이면 한 행만 — 최신 우선, 동순이면 `places`가 붙은 행 우선 */
 function dedupeCuratorPlacesByPlaceId(curatorPlacesData) {
-  const best = new Map();
+  const groups = new Map();
   for (const cp of curatorPlacesData || []) {
-    const pid = cp?.places?.id;
+    const pid = cp?.places?.id ?? cp?.place_id;
     if (pid == null) continue;
-    const prev = best.get(pid);
-    const t = cp?.created_at ? new Date(cp.created_at).getTime() : 0;
-    const pt = prev?.created_at ? new Date(prev.created_at).getTime() : 0;
-    if (!prev || t >= pt) best.set(pid, cp);
+    if (!groups.has(pid)) groups.set(pid, []);
+    groups.get(pid).push(cp);
   }
-  return [...best.values()];
+  const out = [];
+  for (const [, rows] of groups) {
+    rows.sort((a, b) => {
+      const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      const ah = a?.places?.id ? 1 : 0;
+      const bh = b?.places?.id ? 1 : 0;
+      return bh - ah;
+    });
+    out.push(rows[0]);
+  }
+  return out;
 }
 
 /**
@@ -133,12 +144,13 @@ async function upsertCuratorPlaceForStudio(
   }
 ) {
   const pid = String(placeUuid).trim();
+  const safeArr = (a) => (Array.isArray(a) ? a : []);
   const patch = {
     display_name,
     one_line_reason,
-    tags,
-    alcohol_types,
-    moods,
+    tags: safeArr(tags),
+    alcohol_types: safeArr(alcohol_types),
+    moods: safeArr(moods),
   };
 
   const { data: rows, error: selErr } = await supabase
@@ -149,8 +161,9 @@ async function upsertCuratorPlaceForStudio(
   if (selErr) return { data: null, error: selErr };
 
   const list = rows || [];
+  let result;
   if (list.length === 0) {
-    return supabase
+    result = await supabase
       .from("curator_places")
       .insert([
         {
@@ -160,25 +173,45 @@ async function upsertCuratorPlaceForStudio(
         },
       ])
       .select();
+  } else {
+    const canonical =
+      list.find((r) => String(r.curator_id) === String(authUserId)) || list[0];
+    for (const d of list.filter((r) => r.id !== canonical.id)) {
+      const { error: delErr } = await supabase
+        .from("curator_places")
+        .delete()
+        .eq("id", d.id);
+      if (delErr) {
+        console.warn("curator_places dedupe delete:", delErr);
+      }
+    }
+
+    result = await supabase
+      .from("curator_places")
+      .update(patch)
+      .eq("id", canonical.id)
+      .select();
   }
 
-  const canonical =
-    list.find((r) => String(r.curator_id) === String(authUserId)) || list[0];
-  for (const d of list.filter((r) => r.id !== canonical.id)) {
-    const { error: delErr } = await supabase
-      .from("curator_places")
-      .delete()
-      .eq("id", d.id);
-    if (delErr) {
-      console.warn("curator_places dedupe delete:", delErr);
+  if (!result.error) {
+    const { error: rpcErr } = await supabase.rpc(
+      "studio_patch_curator_place_taxonomy",
+      {
+        p_place_id: pid,
+        p_tags: patch.tags,
+        p_moods: patch.moods,
+        p_alcohol_types: patch.alcohol_types,
+      }
+    );
+    if (rpcErr) {
+      console.warn(
+        "studio_patch_curator_place_taxonomy (Supabase 마이그레이션 적용 필요):",
+        rpcErr.message
+      );
     }
   }
 
-  return supabase
-    .from("curator_places")
-    .update(patch)
-    .eq("id", canonical.id)
-    .select();
+  return result;
 }
 
 /** DB·API에서 tags 등이 json 문자열·비배열로 올 때 폼용 문자열 배열로 */
@@ -212,7 +245,15 @@ function parseDbStringArray(raw) {
 
 /** studio_archive_extended_insights RPC → UI용 객체 */
 function normalizeStudioArchiveExtendedInsights(raw) {
-  if (!raw || typeof raw !== "object") {
+  let parsed = raw;
+  if (typeof parsed === "string" && parsed.trim()) {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") {
     return {
       oneLineTop: [],
       style: {
@@ -238,28 +279,30 @@ function normalizeStudioArchiveExtendedInsights(raw) {
       }))
       .filter((r) => r.label);
   return {
-    oneLineTop: arr(raw.one_line_top)
+    oneLineTop: arr(parsed.one_line_top)
       .map((r) => ({
         text: String(r?.text ?? "").trim(),
         saves: Number(r?.saves) || 0,
+        placeId: r?.place_id != null ? String(r.place_id) : null,
+        placeName: String(r?.place_name ?? "").trim(),
       }))
       .filter((r) => r.text),
     style: {
-      alcohol: pctRows(raw.style?.alcohol),
-      moods: pctRows(raw.style?.moods),
-      tags: pctRows(raw.style?.tags),
-      categories: pctRows(raw.style?.categories),
+      alcohol: pctRows(parsed.style?.alcohol),
+      moods: pctRows(parsed.style?.moods),
+      tags: pctRows(parsed.style?.tags),
+      categories: pctRows(parsed.style?.categories),
     },
     followers: {
-      savesOnPicks: Number(raw.followers?.saves_on_picks) || 0,
-      distinctSavers: Number(raw.followers?.distinct_savers) || 0,
-      regions: arr(raw.followers?.regions).map((r) => ({
+      savesOnPicks: Number(parsed.followers?.saves_on_picks) || 0,
+      distinctSavers: Number(parsed.followers?.distinct_savers) || 0,
+      regions: arr(parsed.followers?.regions).map((r) => ({
         label: (String(r?.label ?? "기타").trim() || "기타"),
         saves: Number(r?.saves) || 0,
       })),
       checkinsTotal:
         Number(
-          raw.followers?.checkins_total ?? raw.followers?.checkins_30d
+          parsed.followers?.checkins_total ?? parsed.followers?.checkins_30d
         ) || 0,
     },
   };
@@ -287,22 +330,47 @@ function normalizeStudioPlaceCategory(raw) {
 }
 
 function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
-  return (curatorPlacesData || [])
-    .filter((cp) => cp?.places?.id != null)
-    .map((curatorPlace) => {
+  return (curatorPlacesData || []).map((curatorPlace) => {
     const place = curatorPlace.places;
-    const alc = Array.isArray(curatorPlace.alcohol_types)
-      ? curatorPlace.alcohol_types
-      : [];
-    const moodArr = Array.isArray(curatorPlace.moods) ? curatorPlace.moods : [];
-    const tagsCp = parseDbStringArray(curatorPlace.tags);
-    const tagsPl = parseDbStringArray(place.tags);
-    const tagsMerged = tagsCp.length ? tagsCp : tagsPl;
+    const alc = parseDbStringArray(curatorPlace.alcohol_types);
+    const moodArr = parseDbStringArray(curatorPlace.moods);
     const line =
       curatorPlace.one_line_reason != null &&
       curatorPlace.one_line_reason !== undefined
         ? String(curatorPlace.one_line_reason)
         : null;
+    const archived = curatorPlace.is_archived === true;
+    const isPublicListed = !archived;
+
+    if (!place?.id && curatorPlace.place_id) {
+      const nm = String(curatorPlace.display_name || "").trim();
+      return {
+        id: curatorPlace.place_id,
+        name: nm || "장소 상세를 불러오지 못했습니다",
+        address:
+          "curator_places에는 있으나 places 행을 조회하지 못했습니다. RLS·네트워크·place_id를 확인하세요.",
+        latitude: null,
+        longitude: null,
+        kakao_place_id: null,
+        category: "미분류",
+        alcohol_type: alc[0] ?? "",
+        atmosphere: moodArr[0] ?? "",
+        recommended_menu: "",
+        menu_reason: line ?? "",
+        tags: filterPlaceTagsForDisplay(parseDbStringArray(curatorPlace.tags)),
+        alcohol_types: alc,
+        moods: moodArr,
+        is_public: isPublicListed,
+        created_at: new Date().toISOString().split("T")[0],
+        curator_place_id: curatorPlace.id,
+        _studioPlaceLoadFailed: true,
+      };
+    }
+    if (!place?.id) return null;
+
+    const tagsCp = parseDbStringArray(curatorPlace.tags);
+    const tagsPl = parseDbStringArray(place.tags);
+    const tagsMerged = tagsCp.length ? tagsCp : tagsPl;
     return {
       id: place.id,
       name: place.name,
@@ -318,13 +386,13 @@ function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
       tags: filterPlaceTagsForDisplay(tagsMerged),
       alcohol_types: alc,
       moods: moodArr,
-      is_public: !curatorPlace.is_archived,
+      is_public: isPublicListed,
       created_at: place.created_at
         ? new Date(place.created_at).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
       curator_place_id: curatorPlace.id,
     };
-  });
+  }).filter(Boolean);
 }
 
 /**
@@ -1483,13 +1551,15 @@ const sectionStyles = {
 export default function StudioHome() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth(); // 인증된 사용자 정보 가져오기
+  const { user, loading: authLoading } = useAuth(); // 인증된 사용자 정보 가져오기
   const { showToast } = useToast(); // Toast 훅 추가
   const mapRef = useRef(null); // 지도 ref 다시 추가
   /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
   const skipAddSectionResetRef = useRef(false);
   /** 잔 리스트 탭 진입 시에만 내 저장 폴더 접기 (다른 탭↔리스트 전환 시 기본 접힘) */
   const prevActiveSectionForListFolderRef = useRef(null);
+  /** 잔 아카이브 탭으로 전환할 때만 인사이트 RPC 재조회 (수정 저장은 길이 불변이라 기존 useEffect가 안 돎) */
+  const prevActiveSectionForArchiveStatsRef = useRef(null);
   /** 잔 아카이브 프로필 박스 — 보기 모드에서 사진만 바로 저장 */
   /** 프로필 수정 모드에서만 사용 — 원 밖 「사진 올리기」 */
   const profileEditAvatarFileRef = useRef(null);
@@ -2033,6 +2103,11 @@ export default function StudioHome() {
   const [archiveExtInsights, setArchiveExtInsights] = useState(() =>
     normalizeStudioArchiveExtendedInsights(null)
   );
+  /** studio_archive_extended_insights RPC 실패 시 메시지(빈 스타일과 구분) */
+  const [archiveInsightsError, setArchiveInsightsError] = useState("");
+  /** 겹친 장소 RPC 목록 — studio_curator_overlap_places */
+  const [overlapSharedPlacesList, setOverlapSharedPlacesList] = useState([]);
+  const [showOverlapPlacesList, setShowOverlapPlacesList] = useState(false);
 
   // 큐레이터 프로필 ID 확인 (테스트용)
   useEffect(() => {
@@ -2245,16 +2320,23 @@ export default function StudioHome() {
         top_save_count: 0,
         week_total_saves: 0,
       };
-      const [{ data: insightJson, error: insightErr }, overlapRpc, extRpc] =
-        await Promise.all([
-          supabase.rpc("studio_week_save_insights", { p_curator_id: userId }),
-          supabase.rpc("studio_curator_overlap_place_count", {
-            p_curator_id: userId,
-          }),
-          supabase.rpc("studio_archive_extended_insights", {
-            p_curator_id: userId,
-          }),
-        ]);
+      const [
+        { data: insightJson, error: insightErr },
+        overlapRpc,
+        extRpc,
+        overlapPlacesRpc,
+      ] = await Promise.all([
+        supabase.rpc("studio_week_save_insights", { p_curator_id: userId }),
+        supabase.rpc("studio_curator_overlap_place_count", {
+          p_curator_id: userId,
+        }),
+        supabase.rpc("studio_archive_extended_insights", {
+          p_curator_id: userId,
+        }),
+        supabase.rpc("studio_curator_overlap_places", {
+          p_curator_id: userId,
+        }),
+      ]);
       if (!insightErr && insightJson && typeof insightJson === "object") {
         weekInsight = {
           top_place_name: insightJson.top_place_name ?? null,
@@ -2279,14 +2361,34 @@ export default function StudioHome() {
         );
       }
 
+      const { data: overlapPlacesRaw, error: overlapPlacesErr } =
+        overlapPlacesRpc || {};
+      if (!overlapPlacesErr && Array.isArray(overlapPlacesRaw)) {
+        setOverlapSharedPlacesList(overlapPlacesRaw);
+      } else {
+        if (overlapPlacesErr) {
+          console.warn(
+            "studio_curator_overlap_places (Supabase에 마이그레이션 적용 필요):",
+            overlapPlacesErr.message
+          );
+        }
+        setOverlapSharedPlacesList([]);
+      }
+
       const { data: extRaw, error: extErr } = extRpc || {};
       if (!extErr && extRaw != null) {
+        setArchiveInsightsError("");
         setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(extRaw));
       } else {
         if (extErr) {
           console.warn(
             "studio_archive_extended_insights (Supabase에 마이그레이션 적용 필요):",
             extErr.message
+          );
+          setArchiveInsightsError(extErr.message);
+        } else {
+          setArchiveInsightsError(
+            "내 스타일 분석 응답이 비어 있습니다. Supabase에 최신 마이그레이션을 적용했는지 확인하세요."
           );
         }
         setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(null));
@@ -2331,8 +2433,18 @@ export default function StudioHome() {
   }, [user?.id, myPlaces.length, curatorProfile?.id]);
 
   useEffect(() => {
+    const prev = prevActiveSectionForArchiveStatsRef.current;
+    prevActiveSectionForArchiveStatsRef.current = activeSection;
+    if (!user?.id) return;
+    if (activeSection === "archive" && prev != null && prev !== "archive") {
+      void loadCuratorStats(user.id);
+    }
+  }, [activeSection, user?.id]);
+
+  useEffect(() => {
+    if (authLoading) return;
     loadStudioData();
-  }, []);
+  }, [authLoading, user?.id]);
 
   useEffect(() => {
     if (location.state?.openStudioList) {
@@ -2390,10 +2502,7 @@ export default function StudioHome() {
   const loadStudioData = async () => {
     try {
       setLoading(true);
-      // 현재 인증된 사용자 정보 가져오기
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
+      if (!user?.id) {
         console.log("인증된 사용자 없음, 기본 프로필 사용");
         // 인증되지 않은 경우 기본값 사용
         const defaultUser = {
@@ -2481,15 +2590,17 @@ export default function StudioHome() {
       }
       
       // curator_places.curator_id = auth.uid() (= curators.user_id)
-      const cpReq = supabase
-        .from("curator_places")
-        .select(`
-          *,
-          places (*)
-        `)
-        .eq("curator_id", user.id)
-        .order("created_at", { ascending: false });
-      const { data: curatorPlacesRaw, error: placesError } = await cpReq;
+      // 임베드 places(*) 대신 병합 로드 — jsonb tags 등으로 임베드가 비는 행이 있어도 리스트에 포함
+      let curatorPlacesRaw = [];
+      let placesError = null;
+      try {
+        curatorPlacesRaw = await fetchCuratorPlacesMergedWithPlaces(
+          supabase,
+          user.id
+        );
+      } catch (e) {
+        placesError = e;
+      }
 
       const curatorPlacesData = dedupeCuratorPlacesByPlaceId(
         curatorPlacesRaw
@@ -2581,7 +2692,7 @@ export default function StudioHome() {
     setSavedFoldersLoading(true);
     setSavedFoldersLoadError("");
     try {
-      const sfPromise = selectSystemFoldersOrdered(supabase);
+      const sfPromise = selectSystemFoldersOrdered(supabase, user.id);
       const savPromise = supabase
         .from("user_saved_places")
         .select(
@@ -2672,22 +2783,17 @@ export default function StudioHome() {
 
   /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 */
   const reloadStudioMyPlaces = useCallback(async () => {
-    const { data: authData } = await supabase.auth.getUser();
-    const u = authData?.user;
-    if (!u?.id) return;
-    const q = supabase
-      .from("curator_places")
-      .select(`*, places (*)`)
-      .eq("curator_id", u.id)
-      .order("created_at", { ascending: false });
-    const { data, error } = await q;
-    if (error) {
-      console.warn("reloadStudioMyPlaces:", error.message);
+    if (!user?.id) return;
+    let data = [];
+    try {
+      data = await fetchCuratorPlacesMergedWithPlaces(supabase, user.id);
+    } catch (e) {
+      console.warn("reloadStudioMyPlaces:", e?.message || e);
       return;
     }
     const deduped = dedupeCuratorPlacesByPlaceId(data);
     setMyPlaces(mapCuratorJoinRowsToMyPlaces(deduped));
-  }, [supabase]);
+  }, [user?.id]);
 
   const handleDeleteSavedFolder = async (key) => {
     if (!user?.id) return;
@@ -2789,8 +2895,9 @@ export default function StudioHome() {
         placeId: placeUuid,
         folderKeys,
         firstSavedFrom: "studio",
+        authUser: user,
       }),
-    []
+    [user]
   );
 
   useEffect(() => {
@@ -2988,6 +3095,8 @@ export default function StudioHome() {
           );
           if (cpMergeErr) {
             console.warn("curator_places 정리(수정 저장):", cpMergeErr);
+          } else if (user?.id) {
+            void loadCuratorStats(user.id);
           }
 
           const folderRes = await persistUserSavedPlaceFolders(
@@ -3003,7 +3112,16 @@ export default function StudioHome() {
           // 로컬 상태 업데이트
           setMyPlaces(prev => prev.map(place => 
             String(place.id) === String(effectiveEditPlaceId)
-              ? { ...place, ...updateData, latitude: updateData.lat, longitude: updateData.lng }
+              ? {
+                  ...place,
+                  ...updateData,
+                  latitude: updateData.lat,
+                  longitude: updateData.lng,
+                  tags: formData.tags || [],
+                  alcohol_type: formData.alcohol_type || "",
+                  atmosphere: formData.atmosphere || "",
+                  menu_reason: formData.menu_reason || "",
+                }
               : place
           ));
 
@@ -3491,10 +3609,7 @@ export default function StudioHome() {
 
   const handleSaveProfile = async () => {
     try {
-      // 현재 인증된 사용자 정보 가져오기
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
+      if (!user?.id) {
         alert("로그인이 필요합니다.");
         return;
       }
@@ -3634,18 +3749,14 @@ export default function StudioHome() {
       return;
     }
     try {
-      const {
-        data: { user: authUser },
-        error: authError,
-      } = await supabase.auth.getUser();
-      if (authError || !authUser) {
+      if (!user?.id) {
         showToast("로그인이 필요합니다.", "info", 3000);
         return;
       }
-      const publicUrl = await uploadCuratorProfileAvatarFile(file, authUser.id);
+      const publicUrl = await uploadCuratorProfileAvatarFile(file, user.id);
       const { ok, error: saveErr } = await persistCuratorProfileImageToSupabase(
         supabase,
-        authUser.id,
+        user.id,
         publicUrl
       );
       if (!ok) {
@@ -5244,9 +5355,13 @@ export default function StudioHome() {
               const normalizedQuery = listSearchQuery.trim().toLowerCase();
               
               if (filterType === "public") {
-                filteredPlaces = myPlaces.filter(place => place.is_public);
+                filteredPlaces = myPlaces.filter(
+                  (place) => place.is_public !== false
+                );
               } else if (filterType === "private") {
-                filteredPlaces = myPlaces.filter(place => !place.is_public);
+                filteredPlaces = myPlaces.filter(
+                  (place) => place.is_public === false
+                );
               }
 
               if (savedFolderKey && savedFolderPlaceIdSet) {
@@ -5267,6 +5382,11 @@ export default function StudioHome() {
                   );
                 });
               }
+
+              const folderFilteredEmpty =
+                Boolean(savedFolderKey) &&
+                myPlaces.length > 0 &&
+                filteredPlaces.length === 0;
               
               return filteredPlaces.length === 0 ? (
                 <div style={{
@@ -5277,7 +5397,13 @@ export default function StudioHome() {
                   color: "#666",
                   fontSize: "13px",
                 }}>
-                  {savedFolderKey
+                  {folderFilteredEmpty ? (
+                    <div style={{ color: "#e0c896", lineHeight: 1.55 }}>
+                      「내 저장」폴더가 선택된 상태입니다. 이 모드에서는 그 폴더에 넣은 장소만 보입니다.
+                      <br />
+                      <strong style={{ color: "#fff" }}>임포트·추천 잔 전체</strong>를 보려면 상단 폴더 칩을 다시 눌러 선택을 해제하세요.
+                    </div>
+                  ) : savedFolderKey
                     ? filterType === "public"
                       ? "이 폴더에 속한 공개 잔이 없습니다."
                       : filterType === "private"
@@ -5978,16 +6104,35 @@ export default function StudioHome() {
               <div style={styles.archiveStatLabel}>잔 기록</div>
               <div style={styles.archiveStatSub}>공개·비공개 포함</div>
             </div>
-            <div
-              style={styles.archiveStatCell}
-              title="내 잔 중 다른 큐레이터도 올린 장소 개수"
+            <button
+              type="button"
+              title="내 잔 중 다른 큐레이터도 올린 장소 — 탭하여 목록"
+              aria-expanded={showOverlapPlacesList}
+              aria-label={`겹친 장소 ${curatorStats.overlapSharedPlaceCount ?? 0}곳, 목록 ${showOverlapPlacesList ? "접기" : "펼치기"}`}
+              onClick={() => setShowOverlapPlacesList((v) => !v)}
+              style={{
+                ...styles.archiveStatCell,
+                cursor: "pointer",
+                width: "100%",
+                margin: 0,
+                font: "inherit",
+                color: "inherit",
+                textAlign: "center",
+                WebkitAppearance: "none",
+                appearance: "none",
+              }}
             >
               <div style={styles.archiveStatValue}>
                 {curatorStats.overlapSharedPlaceCount ?? 0}
               </div>
               <div style={styles.archiveStatLabel}>겹친 장소</div>
-              <div style={styles.archiveStatSub}>다른 큐레이터와 같은 곳</div>
-            </div>
+              <div style={styles.archiveStatSub}>
+                다른 큐레이터와 같은 곳
+                {(curatorStats.overlapSharedPlaceCount ?? 0) > 0
+                  ? " · 탭하여 목록"
+                  : ""}
+              </div>
+            </button>
             <div style={styles.archiveStatCell} title="유저들이 내 추천 장소에 저장한 횟수">
               <div style={styles.archiveStatValue}>{curatorStats.saveCount || 0}</div>
               <div style={styles.archiveStatLabel}>잔 반응</div>
@@ -6021,6 +6166,102 @@ export default function StudioHome() {
               <div style={styles.archiveStatSub}>탭하여 목록</div>
             </button>
           </div>
+
+          {showOverlapPlacesList && (
+            <div
+              role="region"
+              aria-label="겹친 장소 목록"
+              style={{
+                marginTop: "4px",
+                marginBottom: "16px",
+                padding: "12px 14px",
+                borderRadius: "10px",
+                backgroundColor: "#252525",
+                border: "1px solid rgba(255,255,255,0.08)",
+                maxHeight: "min(52vh, 320px)",
+                overflowY: "auto",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#bbb",
+                  marginBottom: "10px",
+                }}
+              >
+                다른 큐레이터와 같은 곳 ({overlapSharedPlacesList.length}곳)
+              </div>
+              {overlapSharedPlacesList.length === 0 ? (
+                <div style={{ color: "#777", fontSize: "12px", lineHeight: 1.5 }}>
+                  {(curatorStats.overlapSharedPlaceCount ?? 0) === 0
+                    ? "겹친 장소가 없습니다."
+                    : "목록을 불러오지 못했습니다. Supabase에 마이그레이션 studio_curator_overlap_places 적용 후 새로고침해 주세요."}
+                </div>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
+                  {overlapSharedPlacesList.map((row) => (
+                    <li
+                      key={String(row.place_id)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        backgroundColor: "#1e1e1e",
+                        border: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          color: "#eee",
+                          marginBottom: "4px",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {row.place_name || "(이름 없음)"}
+                      </div>
+                      {row.place_address ? (
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "#888",
+                            lineHeight: 1.4,
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {row.place_address}
+                        </div>
+                      ) : null}
+                      {row.other_curator_handles ? (
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "#7eb6d6",
+                            lineHeight: 1.45,
+                            marginTop: "6px",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          큐레이터: {row.other_curator_handles}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* 잔 아카이브 인사이트: 한 줄 TOP · 스타일 · 팔로워 행동 */}
           <div
@@ -6060,11 +6301,11 @@ export default function StudioHome() {
                   lineHeight: 1.35,
                 }}
               >
-                같은 한 줄이 붙은 장소들에 달린 저장 건수 합산
+                한 줄평을 적어 둔 장소마다 저장 수를 세고, 그중 반응이 많은 순(상위 5곳)
               </div>
               {archiveExtInsights.oneLineTop.length === 0 ? (
                 <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
-                  아직 한 줄이 없거나, 저장 반응이 없어요.
+                  아직 한 줄이 없거나, 저장이 0건이에요.
                 </div>
               ) : (
                 <ol
@@ -6077,7 +6318,22 @@ export default function StudioHome() {
                   }}
                 >
                   {archiveExtInsights.oneLineTop.map((row, idx) => (
-                    <li key={`${idx}-${row.text.slice(0, 24)}`} style={{ marginBottom: "6px" }}>
+                    <li
+                      key={row.placeId ? `${row.placeId}` : `${idx}-${row.text.slice(0, 24)}`}
+                      style={{ marginBottom: "6px" }}
+                    >
+                      {row.placeName ? (
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "rgba(255,255,255,0.45)",
+                            marginBottom: "2px",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {row.placeName}
+                        </div>
+                      ) : null}
                       <span style={{ fontWeight: 600 }}>“{row.text}”</span>
                       <span style={{ color: "rgba(255,255,255,0.5)", marginLeft: "6px" }}>
                         → 저장 {row.saves}건
@@ -6115,8 +6371,25 @@ export default function StudioHome() {
                   lineHeight: 1.35,
                 }}
               >
-                내 잔에 적어 둔 주종·분위기·태그·업종 비율(태그 개수 기준)
+                잔에 적은 값과 장소 마스터에 저장된 태그·주종·분위기·업종을 합쳐 비율을 계산합니다
               </div>
+              {archiveInsightsError ? (
+                <div
+                  role="alert"
+                  style={{
+                    color: "#e59866",
+                    fontSize: "11px",
+                    marginBottom: "12px",
+                    lineHeight: 1.45,
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    backgroundColor: "rgba(231, 76, 60, 0.12)",
+                    border: "1px solid rgba(231, 76, 60, 0.25)",
+                  }}
+                >
+                  통계를 불러오지 못했습니다: {archiveInsightsError}
+                </div>
+              ) : null}
               {(() => {
                 const blocks = [
                   { title: "주종", key: "alcohol", rows: archiveExtInsights.style.alcohol },

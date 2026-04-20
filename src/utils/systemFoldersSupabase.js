@@ -37,18 +37,36 @@ export function filterSystemFoldersVisibleToUser(rows, viewerUserId) {
   });
 }
 
-async function selectSystemFoldersOrderedWithViewerFilter(supabase, result) {
+/**
+ * @param {string | null | undefined} viewerUserId
+ *   명시하면 getUser() 생략(락 경쟁 완화). `undefined`만 전달(인자 생략) 시에만 getUser 폴백.
+ */
+async function selectSystemFoldersOrderedWithViewerFilter(
+  supabase,
+  result,
+  viewerUserId
+) {
   if (result.error || !Array.isArray(result.data)) return result;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let uid = viewerUserId;
+  if (uid === undefined) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[judo/auth] selectSystemFoldersOrdered: getUser() fallback — pass viewerUserId from useAuth() to reduce auth lock contention"
+      );
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    uid = user?.id ?? null;
+  }
   return {
     ...result,
-    data: filterSystemFoldersVisibleToUser(result.data, user?.id ?? null),
+    data: filterSystemFoldersVisibleToUser(result.data, uid ?? null),
   };
 }
 
-export async function selectSystemFoldersOrdered(supabase) {
+/** @param {string | null | undefined} [viewerUserId] — 있으면 세션 조회 생략 */
+export async function selectSystemFoldersOrdered(supabase, viewerUserId) {
   const full = "key, name, color, icon, sort_order, created_by";
   const minimal = "key, name, color, icon, sort_order";
 
@@ -59,7 +77,11 @@ export async function selectSystemFoldersOrdered(supabase) {
     .order("sort_order", { ascending: true });
   if (!rFull.error) {
     createdByColumnAvailable = true;
-    return selectSystemFoldersOrderedWithViewerFilter(supabase, rFull);
+    return selectSystemFoldersOrderedWithViewerFilter(
+      supabase,
+      rFull,
+      viewerUserId
+    );
   }
   if (missingCreatedByColumnError(rFull.error)) {
     createdByColumnAvailable = false;
@@ -67,7 +89,11 @@ export async function selectSystemFoldersOrdered(supabase) {
       .from("system_folders")
       .select(minimal)
       .order("sort_order", { ascending: true });
-    return selectSystemFoldersOrderedWithViewerFilter(supabase, rMin);
+    return selectSystemFoldersOrderedWithViewerFilter(
+      supabase,
+      rMin,
+      viewerUserId
+    );
   }
   return rFull;
 }

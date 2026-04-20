@@ -57,7 +57,7 @@ export default function StudioMySavedPage() {
     setLoadError("");
     try {
       const { data: sfRows, error: sfErr } =
-        await selectSystemFoldersOrdered(supabase);
+        await selectSystemFoldersOrdered(supabase, user.id);
 
       if (!sfErr && sfRows?.length) {
         setFolderDefs(sfRows);

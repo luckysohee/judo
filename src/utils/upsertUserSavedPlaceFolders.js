@@ -167,6 +167,8 @@ export async function upsertUserSavedPlaceFolders(
     firstSavedFrom = "studio",
     /** insert/update 시 user_saved_places에 함께 넣을 컬럼 (예: search_session_id) */
     extraSavedPlaceFields = null,
+    /** useAuth().user — 있으면 getUser() 생략 */
+    authUser: passedAuthUser = null,
   }
 ) {
   const pid = placeId != null ? String(placeId).trim() : "";
@@ -183,21 +185,28 @@ export async function upsertUserSavedPlaceFolders(
   }
   const uuidPlaceId = resolved.uuid;
 
-  const {
-    data: authData,
-    error: authErr,
-  } = await supabase.auth.getUser();
-  const authUser = authData?.user;
-  if (authErr || !authUser?.id) {
+  let resolvedUser = passedAuthUser;
+  let authErr = null;
+  if (!resolvedUser?.id) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[judo/auth] upsertUserSavedPlaceFolders: getUser() fallback — pass authUser from useAuth() to reduce auth lock contention"
+      );
+    }
+    const got = await supabase.auth.getUser();
+    authErr = got.error;
+    resolvedUser = got.data?.user;
+  }
+  if (authErr || !resolvedUser?.id) {
     return { ok: false, message: "로그인이 필요합니다." };
   }
 
-  const curatorPk = await fetchCuratorPkForAuthUser(supabase, authUser.id);
+  const curatorPk = await fetchCuratorPkForAuthUser(supabase, resolvedUser.id);
 
   const { data: uspRows, error: exErr } = await ownedUserSavedPlacesQuery(
     supabase,
     uuidPlaceId,
-    authUser.id,
+    resolvedUser.id,
     curatorPk
   );
 
@@ -212,7 +221,7 @@ export async function upsertUserSavedPlaceFolders(
   let savedPlaceId = await dedupeUserSavedPlacesForPlace(
     supabase,
     uspRows || [],
-    authUser.id
+    resolvedUser.id
   );
   let isNewInsert = false;
 
@@ -220,7 +229,7 @@ export async function upsertUserSavedPlaceFolders(
     const { data: inserted, error: insErr } = await supabase
       .from("user_saved_places")
       .insert({
-        user_id: authUser.id,
+        user_id: resolvedUser.id,
         place_id: uuidPlaceId,
         first_saved_from: firstSavedFrom,
         ...(extraSavedPlaceFields && typeof extraSavedPlaceFields === "object"
@@ -235,13 +244,13 @@ export async function upsertUserSavedPlaceFolders(
         const { data: againRows } = await ownedUserSavedPlacesQuery(
           supabase,
           uuidPlaceId,
-          authUser.id,
+          resolvedUser.id,
           curatorPk
         );
         savedPlaceId = await dedupeUserSavedPlacesForPlace(
           supabase,
           againRows || [],
-          authUser.id
+          resolvedUser.id
         );
       }
       if (!savedPlaceId) {

@@ -154,7 +154,15 @@ function checkinMarkerDecorationsRect(w, h, checkinMeta) {
 }
 
 /** 저장 폴더 전용 원형 마커 (큐레이터 등급 핀은 createMarkerImage 에서 buildCuratorPinSvg) */
-function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
+function createMarkerSvg(
+  place,
+  isSelected,
+  savedColor,
+  isLive,
+  userFolders,
+  checkinMeta,
+  shortCaption = ""
+) {
   const markerInfo = getFolderMarkerColor(place, userFolders);
   const tier = markerInfo;
 
@@ -296,8 +304,44 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
     `
     : "";
 
+  const capOnly = !courseCaptionRaw
+    ? String(shortCaption || "").trim().slice(0, 8)
+    : "";
+  const capW = capOnly
+    ? Math.min(82, capOnly.length * 7 + 14)
+    : 0;
+  const capBarH = capOnly ? 15 : 0;
+  const bottomCaptionBar = capOnly
+    ? `
+      <g>
+        <rect
+          x="${size / 2 - capW / 2}"
+          y="${size + 1}"
+          width="${capW}"
+          height="13"
+          rx="6.5"
+          fill="rgba(15,23,42,0.9)"
+          stroke="rgba(255,255,255,0.88)"
+          stroke-width="0.9"
+        />
+        <text
+          x="${size / 2}"
+          y="${size + 1 + 6.5}"
+          dominant-baseline="central"
+          text-anchor="middle"
+          font-size="8"
+          font-weight="800"
+          fill="#ffffff"
+          font-family="system-ui, -apple-system, Apple SD Gothic Neo, sans-serif"
+        >${escapeSvgText(capOnly)}</text>
+      </g>
+    `
+    : "";
+
+  const svgH = size + capBarH;
+
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${svgH}" viewBox="0 0 ${size} ${svgH}">
       <defs>
         <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
           <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
@@ -337,13 +381,22 @@ function createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, che
         </g>
         ${liveBadge}
         ${courseRouteBadge}
+        ${bottomCaptionBar}
         ${checkinMarkerDecorations(size, checkinMeta)}
       </g>
     </svg>
   `;
 }
 
-function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, checkinMeta) {
+function createMarkerImage(
+  place,
+  isSelected,
+  savedColor,
+  isLive,
+  userFolders,
+  checkinMeta,
+  mapShortCaption = ""
+) {
   const meta = {
     checkinCount: Number(checkinMeta?.checkinCount) || 0,
     showHotFlame: Boolean(checkinMeta?.showHotFlame),
@@ -361,7 +414,11 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
     const nameSafe = escapeSvgText(name);
     const nameWidth = Math.min(name.length * 8 + 10, 120);
     const totalWidth = Math.max(30, nameWidth);
-    const totalHeight = 35 + 25; // 핀 + 상호명 라벨
+    const capK = String(mapShortCaption || "").trim().slice(0, 8);
+    const capKW = capK
+      ? Math.min(78, Math.max(36, capK.length * 7 + 12))
+      : 0;
+    const totalHeight = 35 + 25 + (capK ? 14 : 0); // 핀 + 상호명 라벨 + 선택 자막
     const kakaoFlame = meta.showHotFlame
       ? `<text x="${totalWidth - 2}" y="15" text-anchor="end" font-size="13" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
       : "";
@@ -380,6 +437,31 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
         </defs>
         ${kakaoFlame}
         ${kakaoCount}
+        ${
+          capK
+            ? `<g>
+          <rect
+            x="${totalWidth / 2 - capKW / 2}"
+            y="${totalHeight - 34}"
+            width="${capKW}"
+            height="12"
+            rx="6"
+            fill="rgba(124,58,237,0.94)"
+            stroke="rgba(255,255,255,0.9)"
+            stroke-width="0.85"
+          />
+          <text
+            x="${totalWidth / 2}"
+            y="${totalHeight - 27}"
+            text-anchor="middle"
+            font-size="8"
+            font-weight="800"
+            fill="#ffffff"
+            font-family="system-ui, Apple SD Gothic Neo, sans-serif"
+          >${escapeSvgText(capK)}</text>
+        </g>`
+            : ""
+        }
         <!-- 상호명 라벨 (블랙 박스 + 흰 글씨) -->
         <rect
           x="${(totalWidth - nameWidth) / 2}"
@@ -453,6 +535,7 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
       savedColor,
       isLive,
       place,
+      mapShortCaption,
       checkinMarkerDecorationsSvg: checkinMarkerDecorationsRect(
         isSelected ? 42 : 34,
         isSelected ? 50 : 40,
@@ -472,13 +555,24 @@ function createMarkerImage(place, isSelected, savedColor, isLive, userFolders, c
     );
   }
 
-  const svg = createMarkerSvg(place, isSelected, savedColor, isLive, userFolders, meta);
+  const capForFolder = String(mapShortCaption || "").trim().slice(0, 8);
+  const svg = createMarkerSvg(
+    place,
+    isSelected,
+    savedColor,
+    isLive,
+    userFolders,
+    meta,
+    capForFolder
+  );
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 48 : 38;
+  const capBarH = !place?.isCoursePin && capForFolder ? 15 : 0;
+  const svgH = size + capBarH;
 
   return new window.kakao.maps.MarkerImage(
     encoded,
-    new window.kakao.maps.Size(size, size),
+    new window.kakao.maps.Size(size, svgH),
     {
       offset: new window.kakao.maps.Point(size / 2, size / 2),
     }
@@ -494,6 +588,8 @@ export default function createMarker({
   userFolders = null, // 추가
   /** @type {{ checkinCount?: number, showHotFlame?: boolean }} */
   checkinMeta,
+  /** 지도 위 짧은 자막 (한글 8자 이내) — 모바일 가시 */
+  mapShortCaption = "",
   onClick,
 }) {
   const meta = {
@@ -503,9 +599,28 @@ export default function createMarker({
   const marker = new window.kakao.maps.Marker({
     map,
     position: new window.kakao.maps.LatLng(place.lat, place.lng),
-    image: createMarkerImage(place, isSelected, savedColor, isLive, userFolders, meta),
+    image: createMarkerImage(
+      place,
+      isSelected,
+      savedColor,
+      isLive,
+      userFolders,
+      meta,
+      mapShortCaption
+    ),
     zIndex: isSelected ? 20 : 1,
   });
+
+  const placeName = String(place?.name || "장소").trim() || "장소";
+  let hoverTitle = `${placeName} · 주도`;
+  if (meta.checkinCount > 0) {
+    hoverTitle = `${placeName} · 오늘 ${meta.checkinCount}명 한잔`;
+  } else if (meta.showHotFlame) {
+    hoverTitle = `${placeName} · 🔥 오늘 핫한 술집`;
+  }
+  if (typeof marker.setTitle === "function") {
+    marker.setTitle(hoverTitle);
+  }
 
   window.kakao.maps.event.addListener(marker, "click", () => {
     if (typeof onClick === "function") {

@@ -1,10 +1,24 @@
 import { supabase } from "./client";
 
+/** Kakao 지도 level(숫자 클수록 멀리 봄) → bbox places 상한 */
+export function getLimitByZoom(level) {
+  if (typeof level !== "number" || !Number.isFinite(level)) return 250;
+  if (level >= 8) return 60;
+  if (level >= 6) return 120;
+  return 250;
+}
+
 /**
  * 현재 지도 bounds 안에 있는 장소만 가져옴 (지도용 최소 필드).
- * @param {{ south: number, west: number, north: number, east: number }} bounds
+ * @param {{ south: number, west: number, north: number, east: number, limit?: number }} bounds
  */
-export async function fetchPlacesByBounds({ south, west, north, east }) {
+export async function fetchPlacesByBounds({
+  south,
+  west,
+  north,
+  east,
+  limit = 1000,
+}) {
   const { data, error } = await supabase
     .from("places")
     .select("id, name, category, lat, lng")
@@ -13,7 +27,7 @@ export async function fetchPlacesByBounds({ south, west, north, east }) {
     .gte("lng", west)
     .lte("lng", east)
     .order("id", { ascending: true })
-    .limit(1000);
+    .limit(limit);
 
   if (error) {
     throw error;

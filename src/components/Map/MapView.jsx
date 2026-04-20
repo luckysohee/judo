@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from "react";
 import createMarker from "../../utils/createMarker";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { debounce } from "../../utils/debounce";
 import {
   resolvePlaceWgs84,
   isLikelyKoreaWgs84,
@@ -15,8 +16,10 @@ function isSameVenueOnMap(selected, place) {
   return Boolean(a && b && a === b);
 }
 import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
+import { situationFolderLabel } from "../../utils/situationPlaceFilter";
 
-const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 };
+/** 첫 진입: 성수역 일대 (주도 술 동선 탐색 기본 뷰) */
+const DEFAULT_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
 
 /** 클러스터 안 마커 개수 표기 (멀리서도 읽기 쉽게) */
 function formatClusterMarkerCount(size) {
@@ -33,28 +36,146 @@ function formatClusterMarkerCount(size) {
 /**
  * Kakao MarkerClusterer: calculator 길이 N → 스타일은 N+1단계
  * @see https://apis.map.kakao.com/web/documentation/#MarkerClusterer
+ * (단계를 촘촘히 — 네이버 지도처럼 덩어리가 덜 뭉치게)
  */
-const MAP_CLUSTER_CALCULATOR = [10, 40, 100, 200, 400, 800, 1600, 3200];
+const MAP_CLUSTER_CALCULATOR = [6, 14, 28, 55, 100, 180, 320, 600, 1200, 2400];
+
+/** 현재 지도 bounds 안 좌표를 가진 place 수 (밀도 계산용) */
+function getVisiblePlaceCountInBounds(map, placeList) {
+  if (!map || !Array.isArray(placeList) || placeList.length === 0) return 0;
+  let b;
+  try {
+    b = map.getBounds?.();
+  } catch {
+    return 0;
+  }
+  if (!b || typeof b.contain !== "function") return 0;
+
+  const LatLng = window.kakao?.maps?.LatLng;
+  if (!LatLng) return 0;
+
+  let n = 0;
+  for (const p of placeList) {
+    const c = resolvePlaceCoords(p);
+    if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+    try {
+      if (b.contain(new LatLng(c.lat, c.lng))) n += 1;
+    } catch {
+      /* ignore */
+    }
+  }
+  return n;
+}
+
+function getMapPixelSize(containerEl) {
+  const w = containerEl?.offsetWidth ?? 0;
+  const h = containerEl?.offsetHeight ?? 0;
+  return {
+    width: Math.max(1, w),
+    height: Math.max(1, h),
+  };
+}
+
+/**
+ * 줌 + 화면 안 마커 밀도(visible / px²)로 grid 조정. minLevel 6 고정.
+ * 서울 도심처럼 밀도 높으면 grid 작게, 지방·저밀도는 덜 쪼개짐.
+ */
+function getClusterOptionsWithDensity(level, visibleCount, mapWidth, mapHeight) {
+  const lv = typeof level === "number" && Number.isFinite(level) ? level : 8;
+  const area = Math.max(mapWidth * mapHeight, 1);
+  const density = visibleCount / area;
+
+  if (lv <= 6) {
+    if (visibleCount > 300) {
+      let gridSize = 22;
+      if (density > 0.00008) gridSize = 18;
+      else if (density > 0.00004) gridSize = 20;
+      return {
+        useClusterer: true,
+        gridSize,
+        minClusterSize: 2,
+        minLevel: 6,
+      };
+    }
+    return { useClusterer: false };
+  }
+
+  let gridSize = 36;
+  if (density > 0.00008) gridSize = 18;
+  else if (density > 0.00004) gridSize = 24;
+  else if (density > 0.00002) gridSize = 30;
+  else gridSize = 36;
+
+  if (lv <= 7) gridSize = Math.min(gridSize, 20);
+  else if (lv <= 9) gridSize = Math.min(gridSize, 28);
+  else gridSize = Math.min(gridSize, 36);
+
+  return {
+    useClusterer: true,
+    gridSize: Math.max(14, Math.round(gridSize)),
+    minClusterSize: 2,
+    minLevel: 6,
+  };
+}
+
+/** density 경계 근처 gridSize 출렁임 완화 */
+function stabilizeGridSize(nextGridSize, prevGridSize) {
+  if (prevGridSize == null || !Number.isFinite(prevGridSize)) {
+    return nextGridSize;
+  }
+  if (!Number.isFinite(nextGridSize)) return prevGridSize;
+  if (Math.abs(nextGridSize - prevGridSize) < 4) return prevGridSize;
+  return nextGridSize;
+}
+
+function snapshotClusterOpts(opts) {
+  if (!opts || !opts.useClusterer) {
+    return {
+      useClusterer: false,
+      gridSize: null,
+      minClusterSize: null,
+      minLevel: null,
+    };
+  }
+  return {
+    useClusterer: true,
+    gridSize: opts.gridSize,
+    minClusterSize: opts.minClusterSize,
+    minLevel: opts.minLevel,
+  };
+}
+
+function isSameClusterOptions(a, b) {
+  if (!a || !b) return false;
+  if (a.useClusterer !== b.useClusterer) return false;
+  if (!a.useClusterer && !b.useClusterer) return true;
+  return (
+    a.gridSize === b.gridSize &&
+    a.minClusterSize === b.minClusterSize &&
+    a.minLevel === b.minLevel
+  );
+}
 
 function mapClusterStyleAtIndex(index) {
   const i = Math.min(Math.max(0, index), MAP_CLUSTER_CALCULATOR.length);
-  const px = 44 + i * 7;
-  const fs = Math.min(17, 11 + Math.floor(i * 0.75));
+  const px = 44 + i * 6;
+  const fs = Math.min(16, 12 + Math.floor(i * 0.65));
   return {
     width: `${px}px`,
     height: `${px}px`,
-    borderRadius: "50%",
-    background: "rgba(255,255,255,0.08)",
+    borderRadius: `${Math.ceil(px / 2)}px`,
+    background: "rgba(255,255,255,0.72)",
     backdropFilter: "blur(10px)",
     WebkitBackdropFilter: "blur(10px)",
-    color: "#0a0a0a",
+    color: "#111",
     textAlign: "center",
     lineHeight: `${px}px`,
     fontSize: `${fs}px`,
-    fontWeight: "800",
+    fontWeight: "700",
     fontFamily:
       'system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif',
-    border: "1px solid rgba(255,255,255,0.42)",
+    border: "1px solid rgba(255,255,255,0.45)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
   };
 }
 
@@ -62,6 +183,20 @@ const MAP_CLUSTER_STYLES = Array.from(
   { length: MAP_CLUSTER_CALCULATOR.length + 1 },
   (_, idx) => mapClusterStyleAtIndex(idx)
 );
+
+function disposeClusterer(clusterer) {
+  if (!clusterer) return;
+  try {
+    clusterer.clear();
+  } catch {
+    /* ignore */
+  }
+  try {
+    clusterer.setMap(null);
+  } catch {
+    /* ignore */
+  }
+}
 
 function resolvePlaceCoords(place) {
   return resolvePlaceWgs84(place);
@@ -94,6 +229,19 @@ function placesViewportSignature(places) {
 }
 
 /** 체크인 랭킹 TOP과 place.id / place_id 등 매칭 */
+/** 마커 옆 짧은 자막 — 모바일에서도 SVG로 노출 */
+function buildMapShortCaption(place, situationFolderKey, checkinMeta) {
+  const cc = Number(checkinMeta?.checkinCount) || 0;
+  const hot = Boolean(checkinMeta?.showHotFlame);
+  if (situationFolderKey) {
+    const label = situationFolderLabel(situationFolderKey);
+    if (label) return label;
+  }
+  if (cc > 0) return cc > 99 ? "99+" : `${cc}명`;
+  if (hot) return "HOT";
+  return "";
+}
+
 function markerCheckinMeta(place, checkinCountByPlaceId, hotRankTopPlaceIds) {
   const ids = [place?.id, place?.place_id, place?.kakao_place_id, place?.kakaoId]
     .filter((x) => x != null && x !== "")
@@ -186,13 +334,26 @@ const MapView = forwardRef(({
    * 좌표가 아예 없는 행은 여전히 제외.
    */
   skipKoreaBBoxForCuratorPins = false,
+  /** 홈 「술 상황」칩 — system_folders.key (`after_party` | `group` | `date`) 또는 null */
+  situationFolderFilter = null,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  /** 지도 줌(표시용·동기화) */
+  const [mapClusterLevel, setMapClusterLevel] = useState(null);
+  /** bounds/밀도 재계산 → 마커 effect에서 클러스터 재생성 */
+  const [clusterLayoutTick, setClusterLayoutTick] = useState(0);
   const [overlayPlace, setOverlayPlace] = useState(null);
   const overlayRef = useRef(null);
   const markersRef = useRef([]);
   const clustererRef = useRef(null);
+  /** zoom / drag / idle → debounce 후 clusterLayoutTick 증가 */
+  const clusterLayoutDebounceRef = useRef(null);
+  const clusterViewportCleanupRef = useRef({ map: null, handler: null });
+  /** stabilizeGridSize용 이전 grid */
+  const prevClusterGridSizeRef = useRef(null);
+  /** 실제 적용 중인 클러스터 옵션 스냅샷 — 동일하면 인스턴스 재생성 생략 */
+  const lastAppliedClusterOptionsRef = useRef(null);
   const coursePolylineRef = useRef(null);
   const courseLegLabelOverlayRef = useRef(null);
   const arrivalPolylineRef = useRef(null);
@@ -208,6 +369,12 @@ const MapView = forwardRef(({
   }, [closePlacePreviewOnMapClick]);
 
   const userInteractedRef = useRef(false);
+  /** places 자동 fit / fetch 루프 차단 — 장소 클릭·내 위치·선택 이동 직후 보호(ms) */
+  const isLockedRef = useRef(false);
+  const lockTimerRef = useRef(null);
+  const lastMoveReasonRef = useRef(null);
+  /** places 데이터로 자동 setBounds/setCenter — 세션당 최초 1회만 (fetch 루프 차단) */
+  const hasAutoFitFromPlacesDataRef = useRef(false);
   const ignoreViewportEventRef = useRef(false);
   const viewportNotifyReadyRef = useRef(false);
   const onViewportChangeRef = useRef(onMapViewportChange);
@@ -215,6 +382,22 @@ const MapView = forwardRef(({
   useEffect(() => {
     onViewportChangeRef.current = onMapViewportChange;
   }, [onMapViewportChange]);
+
+  useEffect(() => {
+    clusterLayoutDebounceRef.current = debounce(() => {
+      try {
+        if (mapRef.current) {
+          const l = mapRef.current.getLevel();
+          if (typeof l === "number" && Number.isFinite(l)) {
+            setMapClusterLevel(l);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      setClusterLayoutTick((t) => t + 1);
+    }, 140);
+  }, []);
 
   const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
   useEffect(() => {
@@ -261,6 +444,33 @@ const MapView = forwardRef(({
       }, clearMs);
     }
   }, []);
+
+  const lockAutoMove = useCallback((ms = 800, reason = null) => {
+    if (typeof window === "undefined") return;
+    if (lockTimerRef.current != null) {
+      window.clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = null;
+    }
+    lastMoveReasonRef.current = reason;
+    isLockedRef.current = true;
+    lockTimerRef.current = window.setTimeout(() => {
+      isLockedRef.current = false;
+      lockTimerRef.current = null;
+    }, ms);
+  }, []);
+
+  const lockAutoMoveRef = useRef(lockAutoMove);
+  lockAutoMoveRef.current = lockAutoMove;
+
+  useEffect(
+    () => () => {
+      if (lockTimerRef.current != null && typeof window !== "undefined") {
+        window.clearTimeout(lockTimerRef.current);
+        lockTimerRef.current = null;
+      }
+    },
+    []
+  );
 
   const notifyViewportCenterChanged = useCallback(() => {
     if (
@@ -494,7 +704,10 @@ const MapView = forwardRef(({
       (position) => {
         const { latitude, longitude } = position.coords;
         const newLocation = { lat: latitude, lng: longitude };
-        
+
+        lastMoveReasonRef.current = "my-location";
+        lockAutoMove(800, "my-location");
+
         console.log('📍 위치 가져오기 성공:', newLocation);
         console.log('📍 mapRef.current:', mapRef.current);
         console.log('📍 mapReady:', mapReady);
@@ -559,16 +772,18 @@ const MapView = forwardRef(({
     () => ({
       moveToSeoulCenter: () => {
         if (!mapRef.current) return;
+        lockAutoMoveRef.current?.(800, "imperative-seoul");
         runWithIgnoredViewportEvents(() => {
           const moveLatLon = new window.kakao.maps.LatLng(
-            SEOUL_CENTER.lat,
-            SEOUL_CENTER.lng
+            DEFAULT_MAP_CENTER.lat,
+            DEFAULT_MAP_CENTER.lng
           );
           mapRef.current.setCenter(moveLatLon);
         });
       },
       moveToLocation: (lat, lng) => {
         if (!mapRef.current) return;
+        lockAutoMoveRef.current?.(800, "imperative-moveToLocation");
         runWithIgnoredViewportEvents(() => {
           const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
           mapRef.current.setCenter(moveLatLon);
@@ -590,6 +805,7 @@ const MapView = forwardRef(({
       },
       panTo: (lat, lng) => {
         if (!mapRef.current) return;
+        lockAutoMoveRef.current?.(800, "imperative-panTo");
         runWithIgnoredViewportEvents(() => {
           mapRef.current.panTo(
             new window.kakao.maps.LatLng(lat, lng)
@@ -621,6 +837,7 @@ const MapView = forwardRef(({
             (pos) => {
               const lat = pos.coords.latitude;
               const lng = pos.coords.longitude;
+              lockAutoMoveRef.current?.(800, "my-location-imperative");
               runWithIgnoredViewportEvents(() => {
                 const target = new window.kakao.maps.LatLng(lat, lng);
                 mapRef.current.panTo(target);
@@ -652,6 +869,7 @@ const MapView = forwardRef(({
       fitToPlaces: (placeList) => {
         if (!mapRef.current || !Array.isArray(placeList) || placeList.length === 0)
           return;
+        lockAutoMoveRef.current?.(800, "fit-to-places");
         runWithIgnoredViewportEvents(() => {
           const pts = [];
           for (const p of placeList) {
@@ -703,8 +921,8 @@ const MapView = forwardRef(({
               if (import.meta.env.DEV) console.log("지도 초기화 시작...");
               const map = new window.kakao.maps.Map(mapContainerRef.current, {
                 center: new window.kakao.maps.LatLng(
-                  SEOUL_CENTER.lat,
-                  SEOUL_CENTER.lng
+                  DEFAULT_MAP_CENTER.lat,
+                  DEFAULT_MAP_CENTER.lng
                 ),
                 level: 6,
               });
@@ -787,18 +1005,27 @@ const MapView = forwardRef(({
                 notifyViewportCenterChanged();
               });
 
-              if (window.kakao.maps.MarkerClusterer) {
-                clustererRef.current = new window.kakao.maps.MarkerClusterer({
-                  map,
-                  averageCenter: true,
-                  minLevel: 6,
-                  gridSize: 64,
-                  minClusterSize: 2,
-                  calculator: MAP_CLUSTER_CALCULATOR,
-                  styles: MAP_CLUSTER_STYLES,
-                  texts: (size) => formatClusterMarkerCount(size),
-                });
+              const scheduleClusterViewport = () => {
+                clusterLayoutDebounceRef.current?.();
+              };
+              clusterViewportCleanupRef.current = {
+                map,
+                handler: scheduleClusterViewport,
+              };
+              try {
+                const l0 = map.getLevel();
+                if (typeof l0 === "number" && Number.isFinite(l0)) {
+                  setMapClusterLevel(l0);
+                }
+              } catch {
+                /* ignore */
               }
+              setClusterLayoutTick((t) => t + 1);
+
+              ["zoom_changed", "dragend", "idle"].forEach((evt) => {
+                window.kakao.maps.event.addListener(map, evt, scheduleClusterViewport);
+              });
+
               viewportNotifyReadyRef.current = false;
               setMapReady(true);
               setTimeout(() => {
@@ -821,38 +1048,138 @@ const MapView = forwardRef(({
         });
     };
     initMap();
-    return () => { mounted = false; clearTimeout(retryTimer); };
+    return () => {
+      mounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      const { map: m, handler: h } = clusterViewportCleanupRef.current;
+      if (m && h && window.kakao?.maps?.event) {
+        ["zoom_changed", "dragend", "idle"].forEach((evt) => {
+          try {
+            window.kakao.maps.event.removeListener(m, evt, h);
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+      clusterViewportCleanupRef.current = { map: null, handler: null };
+      disposeClusterer(clustererRef.current);
+      clustererRef.current = null;
+      prevClusterGridSizeRef.current = null;
+      lastAppliedClusterOptionsRef.current = null;
+    };
   }, [notifyViewportCenterChanged]);
 
   // 2. 마커 업데이트 (데이터 변경 시에만 범위 조정)
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    // 마커 다시 그리기
-    markersRef.current.forEach(m => m.setMap(null));
-    if (clustererRef.current) clustererRef.current.clear();
-    
-    if (!places?.length) return;
-
-    const bounds = new window.kakao.maps.LatLngBounds();
-    const liveMarkers = [];
-    const clusterMarkers = [];
+    if (!places?.length) {
+      markersRef.current.forEach((m) => m.setMap(null));
+      disposeClusterer(clustererRef.current);
+      clustererRef.current = null;
+      prevClusterGridSizeRef.current = null;
+      lastAppliedClusterOptionsRef.current = null;
+      return;
+    }
 
     const validPlaces = places.filter((p) =>
       placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins)
     );
+
+    let rawLevel = 8;
+    try {
+      const l = mapRef.current.getLevel?.();
+      if (typeof l === "number" && Number.isFinite(l)) rawLevel = l;
+    } catch {
+      rawLevel =
+        mapClusterLevel != null && Number.isFinite(mapClusterLevel)
+          ? mapClusterLevel
+          : 8;
+    }
+
+    const { width: mapW, height: mapH } = getMapPixelSize(mapContainerRef.current);
+    const visibleInBounds = getVisiblePlaceCountInBounds(
+      mapRef.current,
+      validPlaces
+    );
+    const rawOpts = getClusterOptionsWithDensity(
+      rawLevel,
+      visibleInBounds,
+      mapW,
+      mapH
+    );
+
+    let clusterOpts;
+    if (rawOpts.useClusterer) {
+      const stabilizedGrid = stabilizeGridSize(
+        rawOpts.gridSize,
+        prevClusterGridSizeRef.current
+      );
+      clusterOpts = { ...rawOpts, gridSize: stabilizedGrid };
+      prevClusterGridSizeRef.current = stabilizedGrid;
+    } else {
+      clusterOpts = rawOpts;
+      prevClusterGridSizeRef.current = null;
+    }
+
+    const useCluster =
+      clusterOpts.useClusterer && Boolean(window.kakao?.maps?.MarkerClusterer);
+
+    const optsSnapshot = snapshotClusterOpts(clusterOpts);
+    const sameClusterSetup =
+      useCluster &&
+      clustererRef.current &&
+      isSameClusterOptions(optsSnapshot, lastAppliedClusterOptionsRef.current);
+
+    markersRef.current.forEach((m) => m.setMap(null));
+
+    if (useCluster) {
+      if (sameClusterSetup) {
+        try {
+          clustererRef.current.clear();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        disposeClusterer(clustererRef.current);
+        clustererRef.current = new window.kakao.maps.MarkerClusterer({
+          map: mapRef.current,
+          averageCenter: true,
+          minLevel: clusterOpts.minLevel,
+          gridSize: clusterOpts.gridSize,
+          minClusterSize: clusterOpts.minClusterSize,
+          calculator: MAP_CLUSTER_CALCULATOR,
+          styles: MAP_CLUSTER_STYLES,
+          texts: (size) => formatClusterMarkerCount(size),
+        });
+        lastAppliedClusterOptionsRef.current = optsSnapshot;
+      }
+    } else {
+      disposeClusterer(clustererRef.current);
+      clustererRef.current = null;
+      lastAppliedClusterOptionsRef.current = optsSnapshot;
+    }
+
+    const bounds = new window.kakao.maps.LatLngBounds();
+    const liveMarkers = [];
+    const clusterMarkers = [];
 
     const nextMarkers = validPlaces.map((p) => {
       const { lat, lng } = resolvePlaceCoords(p);
 
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
       const shouldCluster =
-        Boolean(clustererRef.current) &&
+        useCluster &&
         !isLive &&
         !p.isKakaoTypingPreview &&
         !p.isCoursePin;
 
       const checkinMeta = markerCheckinMeta(p, checkinCountByPlaceId, hotRankTopPlaceIds);
+      const mapShortCaption = buildMapShortCaption(
+        p,
+        situationFolderFilter,
+        checkinMeta
+      );
 
       const marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
@@ -863,7 +1190,9 @@ const MapView = forwardRef(({
         savedColor: savedColorMap?.[p.id] || null,
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
         checkinMeta,
+        mapShortCaption,
         onClick: (cp) => {
+          lockAutoMoveRef.current?.(800, "marker");
           ignoreMapClickRef.current = true;
 
           const wgs = resolvePlaceCoords(cp);
@@ -954,11 +1283,19 @@ const MapView = forwardRef(({
         preserveViewportOnPlacesChange ||
         (validPlaces.length > 0 &&
           validPlaces.every((p) => p.isKakaoTypingPreview));
-      const isStudioPage = window.location.pathname.includes('/studio');
-      if (
+
+      /** fetch → places 갱신 시 지도는 유지. 잠금·사용자 조작·미리보기·이미 1회 맞춤 후면 금지 */
+      const shouldAutoFitFromPlaces =
+        validPlaces.length > 0 &&
         !skipViewportAdjust &&
-        (!userInteractedRef.current || isStudioPage)
-      ) {
+        !isLockedRef.current &&
+        !userInteractedRef.current &&
+        !selectedPlace &&
+        !hasAutoFitFromPlacesDataRef.current;
+
+      if (shouldAutoFitFromPlaces) {
+        hasAutoFitFromPlacesDataRef.current = true;
+        lockAutoMove(900, "places-auto-fit");
         ignoreViewportEventRef.current = true;
         if (validPlaces.length === 1) {
           const c = resolvePlaceCoords(validPlaces[0]);
@@ -1005,6 +1342,10 @@ const MapView = forwardRef(({
     placesFitBoundsPadding,
     skipKoreaBBoxForCuratorPins,
     courseSecondPickMode,
+    lockAutoMove,
+    mapClusterLevel,
+    clusterLayoutTick,
+    situationFolderFilter,
   ]);
 
   /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */
@@ -1053,6 +1394,9 @@ const MapView = forwardRef(({
 
     const wgs = resolvePlaceCoords(selectedPlace);
     if (!wgs || !Number.isFinite(wgs.lat) || !Number.isFinite(wgs.lng)) return;
+
+    lastMoveReasonRef.current = "place-click";
+    lockAutoMove(800, "place-click");
 
     ignoreViewportEventRef.current = true;
     const releaseIgnore = () => {
@@ -1120,7 +1464,7 @@ const MapView = forwardRef(({
         /* ignore */
       }
     }, 160);
-  }, [selectedPlace, mapReady]);
+  }, [selectedPlace, mapReady, lockAutoMove]);
 
   // 코스 1차–2차 폴리라인 + 거리 라벨 (클릭·드래그를 가로채지 않게)
   useEffect(() => {
@@ -1653,6 +1997,7 @@ const MapView = forwardRef(({
 
   // center prop이 변경될 때 지도 중심 이동
   useEffect(() => {
+    if (userInteractedRef.current) return;
     if (mapReady && mapRef.current && center) {
       console.log("🗺️ 지도 중심 이동:", center);
       runWithIgnoredViewportEvents(() => {

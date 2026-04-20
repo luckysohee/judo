@@ -19,7 +19,7 @@ const TAB_HOT = "hot";
 const TAB_CURATORS = "curators";
 
 /**
- * 지도 위 가로 스트립: 탭 — 핫한 가게(24h 체크인 랭킹) / 떠오르는 큐레이터(7일)
+ * 지도 위 가로 스트립: 탭 — 오늘 한잔 랭킹(24h) / 떠오르는 큐레이터(7일)
  */
 export default function HotCheckinStrip({
   rankingTop5 = [],
@@ -202,7 +202,7 @@ export default function HotCheckinStrip({
               style={styles.tabBtn(tab === TAB_HOT)}
               onClick={() => setTab(TAB_HOT)}
             >
-              🔥 핫한 가게
+              🔥 오늘 한잔 TOP
             </button>
             <button
               type="button"
@@ -228,7 +228,7 @@ export default function HotCheckinStrip({
             <span style={{ fontSize: 15 }} aria-hidden>
               🔥
             </span>
-            핫한 가게
+            오늘 한잔 TOP
           </div>
         ) : (
           <div

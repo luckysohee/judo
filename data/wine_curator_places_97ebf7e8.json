@@ -1,0 +1,380 @@
+[
+  {
+    "name": "IRO 이로와인",
+    "address": "서울특별시 용산구 원효로1가 108-12 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "OMN와인",
+    "address": "경기도 수원시 팔달구 장안동 27-3 OMN",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "오프닝",
+    "address": "서울특별시 강남구 논현동 67-27 빌딩 모노폴 지하1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "PER",
+    "address": "서울특별시 중구 충무로3가 29-2 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "aff seoul",
+    "address": "서울특별시 중구 저동2가 15 4층 5층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "minu c",
+    "address": "서울특별시 강남구 도곡동 448",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "osiu",
+    "address": "서울특별시 용산구 남영동 114-17 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "테라스222",
+    "address": "서울특별시 종로구 신문로2가 1-222 M빌딩 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "가든한밤",
+    "address": "서울특별시 용산구 갈월동 53-21 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "갑을식당",
+    "address": "경상남도 함양군 함양읍 용평리 743-9",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "겪",
+    "address": "서울특별시 중구 필동2가 70-1 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "교자바 나비",
+    "address": "서울특별시 중구 신당동 366-548 1층 101호",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "구스타운",
+    "address": "서울특별시 용산구 한강로3가 40-137 3층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "까미노 데 남영",
+    "address": "서울특별시 용산구 남영동 90-3 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "까사델비노 청담점",
+    "address": "서울특별시 강남구 청담동 80-5 유경빌딩 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "꺄브뱅베",
+    "address": "전북특별자치도 전주시 완산구 경원동3가 93-21",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "꼬모",
+    "address": "서울특별시 영등포구 문래동4가 11-37 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "내추럴보이",
+    "address": "서울특별시 강남구 청담동 7-7",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "노체부어",
+    "address": "경기도 수원시 팔달구 장안동 26-4",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "뇨끼테리아 피우",
+    "address": "서울특별시 마포구 동교동 153-25 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "문래친친",
+    "address": "서울특별시 영등포구 문래동2가 45-8 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "방방",
+    "address": "서울특별시 용산구 용산동2가 1-684",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "버누드 BurnWood",
+    "address": "서울특별시 용산구 한강로3가 40-132 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "베비토레",
+    "address": "서울특별시 서초구 방배동 825-4 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "지지타운",
+    "address": "서울특별시 중구 을지로3가 349-1 3층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "보틀러",
+    "address": "서울특별시 중구 충무로3가 57-8 한영빌딩 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "봉비방",
+    "address": "서울특별시 용산구 이태원동 34-16 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "부베트",
+    "address": "서울특별시 강남구 신사동 603",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "불란서와이너리",
+    "address": "서울특별시 영등포구 영등포동1가 116-3 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "브네",
+    "address": "서울특별시 광진구 군자동 362-1 106호",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "비스트로앤트로",
+    "address": "서울특별시 강남구 신사동 567-25 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "와인바 빈집",
+    "address": "서울특별시 중구 저동2가 5-3 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "뽀르께노 스페니쉬 비스트로",
+    "address": "서울특별시 성북구 동소문동2가 33 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "사보르 페루아노",
+    "address": "경기도 평택시 신장동 319-4",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "사브서울",
+    "address": "서울특별시 강남구 신사동 580-5 B1",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "사운즈 한남",
+    "address": "서울특별시 용산구 한남동 657-128",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "사워그레이프",
+    "address": "경상남도 김해시 외동 332 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "사이드에이",
+    "address": "서울특별시 강남구 삼성동 75-8 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "살롱뒤부케",
+    "address": "서울특별시 강남구 청담동 117-14",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "오이너구리",
+    "address": "서울특별시 용산구 보광동 214-4 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "와일드덕칸틴",
+    "address": "서울특별시 용산구 용산동2가 44-8 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "용산피보",
+    "address": "서울특별시 용산구 한강로2가 426",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "유어네이키드치즈",
+    "address": "서울특별시 성동구 성수동1가 656-439 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "유진 공덕직영점",
+    "address": "서울특별시 마포구 염리동 157-5 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "인사동 음음",
+    "address": "서울특별시 종로구 관훈동 30-13 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "이다",
+    "address": "서울특별시 종로구 권농동 141-5",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "이태원교집합",
+    "address": "서울특별시 용산구 이태원동 79-3 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "인덕상점",
+    "address": "서울특별시 성동구 옥수동 517-29 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "정띠",
+    "address": "서울특별시 송파구 잠실동 210-43 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "조용한저녁",
+    "address": "서울특별시 마포구 창전동 2-31",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "주깨로",
+    "address": "서울특별시 중구 신당동 377-118 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "체보파스타바",
+    "address": "서울특별시 마포구 연남동 390-78 2.5층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "카본",
+    "address": "서울특별시 강남구 청담동 18-26 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "캥거루",
+    "address": "서울특별시 종로구 체부동 120-14 3층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "코너룸 성수",
+    "address": "서울특별시 성동구 성수동1가 13-441 2층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "쿠촐로 테라짜",
+    "address": "서울특별시 강남구 청담동 90-25",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "쿱 압구정로데오",
+    "address": "서울특별시 강남구 신사동 663-3 3층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "퀴바라",
+    "address": "서울특별시 성동구 성수동1가 656-1214 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "해임시",
+    "address": "서울특별시 강동구 천호동 453-24 4층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "혜화랑",
+    "address": "서울특별시 종로구 혜화동 163-16",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "화이트와인개러지",
+    "address": "서울특별시 강남구 청담동 12-15 지하1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "희릿",
+    "address": "서울특별시 성동구 성수동1가 656-1661 1층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  },
+  {
+    "name": "히든아워",
+    "address": "서울특별시 종로구 종로5가 395-8 4층",
+    "curator_id": "97ebf7e8-de95-4391-a564-c240573eb185",
+    "category": "와인"
+  }
+]

@@ -1,5 +1,4 @@
 import { resolvePlaceWgs84, isLikelyKoreaWgs84 } from "./placeCoords";
-import { fetchPlacesByBounds } from "../api/places";
 
 /**
  * places JOIN 시 최소 컬럼 — `api/places` bounds 조회와 동일 스키마만 사용.
@@ -50,26 +49,21 @@ function chunk(arr, size) {
 
 /**
  * bbox 안의 place_id 후보 → curator_places(+가벼운 places) 행.
- * 1단계: `api/places` 의 bounds 조회(최대 300) — 전체 places 스캔 없음.
+ * `placesRows`는 호출부에서 `fetchPlacesByBounds`로 한 번만 조회해 넘긴다(중복 API 방지).
  */
 export async function fetchCuratorPlaceRowsInBounds(
   supabase,
   bounds,
-  { chunkSize = 120 } = {}
+  { chunkSize = 120, placesRows: lightRows } = {}
 ) {
   const { sw, ne } = bounds;
   if (!sw || !ne) return { rows: [], error: null };
 
-  const south = sw.lat;
-  const west = sw.lng;
-  const north = ne.lat;
-  const east = ne.lng;
-
-  let lightRows;
-  try {
-    lightRows = await fetchPlacesByBounds({ south, west, north, east });
-  } catch (e) {
-    return { rows: [], error: e };
+  if (!Array.isArray(lightRows)) {
+    return {
+      rows: [],
+      error: new Error("fetchCuratorPlaceRowsInBounds: placesRows가 필요합니다."),
+    };
   }
 
   const placeIds = (lightRows || [])

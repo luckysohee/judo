@@ -3,10 +3,11 @@
  * curator_places 전용 정체성 (이 파일이 유일한 기준)
  * =============================================================================
  *
- * 단일 규칙:
+ * 단일 규칙 (Supabase 스키마와 동일):
+ *   `curator_places.curator_id`  ←  **`curators.user_id`** (같은 UUID)
  *   `public.curator_places.curator_id` === `public.curators.user_id` === `auth.users.id`
  *
- * 즉, **큐레이터 행 PK(`curators.id`)를 curator_places에 넣지 않는다.**
+ * **`curators.id`(PK)는 `curator_places.curator_id`에 넣지 않는다.** (팔로우 등 다른 테이블과 혼동 주의)
  * INSERT / `.eq("curator_id", …)` / RLS 비교는 항상 **로그인 사용자 UUID(auth uid)** 를 쓴다.
  *
  * 다른 테이블은 이름이 같아도 의미가 다를 수 있다. 예:

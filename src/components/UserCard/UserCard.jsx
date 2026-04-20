@@ -11,6 +11,7 @@ import {
   insertSystemFolderRow,
   selectSystemFoldersOrdered,
 } from "../../utils/systemFoldersSupabase";
+import { useAuth } from "../../context/AuthContext";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -326,6 +327,7 @@ const UserCard = ({
   adminTallSheet = false,
   layerZIndex = 1000,
 }) => {
+  const { user: sessionUser } = useAuth();
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
@@ -919,7 +921,7 @@ const UserCard = ({
 
       if (!useEmbedded) {
         const { data: sfRows, error: sfErr } =
-          await selectSystemFoldersOrdered(supabase);
+          await selectSystemFoldersOrdered(supabase, sessionUser?.id ?? null);
         if (!sfErr && sfRows?.length) {
           folderDefsForGrid = sfRows;
         }
@@ -1109,11 +1111,8 @@ const UserCard = ({
     if (!name) return;
     setSavedTabNewFolderSaving(true);
     try {
-      const {
-        data: { user: authUser },
-        error: authErr,
-      } = await supabase.auth.getUser();
-      if (authErr || !authUser) {
+      const authUser = sessionUser;
+      if (!authUser?.id) {
         alert("로그인이 필요합니다.");
         return;
       }

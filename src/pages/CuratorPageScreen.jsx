@@ -15,7 +15,7 @@ import {
   followCurator,
   unfollowCurator,
 } from "../utils/supabaseFollows";
-import { fetchPlacesByPrimaryCuratorId } from "../utils/supabasePlaces";
+import { fetchPlacesForCuratorPage } from "../utils/supabasePlaces";
 import {
   fetchCuratorLiveStatus,
   setCuratorLiveStatus,
@@ -112,7 +112,7 @@ export default function CuratorPageScreen() {
           setLiveState(false);
         }
 
-        const placesRows = await fetchPlacesByPrimaryCuratorId(curatorRow.id);
+        const placesRows = await fetchPlacesForCuratorPage(curatorRow);
 
         if (!mounted) return;
 

@@ -20,6 +20,8 @@ export function buildCuratorPinSvg({
   place,
   checkinMarkerDecorationsSvg,
   shadowOpacity = 0.2,
+  /** 지도 위 짧은 자막 (모바일 가시) — 최대 8자 */
+  mapShortCaption = "",
 }) {
   const pinW = isSelected ? 42 : 34;
   const pinH = isSelected ? 50 : 40;
@@ -104,6 +106,20 @@ export function buildCuratorPinSvg({
       </g>`
     : "";
 
+  const capRaw =
+    !courseCaptionRaw && mapShortCaption
+      ? String(mapShortCaption).trim().slice(0, 8)
+      : "";
+  const capW = capRaw
+    ? Math.min(78, Math.max(40, capRaw.length * 7 + 12))
+    : 0;
+  const mapShortCaptionBadge = capRaw
+    ? `<g>
+        <rect x="${pinW / 2 - capW / 2}" y="1" width="${capW}" height="13" rx="6.5" fill="rgba(124,58,237,0.94)" stroke="rgba(255,255,255,0.9)" stroke-width="0.9" />
+        <text x="${pinW / 2}" y="8.5" dominant-baseline="central" text-anchor="middle" font-size="8" font-weight="800" fill="#ffffff" font-family="system-ui, -apple-system, Apple SD Gothic Neo, sans-serif">${escapeSvgText(capRaw)}</text>
+      </g>`
+    : "";
+
   const pinBody = `
     <g transform="translate(${tx},${ty}) scale(${scale})">
       <path
@@ -130,6 +146,7 @@ export function buildCuratorPinSvg({
         ${overlapBadge}
         ${liveBadge}
         ${courseRouteBadge}
+        ${mapShortCaptionBadge}
         ${checkinMarkerDecorationsSvg}
       </g>
     </svg>`;

@@ -1,4 +1,4 @@
-﻿import {
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -101,7 +101,11 @@ import {
   filterJoinRowsToBounds,
 } from "../../utils/fetchCuratorPlacesInBounds";
 import { debounce } from "../../utils/debounce";
-import { fetchPlaceDetail, fetchPlacesByBounds } from "../../api/places";
+import {
+  fetchPlaceDetail,
+  fetchPlacesByBounds,
+  getLimitByZoom,
+} from "../../api/places";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   isWalkingRouteReasonable,
@@ -145,10 +149,17 @@ import {
   placeId,
 } from "../../utils/generateCourseOptions.js";
 import {
+  filterPlacesBySituationFolder,
+  SITUATION_FOLDER,
+} from "../../utils/situationPlaceFilter";
+import {
   COURSE_SECOND_SNACK_OPTIONS,
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
 } from "../../utils/placeTaxonomy.js";
+
+/** MapView `DEFAULT_MAP_CENTER` 와 동일 — 성수 첫 진입·칩 포커스 */
+const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
 
 /** 지도 「2차 찾기」— 1차 기준 후보·카카오 검색 반경 상한 */
 const COURSE_SECOND_FIND_DISTANCE_OPTIONS = [
@@ -1576,6 +1587,8 @@ export default function Home() {
   /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 */
   const curatorAttachRowsRef = useRef([]);
   const mapViewportLoadSeqRef = useRef(0);
+  /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
+  const mapViewportFetchCacheRef = useRef({});
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
   const placeDetailRequestSeqRef = useRef(0);
@@ -1585,7 +1598,7 @@ export default function Home() {
 
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
   const loadDbPlacesForViewport = useCallback(
-    async ({ boundsRaw }) => {
+    async ({ boundsRaw, mapLevel }) => {
       if (authLoading) return;
       if (String(query || "").trim()) return;
 
@@ -1598,59 +1611,99 @@ export default function Home() {
         return;
       }
 
-      const { south, west, north, east } = {
-        south: padded.sw.lat,
-        west: padded.sw.lng,
-        north: padded.ne.lat,
-        east: padded.ne.lng,
-      };
+      const south = padded.sw.lat;
+      const west = padded.sw.lng;
+      const north = padded.ne.lat;
+      const east = padded.ne.lng;
 
-      setMapViewportDbLoading(true);
-      try {
-        const [plainRows, joinResult] = await Promise.all([
-          fetchPlacesByBounds({ south, west, north, east }),
-          fetchCuratorPlaceRowsInBounds(supabase, padded),
-        ]);
-        if (seq !== mapViewportLoadSeqRef.current) return;
+      const level =
+        typeof mapLevel === "number" && Number.isFinite(mapLevel)
+          ? mapLevel
+          : typeof lastMapLevelRef.current === "number" &&
+              Number.isFinite(lastMapLevelRef.current)
+            ? lastMapLevelRef.current
+            : 6;
+      const limit = getLimitByZoom(level);
 
-        if (joinResult.error) {
-          console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
-          setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
-          if (import.meta.env.DEV) {
-            console.log(
-              "📦 bounds fetch 결과:",
-              (plainRows || []).length,
-              "(join 오류·places만)"
-            );
-          }
-          return;
-        }
+      const r6 = (n) => Number(n).toFixed(6);
+      const cacheKey = `${r6(south)}_${r6(west)}_${r6(north)}_${r6(east)}_${limit}`;
 
-        const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
-        const attached = attachCuratorsToCuratorPlaceRows(filtered, snap);
-        const fromJoin = buildFormattedPlacesFromJoin(attached);
-        const joinIdSet = new Set(fromJoin.map((p) => String(p.id)));
-        const extraPlain = (plainRows || []).filter(
-          (r) => r?.id != null && !joinIdSet.has(String(r.id))
-        );
-        const merged = [
-          ...fromJoin,
-          ...formatBoundsPlaceRowsForMap(extraPlain),
-        ];
-        setDbPlaces(merged);
+      let plainRows;
+      let joinResult;
 
-        if (import.meta.env.DEV) {
-          console.log("📦 bounds fetch 결과:", merged.length, {
-            큐레이터연결: fromJoin.length,
-            places만: extraPlain.length,
+      const cached = mapViewportFetchCacheRef.current[cacheKey];
+      if (cached) {
+        plainRows = cached.plainRows;
+        joinResult = { rows: cached.joinRows, error: null };
+      } else {
+        setMapViewportDbLoading(true);
+        try {
+          plainRows = await fetchPlacesByBounds({
+            south,
+            west,
+            north,
+            east,
+            limit,
           });
+          if (seq !== mapViewportLoadSeqRef.current) return;
+
+          joinResult = await fetchCuratorPlaceRowsInBounds(supabase, padded, {
+            placesRows: plainRows,
+          });
+          if (seq !== mapViewportLoadSeqRef.current) return;
+
+          if (!joinResult.error) {
+            mapViewportFetchCacheRef.current[cacheKey] = {
+              plainRows: [...(plainRows || [])],
+              joinRows: [...(joinResult.rows || [])],
+            };
+          }
+        } catch (e) {
+          console.error("❌ 뷰포트 추천 로드 실패:", e);
+          return;
+        } finally {
+          if (seq === mapViewportLoadSeqRef.current) {
+            setMapViewportDbLoading(false);
+          }
         }
-      } catch (e) {
-        console.error("❌ 뷰포트 추천 로드 실패:", e);
-      } finally {
-        if (seq === mapViewportLoadSeqRef.current) {
-          setMapViewportDbLoading(false);
+      }
+
+      if (seq !== mapViewportLoadSeqRef.current) return;
+
+      if (joinResult.error) {
+        console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
+        setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
+        if (import.meta.env.DEV) {
+          console.log(
+            "📦 bounds fetch 결과:",
+            (plainRows || []).length,
+            "(join 오류·places만)"
+          );
         }
+        return;
+      }
+
+      const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
+      const attached = attachCuratorsToCuratorPlaceRows(filtered, snap);
+      const fromJoin = buildFormattedPlacesFromJoin(attached);
+      const joinIdSet = new Set(fromJoin.map((p) => String(p.id)));
+      const extraPlain = (plainRows || []).filter(
+        (r) => r?.id != null && !joinIdSet.has(String(r.id))
+      );
+      const merged = [
+        ...fromJoin,
+        ...formatBoundsPlaceRowsForMap(extraPlain),
+      ];
+      setDbPlaces(merged);
+
+      if (import.meta.env.DEV) {
+        console.log("📦 bounds fetch 결과:", merged.length, {
+          큐레이터연결: fromJoin.length,
+          places만: extraPlain.length,
+          캐시: Boolean(cached),
+          level,
+          limit,
+        });
       }
     },
     [authLoading, query]
@@ -1717,6 +1770,14 @@ export default function Home() {
   const [mapViewportSearchLock, setMapViewportSearchLock] = useState(false);
 
   const [legendCategory, setLegendCategory] = useState(null);
+  /** 홈 상단 술 상황 칩 — system_folders.key 와 연결 */
+  const [situationFolderFilter, setSituationFolderFilter] = useState(null);
+
+  useEffect(() => {
+    if (String(query || "").trim()) {
+      setSituationFolderFilter(null);
+    }
+  }, [query]);
   /** 지도 빈 곳 클릭 시 증가 → MarkerLegend 패널 닫기 */
   const [markerGuideMapCloseTick, setMarkerGuideMapCloseTick] = useState(0);
 
@@ -3134,9 +3195,6 @@ export default function Home() {
 
     loadCurators();
 
-    checkAdmin();
-    checkCurator();
-    
     return () => {
       cancelled = true;
     };
@@ -3295,14 +3353,12 @@ export default function Home() {
   // 사용자 저장 장소 폴더 정보 로드
   const loadUserSavedPlaces = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
+      if (!user?.id) {
         setUserSavedPlaces({});
         return;
       }
 
-      // 임시: RPC 함수 없이 직접 쿼리
+      // 임시: RPC 함수 없이 직접 쿼리 (getUser() 생략 — useAuth user로 락 경쟁 완화)
       const { data, error } = await supabase
         .from('user_saved_places')
         .select(`
@@ -3616,6 +3672,15 @@ export default function Home() {
   }, [courseSecondPickMode, courseSecondPulseMapPlaces]);
 
   const mapDisplayedPlacesWithLegend = useMemo(() => {
+    const applySituation = (rows) =>
+      situationFolderFilter
+        ? filterPlacesBySituationFolder(
+            rows,
+            situationFolderFilter,
+            userSavedPlaces
+          )
+        : rows;
+
     const mergePlaces = (basePlaces, extraPlaces) => {
       const merged = [...basePlaces, ...extraPlaces];
       const seen = new Set();
@@ -3643,11 +3708,13 @@ export default function Home() {
       }
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return appendSelectedPlacePinIfMissing(
-        applyLegendCategoryFilter(
-          dedupeMapPlacesByKakaoId(
-            mergePlaces(mergePlaces(kPins, displayedPlaces), kTypingPins)
-          ),
-          legendCategory
+        applySituation(
+          applyLegendCategoryFilter(
+            dedupeMapPlacesByKakaoId(
+              mergePlaces(mergePlaces(kPins, displayedPlaces), kTypingPins)
+            ),
+            legendCategory
+          )
         ),
         selectedPlace
       );
@@ -3659,23 +3726,29 @@ export default function Home() {
         /** 2차 후보 고르는 중엔 펄스 전용 스냅샷 사용(미리보기 열어도 깜빡임 유지) */
         if (courseSecondPulsePlacesForMap) {
           return appendSelectedPlacePinIfMissing(
-            applyLegendCategoryFilter(
-              courseSecondPulsePlacesForMap,
-              legendCategory
+            applySituation(
+              applyLegendCategoryFilter(
+                courseSecondPulsePlacesForMap,
+                legendCategory
+              )
             ),
             selectedPlace
           );
         }
         return appendSelectedPlacePinIfMissing(
-          applyLegendCategoryFilter(
-            dedupeMapPlacesByKakaoId([...kakaoPlaces]),
-            legendCategory
+          applySituation(
+            applyLegendCategoryFilter(
+              dedupeMapPlacesByKakaoId([...kakaoPlaces]),
+              legendCategory
+            )
           ),
           selectedPlace
         );
       }
       return appendSelectedPlacePinIfMissing(
-        applyLegendCategoryFilter(dedupeMapPlacesByKakaoId([]), legendCategory),
+        applySituation(
+          applyLegendCategoryFilter(dedupeMapPlacesByKakaoId([]), legendCategory)
+        ),
         selectedPlace
       );
     }
@@ -3694,7 +3767,12 @@ export default function Home() {
         });
       }
       return appendSelectedPlacePinIfMissing(
-        applyLegendCategoryFilter(dedupeMapPlacesByKakaoId(merged), legendCategory),
+        applySituation(
+          applyLegendCategoryFilter(
+            dedupeMapPlacesByKakaoId(merged),
+            legendCategory
+          )
+        ),
         selectedPlace
       );
     }
@@ -3720,7 +3798,7 @@ export default function Home() {
     }
 
     return appendSelectedPlacePinIfMissing(
-      applyLegendCategoryFilter(result, legendCategory),
+      applySituation(applyLegendCategoryFilter(result, legendCategory)),
       selectedPlace
     );
   }, [
@@ -3738,6 +3816,8 @@ export default function Home() {
     selectedCurators,
     courseSecondPulsePlacesForMap,
     selectedPlace,
+    situationFolderFilter,
+    userSavedPlaces,
   ]);
 
   // 카카오 자동완성 후보가 전국·광역으로 퍼질 수 있어 fitToPlaces(setBounds)를 쓰면
@@ -5365,6 +5445,121 @@ const handleClearSearch = () => {
             minHeight: 0,
           }}
         >
+          {!selectedPlace &&
+          !String(query || "").trim() &&
+          !isAiSearching ? (
+            <>
+              <div style={styles.drinksHero} aria-hidden={false}>
+                <p style={styles.drinksHeroTitle}>
+                  오늘 1차 어디서 시작할까?
+                </p>
+                <p style={styles.drinksHeroSub}>성수에서 한잔 시작하기</p>
+              </div>
+              <div
+                style={styles.drinksSituationStrip}
+                role="group"
+                aria-label="술 상황 빠른 안내"
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...styles.drinksSituationChip,
+                    ...(situationFolderFilter === SITUATION_FOLDER.secondRound
+                      ? styles.drinksSituationChipActive
+                      : {}),
+                  }}
+                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.secondRound}
+                  onClick={() => {
+                    setSituationFolderFilter((prev) => {
+                      const next =
+                        prev === SITUATION_FOLDER.secondRound
+                          ? null
+                          : SITUATION_FOLDER.secondRound;
+                      if (next === SITUATION_FOLDER.secondRound) {
+                        mapRef.current?.moveToLocation?.(
+                          SEONGSU_MAP_CENTER.lat,
+                          SEONGSU_MAP_CENTER.lng
+                        );
+                        showToast(
+                          "저장 폴더「2차」·태그에 맞는 장소만 지도에 표시해요.",
+                          "info",
+                          2800
+                        );
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span style={styles.drinksSituationEmoji} aria-hidden>
+                    🍺
+                  </span>
+                  <span>지금 2차 가기 좋은 곳</span>
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.drinksSituationChip,
+                    ...(situationFolderFilter === SITUATION_FOLDER.firstMeal
+                      ? styles.drinksSituationChipActive
+                      : {}),
+                  }}
+                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.firstMeal}
+                  onClick={() => {
+                    setSituationFolderFilter((prev) => {
+                      const next =
+                        prev === SITUATION_FOLDER.firstMeal
+                          ? null
+                          : SITUATION_FOLDER.firstMeal;
+                      if (next === SITUATION_FOLDER.firstMeal) {
+                        showToast(
+                          "저장「회식」·배 채우기 태그에 맞는 장소만 보여요.",
+                          "info",
+                          2800
+                        );
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span style={styles.drinksSituationEmoji} aria-hidden>
+                    🥢
+                  </span>
+                  <span>1차로 배 채우기</span>
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.drinksSituationChip,
+                    ...(situationFolderFilter === SITUATION_FOLDER.vibe
+                      ? styles.drinksSituationChipActive
+                      : {}),
+                  }}
+                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.vibe}
+                  onClick={() => {
+                    setSituationFolderFilter((prev) => {
+                      const next =
+                        prev === SITUATION_FOLDER.vibe
+                          ? null
+                          : SITUATION_FOLDER.vibe;
+                      if (next === SITUATION_FOLDER.vibe) {
+                        showToast(
+                          "저장「데이트」·분위기 태그에 맞는 장소만 보여요.",
+                          "info",
+                          2800
+                        );
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span style={styles.drinksSituationEmoji} aria-hidden>
+                    🍷
+                  </span>
+                  <span>분위기 있게 한잔</span>
+                </button>
+              </div>
+            </>
+          ) : null}
           {mapViewportDbLoading && (
             <div
               role="status"
@@ -5426,6 +5621,7 @@ const handleClearSearch = () => {
               selectedCurators.length > 0 &&
               !showSavedOnly
             }
+            situationFolderFilter={situationFolderFilter}
             courseOverlay={courseMapOverlay}
             courseOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
             onCourseOverlayDismiss={dismissCourseMapPath}
@@ -5999,7 +6195,7 @@ const handleClearSearch = () => {
                 onExampleClick={handleSearchSubmit}
                 placeholder={
                   homeSearchChannel === "basic"
-                    ? "장소 검색 · 지역·역·상호 (예: 강남 맥주집, OO포차)"
+                    ? "술집 검색 · 성수 맥주, 회식, 2차 포차 (역·상호)"
                     : "AI 주도 검색 · 동대문 근처 고기 먹고 해산물 포차 갈까? 3명이야…"
                 }
                 showChannelTabs
@@ -7452,6 +7648,82 @@ const styles = {
     position: "relative",
     width: "100%",
     height: "100%",
+  },
+
+  /** 첫 화면 술앱 톤 — UI는 대중, 카피는 1차·2차·한잔 */
+  drinksHero: {
+    position: "absolute",
+    top: 56,
+    left: 14,
+    right: 14,
+    zIndex: 24,
+    pointerEvents: "none",
+  },
+  drinksHeroTitle: {
+    margin: 0,
+    fontSize: "clamp(16px, 3.9vw, 18px)",
+    fontWeight: 800,
+    letterSpacing: "-0.03em",
+    color: "#0f172a",
+    lineHeight: 1.28,
+    textShadow:
+      "0 1px 0 rgba(255,255,255,0.92), 0 0 14px rgba(255,255,255,0.78)",
+  },
+  drinksHeroSub: {
+    margin: "6px 0 0",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#9a3412",
+    letterSpacing: "-0.01em",
+    textShadow: "0 1px 0 rgba(255,255,255,0.88)",
+  },
+  drinksSituationStrip: {
+    position: "absolute",
+    left: "50%",
+    transform: "translateX(-50%)",
+    bottom: "calc(198px + env(safe-area-inset-bottom, 0px))",
+    width: "min(720px, calc(100% - 24px))",
+    zIndex: 88,
+    display: "flex",
+    flexDirection: "row",
+    gap: 8,
+    overflowX: "auto",
+    padding: "2px 0 6px",
+    pointerEvents: "auto",
+    WebkitOverflowScrolling: "touch",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+  },
+  drinksSituationChip: {
+    flex: "0 0 auto",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.55)",
+    background: "rgba(255,255,255,0.42)",
+    backdropFilter: "blur(18px) saturate(180%)",
+    WebkitBackdropFilter: "blur(18px) saturate(180%)",
+    boxShadow:
+      "0 4px 18px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
+    fontSize: 12,
+    fontWeight: 750,
+    color: "#1e293b",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    WebkitTapHighlightColor: "transparent",
+  },
+  drinksSituationEmoji: {
+    fontSize: 14,
+    lineHeight: 1,
+  },
+  drinksSituationChipActive: {
+    border: "1px solid rgba(124, 58, 237, 0.55)",
+    background: "rgba(124, 58, 237, 0.14)",
+    color: "#5b21b6",
+    boxShadow:
+      "0 4px 16px rgba(124, 58, 237, 0.18), inset 0 1px 0 rgba(255,255,255,0.85)",
   },
 
   headerOverlay: {

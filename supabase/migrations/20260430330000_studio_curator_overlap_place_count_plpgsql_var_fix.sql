@@ -1,6 +1,5 @@
--- 잔 아카이브: 다른 큐레이터와 같은 place_id 를 공유하는 내 추천 장소 개수
--- (supabase/migrations/20260416120000_studio_curator_overlap_place_count.sql 과 동일)
--- RETURN(단일 SQL) 안에 PL 변수 금지 — studio_curator_overlap_places 와 동일 CTE
+-- Fix 42P01: relation "v_curator_row_id" / "v_my_ids" does not exist
+-- RETURN(…) 안의 PL/pgSQL 변수·unnest(변수) 제거 → studio_curator_overlap_places 와 동일한 순수 SQL CTE
 
 CREATE OR REPLACE FUNCTION public.studio_curator_overlap_place_count(p_curator_id uuid)
 RETURNS integer
@@ -52,3 +51,5 @@ GRANT EXECUTE ON FUNCTION public.studio_curator_overlap_place_count(uuid) TO aut
 
 COMMENT ON FUNCTION public.studio_curator_overlap_place_count(uuid) IS
   '큐레이터 본인(auth): 내 추천 장소 중 다른 큐레이터도 추천한 place_id 개수 (잔 아카이브 겹침)';
+
+NOTIFY pgrst, 'reload schema';
