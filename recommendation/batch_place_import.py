@@ -14,7 +14,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
-from supabase import create_client
 
 from recommendation.save_place_import_tmp import save_to_db
 
@@ -40,18 +39,14 @@ def _load_jobs() -> list[dict[str, Any]]:
 def main() -> None:
     load_dotenv(dotenv_path=ROOT / ".env")
     jobs = _load_jobs()
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
     for job in jobs:
         save_to_db(
-            sb,
             location=str(job["location"]),
             category=str(job["category"]),
             content=str(job["content"]),
             selected_items=job.get("selected_items"),
             deduped_items=job.get("deduped_items"),
             places=job.get("places"),
-            title=job.get("title"),
-            curator_id=str(job.get("curator_id") or "judo_ai"),
             raw_data=job.get("raw_data"),
         )
 
