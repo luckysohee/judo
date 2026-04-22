@@ -520,6 +520,8 @@ const MapView = forwardRef(({
   const [currentLocation, setCurrentLocation] = useState(null);
   const currentLocationMarkerRef = useRef(null);
   const [isLocating, setIsLocating] = useState(false);
+  /** 지도 인스턴스 생성 직후·getCurrentPosition이 먼저 끝난 경우 1회 보정용 */
+  const pendingMyLocationPanRef = useRef(null);
 
   // 특정 키워드가 포함된 카테고리 확인
   const isTargetCategory = (categoryName) => {
@@ -681,6 +683,52 @@ const MapView = forwardRef(({
     }
   }, [currentLocation, mapReady]);
 
+  /**
+   * 내 위치로 지도 맞춤 — panTo 직후 setLevel(4)를 같이 쓰면 SDK에서 팬이 취소되는 경우가 있어
+   * setCenter + 필요 시에만 setLevel 로 즉시 반영 (moveToLocation·center prop과 동일 패턴)
+   */
+  const applyMyLocationViewport = useCallback((lat, lng) => {
+    const map = mapRef.current;
+    if (!map) return false;
+    try {
+      runWithIgnoredViewportEvents(() => {
+        try {
+          map.relayout?.();
+        } catch {
+          /* ignore */
+        }
+        map.setCenter(new window.kakao.maps.LatLng(lat, lng));
+        let lv;
+        try {
+          lv = map.getLevel?.();
+        } catch {
+          lv = undefined;
+        }
+        if (typeof lv === "number" && Number.isFinite(lv) && lv !== 4) {
+          map.setLevel(4);
+        }
+      });
+      setTimeout(() => {
+        onViewportChangeRef.current?.({ lat, lng });
+      }, 480);
+      return true;
+    } catch (error) {
+      console.error("📍 지도 이동 실패:", error);
+      return false;
+    }
+  }, [runWithIgnoredViewportEvents]);
+
+  /** GPS가 지도 생성보다 먼저 끝난 경우: mapReady 후 보정 이동 */
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const p = pendingMyLocationPanRef.current;
+    if (!p) return;
+    pendingMyLocationPanRef.current = null;
+    lastMoveReasonRef.current = "my-location";
+    lockAutoMove(800, "my-location");
+    applyMyLocationViewport(p.lat, p.lng);
+  }, [mapReady, lockAutoMove, applyMyLocationViewport]);
+
   // 내 위치 버튼 핸들러
   const handleGetCurrentLocation = () => {
     console.log('📍 내 위치 버튼 클릭');
@@ -708,30 +756,13 @@ const MapView = forwardRef(({
         lastMoveReasonRef.current = "my-location";
         lockAutoMove(800, "my-location");
 
-        console.log('📍 위치 가져오기 성공:', newLocation);
-        console.log('📍 mapRef.current:', mapRef.current);
-        console.log('📍 mapReady:', mapReady);
-        
         setCurrentLocation(newLocation);
-        
-        // 지도 중심 이동
-        if (mapRef.current && mapReady) {
-          try {
-            runWithIgnoredViewportEvents(() => {
-              const target = new window.kakao.maps.LatLng(latitude, longitude);
-              console.log("📍 지도 이동 시작:", target);
-              mapRef.current.panTo(target);
-              mapRef.current.setLevel(4);
-              console.log("📍 지도 이동 완료");
-            });
-            setTimeout(() => {
-              onViewportChangeRef.current?.({ lat: latitude, lng: longitude });
-            }, 480);
-          } catch (error) {
-            console.error('📍 지도 이동 실패:', error);
-          }
+
+        // mapReady state는 비동기 콜백에서 오래된 클로저로 false일 수 있음 — ref만 보면 됨
+        if (!applyMyLocationViewport(latitude, longitude)) {
+          pendingMyLocationPanRef.current = { lat: latitude, lng: longitude };
         } else {
-          console.log('📍 mapRef 또는 mapReady 없음:', { mapRef: mapRef.current, mapReady });
+          pendingMyLocationPanRef.current = null;
         }
         
         setIsLocating(false);
@@ -839,8 +870,23 @@ const MapView = forwardRef(({
               const lng = pos.coords.longitude;
               lockAutoMoveRef.current?.(800, "my-location-imperative");
               runWithIgnoredViewportEvents(() => {
-                const target = new window.kakao.maps.LatLng(lat, lng);
-                mapRef.current.panTo(target);
+                const map = mapRef.current;
+                if (!map) return;
+                try {
+                  map.relayout?.();
+                } catch {
+                  /* ignore */
+                }
+                map.setCenter(new window.kakao.maps.LatLng(lat, lng));
+                let lv;
+                try {
+                  lv = map.getLevel?.();
+                } catch {
+                  lv = undefined;
+                }
+                if (typeof lv === "number" && Number.isFinite(lv) && lv !== 4) {
+                  map.setLevel(4);
+                }
               });
               if (onCurrentLocationChange) {
                 onCurrentLocationChange({ lat, lng });

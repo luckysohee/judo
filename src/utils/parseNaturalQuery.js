@@ -3,6 +3,7 @@ import {
   parseSearchQuery,
   REGION_KEYWORDS,
   stripPartyAndChatterForKeywordSearch,
+  normalizeHangulSearchCompounds,
 } from "./searchParser.js";
 
 /** 큐레이터 닉·핸들 검색용 (사전과 무관하게 유지) */
@@ -50,7 +51,7 @@ function stripFromNormalized(remainingText, phrase) {
  * 반환 형태는 기존 호환용 필드 유지.
  */
 export default function parseNaturalQuery(rawQuery = "") {
-  const original = String(rawQuery || "").trim();
+  const original = normalizeHangulSearchCompounds(String(rawQuery || "").trim());
   if (!original) {
     return {
       original: rawQuery,

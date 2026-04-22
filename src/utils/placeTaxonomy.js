@@ -20,6 +20,7 @@ export const STUDIO_LIQUOR_TYPE_OPTIONS = [
 export const STUDIO_ATMOSPHERE_OPTIONS = [
   "조용한",
   "활기찬",
+  "시끄러운",
   "아기자기한",
   "세련된",
   "편안한",
@@ -42,6 +43,7 @@ export const COURSE_SECOND_SNACK_OPTIONS = [
 /** Studio 분위기 선택 → places.vibes·태그 등과 맞추기 위한 별칭 */
 const VIBE_PREF_ALIASES = {
   활기찬: ["활기찬", "시끌벅적", "시끌", "북적", "활기"],
+  시끄러운: ["시끄러운", "시끄", "시끌", "우당탕", "소란"],
   조용한: ["조용한", "조용", "잔잔", "차분"],
   편안한: ["편안한", "편한", "부담없"],
   로맨틱한: ["로맨틱한", "로맨틱", "데이트", "분위기좋은"],
@@ -183,11 +185,15 @@ export function anjuExpandedTokenMatchesHaystack(hayLower, tok) {
 }
 
 /** 임베딩·의도 파서가 같은 어휘 집합을 보도록 짧은 문맥 블록 */
+/** 큐레이터 잔 올리기·검색 가중치와 맞춘 추천 태그(일부는 Studio 칩에도 동일 표기) */
+export const STUDIO_CURATOR_SITUATION_TAGS = ["낮술", "혼술", "야장", "2차"];
+
 export function taxonomyContextBlockForMl() {
   return [
     "JUDO_TAX",
     "liquor:" + STUDIO_LIQUOR_TYPE_OPTIONS.join("|"),
     "vibe:" + STUDIO_ATMOSPHERE_OPTIONS.join("|"),
     "snack:" + COURSE_SECOND_SNACK_OPTIONS.join("|"),
+    "situation:" + STUDIO_CURATOR_SITUATION_TAGS.join("|"),
   ].join(" ");
 }

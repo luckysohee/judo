@@ -33,6 +33,7 @@ import {
   selectSystemFoldersOrdered,
   insertSystemFolderRow,
   deleteOwnCustomSystemFolder,
+  updateOwnCustomSystemFolder,
 } from "../../utils/systemFoldersSupabase";
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
@@ -72,6 +73,18 @@ const SYSTEM_SAVED_FOLDER_KEY_SET = new Set(
 function isDeletableUserSavedFolderKey(key) {
   return key != null && !SYSTEM_SAVED_FOLDER_KEY_SET.has(String(key));
 }
+
+/** 잔 리스트 — 사용자 폴더 편집 시 색 선택 */
+const SAVED_FOLDER_EDIT_COLOR_OPTIONS = [
+  "#2ECC71",
+  "#FF5A5F",
+  "#8E44AD",
+  "#3498DB",
+  "#F39C12",
+  "#1ABC9C",
+  "#E74C3C",
+  "#95A5A6",
+];
 
 function studioSavedPlaceLabel(item) {
   if (!item || typeof item !== "object") return "이름 없음";
@@ -1584,6 +1597,10 @@ export default function StudioHome() {
   const [savedFoldersEditMode, setSavedFoldersEditMode] = useState(false);
   const [savedFolderMetaDeletingKey, setSavedFolderMetaDeletingKey] =
     useState(null);
+  const [savedFolderEditName, setSavedFolderEditName] = useState("");
+  const [savedFolderEditColor, setSavedFolderEditColor] = useState("#3498DB");
+  const [savedFolderEditIcon, setSavedFolderEditIcon] = useState("📁");
+  const [savedFolderMetaSaving, setSavedFolderMetaSaving] = useState(false);
   /** 잔 리스트 — 내 저장 폴더 패널 (기본 접힘) */
   const [savedFoldersListExpanded, setSavedFoldersListExpanded] = useState(false);
 
@@ -1923,20 +1940,30 @@ export default function StudioHome() {
 
   // 자주 쓰는 태그 (핵심 10개)
   const frequentTags = [
-    "혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임",
+    "혼술", "낮술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임",
     "야장", "룸 있음", "24시간", "가성비", "안주맛집",
     "성시경", "성시경맛집", "최자", "최자맛집", "소안맛집", "소주안주맛집",
+    "사장님 친절",
+    "사장님 불친절",
+    "직원 친절",
+    "직원 불친절",
   ];
 
   // 전체 태그 목록 (분위기성 태그 제외)
   const allTags = {
-    "🍺 상황": ["혼술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임"],
-    "🔥 특징": ["야장", "바테이블", "늦게까지", "24시간", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
+    "🍺 상황": ["혼술", "낮술", "데이트", "소개팅", "1차", "2차", "회식", "친구모임", "가족모임"],
+    "🔥 특징": ["야장", "바테이블(닷지)", "늦게까지", "24시간", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
     "🎭 감성": ["노포감성", "로컬맛집", "감성술집", "숨은맛집"], // 분위기성 태그 제거
     "📺 화제": ["성시경", "성시경맛집", "최자", "최자맛집", "소안맛집", "소주안주맛집"],
     "🍽 안주": ["국물안주", "해산물강함", "고기안주", "가벼운안주", "안주다양"],
-    "🧭 공간": ["단체가능", "테이블넓음", "룸 있음", "예약필수", "웨이팅짧음", "2차추천", "바테이블(닷지)"],
-    "🚽 화장실": ["실내 화장실", "외부 화장실", "위생적인", "비위생적인"]
+    "🧭 공간": ["단체가능", "테이블넓음", "룸 있음", "예약필수", "웨이팅짧음", "2차추천"],
+    "🚽 화장실": ["실내 화장실", "외부 화장실", "위생적인", "비위생적인"],
+    "🙋 맞이·서비스": [
+      "사장님 친절",
+      "사장님 불친절",
+      "직원 친절",
+      "직원 불친절",
+    ],
   };
 
   // 모든 태그를 평탄화한 리스트 (자동완성용)
@@ -1968,7 +1995,12 @@ export default function StudioHome() {
 
   // 자동완성 핸들러
   const handleInputChange = (value) => {
-    setFormData(prev => ({ ...prev, name_address: value }));
+    setFormData(prev => ({
+      ...prev,
+      name_address: value,
+      // 직접 수정하면 자동완성으로 고른 카카오 ID는 무효 (검색 시 잘못된 장소 매칭 방지)
+      kakao_place_id: null,
+    }));
     
     // API를 통해 자동완성 제안 가져오기
     fetchSuggestions(value);
@@ -1981,20 +2013,42 @@ export default function StudioHome() {
       (suggestion?.id != null ? String(suggestion.id) : null);
     const kid =
       sid && /^\d+$/.test(String(sid)) ? String(sid) : null;
+    const lat = suggestion.lat;
+    const lng = suggestion.lng;
+    const latOk =
+      typeof lat === "number" &&
+      Number.isFinite(lat) &&
+      typeof lng === "number" &&
+      Number.isFinite(lng);
+
     setFormData(prev => ({ 
       ...prev, 
       name_address: suggestion.place_name || suggestion,
-      latitude: suggestion.lat || null,
-      longitude: suggestion.lng || null,
+      latitude: latOk ? lat : null,
+      longitude: latOk ? lng : null,
       kakao_place_id: kid,
     }));
     setSearchSuggestions([]);
     setShowSuggestions(false);
     setSelectedSuggestionIndex(-1);
     
-    // 지도 중심 이동 (좌표가 있는 경우)
-    if (suggestion.lat && suggestion.lng) {
-      setMapCenter({ lat: suggestion.lat, lng: suggestion.lng });
+    // 지도 마커는 `places` ← searchedPlaces 로만 그려짐 — 선택 직후에도 핀 표시
+    if (latOk) {
+      setMapCenter({ lat, lng });
+      setSearchedPlaces([
+        {
+          place_name: suggestion.place_name,
+          address_name: suggestion.address_name,
+          y: String(lat),
+          x: String(lng),
+          kakao_place_id: kid,
+        },
+      ]);
+      try {
+        mapRef.current?.moveToLocation?.(lat, lng);
+      } catch {
+        /* ignore */
+      }
     }
   };
 
@@ -2781,6 +2835,16 @@ export default function StudioHome() {
     [sortedSavedFolders]
   );
 
+  useEffect(() => {
+    if (!savedFoldersEditMode || !savedFolderKey) return;
+    if (!isDeletableUserSavedFolderKey(savedFolderKey)) return;
+    const f = savedFolderDefs.find((x) => x.key === savedFolderKey);
+    if (!f) return;
+    setSavedFolderEditName(String(f.name || "").trim());
+    setSavedFolderEditColor(f.color || "#3498DB");
+    setSavedFolderEditIcon(String(f.icon || "📁").trim() || "📁");
+  }, [savedFoldersEditMode, savedFolderKey, savedFolderDefs]);
+
   /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 */
   const reloadStudioMyPlaces = useCallback(async () => {
     if (!user?.id) return;
@@ -2840,6 +2904,36 @@ export default function StudioHome() {
       setSavedFolderMetaDeletingKey(null);
     }
   };
+
+  const handleSaveSavedFolderMeta = useCallback(async () => {
+    if (!savedFolderKey || !isDeletableUserSavedFolderKey(savedFolderKey)) return;
+    const name = savedFolderEditName.trim();
+    if (!name) {
+      alert("폴더 이름을 입력해주세요.");
+      return;
+    }
+    setSavedFolderMetaSaving(true);
+    try {
+      const { error } = await updateOwnCustomSystemFolder(supabase, savedFolderKey, {
+        name,
+        color: savedFolderEditColor,
+        icon: savedFolderEditIcon.trim() || "📁",
+      });
+      if (error) {
+        alert(error.message || "폴더를 수정하지 못했습니다.");
+        return;
+      }
+      await loadSavedFolders();
+    } finally {
+      setSavedFolderMetaSaving(false);
+    }
+  }, [
+    savedFolderKey,
+    savedFolderEditName,
+    savedFolderEditColor,
+    savedFolderEditIcon,
+    loadSavedFolders,
+  ]);
 
   const savedFolderSelectedPlaces = savedFolderKey
     ? savedByFolder[savedFolderKey] || []
@@ -3883,109 +3977,162 @@ export default function StudioHome() {
       return;
     }
 
+    const preferredKakaoId =
+      formData.kakao_place_id &&
+      /^\d+$/.test(String(formData.kakao_place_id))
+        ? String(formData.kakao_place_id)
+        : null;
+
     try {
-      console.log("📍 주소 검색 시도...");
-      // 주소 검색
-      const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
-        headers: {
-          "Authorization": `KakaoAK ${apiKey}`
-        }
-      });
-      
-      console.log("📋 주소 검색 응답 상태:", addressResponse.status);
-      
-      if (!addressResponse.ok) {
-        console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
-        throw new Error(`주소 검색 실패: ${addressResponse.status}`);
-      }
+      // 자동완성으로 이미 고른 카카오 장소가 있으면 주소 API가 다른 지번/도로명에 먼저 매칽될 수 있음 → 주소 검색 생략
+      const skipAddressSearch = Boolean(preferredKakaoId);
 
-      const addressData = await addressResponse.json();
-      console.log("📋 주소 검색 결과:", addressData);
-
-      if (addressData.documents && addressData.documents.length > 0) {
-        const firstResult = addressData.documents[0];
-        const lat = parseFloat(firstResult.y);
-        const lng = parseFloat(firstResult.x);
-        
-        console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
-        
-        // 상태 업데이트
-        setFormData(prev => ({
-          ...prev,
-          name_address: firstResult.address_name || formData.name_address,
-          latitude: lat,
-          longitude: lng,
-          kakao_place_id: null,
-        }));
-        
-        setMapCenter({ lat, lng });
-        
-        // 검색 결과를 places에 추가
-        setSearchedPlaces([{
-          place_name: firstResult.address_name || formData.name_address,
-          address_name: firstResult.address_name,
-          y: lat.toString(),
-          x: lng.toString(),
-          kakao_place_id: null,
-        }]);
-        
-      } else {
-        // 키워드 검색 (장소명으로 검색)
-        console.log("🔍 키워드 검색 시도...");
-        const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
+      if (!skipAddressSearch) {
+        console.log("📍 주소 검색 시도...");
+        const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
           headers: {
             "Authorization": `KakaoAK ${apiKey}`
           }
         });
         
-        console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
+        console.log("📋 주소 검색 응답 상태:", addressResponse.status);
         
-        if (!keywordResponse.ok) {
-          console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
-          throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
+        if (!addressResponse.ok) {
+          console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
+          throw new Error(`주소 검색 실패: ${addressResponse.status}`);
         }
 
-        const keywordData = await keywordResponse.json();
-        console.log("📋 키워드 검색 결과:", keywordData);
+        const addressData = await addressResponse.json();
+        console.log("📋 주소 검색 결과:", addressData);
 
-        if (keywordData.documents && keywordData.documents.length > 0) {
-          const firstResult = keywordData.documents[0];
+        if (addressData.documents && addressData.documents.length > 0) {
+          const firstResult = addressData.documents[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
-          console.log("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
+          console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
           
-          // 상태 업데이트
-          const kpId =
-            firstResult.id != null && /^\d+$/.test(String(firstResult.id))
-              ? String(firstResult.id)
-              : null;
           setFormData(prev => ({
             ...prev,
-            name_address: firstResult.place_name,
+            name_address: firstResult.address_name || formData.name_address,
             latitude: lat,
             longitude: lng,
-            kakao_place_id: kpId,
+            kakao_place_id: null,
           }));
           
           setMapCenter({ lat, lng });
           
-          // 검색 결과를 places에 추가
-          const searchResult = [{
-            place_name: firstResult.place_name,
+          setSearchedPlaces([{
+            place_name: firstResult.address_name || formData.name_address,
             address_name: firstResult.address_name,
             y: lat.toString(),
             x: lng.toString(),
-            kakao_place_id: kpId,
-          }];
-          
-          console.log("🔍 검색 결과 데이터:", searchResult);
-          setSearchedPlaces(searchResult);
-          
-        } else {
-          console.warn("⚠️ 검색 결과 없음");
-          alert("검색 결과를 찾을 수 없습니다. 지도를 클릭하여 위치를 선택해주세요.");
+            kakao_place_id: null,
+          }]);
+          try {
+            mapRef.current?.moveToLocation?.(lat, lng);
+          } catch {
+            /* ignore */
+          }
+          return;
         }
+      }
+
+      // 키워드 검색 — size=1 이면 순위 1건만 와서 자동완성에서 고른 가게와 달라질 수 있음
+      console.log("🔍 키워드 검색 시도...");
+      const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(formData.name_address)}&size=15`, {
+        headers: {
+          "Authorization": `KakaoAK ${apiKey}`
+        }
+      });
+      
+      console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
+      
+      if (!keywordResponse.ok) {
+        console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
+        throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
+      }
+
+      const keywordData = await keywordResponse.json();
+      console.log("📋 키워드 검색 결과:", keywordData);
+
+      const docs = keywordData.documents || [];
+      let chosen =
+        preferredKakaoId != null
+          ? docs.find((d) => String(d.id) === preferredKakaoId)
+          : null;
+      if (!chosen && docs.length > 0) {
+        chosen = docs[0];
+      }
+
+      if (
+        !chosen &&
+        preferredKakaoId &&
+        formData.latitude != null &&
+        formData.longitude != null
+      ) {
+        const lat = Number(formData.latitude);
+        const lng = Number(formData.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          console.log("✅ 키워드 목록에 없음 — 자동완성에서 받은 좌표 유지:", preferredKakaoId);
+          setMapCenter({ lat, lng });
+          setSearchedPlaces([
+            {
+              place_name: formData.name_address,
+              address_name: formData.name_address,
+              y: String(lat),
+              x: String(lng),
+              kakao_place_id: preferredKakaoId,
+            },
+          ]);
+          try {
+            mapRef.current?.moveToLocation?.(lat, lng);
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+      }
+
+      if (!chosen) {
+        console.warn("⚠️ 검색 결과 없음");
+        alert("검색 결과를 찾을 수 없습니다. 지도를 클릭하여 위치를 선택해주세요.");
+        return;
+      }
+
+      const lat = parseFloat(chosen.y);
+      const lng = parseFloat(chosen.x);
+      
+      console.log("✅ 키워드 찾음:", { lat, lng, place: chosen.place_name });
+      
+      const kpId =
+        chosen.id != null && /^\d+$/.test(String(chosen.id))
+          ? String(chosen.id)
+          : null;
+      setFormData(prev => ({
+        ...prev,
+        name_address: chosen.place_name,
+        latitude: lat,
+        longitude: lng,
+        kakao_place_id: kpId,
+      }));
+      
+      setMapCenter({ lat, lng });
+      
+      const searchResult = [{
+        place_name: chosen.place_name,
+        address_name: chosen.address_name || chosen.road_address_name,
+        y: String(chosen.y),
+        x: String(chosen.x),
+        kakao_place_id: kpId,
+      }];
+      
+      console.log("🔍 검색 결과 데이터:", searchResult);
+      setSearchedPlaces(searchResult);
+      try {
+        mapRef.current?.moveToLocation?.(lat, lng);
+      } catch {
+        /* ignore */
       }
     } catch (error) {
       console.error("❌ StudioHome 검색 오류:", error);
@@ -4344,7 +4491,7 @@ export default function StudioHome() {
                 key={`map-${activeSection}`}
                 ref={mapRef}
                 places={searchedPlaces.length > 0 ? searchedPlaces.map(place => ({
-                  id: place.place_name,
+                  id: place.kakao_place_id || `studio-${place.place_name}-${place.y}-${place.x}`,
                   name: place.place_name,
                   address: place.address_name,
                   latitude: parseFloat(place.y),
@@ -5149,23 +5296,92 @@ export default function StudioHome() {
                 !savedFoldersLoading &&
                 savedFolderKey &&
                 isDeletableUserSavedFolderKey(savedFolderKey) ? (
-                  <div style={listSavedFolderStyles.folderDeleteBarWrap}>
-                    <button
-                      type="button"
-                      disabled={
-                        savedFolderMetaDeletingKey === savedFolderKey
-                      }
-                      onClick={() => handleDeleteSavedFolder(savedFolderKey)}
-                      style={listSavedFolderStyles.folderDeleteBarBtn}
-                    >
-                      {savedFolderMetaDeletingKey === savedFolderKey
-                        ? "삭제 중…"
-                        : `「${
-                            sortedSavedFolders.find((x) => x.key === savedFolderKey)
-                              ?.name ?? "폴더"
-                          }」 삭제`}
-                    </button>
-                  </div>
+                  <>
+                    <div style={listSavedFolderStyles.folderEditWrap}>
+                      <div style={listSavedFolderStyles.folderEditTitle}>
+                        폴더 수정
+                      </div>
+                      <div style={listSavedFolderStyles.folderEditRow}>
+                        <input
+                          type="text"
+                          value={savedFolderEditIcon}
+                          onChange={(e) =>
+                            setSavedFolderEditIcon(e.target.value.slice(0, 4))
+                          }
+                          placeholder="📁"
+                          title="아이콘(이모지)"
+                          aria-label="폴더 아이콘"
+                          style={listSavedFolderStyles.folderEditIconInput}
+                        />
+                        <input
+                          type="text"
+                          value={savedFolderEditName}
+                          onChange={(e) => setSavedFolderEditName(e.target.value)}
+                          placeholder="폴더 이름"
+                          aria-label="폴더 이름"
+                          style={listSavedFolderStyles.folderEditNameInput}
+                          onKeyDown={(e) =>
+                            e.key === "Enter" &&
+                            !savedFolderMetaSaving &&
+                            handleSaveSavedFolderMeta()
+                          }
+                        />
+                      </div>
+                      <div
+                        style={listSavedFolderStyles.folderEditColorRow}
+                        role="group"
+                        aria-label="폴더 색"
+                      >
+                        {SAVED_FOLDER_EDIT_COLOR_OPTIONS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setSavedFolderEditColor(c)}
+                            style={{
+                              ...listSavedFolderStyles.folderEditColorBtn,
+                              backgroundColor: c,
+                              outline:
+                                savedFolderEditColor === c
+                                  ? "2px solid #fff"
+                                  : "none",
+                            }}
+                            aria-label={`색 ${c}`}
+                            aria-pressed={savedFolderEditColor === c}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={
+                          savedFolderMetaSaving ||
+                          savedFolderMetaDeletingKey === savedFolderKey
+                        }
+                        onClick={handleSaveSavedFolderMeta}
+                        style={listSavedFolderStyles.folderEditSaveBtn}
+                      >
+                        {savedFolderMetaSaving ? "저장 중…" : "변경 저장"}
+                      </button>
+                    </div>
+                    <div style={listSavedFolderStyles.folderDeleteBarWrap}>
+                      <button
+                        type="button"
+                        disabled={
+                          savedFolderMetaDeletingKey === savedFolderKey ||
+                          savedFolderMetaSaving
+                        }
+                        onClick={() => handleDeleteSavedFolder(savedFolderKey)}
+                        style={listSavedFolderStyles.folderDeleteBarBtn}
+                      >
+                        {savedFolderMetaDeletingKey === savedFolderKey
+                          ? "삭제 중…"
+                          : `「${
+                              sortedSavedFolders.find(
+                                (x) => x.key === savedFolderKey
+                              )?.name ?? "폴더"
+                            }」 삭제`}
+                      </button>
+                    </div>
+                  </>
                 ) : null}
                 {savedFoldersEditMode &&
                 !savedFoldersLoading &&
@@ -5186,9 +5402,9 @@ export default function StudioHome() {
                       </p>
                     ) : (
                       <p style={listSavedFolderStyles.editHint}>
-                        고정 7개를 제외한 폴더를 탭해 선택하면 폴더 줄 전체 아래에 「삭제」가
-                        나와요. 다시 탭하면 선택이 풀려요. 삭제 후 「완료」로 편집을 닫을 수
-                        있어요.
+                        고정 7개를 제외한 폴더를 탭해 선택하면 아래에 이름·색·아이콘을 바꿀 수
+                        있어요. 「변경 저장」 후 필요하면 「…삭제」로 폴더를 지울 수 있어요.
+                        다시 탭하면 선택이 풀려요.
                       </p>
                     )}
                   </div>
@@ -7333,6 +7549,86 @@ const listSavedFolderStyles = {
     color: "rgba(255,255,255,0.5)",
     margin: 0,
     lineHeight: 1.45,
+  },
+  folderEditWrap: {
+    marginTop: "12px",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid rgba(52,152,219,0.45)",
+    backgroundColor: "rgba(0,0,0,0.28)",
+    maxWidth: "320px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  folderEditTitle: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.75)",
+    marginBottom: "8px",
+    textAlign: "left",
+  },
+  folderEditRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    marginBottom: "10px",
+  },
+  folderEditIconInput: {
+    width: "44px",
+    flexShrink: 0,
+    padding: "6px 6px",
+    border: "1px solid #444",
+    borderRadius: "6px",
+    backgroundColor: "#252525",
+    color: "#fff",
+    fontSize: "16px",
+    textAlign: "center",
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  folderEditNameInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: "6px 8px",
+    border: "1px solid #444",
+    borderRadius: "6px",
+    backgroundColor: "#252525",
+    color: "#fff",
+    fontSize: "12px",
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  folderEditColorRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+    marginBottom: "10px",
+    justifyContent: "flex-start",
+  },
+  folderEditColorBtn: {
+    width: "22px",
+    height: "22px",
+    borderRadius: "6px",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  folderEditSaveBtn: {
+    width: "100%",
+    margin: 0,
+    padding: "9px 12px",
+    border: "none",
+    borderRadius: "8px",
+    backgroundColor: "#3498DB",
+    color: "#fff",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
   },
 };
 

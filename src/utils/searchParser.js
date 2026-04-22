@@ -209,6 +209,60 @@ export function isLikelyNaturalLanguageSearchQuery(query, naturalQ) {
 }
 
 /**
+ * 검색창 한 줄만 쓸 때 — 카카오 키워드 위주(빠름) vs 의도 보조·DB 병합(주도 AI) 자동 선택.
+ * `Home`에서 `homeSearchChannel === "auto"`일 때 `handleSearchSubmit`이 이 결과로 파이프라인을 고른다.
+ *
+ * - 짧은 지역+메뉴·단순 키워드 → `"basic"`
+ * - 문장형·분위기·큐레이터·긴 조건 → `"ai"`
+ * - 애매하면 제품 방향상 의도 보조 쪽(`"ai"`)을 살짝 선호
+ */
+export function inferSearchPipelineMode(query, naturalQ) {
+  const q = String(query || "").trim();
+  if (!q) return "basic";
+
+  if (isLikelyNaturalLanguageSearchQuery(q, naturalQ)) {
+    return "ai";
+  }
+
+  if (isSimpleLocationMenuMapQuery(q)) {
+    return "basic";
+  }
+
+  if (naturalQ?.curator) return "ai";
+  if (naturalQ?.sortBySaved) return "ai";
+
+  // 짧은 스택 키워드 + 지역 앵커 → 카카오 키워드가 잘 먹는 편
+  if (q.length <= 24 && !/[?!]/.test(q)) {
+    if (
+      !/추천|알려|어디|뭐가|골라|찾아줘|해줘|좋은데|느낌|상황|뭐\s*먹/i.test(q)
+    ) {
+      const words = q.split(/\s+/).filter(Boolean);
+      if (words.length <= 4) {
+        if (extractLocationAnchorFromQuery(q) || findAreaKeywordInQuery(q)) {
+          return "basic";
+        }
+      }
+    }
+  }
+
+  if (q.length > 34) return "ai";
+  if (
+    /[.!?]|습니다|해요\s*$|예요\s*$|까요\s*$|같아요|하고\s*싶|보여줘|알려줘/i.test(
+      q
+    )
+  ) {
+    return "ai";
+  }
+
+  // 아주 짧은 검색어(가게명·브랜드 스타일)는 키워드 우선
+  if (q.length <= 16 && q.split(/\s+/).filter(Boolean).length <= 3) {
+    return "basic";
+  }
+
+  return "ai";
+}
+
+/**
  * `extractLocationAnchorFromQuery`가 이미 잡은 OO구·OO동 등은
  * «강남» 같은 짧은 별칭으로 덮어쓰지 않는다. ("강남구" → 강남 치환 시 tail이 "구"만 남는 버그 방지)
  */
@@ -216,6 +270,56 @@ export function shouldKeepExtractedLocationForMapSearch(extracted) {
   const s = String(extracted || "").replace(/\s+/g, "").trim();
   if (!s) return false;
   return /(구|시|군|동|읍|면|리|역|로|거리|시장|대로)$/.test(s);
+}
+
+/**
+ * 홈 지도 검색과 동일 규칙으로 지명 추출 (`성수 데이트 코스` → 성수 등).
+ * 코스 검색에서 지역 앵커 좌표를 잡을 때 재사용한다.
+ */
+export function extractHomeMapLocationName(kwForMap) {
+  const q = String(kwForMap || "").trim();
+  if (!q) return null;
+  let locationName = extractLocationAnchorFromQuery(q);
+  if (!shouldKeepExtractedLocationForMapSearch(locationName)) {
+    if (q.includes("동대문")) locationName = "동대문";
+    else if (q.includes("성수")) locationName = "성수";
+    else if (q.includes("강남")) locationName = "강남";
+    else if (q.includes("삼성")) locationName = "삼성";
+    else if (q.includes("서울")) locationName = "서울";
+  }
+  if (!locationName) {
+    locationName = findAreaKeywordInQuery(q);
+  }
+  const out = locationName ? String(locationName).trim() : "";
+  return out || null;
+}
+
+/**
+ * 붙여 쓴 흔한 검색어를 띄어쓴 형태로 통일 (`데이트코스` → `데이트 코스`).
+ * 코스 의도·지역 파서·단어 개수 추론이 띄어쓰기에만 맞춰져 있을 때 동일하게 동작하게 한다.
+ * 여러 번 적용해도 안전하다.
+ */
+export function normalizeHangulSearchCompounds(query) {
+  let q = String(query || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return q;
+  const pairs = [
+    [/데이트코스/giu, "데이트 코스"],
+    [/회식코스/giu, "회식 코스"],
+    [/혼술코스/giu, "혼술 코스"],
+    [/소개팅코스/giu, "소개팅 코스"],
+    [/1차코스/giu, "1차 코스"],
+    [/2차코스/giu, "2차 코스"],
+    [/3차코스/giu, "3차 코스"],
+    [/일차코스/giu, "일차 코스"],
+    [/이차코스/giu, "이차 코스"],
+    [/삼차코스/giu, "삼차 코스"],
+  ];
+  for (const [re, rep] of pairs) {
+    q = q.replace(re, rep);
+  }
+  return q.replace(/\s+/g, " ").trim();
 }
 
 function mapSearchGeoOnlyTailIsEffectivelyEmpty(tail) {
@@ -472,6 +576,58 @@ export function placeSignalsYajangCuratorMeta(place) {
       (x) => typeof x === "string" && x.trim() && YAJANG_CURATOR_META_RE.test(x)
     );
   return hit(place.tags) || hit(place.vibes) || hit(place.moods);
+}
+
+/** 큐레이터 태그·한줄평·방문상황 등에 «낮술»류가 있는지 */
+const DAY_DRINK_CURATOR_META_RE =
+  /낮술|낮\s*술|점심\s*술|브런치\s*술|런치\s*와인|한낮\s*한잔|점심술|브런치술/i;
+
+function collectDayDrinkCuratorText(place) {
+  if (!place || typeof place !== "object") return "";
+  const parts = [];
+  const push = (v) => {
+    if (typeof v === "string" && v.trim()) parts.push(v);
+  };
+  push(place.menu_reason);
+  push(place.recommended_menu);
+  push(place.one_line_review);
+  if (Array.isArray(place.visit_situations)) {
+    for (const v of place.visit_situations) push(String(v));
+  }
+  const arrHit = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const x of arr) push(String(x));
+  };
+  arrHit(place.tags);
+  arrHit(place.vibes);
+  arrHit(place.moods);
+  if (Array.isArray(place.curatorPlaces)) {
+    for (const cp of place.curatorPlaces) {
+      push(cp?.menu_reason);
+      push(cp?.one_line_review);
+      arrHit(cp?.tags);
+    }
+  }
+  return parts.join(" ");
+}
+
+export function placeSignalsDayDrinkCuratorMeta(place) {
+  if (!place || typeof place !== "object") return false;
+  const hit = (arr) =>
+    Array.isArray(arr) &&
+    arr.some(
+      (x) => typeof x === "string" && x.trim() && DAY_DRINK_CURATOR_META_RE.test(x)
+    );
+  if (hit(place.tags) || hit(place.vibes) || hit(place.moods)) return true;
+  return DAY_DRINK_CURATOR_META_RE.test(collectDayDrinkCuratorText(place));
+}
+
+/** 검색어에 낮술·점심 술 의도 */
+export function queryWantsDayDrinkFocus(rawQuery) {
+  const q = String(rawQuery || "");
+  return /낮술|낮\s*술|점심술|브런치술|한낮|낮에\s*한잔|점심에\s*한잔|오전\s*술/i.test(
+    q
+  );
 }
 
 export function filterPlacesByYajangFocus(

@@ -50,7 +50,11 @@ export function buildFormattedPlacesFromJoin(joinRows) {
         curatorPlace.curator_id;
 
       curatorNames.push(curatorName);
-      curatorReasons[curatorName] = curatorPlace.one_line_reason || "";
+      curatorReasons[curatorName] =
+        curatorPlace.one_line_reason ||
+        curatorPlace.menu_reason ||
+        curatorPlace.one_line_review ||
+        "";
     });
 
     const wgs = resolvePlaceWgs84(place);

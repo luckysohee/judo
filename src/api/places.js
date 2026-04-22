@@ -38,9 +38,10 @@ export async function fetchPlacesByBounds({
 
 /**
  * 장소 상세 — 카드/시트 오픈 후 등에서만 호출
+ * @returns {Promise<{ place: object, curatorPlaceRows: object[] }>}
  */
 export async function fetchPlaceDetail(placeId) {
-  const { data, error } = await supabase
+  const { data: placeRow, error } = await supabase
     .from("places")
     .select("*")
     .eq("id", placeId)
@@ -50,5 +51,33 @@ export async function fetchPlaceDetail(placeId) {
     throw error;
   }
 
-  return data;
+  const { data: cpRows, error: cpError } = await supabase
+    .from("curator_places")
+    .select("*")
+    .eq("place_id", placeId)
+    .eq("is_archived", false);
+
+  if (cpError) {
+    throw cpError;
+  }
+
+  return {
+    place: placeRow,
+    curatorPlaceRows: cpRows ?? [],
+  };
+}
+
+/**
+ * DB에 등록된 카카오 숫자 장소 ID → `places.id`(UUID)
+ */
+export async function fetchPlaceUuidByKakaoPlaceId(kakaoPlaceId) {
+  const kid = String(kakaoPlaceId ?? "").trim();
+  if (!/^\d+$/.test(kid)) return null;
+  const { data, error } = await supabase
+    .from("places")
+    .select("id")
+    .eq("kakao_place_id", kid)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return String(data.id);
 }

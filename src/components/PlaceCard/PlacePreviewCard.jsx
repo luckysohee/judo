@@ -810,7 +810,12 @@ export default function PlacePreviewCard({
   };
 
   const oneLineTrim = (curatorPlace) =>
-    String(curatorPlace?.one_line_reason ?? "").trim();
+    String(
+      curatorPlace?.one_line_reason ??
+        curatorPlace?.menu_reason ??
+        curatorPlace?.one_line_review ??
+        ""
+    ).trim();
 
   const hasOneLine = (curatorPlace) => oneLineTrim(curatorPlace).length > 0;
 
@@ -1750,7 +1755,11 @@ export default function PlacePreviewCard({
               {place.curatorPlaces?.map((curatorPlace, index) => {
                 // curatorPlaces에서 직접 데이터 가져오기
                 const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
-                const curatorReason = curatorPlace.one_line_reason || "";
+                const curatorReason =
+                  curatorPlace.one_line_reason ||
+                  curatorPlace.menu_reason ||
+                  curatorPlace.one_line_review ||
+                  "";
                 const isLast = index === place.curatorPlaces.length - 1;
 
                 return (

@@ -1,4 +1,7 @@
-import { parseSearchQuery } from "./searchParser.js";
+import {
+  parseSearchQuery,
+  normalizeHangulSearchCompounds,
+} from "./searchParser.js";
 
 const WALKABLE_HINTS = [
   "걸어서",
@@ -13,7 +16,9 @@ const WALKABLE_HINTS = [
  * 코스 의도 전용 경량 파서 (MVP: 룰 기반, 나중에 intent-assist로 보강 가능).
  */
 export function parseCourseQuery(query = "") {
-  const text = String(query || "").replace(/\s+/g, " ").trim();
+  const text = String(normalizeHangulSearchCompounds(query) || "")
+    .replace(/\s+/g, " ")
+    .trim();
   const lower = text.toLowerCase();
 
   const facets = text ? parseSearchQuery(text) : null;

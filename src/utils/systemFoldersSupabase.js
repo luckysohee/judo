@@ -322,3 +322,38 @@ export async function deleteOwnCustomSystemFolder(
 
   return deleteOwnCustomSystemFolderClient(supabase, userId, folderKey, hint);
 }
+
+/**
+ * 본인이 만든 custom_<숫자> 폴더만 이름·색·아이콘 수정 (RLS: system_folders_update_own_custom)
+ */
+export async function updateOwnCustomSystemFolder(supabase, folderKey, patch) {
+  const key = String(folderKey ?? "").trim();
+  if (!/^custom_[0-9]+$/u.test(key)) {
+    return {
+      data: null,
+      error: { message: "수정할 수 있는 폴더가 아닙니다." },
+    };
+  }
+  const { name, color, icon } = patch || {};
+  const row = {};
+  if (name != null) {
+    const n = String(name).trim();
+    if (!n) {
+      return {
+        data: null,
+        error: { message: "폴더 이름을 입력해주세요." },
+      };
+    }
+    row.name = n;
+  }
+  if (color != null && String(color).trim() !== "") {
+    row.color = String(color).trim();
+  }
+  if (icon != null) {
+    row.icon = String(icon).trim() || "📁";
+  }
+  if (Object.keys(row).length === 0) {
+    return { data: null, error: null };
+  }
+  return supabase.from("system_folders").update(row).eq("key", key);
+}

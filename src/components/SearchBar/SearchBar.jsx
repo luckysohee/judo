@@ -14,6 +14,9 @@ import {
 } from "../../utils/filterKakaoKeywordResultsForMealIntent";
 import { searchKakaoKeywordViaProxy } from "../../utils/kakaoAPIProxy";
 
+/** 왼쪽 검색 방식 버튼 순환: 자동 → 빠른(카카오) → AI 고정 */
+const SEARCH_CHANNEL_ORDER = ["auto", "basic", "ai"];
+
 /** 카카오 자동완성·주변 검색 공통 — 미터 */
 function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371;
@@ -50,12 +53,14 @@ export default function SearchBar({
   rightActions = null,
   /** 좁은 화면에서 검색 입력 폭 확보 (우측 버튼 간격 축소) */
   compactRightActions = false,
-  /** Home 등: 왼쪽 아이콘으로 장소(빠름) ↔ 주도 전환 + 안내 말풍선 */
+  /** Home 등: 왼쪽 아이콘 — auto(자동) ↔ basic(빠름) ↔ ai(고정) 순환 + 안내 말풍선 */
   showChannelTabs = false,
-  searchChannel = "basic",
+  searchChannel = "auto",
   onSearchChannelChange = null,
   mapRef = null,
   placeholder = 'Search for places...',
+  /** 홈 등: 입력·포커스 시 보조 플로팅 힌트 닫기 */
+  onUserInteractWithSearch = null,
   /** 검색 중 하단 GPT 스타일 상태 문구 */
   loadingStatusText = "",
   /** 타이핑 자동완성 후보를 지도 마커로 올릴 때 부모에 전달 (빈 배열이면 제거) */
@@ -306,6 +311,7 @@ export default function SearchBar({
   // 디바운스 검색
   const handleInputChange = (e) => {
     const value = e.target.value;
+    onUserInteractWithSearch?.();
     setQuery(value);
     
     // 검색어가 변경되면 선택된 인덱스 초기화
@@ -720,6 +726,8 @@ export default function SearchBar({
 
   useEffect(() => {
     if (!useChannelToggle) return undefined;
+    // 기본이 자동 맞춤이면 옛 «AI로 전환» 팁은 끔
+    if (searchChannel === "auto") return undefined;
     try {
       if (localStorage.getItem(FIRST_AI_TIP_KEY)) return undefined;
     } catch {
@@ -735,7 +743,7 @@ export default function SearchBar({
         firstAiTipTimerRef.current = null;
       }
     };
-  }, [useChannelToggle]);
+  }, [useChannelToggle, searchChannel]);
 
   useEffect(() => {
     if (!showFirstAiSearchTip) return undefined;
@@ -758,7 +766,11 @@ export default function SearchBar({
   const toggleSearchChannel = () => {
     dismissFirstAiSearchTip();
     if (!onSearchChannelChange || isLoading) return;
-    const next = searchChannel === "basic" ? "ai" : "basic";
+    const i = SEARCH_CHANNEL_ORDER.indexOf(searchChannel);
+    const next =
+      SEARCH_CHANNEL_ORDER[
+        i >= 0 ? (i + 1) % SEARCH_CHANNEL_ORDER.length : 0
+      ];
     onSearchChannelChange(next);
     setChannelPopoverOpen(true);
     scheduleChannelPopoverClose();
@@ -829,7 +841,9 @@ export default function SearchBar({
             >
               {searchChannel === "basic"
                 ? "타이핑 · 카카오 장소 매칭 — 지도에 후보 표시 · 엔터는 카카오 검색(빠른 모드)"
-                : "타이핑 · 카카오 음식점 이름 매칭 — 지도에 후보 표시 · 엔터는 AI 주도 통합 검색"}
+                : searchChannel === "ai"
+                  ? "타이핑 · 카카오 음식점 이름 매칭 — 지도에 후보 표시 · 엔터는 AI 주도 통합 검색"
+                  : "타이핑 · 카카오 후보 표시 · 엔터는 문장·키워드에 맞춰 자동으로 빠른 검색 또는 의도 보조 검색"}
             </div>
             {kakaoResults.map((place, index) => (
               <motion.button
@@ -900,6 +914,12 @@ export default function SearchBar({
         ...styles.searchWrap,
         borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px" // 바텀시트 있을 때만 상단 각지게
       }}>
+        <style>{`
+          .judoSearchBarInput::placeholder {
+            color: rgba(255, 255, 255, 0.42);
+            opacity: 1;
+          }
+        `}</style>
         {useChannelToggle ? (
           <div
             ref={channelModeWrapRef}
@@ -942,7 +962,7 @@ export default function SearchBar({
                       letterSpacing: "-0.03em",
                     }}
                   >
-                    AI 주도 검색
+                    빠른 검색만 쓰는 중이에요
                   </div>
                   <div
                     style={{
@@ -951,8 +971,8 @@ export default function SearchBar({
                       color: "rgba(255,255,255,0.82)",
                     }}
                   >
-                    돋보기를 눌러 전환해 보세요. 문장으로 술집·분위기까지 찾을 수
-                    있어요.
+                    왼쪽을 한 번 더 누르면 자동 맞춤으로 돌아가요. 엔터 한 번으로
+                    문장·키워드를 감지해 주도가 파이프라인을 고릅니다.
                   </div>
                   <div
                     aria-hidden
@@ -1008,7 +1028,9 @@ export default function SearchBar({
                   >
                     {searchChannel === "basic"
                       ? "장소 검색"
-                      : "AI 주도 검색"}
+                      : searchChannel === "ai"
+                        ? "AI 주도 검색"
+                        : "자동 맞춤"}
                   </div>
                   <div
                     style={{
@@ -1018,8 +1040,10 @@ export default function SearchBar({
                     }}
                   >
                     {searchChannel === "basic"
-                      ? "한 번 더 누르면 AI 주도 검색으로 바뀌어요. 지금은 카카오 키워드로 빠르게 찾습니다."
-                      : "한 번 더 누르면 장소 검색으로 돌아가요. 지금은 문장·의도 보조와 통합 검색을 씁니다."}
+                      ? "다음: 자동 맞춤. 지금은 카카오 키워드로 빠르게 찾습니다."
+                      : searchChannel === "ai"
+                        ? "다음: 자동 맞춤. 지금은 문장·의도 보조와 통합 검색을 씁니다."
+                        : "다음: 장소 검색(빠름). 엔터 한 번으로 키워드·문장을 감지해 파이프라인을 고릅니다."}
                   </div>
                   <div
                     aria-hidden
@@ -1044,13 +1068,17 @@ export default function SearchBar({
               style={styles.channelModeButton}
               aria-label={
                 searchChannel === "basic"
-                  ? "검색 방식: 장소 검색. 한 번 더 누르면 AI 주도 검색."
-                  : "검색 방식: AI 주도 검색. 한 번 더 누르면 장소 검색."
+                  ? "검색 방식: 장소 검색(빠름). 다음은 자동 맞춤."
+                  : searchChannel === "ai"
+                    ? "검색 방식: AI 주도 검색. 다음은 자동 맞춤."
+                    : "검색 방식: 자동 맞춤. 다음은 장소 검색(빠름)."
               }
               title={
                 searchChannel === "basic"
-                  ? "한 번 더 누르면 AI 주도 검색"
-                  : "한 번 더 누르면 장소 검색"
+                  ? "다음: 자동 맞춤"
+                  : searchChannel === "ai"
+                    ? "다음: 자동 맞춤"
+                    : "다음: 장소 검색(빠름)"
               }
               disabled={isLoading}
               animate={
@@ -1073,7 +1101,11 @@ export default function SearchBar({
               }
             >
               <span style={{ fontSize: "15px", lineHeight: 1 }} aria-hidden>
-                {searchChannel === "basic" ? "🔎" : "✨"}
+                {searchChannel === "basic"
+                  ? "🔎"
+                  : searchChannel === "ai"
+                    ? "✨"
+                    : "🧭"}
               </span>
             </motion.button>
           </div>
@@ -1120,17 +1152,21 @@ export default function SearchBar({
             }}
           >
           <motion.input
+            className="judoSearchBarInput"
             value={query}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             enterKeyHint={useChannelToggle ? "search" : undefined}
-            placeholder=""  // placeholder 비우기
+            placeholder={placeholder || "Search for places..."}
             title={
               searchChannel === "basic"
                 ? "타이핑 시 카카오 장소 제안. 엔터는 카카오 키워드 검색(빠른 모드)."
-                : "타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 AI 주도 통합 검색."
+                : searchChannel === "ai"
+                  ? "타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 AI 주도 통합 검색."
+                  : "타이핑 시 카카오 후보 표시. 엔터는 가게명·짧은 키워드는 빠른 검색, 문장·조건은 의도 보조 검색으로 자동 전환."
             }
             onFocus={() => {
+              onUserInteractWithSearch?.();
               if (!showKakaoSearch) return;
               // 포커스만으로 showKakaoResults를 켜면 결과가 없을 때도 전체 화면 백드롭이 올라가 지도 터치 드래그가 막힘(모바일)
               if (kakaoResults.length > 0) setShowKakaoResultsState(true);
@@ -1146,35 +1182,6 @@ export default function SearchBar({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           />
-
-          {/* 전광판 효과 - placeholder 글씨 움직임 */}
-          {!query && (
-            <motion.div
-              style={{
-                position: 'absolute',
-                top: '25%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                color: 'rgba(255, 255, 255, 0.4)',
-                fontSize: '14px',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-                fontWeight: 'normal',
-                lineHeight: '1',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-              animate={{ x: ['100%', '-100%'] }}
-              transition={{
-                duration: 8,
-                repeat: Infinity,
-                ease: 'linear',
-                repeatDelay: 0
-              }}
-            >
-              {placeholder || 'Search for places...'}
-            </motion.div>
-          )}
           </div>
         </div>
 

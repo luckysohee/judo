@@ -151,7 +151,7 @@ console.log(
 
 import express from "express";
 import cors from "cors";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import OpenAI from "openai";
 import axios from "axios";
@@ -514,6 +514,77 @@ app.post("/api/search/curator-places", async (req, res) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+function getRecommendSupabaseEnv() {
+  return {
+    SUPABASE_URL:
+      (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim(),
+    SUPABASE_KEY: (
+      process.env.SUPABASE_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+      ""
+    ).trim(),
+    OPENAI_API_KEY: (process.env.OPENAI_API_KEY || "").trim(),
+  };
+}
+
+function runRecommendPython(query) {
+  const rootDir = path.join(__dirname, "..");
+  const cli = path.join(rootDir, "recommendation", "cli_recommend.py");
+  const py = (process.env.PYTHON_PATH || process.env.PYTHON || "python3").trim();
+  const env = { ...process.env, ...getRecommendSupabaseEnv() };
+  const r = spawnSync(py, [cli, query], {
+    cwd: rootDir,
+    encoding: "utf-8",
+    env,
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 120_000,
+  });
+  if (r.error) throw r.error;
+  if (r.status !== 0) {
+    const err = (r.stderr || r.stdout || "").trim();
+    throw new Error(err || `python exited ${r.status}`);
+  }
+  const text = (r.stdout || "").trim();
+  if (!text) throw new Error("empty recommend output");
+  return JSON.parse(text);
+}
+
+/** place_import_tmp + OpenAI 요약 — `recommendation/` Python 실행 */
+app.get("/recommend", (req, res) => {
+  const raw = req.query.q;
+  const q = typeof raw === "string" ? raw.trim() : "";
+  if (!q) {
+    return res.status(400).json({ ok: false, message: "검색어를 입력해줘" });
+  }
+  if (q.length > 240) {
+    return res.status(400).json({ ok: false, message: "검색어가 너무 길어요" });
+  }
+  const e = getRecommendSupabaseEnv();
+  if (!e.SUPABASE_URL || !e.SUPABASE_KEY) {
+    return res.status(503).json({
+      ok: false,
+      message: "Supabase URL/서비스 키가 server 환경변수에 없어요",
+    });
+  }
+  if (!e.OPENAI_API_KEY) {
+    return res.status(503).json({
+      ok: false,
+      message: "OPENAI_API_KEY가 없어요",
+    });
+  }
+  try {
+    const payload = runRecommendPython(q);
+    return res.json(payload);
+  } catch (err) {
+    console.error("/recommend", err);
+    return res.status(500).json({
+      ok: false,
+      message: err?.message || "추천 처리 중 오류가 났어요",
+    });
+  }
 });
 
 /** Nominatim 이용 정책(초당 1회) — 서버에서만 호출 */

@@ -1,0 +1,53 @@
+name: judo weekly curation
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+    inputs:
+      category:
+        description: "특정 카테고리만 실행"
+        required: false
+        type: string
+
+jobs:
+  curate:
+    runs-on: ubuntu-latest
+
+    env:
+      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      INPUT_CATEGORY: ${{ github.event.inputs.category }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show files
+        run: ls -R
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "openai>=1.0.0" "httpx>=0.27.0" certifi requests supabase
+
+      - name: Test OpenAI connectivity
+        run: |
+          python - <<'PY'
+          import os, requests
+          headers = {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}
+          r = requests.get("https://api.openai.com/v1/models", headers=headers, timeout=30)
+          print("status:", r.status_code)
+          print("body:", r.text[:200])
+          PY
+
+      - name: Run script
+        run: python -m recommendation.run_place_import

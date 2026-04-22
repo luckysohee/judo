@@ -1,9 +1,11 @@
+import { normalizeHangulSearchCompounds } from "./searchParser.js";
+
 /**
  * 코스(1·2·3차)·루트 의도 — 일반 "걸어서 근처" 검색과 섞이지 않게
  * 도보/걸어서는 1차·2차·코스·루트 등과 같이 있을 때만 true.
  */
 export function isCourseQuery(query = "") {
-  const text = String(query || "").trim();
+  const text = normalizeHangulSearchCompounds(query).trim();
   if (!text) return false;
 
   const hasRoundOrRoute =

@@ -11,6 +11,7 @@ import {
   placeId,
 } from "../utils/generateCourseOptions.js";
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
+import { normalizeHangulSearchCompounds } from "../utils/searchParser.js";
 import { regenerateSecondStep } from "../utils/regenerateSecondStep.js";
 import { regenerateFirstStep } from "../utils/regenerateFirstStep.js";
 import {
@@ -24,6 +25,17 @@ function appendSeenFromCourses(courses = []) {
     .map((c) => courseVenuePairKey(c))
     .filter(Boolean);
   return { keys, pairs };
+}
+
+/** `places`에 is_archived 컬럼이 없는 DB면 .eq 필터가 400 — select 후 로컬 필터 */
+async function fetchCoursePlacesRows(supabaseClient) {
+  const { data, error } = await supabaseClient.from("places").select("*");
+  if (error) return { rows: [], error };
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    rows: rows.filter((p) => p?.is_archived !== true),
+    error: null,
+  };
 }
 
 /** 지도 「코스 담기」로 처음 만들 때: 1차만 두고, 2차·지도 깜빡임은 「다음 코스」 이후에만 */
@@ -112,9 +124,12 @@ export function useCourseSearch() {
     setAltSecondCourses([]);
   }, []);
 
-  /** 코스 검색·홈 「코스」바로가기 공통 */
-  const loadCourseOptionsFromQuery = useCallback(async (q) => {
-    const trimmed = String(q || "").trim();
+  /** 코스 검색·홈 「코스」바로가기 공통
+   * @param {string} q
+   * @param {{ userOrigin?: { lat: number, lng: number }, maxDistanceMeters?: number, strictNearbyOnly?: boolean }} [loadOpts] — 내 주변 코스: GPS 기준 반경만 사용. strictNearby면 반경 안만 쓰고 전역 풀 폴백 안 함
+   */
+  const loadCourseOptionsFromQuery = useCallback(async (q, loadOpts = {}) => {
+    const trimmed = normalizeHangulSearchCompounds(String(q || "")).trim();
     if (!trimmed) {
       return { handled: false, options: [], mapPlaces: [], parsed: null };
     }
@@ -132,16 +147,7 @@ export function useCourseSearch() {
     setCourseQueryParsed(parsed);
 
     try {
-      let { data, error } = await supabase
-        .from("places")
-        .select("*")
-        .eq("is_archived", false);
-
-      if (error) {
-        const retry = await supabase.from("places").select("*");
-        data = retry.data;
-        error = retry.error;
-      }
+      const { rows, error } = await fetchCoursePlacesRows(supabase);
 
       if (error) {
         console.error("course search places:", error);
@@ -152,12 +158,40 @@ export function useCourseSearch() {
         return { handled: true, options: [], mapPlaces: [], parsed };
       }
 
-      const normalizedPlaces = normalizePlaces(data || []);
-      setCoursePlaces(normalizedPlaces);
+      const normalizedPlaces = normalizePlaces(rows);
+      const origin = loadOpts?.userOrigin;
+      const strictNearbyOnly = Boolean(loadOpts?.strictNearbyOnly);
+      const maxParam = Number(loadOpts?.maxDistanceMeters);
+      const maxM =
+        Number.isFinite(maxParam) && maxParam > 0
+          ? maxParam
+          : origin
+            ? 3000
+            : 9000;
+      let placesForCourse = normalizedPlaces;
+      if (
+        origin &&
+        Number.isFinite(Number(origin.lat)) &&
+        Number.isFinite(Number(origin.lng))
+      ) {
+        const olat = Number(origin.lat);
+        const olng = Number(origin.lng);
+        const near = normalizedPlaces.filter((p) => {
+          const c = resolvePlaceWgs84(p);
+          if (!c) return false;
+          return haversineMeters(c.lat, c.lng, olat, olng) <= maxM;
+        });
+        /** strict(GPS 내 위치): 반경 안만 사용. 그 외는 후보가 충분할 때만 근처 풀 */
+        if (strictNearbyOnly || near.length >= 8) {
+          placesForCourse = near;
+        }
+      }
+
+      setCoursePlaces(placesForCourse);
 
       const options = generateCourseOptions({
         parsedQuery: parsed,
-        places: normalizedPlaces,
+        places: placesForCourse,
         maxOptions: 3,
         excludeCourseKeys: [],
         excludeVenuePairKeys: [],
@@ -165,9 +199,11 @@ export function useCourseSearch() {
 
       if (!options.length) {
         setCourseError(
-          parsed.area
-            ? "조건에 맞는 코스를 찾지 못했어요. 지역·태그 데이터를 더 넣으면 좋아져요."
-            : "조건에 맞는 코스를 찾지 못했어요. 검색에 지역(예: 을지로)을 넣어 보세요."
+          strictNearbyOnly && origin
+            ? `${Math.round(maxM / 1000)}km 안에서 맞는 코스를 찾지 못했어요. 검색어를 바꾸거나 지역을 넣어 보세요.`
+            : parsed.area
+              ? "조건에 맞는 코스를 찾지 못했어요. 지역·태그 데이터를 더 넣으면 좋아져요."
+              : "조건에 맞는 코스를 찾지 못했어요. 검색에 지역(예: 을지로)을 넣어 보세요."
         );
       }
 
@@ -188,12 +224,12 @@ export function useCourseSearch() {
   }, []);
 
   const runCourseSearch = useCallback(
-    async (query) => {
+    async (query, loadOpts) => {
       const q = String(query || "").trim();
       if (!isCourseQuery(q)) {
         return { handled: false, options: [], mapPlaces: [], parsed: null };
       }
-      return loadCourseOptionsFromQuery(q);
+      return loadCourseOptionsFromQuery(q, loadOpts);
     },
     [loadCourseOptionsFromQuery]
   );
@@ -221,16 +257,7 @@ export function useCourseSearch() {
         let places = coursePlaces;
 
         if (!places.length) {
-          let { data, error } = await supabase
-            .from("places")
-            .select("*")
-            .eq("is_archived", false);
-
-          if (error) {
-            const retry = await supabase.from("places").select("*");
-            data = retry.data;
-            error = retry.error;
-          }
+          const { rows, error } = await fetchCoursePlacesRows(supabase);
 
           if (error) {
             console.error("regenerate second places:", error);
@@ -239,7 +266,7 @@ export function useCourseSearch() {
             return [];
           }
 
-          places = normalizePlaces(data || []);
+          places = normalizePlaces(rows);
           setCoursePlaces(places);
         }
 
@@ -294,16 +321,7 @@ export function useCourseSearch() {
         let places = coursePlaces;
 
         if (!places.length) {
-          let { data, error } = await supabase
-            .from("places")
-            .select("*")
-            .eq("is_archived", false);
-
-          if (error) {
-            const retry = await supabase.from("places").select("*");
-            data = retry.data;
-            error = retry.error;
-          }
+          const { rows, error } = await fetchCoursePlacesRows(supabase);
 
           if (error) {
             console.error("computeSecondStepCandidatesOnly places:", error);
@@ -311,7 +329,7 @@ export function useCourseSearch() {
             return [];
           }
 
-          places = normalizePlaces(data || []);
+          places = normalizePlaces(rows);
           setCoursePlaces(places);
         }
 
@@ -376,16 +394,7 @@ export function useCourseSearch() {
       let places = coursePlaces;
 
       if (!places.length) {
-        let { data, error } = await supabase
-          .from("places")
-          .select("*")
-          .eq("is_archived", false);
-
-        if (error) {
-          const retry = await supabase.from("places").select("*");
-          data = retry.data;
-          error = retry.error;
-        }
+        const { rows, error } = await fetchCoursePlacesRows(supabase);
 
         if (error) {
           console.error("regenerate first places:", error);
@@ -394,7 +403,7 @@ export function useCourseSearch() {
           return [];
         }
 
-        places = normalizePlaces(data || []);
+        places = normalizePlaces(rows);
         setCoursePlaces(places);
       }
 
@@ -439,16 +448,7 @@ export function useCourseSearch() {
       let places = coursePlaces;
 
       if (!places.length) {
-        let { data, error } = await supabase
-          .from("places")
-          .select("*")
-          .eq("is_archived", false);
-
-        if (error) {
-          const retry = await supabase.from("places").select("*");
-          data = retry.data;
-          error = retry.error;
-        }
+        const { rows, error } = await fetchCoursePlacesRows(supabase);
 
         if (error) {
           console.error("rerun course places:", error);
@@ -456,7 +456,7 @@ export function useCourseSearch() {
           return [];
         }
 
-        places = normalizePlaces(data || []);
+        places = normalizePlaces(rows);
         setCoursePlaces(places);
       }
 

@@ -1,0 +1,25 @@
+name: place-import-batch
+
+on:
+  workflow_dispatch:
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Run place import batch
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PLACE_IMPORT_JOBS_JSON: ${{ secrets.PLACE_IMPORT_JOBS_JSON }}
+        run: python3 -m recommendation.batch_place_import
