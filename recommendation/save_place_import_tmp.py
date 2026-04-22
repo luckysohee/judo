@@ -1,21 +1,94 @@
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from supabase import create_client
 
 
+def _compact(s: str) -> str:
+    return re.sub(r"\s+", "", (s or "").strip())
+
+
+def extract_signals_from_text(text: str) -> list[str]:
+    c = _compact(text)
+    if not c:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(label: str) -> None:
+        if label not in seen:
+            seen.add(label)
+            out.append(label)
+
+    if "조용" in c:
+        add("조용한 분위기")
+    elif "분위기" in c:
+        add("분위기")
+    if "데이트" in c:
+        add("데이트")
+    if "2차" in c:
+        add("2차")
+    if "가성비" in c:
+        add("가성비")
+    if "화장실" in c:
+        add("화장실")
+    if "좌석" in c or "자리" in c:
+        add("좌석 편함")
+    if "재방문" in c:
+        add("재방문각")
+    return out[:8]
+
+
+def reason_from_signals(signals: list[str], place_name: str) -> str:
+    s = signals[:2]
+    if len(s) >= 2:
+        return f"{s[0]}·{s[1]} 포인트가 후기에 잘 드러나요."
+    if len(s) == 1:
+        return f"{s[0]} 포인트가 후기에 잘 드러나요."
+    label = (place_name or "").strip() or "이 장소"
+    return f"블로그 타이틀·본문에서 {label} 언급이 꾸준해요."
+
+
+def build_place_row_from_item(i: dict[str, Any]) -> dict[str, Any]:
+    title = (i.get("title") or "").strip()
+    desc = (i.get("description") or "").strip()
+    blob = f"{title} {desc}".strip()
+    signals = extract_signals_from_text(blob)
+    name = i.get("place_name") or i.get("name")
+    return {
+        "name": name,
+        "score": i.get("score", 0),
+        "reason": reason_from_signals(signals, str(name or "")),
+        "signals": signals,
+    }
+
+
 def places_payload_from_items(items):
     if not items:
         return []
+    return [build_place_row_from_item(i) for i in items if isinstance(i, dict)]
 
-    return [
-        {
-            "name": i.get("place_name") or i.get("name"),
-            "score": i.get("score", 0),
-        }
-        for i in items
-    ]
+
+def _finalize_place_dict(d: dict[str, Any]) -> dict[str, Any]:
+    x = dict(d)
+    name = x.get("name") or x.get("place_name")
+    title = (x.get("title") or "").strip()
+    desc = (x.get("description") or "").strip()
+    blob = f"{title} {desc}".strip()
+    signals = list(x.get("signals") or [])
+    if blob and not signals:
+        signals = extract_signals_from_text(blob)
+    reason = (x.get("reason") or "").strip()
+    if not reason:
+        reason = reason_from_signals(signals, str(name or ""))
+    return {
+        "name": name,
+        "score": x.get("score", 0),
+        "reason": reason,
+        "signals": signals,
+    }
 
 
 def save_to_db(
@@ -39,7 +112,7 @@ def save_to_db(
     print("PLACES_ARG:", places)
 
     if places is not None:
-        places_col = list(places)
+        places_col = [_finalize_place_dict(p) for p in places if isinstance(p, dict)]
     else:
         src = selected_items or deduped_items or []
         places_col = places_payload_from_items(src)

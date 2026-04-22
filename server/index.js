@@ -552,7 +552,7 @@ function runRecommendPython(query) {
   return JSON.parse(text);
 }
 
-/** place_import_tmp + OpenAI 요약 — `recommendation/` Python 실행 */
+/** Supabase에 저장된 추천만 조회(parse → fetch → 선택적 refine). Python `recommendation/recommend.py` */
 app.get("/recommend", (req, res) => {
   const raw = req.query.q;
   const q = typeof raw === "string" ? raw.trim() : "";
@@ -567,12 +567,6 @@ app.get("/recommend", (req, res) => {
     return res.status(503).json({
       ok: false,
       message: "Supabase URL/서비스 키가 server 환경변수에 없어요",
-    });
-  }
-  if (!e.OPENAI_API_KEY) {
-    return res.status(503).json({
-      ok: false,
-      message: "OPENAI_API_KEY가 없어요",
     });
   }
   try {

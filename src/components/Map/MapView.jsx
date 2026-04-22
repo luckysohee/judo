@@ -202,6 +202,36 @@ function resolvePlaceCoords(place) {
   return resolvePlaceWgs84(place);
 }
 
+/** 하단 미리보기 카드·시트에 핀이 가리지 않도록 화면 위로 밀 만큼의 픽셀 오프셋 */
+function bottomPreviewPanPixels() {
+  if (typeof window === "undefined") return 340;
+  return Math.min(
+    680,
+    Math.max(300, Math.round(window.innerHeight * 0.52) + 120)
+  );
+}
+
+/** 지도 중심을 실제 좌표보다 남쪽으로 옮겨, 핀이 화면 위쪽에 오게 함 */
+function offsetLatLngForBottomPreview(map, lat, lng, panUpPx) {
+  if (!map || typeof window === "undefined" || !window.kakao?.maps) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const px = typeof panUpPx === "number" && Number.isFinite(panUpPx)
+    ? panUpPx
+    : bottomPreviewPanPixels();
+  const targetLatLng = new window.kakao.maps.LatLng(lat, lng);
+  try {
+    const projection = map.getProjection?.();
+    if (!projection?.pointFromCoords || !projection?.coordsFromPoint) {
+      return new window.kakao.maps.LatLng(lat + 0.0018, lng);
+    }
+    const point = projection.pointFromCoords(targetLatLng);
+    point.y += px;
+    return projection.coordsFromPoint(point);
+  } catch {
+    return new window.kakao.maps.LatLng(lat + 0.0018, lng);
+  }
+}
+
 function placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins) {
   const c = resolvePlaceCoords(p);
   if (!c) return false;
@@ -843,6 +873,67 @@ const MapView = forwardRef(({
           );
         });
       },
+      /** 리스트·추천에서 지도로 볼 때 — setCenter 대신 하단 카드용 패딩 적용 */
+      panToAbovePreview: (lat, lng) => {
+        if (!mapRef.current || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+          return;
+        }
+        lockAutoMoveRef.current?.(800, "imperative-panToAbovePreview");
+        ignoreViewportEventRef.current = true;
+        const map = mapRef.current;
+        const px = bottomPreviewPanPixels();
+        const offset = offsetLatLngForBottomPreview(map, lat, lng, px);
+        if (!offset) {
+          ignoreViewportEventRef.current = false;
+          return;
+        }
+        const desiredLevel = 4;
+        let currentLevel;
+        try {
+          currentLevel = map.getLevel?.();
+        } catch {
+          currentLevel = undefined;
+        }
+        const finishPan = () => {
+          try {
+            map.panTo(offset);
+          } catch {
+            /* ignore */
+          }
+          try {
+            map.relayout?.();
+          } catch {
+            /* ignore */
+          }
+          setTimeout(() => {
+            ignoreViewportEventRef.current = false;
+          }, 520);
+        };
+        if (typeof currentLevel === "number" && currentLevel > desiredLevel) {
+          try {
+            map.setLevel(desiredLevel, { animate: true });
+          } catch {
+            /* ignore */
+          }
+          setTimeout(finishPan, 180);
+        } else {
+          finishPan();
+        }
+        requestAnimationFrame(() => {
+          try {
+            map.relayout?.();
+          } catch {
+            /* ignore */
+          }
+        });
+        setTimeout(() => {
+          try {
+            map.relayout?.();
+          } catch {
+            /* ignore */
+          }
+        }, 160);
+      },
       setLevel: (level, opts) => {
         if (!mapRef.current) return;
         runWithIgnoredViewportEvents(() => {
@@ -1242,6 +1333,16 @@ const MapView = forwardRef(({
           ignoreMapClickRef.current = true;
 
           const wgs = resolvePlaceCoords(cp);
+          const rawLat = wgs?.lat ?? cp.lat ?? cp.y;
+          const rawLng = wgs?.lng ?? cp.lng ?? cp.x;
+          const latNum =
+            typeof rawLat === "string"
+              ? parseFloat(rawLat.replace(/,/g, ""), 10)
+              : Number(rawLat);
+          const lngNum =
+            typeof rawLng === "string"
+              ? parseFloat(rawLng.replace(/,/g, ""), 10)
+              : Number(rawLng);
 
           // API 결과를 PlacePreviewCard 형식으로 변환 (y/x만 있어도 lat·lng 채움)
           const formattedPlace = {
@@ -1255,14 +1356,19 @@ const MapView = forwardRef(({
             tags: cp.category ? [cp.category] : [],
             comment: '',
             savedCount: 0,
-            lat: wgs?.lat ?? cp.lat,
-            lng: wgs?.lng ?? cp.lng,
-            ...(wgs
+            lat: Number.isFinite(latNum) ? latNum : wgs?.lat ?? cp.lat,
+            lng: Number.isFinite(lngNum) ? lngNum : wgs?.lng ?? cp.lng,
+            ...(Number.isFinite(latNum) && Number.isFinite(lngNum)
               ? {
-                  x: String(wgs.lng),
-                  y: String(wgs.lat),
+                  x: String(lngNum),
+                  y: String(latNum),
                 }
-              : {}),
+              : wgs
+                ? {
+                    x: String(wgs.lng),
+                    y: String(wgs.lat),
+                  }
+                : {}),
             image: cp.image,
             curatorPlaces: cp.curatorPlaces || [],
             // 네이버/카카오 API 추가 필드
@@ -1453,34 +1559,21 @@ const MapView = forwardRef(({
 
     const desiredLevel = 4;
     const currentLevel = mapRef.current.getLevel?.();
-    /** 하단 미리보기 카드에 핀이 가리지 않도록, 뷰포트 높이에 맞춰 위로 더 밀어 올림 */
-    const panUpPx =
-      typeof window !== "undefined"
-        ? Math.min(
-            460,
-            Math.max(200, Math.round(window.innerHeight * 0.36) + 72)
-          )
-        : 220;
+    const panUpPx = bottomPreviewPanPixels();
     const { lat, lng } = wgs;
-    const targetLatLng = new window.kakao.maps.LatLng(lat, lng);
 
-    const getOffsetLatLng = () => {
-      try {
-        const projection = mapRef.current?.getProjection?.();
-        if (!projection?.pointFromCoords || !projection?.coordsFromPoint) {
-          return new window.kakao.maps.LatLng(lat + 0.0008, lng);
-        }
-        const point = projection.pointFromCoords(targetLatLng);
-        point.y += panUpPx;
-        return projection.coordsFromPoint(point);
-      } catch (e) {
-        return new window.kakao.maps.LatLng(lat + 0.0008, lng);
-      }
-    };
+    const getOffsetLatLng = () =>
+      offsetLatLngForBottomPreview(mapRef.current, lat, lng, panUpPx);
 
     const moveToOffset = () => {
       const offsetLatLng = getOffsetLatLng();
-      mapRef.current.panTo(offsetLatLng);
+      if (offsetLatLng) {
+        try {
+          mapRef.current.panTo(offsetLatLng);
+        } catch {
+          /* ignore */
+        }
+      }
       try {
         mapRef.current.relayout?.();
       } catch {

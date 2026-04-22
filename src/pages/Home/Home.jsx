@@ -16,6 +16,7 @@ import CuratorApplicationButton from "../../components/CuratorApplicationButton/
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import { RecommendedPlacesList } from "../../components/Recommendation/RecommendedPlacesList";
+import { SelectedRecommendedPlaceDetailCard } from "../../components/Recommendation/SelectedRecommendedPlaceDetailCard";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -1951,6 +1952,8 @@ export default function Home() {
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
   const [aiRecommendedIds, setAiRecommendedIds] = useState([]);
+  /** 비-basic AI 검색: 추천 id·리스트·지도를 DB/내부와 섞지 않고 상위만 */
+  const aiRecommendExclusiveRef = useRef(false);
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
@@ -2165,8 +2168,12 @@ export default function Home() {
     fetchRecommend: fetchCuratorImportRecommend,
   } = useRecommendation();
 
-  const { setSelectedRecommendedPlace, closeRecommendedPlaceDetail } =
-    useSelectedRecommendedPlace();
+  const {
+    selectedRecommendedPlace,
+    matchedMapPlace,
+    openRecommendedPlace,
+    closeRecommendedPlaceDetail,
+  } = useSelectedRecommendedPlace();
 
   const courseStepPatternHint = useMemo(() => {
     if (!isCourseMode || !courseQueryParsed) return "";
@@ -3359,6 +3366,7 @@ export default function Home() {
       setAiSummary("");
       setAiReasons([]);
       setAiRecommendedIds([]);
+      aiRecommendExclusiveRef.current = false;
       setAiSheetOpen(false);
       setSearchExpandUX(null);
       setSearchDistanceOrigin(null);
@@ -4041,6 +4049,26 @@ export default function Home() {
         (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
       );
 
+    if (aiRecommendExclusiveRef.current) {
+      const deduped = [];
+      const seenId = new Set();
+      for (const p of externalRecommendedPlaces) {
+        const id = String(p?.id ?? "");
+        if (!id || seenId.has(id)) continue;
+        seenId.add(id);
+        deduped.push(p);
+      }
+      if (import.meta.env.DEV) {
+        console.log("🔍 displayedPlaces(추천 id만):", deduped.length, {
+          external: deduped.length,
+          internal: 0,
+          naver: 0,
+          aiIdCount: aiRecommendedIds.length,
+        });
+      }
+      return deduped.slice(0, 5);
+    }
+
     // 내부 데이터에서 AI 추천 장소 찾기
     const internalRecommendedPlaces = filteredByCuratorPlaces
       .filter((place) => idSet.has(String(place.id)))
@@ -4078,6 +4106,23 @@ export default function Home() {
     }
     return deduped;
   }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
+
+  const useImportRecPlacesForAiSheet =
+    Boolean(curatorImportRecommendation?.ok) &&
+    Array.isArray(curatorImportRecommendation?.places) &&
+    curatorImportRecommendation.places.length > 0;
+
+  const aiBottomSheetPlaces = useMemo(
+    () =>
+      useImportRecPlacesForAiSheet
+        ? curatorImportRecommendation.places
+        : displayedPlaces,
+    [
+      useImportRecPlacesForAiSheet,
+      curatorImportRecommendation,
+      displayedPlaces,
+    ],
+  );
 
   /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
   const courseSecondPulsePlacesForMap = useMemo(() => {
@@ -4176,6 +4221,17 @@ export default function Home() {
     // AI/검색 결과가 있어도 기존 마커는 유지하고 검색 마커를 추가 표시
     if (aiRecommendedIds.length > 0 || query.trim()) {
       const filteredBase = displayedPlaces.filter((place) => place.is_public !== false);
+      if (aiRecommendExclusiveRef.current && aiRecommendedIds.length > 0) {
+        return appendSelectedPlacePinIfMissing(
+          applySituation(
+            applyLegendCategoryFilter(
+              dedupeMapPlacesByKakaoId([...filteredBase]),
+              legendCategory
+            )
+          ),
+          selectedPlace
+        );
+      }
       const merged = mergePlaces(
         mergePlaces(kPins, filteredBase),
         kTypingPins
@@ -4250,18 +4306,27 @@ export default function Home() {
 
   const handleRecommendPlaceFromList = useCallback(
     (recPlace) => {
-      setSelectedRecommendedPlace(recPlace);
-      const mapPlace = findMatchedMapPlace(
+      const matchedPlace = findMatchedMapPlace(
         recPlace,
         mapDisplayedPlacesWithLegend,
       );
-      if (mapPlace) {
-        setSelectedPlaceWithAnalytics(mapPlace, "recommend_list");
+      openRecommendedPlace(recPlace, matchedPlace);
+      const mapTarget = matchedPlace ?? recPlace;
+      const w = resolvePlaceWgs84(mapTarget);
+      if (w) {
+        if (mapRef.current?.panToAbovePreview) {
+          mapRef.current.panToAbovePreview(w.lat, w.lng);
+        } else {
+          mapRef.current?.moveToLocation?.(w.lat, w.lng);
+        }
+      }
+      if (mapTarget) {
+        setSelectedPlaceWithAnalytics(mapTarget, "recommend_list");
       }
     },
     [
       mapDisplayedPlacesWithLegend,
-      setSelectedRecommendedPlace,
+      openRecommendedPlace,
       setSelectedPlaceWithAnalytics,
     ],
   );
@@ -4371,6 +4436,7 @@ const handleClearSearch = () => {
   setAiSummary("");
   setAiReasons([]);
   setAiRecommendedIds([]);
+  aiRecommendExclusiveRef.current = false;
   setAiSheetOpen(false);
   setSimpleMapSearchMarkersOnly(false);
   setIsAiSearching(false);
@@ -4592,7 +4658,10 @@ const handleClearSearch = () => {
 
     console.log('🧹 모든 검색 상태 초기화 완료');
 
-    if (!nextQuery) return;
+    if (!nextQuery) {
+      aiRecommendExclusiveRef.current = false;
+      return;
+    }
 
     const searchSessionId = crypto.randomUUID();
     searchSessionIdRef.current = searchSessionId;
@@ -4613,6 +4682,7 @@ const handleClearSearch = () => {
     if (useBasicSearchPipeline) {
       searchModeForLog = `${searchModeForLog}_basic`;
     }
+    aiRecommendExclusiveRef.current = !useBasicSearchPipeline;
     let skipMinSearchLoading = useBasicSearchPipeline;
 
     try {
@@ -4729,6 +4799,7 @@ const handleClearSearch = () => {
           searchModeForLog = "course";
           setExternalPlaces([]);
           setAiRecommendedIds([]);
+          aiRecommendExclusiveRef.current = false;
           searchResultIdsForLog = [
             ...new Set(
               (res.options || []).flatMap((c) =>
@@ -5004,9 +5075,13 @@ const handleClearSearch = () => {
           scoredPlaces = withoutSelf;
         }
 
+        const scoredForUi = useBasicSearchPipeline
+          ? scoredPlaces
+          : scoredPlaces.slice(0, 5);
+
         // 결과 설정 (리스트·병합 시에도 빨간 핀 플래그 유지)
         setExternalPlaces(
-          scoredPlaces.map((p) => ({ ...p, isKakaoPlace: true }))
+          scoredForUi.map((p) => ({ ...p, isKakaoPlace: true }))
         );
         const intentLineNear = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
@@ -5025,9 +5100,11 @@ const handleClearSearch = () => {
                 : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
         );
         setAiReasons(["거리·검색어 점수", "카테고리 매칭", "의도 키워드 반영"]);
-        const kakaoIdsNear = scoredPlaces.map((p) => p.id);
-        let mergedNear = kakaoIdsNear;
+        const kakaoIdsAll = scoredPlaces.map((p) => p.id);
+        let mergedNear = kakaoIdsAll;
         if (!useBasicSearchPipeline) {
+          setAiRecommendedIds(scoredForUi.map((p) => p.id));
+        } else {
           const dbSearchNear = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
             limit: 24,
@@ -5037,10 +5114,10 @@ const handleClearSearch = () => {
             originLng: userLocation.lng,
           });
           mergedNear = dbSearchNear.ok
-            ? mergeDbPlaceIdsFirst(dbSearchNear.rows, kakaoIdsNear)
-            : kakaoIdsNear;
+            ? mergeDbPlaceIdsFirst(dbSearchNear.rows, kakaoIdsAll)
+            : kakaoIdsAll;
+          setAiRecommendedIds(mergedNear);
         }
-        setAiRecommendedIds(mergedNear);
         setBlogReviews([]);
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
         {
@@ -5058,7 +5135,7 @@ const handleClearSearch = () => {
         }
 
         // 지도에 바로 마커 표시
-        const kakaoFormattedPlaces = scoredPlaces.map((place) => ({
+        const kakaoFormattedPlaces = scoredForUi.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -5075,11 +5152,15 @@ const handleClearSearch = () => {
         }));
         
         setKakaoPlaces(kakaoFormattedPlaces);
-        openPreviewForFirstSearchResult(
-          kakaoFormattedPlaces,
-          "search_bar_submit_nearby"
-        );
-        searchResultIdsForLog = mergedNear.map((id) => String(id));
+        if (!isCourseQuery(nextQuery)) {
+          openPreviewForFirstSearchResult(
+            kakaoFormattedPlaces,
+            "search_bar_submit_nearby"
+          );
+        }
+        searchResultIdsForLog = (!useBasicSearchPipeline
+          ? scoredForUi.map((p) => String(p.id))
+          : mergedNear.map((id) => String(id)));
 
       } else {
         // 전체 지도 범용 검색 (바로 검색) - 미리보기 리스트 후 마커
@@ -5231,6 +5312,7 @@ const handleClearSearch = () => {
           setMapViewportSearchLock(false);
           setExternalPlaces([]);
           setAiRecommendedIds([]);
+          aiRecommendExclusiveRef.current = false;
           setAiSummary("");
           setAiReasons([]);
           setBlogReviews([]);
@@ -5523,6 +5605,10 @@ const handleClearSearch = () => {
 
         console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
 
+        const scoredForUiMap = useBasicSearchPipeline
+          ? scoredPlaces
+          : scoredPlaces.slice(0, 5);
+
         setSearchDistanceOrigin({
           lat: sortOrigin.lat,
           lng: sortOrigin.lng,
@@ -5530,7 +5616,7 @@ const handleClearSearch = () => {
 
         // 결과 설정 (미리보기 리스트 + 실시간 마커)
         setExternalPlaces(
-          scoredPlaces.map((p) => ({ ...p, isKakaoPlace: true }))
+          scoredForUiMap.map((p) => ({ ...p, isKakaoPlace: true }))
         );
         const intentLineMap = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
@@ -5545,9 +5631,11 @@ const handleClearSearch = () => {
               : `${searchKeywordApi} 검색 결과`
         );
         setAiReasons([`${searchKeywordApi} 지역 검색`, `지도 이동 및 줌인`]);
-        const kakaoIdsMap = scoredPlaces.map((p) => p.id);
-        let mergedMap = kakaoIdsMap;
+        const kakaoIdsAllMap = scoredPlaces.map((p) => p.id);
+        let mergedMap = kakaoIdsAllMap;
         if (!useBasicSearchPipeline) {
+          setAiRecommendedIds(scoredForUiMap.map((p) => p.id));
+        } else {
           const dbSearchMap = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
             limit: 24,
@@ -5557,10 +5645,10 @@ const handleClearSearch = () => {
             originLng: sortOrigin?.lng,
           });
           mergedMap = dbSearchMap.ok
-            ? mergeDbPlaceIdsFirst(dbSearchMap.rows, kakaoIdsMap)
-            : kakaoIdsMap;
+            ? mergeDbPlaceIdsFirst(dbSearchMap.rows, kakaoIdsAllMap)
+            : kakaoIdsAllMap;
+          setAiRecommendedIds(mergedMap);
         }
-        setAiRecommendedIds(mergedMap);
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
         {
           const markersOnlySimpleSearch =
@@ -5577,7 +5665,7 @@ const handleClearSearch = () => {
         }
 
         // 지도에도 실시간 마커 표시 + 지도 이동 (블로그 크롤 전에 먼저 반영 — 로딩 무한 방지)
-        const kakaoFormattedPlaces = scoredPlaces.map((place) => ({
+        const kakaoFormattedPlaces = scoredForUiMap.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -5597,11 +5685,15 @@ const handleClearSearch = () => {
         }));
 
         setKakaoPlaces(kakaoFormattedPlaces);
-        openPreviewForFirstSearchResult(
-          kakaoFormattedPlaces,
-          "search_bar_submit_map"
-        );
-        searchResultIdsForLog = mergedMap.map((id) => String(id));
+        if (!isCourseQuery(nextQuery)) {
+          openPreviewForFirstSearchResult(
+            kakaoFormattedPlaces,
+            "search_bar_submit_map"
+          );
+        }
+        searchResultIdsForLog = (!useBasicSearchPipeline
+          ? scoredForUiMap.map((p) => String(p.id))
+          : mergedMap.map((id) => String(id)));
 
         if (searchHereArmedAtMapStart) {
           searchHereArmedRef.current = false;
@@ -6311,6 +6403,24 @@ const handleClearSearch = () => {
               />
             </div>
           ) : null}
+          <SelectedRecommendedPlaceDetailCard
+            selectedRecommendedPlace={selectedRecommendedPlace}
+            matchedMapPlace={matchedMapPlace}
+            onClose={closeRecommendedPlaceDetail}
+            onViewOnMap={() => {
+              const mapTarget = matchedMapPlace ?? selectedRecommendedPlace;
+              if (!mapTarget) return;
+              const w = resolvePlaceWgs84(mapTarget);
+              if (w) {
+                if (mapRef.current?.panToAbovePreview) {
+                  mapRef.current.panToAbovePreview(w.lat, w.lng);
+                } else {
+                  mapRef.current?.moveToLocation?.(w.lat, w.lng);
+                }
+              }
+              setSelectedPlaceWithAnalytics(mapTarget, "recommend_detail");
+            }}
+          />
           {!selectedPlace &&
           !String(query || "").trim() &&
           !isAiSearching &&
@@ -8111,7 +8221,7 @@ const handleClearSearch = () => {
                         ? "추천 리스트 준비 중"
                         : aiError
                         ? "추천 결과를 불러오지 못했어요"
-                        : `추천 결과 ${displayedPlaces.length}곳`}
+                        : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
                     </div>
 
                     <div
@@ -8159,10 +8269,10 @@ const handleClearSearch = () => {
                   ) : null}
 
                   <div style={styles.aiSheetList}>
-                    {displayedPlaces.length > 0 ? (
+                    {aiBottomSheetPlaces.length > 0 ? (
                       <div style={styles.aiSheetSectionLabel}>추천 순서 · 장소</div>
                     ) : null}
-                    {displayedPlaces.map((place, index) => {
+                    {aiBottomSheetPlaces.map((place, index) => {
                       const distanceLabel = getRecommendationListDistanceLabel(place);
                       const extras = searchResultSheetExtras.byId.get(String(place.id)) || {
                         matched: [],
@@ -8185,10 +8295,15 @@ const handleClearSearch = () => {
 
                       return (
                       <button
-                        key={place.id}
+                        key={`${place?.id ?? place?.name ?? "p"}-${index}`}
                         type="button"
                         style={styles.aiSheetItem}
                         onClick={() => {
+                          if (useImportRecPlacesForAiSheet) {
+                            handleRecommendPlaceFromList(place);
+                            setAiSheetOpen(false);
+                            return;
+                          }
                           setSelectedPlaceWithAnalytics(place, "search_result");
                           setAiSheetOpen(false);
                           const lat = parseFloat(place.y ?? place.lat);
