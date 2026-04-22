@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 from supabase import create_client
@@ -46,11 +47,25 @@ def save_to_db(
     print("PLACES PAYLOAD:", places_col)
 
     row: dict[str, Any] = {
-        "location": location,
+        "name": f"{location} {category}",
         "category": category,
+        "address": f"{location} 일대",
+        "curator_id": "judo_ai",
+        "title": f"{location} {category} 추천",
+        "location": location,
         "content": content,
-        "places": places_col,
+        "source_key": f"{location}-{category}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
         "raw_data": raw_data,
+        "picked_count": len(places_col),
+        "places": places_col,
     }
 
     supabase.table("place_import_tmp").insert(row).execute()
+
+
+def save_db(_supabase: Any = None, **kwargs: Any) -> None:
+    save_to_db(**kwargs)
+
+
+def save_place_import_tmp(_supabase: Any = None, **kwargs: Any) -> None:
+    save_to_db(**kwargs)
