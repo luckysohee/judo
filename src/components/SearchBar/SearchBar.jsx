@@ -4,9 +4,8 @@
  */
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
+import { TypingState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
-import ContextTags from './ContextTags';
 import { formatKakaoKeywordHitsForMap } from "../../utils/formatKakaoKeywordHitsForMap";
 import {
   filterKakaoKeywordRowsForMealIntent,
@@ -42,8 +41,6 @@ export default function SearchBar({
   suggestions = [],
   showSuggestions = false,
   setShowSuggestions = () => {},
-  matchedContexts = [],
-  onContextTagClick = null,
   onKakaoPlaceSelect = null,
   showKakaoSearch = true,
   onRealTimeSearch = null,
@@ -158,7 +155,6 @@ export default function SearchBar({
   // UI 상태 관리
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [appliedFilters, setAppliedFilters] = useState([]); // 적용된 필터 칩
 
   // 카카오 장소 검색 — JS SDK 우선, 없거나 0건이면 REST 프록시(/api/kakao/search)
   const searchKakaoPlaces = (keyword) => {
@@ -359,63 +355,12 @@ export default function SearchBar({
       setIsSearching(true); // 검색 상태로 변경
       
       onSubmit(query);
-      
-      // 필터 칩 생성 (검색어 분석)
-      const filters = [];
-      if (query.includes('뒷풀이') || query.includes('회식')) {
-        filters.push({ icon: '🎉', label: '뒷풀이', type: 'context' });
-      }
-      if (query.includes('데이트') || query.includes('연인')) {
-        filters.push({ icon: '💕', label: '데이트', type: 'context' });
-      }
-      if (query.includes('혼술') || query.includes('혼자')) {
-        filters.push({ icon: '🍶', label: '혼술', type: 'context' });
-      }
-      if (query.includes('해장') || query.includes('숙취')) {
-        filters.push({ icon: '💊', label: '해장', type: 'context' });
-      }
-      
-      setAppliedFilters(filters);
-      
+
       // 검색 실행 후 모든 자동완성 UI 숨김
       setShowSuggestions(false);
       setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
       setIsSearching(false);
-    }
-  };
-
-  // 상황 태그 클릭 핸들러
-  const handleContextTagClick = (contextKey, contextName) => {
-    console.log(`🏷️ 상황 태그 클릭: ${contextKey} - ${contextName}`);
-    
-    // 상황별 추천 검색어 생성
-    const contextQueries = {
-      after_party: '강남역 뒷풀이 술집',
-      date: '홍대 데이트 맛집',
-      hangover: '해장 맛집',
-      solo: '혼술하기 좋은 곳',
-      group: '대규모 단체 모임 장소',
-      must_go: '인생 맛집',
-      terrace: '루프탑 바'
-    };
-
-    const searchQuery = contextQueries[contextKey] || contextName;
-    setQuery(searchQuery);
-
-    cancelPendingKakaoSearch();
-
-    // 태그 클릭 시 즉시 검색 실행
-    onSubmit(searchQuery);
-    
-    // 모든 자동완성 UI 숨김
-    setShowSuggestions(false);
-    setShowKakaoResultsState(false);
-    setSelectedKakaoIndex(-1);
-    
-    // 부모 컴포넌트에 알림
-    if (onContextTagClick) {
-      onContextTagClick(contextKey, contextName);
     }
   };
 
@@ -427,13 +372,14 @@ export default function SearchBar({
 
       cancelPendingKakaoSearch();
 
-      // 장소 자동완성이 열려 있으면 엔터 = 목록에서 1건 확정(마커·모달은 부모 onKakaoPlaceSelect).
-      // 화살표로 고른 항목이 있으면 그걸, 없으면 첫 번째 후보(키보드만으로도 선택 가능).
-      if (showKakaoResults && kakaoResults.length > 0) {
-        const idx =
-          selectedKakaoIndex >= 0
-            ? Math.min(selectedKakaoIndex, kakaoResults.length - 1)
-            : 0;
+      // 장소 자동완성이 열려 있어도, 화살표로 항목을 고르기 전엔 엔터 = 입력 그대로 상위 검색(코스·문장 등).
+      // 예전: 무조건 첫 POI 확정 → `onSubmit`이 안 불려 «검색어를 못 듣는» 것처럼 보임.
+      if (
+        showKakaoResults &&
+        kakaoResults.length > 0 &&
+        selectedKakaoIndex >= 0
+      ) {
+        const idx = Math.min(selectedKakaoIndex, kakaoResults.length - 1);
         handleKakaoPlaceSelect(kakaoResults[idx]);
         return;
       }
@@ -780,7 +726,7 @@ export default function SearchBar({
     <section ref={searchRootRef} style={{ ...styles.section, position: "relative" }}>
       {/* 상태별 UI 렌더링 */}
       <AnimatePresence>
-        {/* 입력 중 상태: 자동완성 + 상황 태그 */}
+        {/* 입력 중 상태: 자동완성 등 */}
         {showSuggestions && (
           <TypingState
             query={query}
@@ -790,20 +736,8 @@ export default function SearchBar({
             selectedKakaoIndex={selectedKakaoIndex}
             setSelectedKakaoIndex={setSelectedKakaoIndex}
             onKakaoPlaceClick={handleKakaoPlaceSelect}
-            matchedContexts={matchedContexts}
-            onContextTagClick={handleContextTagClick}
             userLocation={userLocation}
             onNearbySearch={handleNearbySearch}
-          />
-        )}
-
-        {/* 검색 후 상태: 필터 칩 */}
-        {!query && !isSearching && appliedFilters.length > 0 && (
-          <SearchCompleteState
-            appliedFilters={appliedFilters}
-            onFilterRemove={(index) => {
-              setAppliedFilters(prev => prev.filter((_, i) => i !== index));
-            }}
           />
         )}
       </AnimatePresence>

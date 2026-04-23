@@ -3,6 +3,7 @@ import {
   normalizeTagsForSearchLog,
   primaryParsedFood,
 } from "./searchTagNormalize.js";
+import { emitSearchTelemetry } from "./searchBranchTelemetry.js";
 
 // ML·랭킹 학습 타이밍·ML 전 룰 전략: `searchPhase7Guidance.js`
 
@@ -31,6 +32,11 @@ export async function insertSearchLog({
   user,
   searchMode = null,
   hadClientError = false,
+  /** 검색 직후 첫 화면 후보 행 수 — 구간 CTR용 (`submit_user_visible_candidate_count`) */
+  submitUserVisibleCandidateCount = null,
+  /** `keyword_search` | `ai_parse_search` — 교차 CTR용 */
+  submitInitialSearchKind = null,
+  submitKeywordAiFallback = false,
 }) {
   if (!sessionId || !userQuery) return;
 
@@ -55,6 +61,17 @@ export async function insertSearchLog({
     has_results: Boolean(hasResults),
     results_count: Array.isArray(searchResultsIds) ? searchResultsIds.length : 0,
     bookmarked: false,
+    submit_user_visible_candidate_count:
+      Number.isFinite(submitUserVisibleCandidateCount) &&
+      submitUserVisibleCandidateCount >= 0
+        ? Math.round(submitUserVisibleCandidateCount)
+        : null,
+    submit_initial_search_kind:
+      typeof submitInitialSearchKind === "string" &&
+      String(submitInitialSearchKind).trim()
+        ? String(submitInitialSearchKind).trim()
+        : null,
+    submit_keyword_ai_fallback: Boolean(submitKeywordAiFallback),
     ...analyticsFlags(user),
   };
 
@@ -69,12 +86,18 @@ export async function insertSearchLog({
         parsed_tags_normalized,
         search_mode,
         had_client_error,
+        submit_user_visible_candidate_count,
+        submit_initial_search_kind,
+        submit_keyword_ai_fallback,
         ...legacyRow
       } = row;
       void parsed_food;
       void parsed_tags_normalized;
       void search_mode;
       void had_client_error;
+      void submit_user_visible_candidate_count;
+      void submit_initial_search_kind;
+      void submit_keyword_ai_fallback;
       const retry = await supabase.from("search_logs").insert(legacyRow);
       error = retry.error;
     }
@@ -93,6 +116,12 @@ export async function insertPlaceClickLog({
   placeName,
   source = "map_click",
   user,
+  /** `keyword_pure` | `keyword_fallback` | `ai_direct` — 검색 CTR 버킷 (선택) */
+  searchClickPath = null,
+  /** 1-based 리스트·시트에서의 클릭 순번 (선택; DB `clicked_rank` + 콘솔 텔레메트리) */
+  clickedRank = null,
+  /** 실보이 후보 행 수 (선택; DB `user_visible_candidate_count`) */
+  userVisibleCandidateCount = null,
 }) {
   const pid = clickedPlaceId != null ? String(clickedPlaceId) : "";
   if (!pid) return;
@@ -103,13 +132,57 @@ export async function insertPlaceClickLog({
     place_name: placeName || "(unknown)",
     search_session_id: sessionId || null,
     source,
+    search_click_path: searchClickPath || null,
+    clicked_rank:
+      Number.isFinite(clickedRank) && clickedRank > 0
+        ? Math.round(clickedRank)
+        : null,
+    user_visible_candidate_count:
+      Number.isFinite(userVisibleCandidateCount) &&
+      userVisibleCandidateCount >= 0
+        ? Math.round(userVisibleCandidateCount)
+        : null,
     ...analyticsFlags(user),
   };
 
   try {
-    const { error } = await supabase.from("place_click_logs").insert(row);
+    let { error } = await supabase.from("place_click_logs").insert(row);
+    if (
+      error &&
+      /column|schema|does not exist|42703/i.test(String(error.message || error))
+    ) {
+      const {
+        search_click_path,
+        clicked_rank,
+        user_visible_candidate_count,
+        ...legacyRow
+      } = row;
+      void search_click_path;
+      void clicked_rank;
+      void user_visible_candidate_count;
+      const retry = await supabase.from("place_click_logs").insert(legacyRow);
+      error = retry.error;
+    }
     if (error) {
       console.warn("[searchAnalytics] place_click_logs insert:", error.message || error);
+    } else {
+      emitSearchTelemetry({
+        event: "place_click",
+        sessionId: sessionId || null,
+        clickedPlaceId: pid,
+        source,
+        placeName: placeName || "(unknown)",
+        searchClickPath: searchClickPath || null,
+        clickedRank:
+          Number.isFinite(clickedRank) && clickedRank > 0
+            ? Math.round(clickedRank)
+            : null,
+        userVisibleCandidateCount:
+          Number.isFinite(userVisibleCandidateCount) &&
+          userVisibleCandidateCount >= 0
+            ? Math.round(userVisibleCandidateCount)
+            : null,
+      });
     }
   } catch (e) {
     console.warn("[searchAnalytics] place_click_logs insert failed:", e);

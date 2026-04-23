@@ -1,5 +1,8 @@
 import { haversineMeters } from "./placeCoords.js";
-import { formatCourseWalkApprox } from "./formatCourseUi.js";
+import {
+  formatCourseWalkApprox,
+  getCourseLegMeters,
+} from "./formatCourseUi.js";
 
 /**
  * 선택된 코스 → 지도 폴리라인·마커 메타
@@ -23,24 +26,29 @@ export function buildCourseMapData(course) {
 
   if (polylinePath.length < 2) return null;
 
-  const a = polylinePath[0];
-  const b = polylinePath[polylinePath.length - 1];
-  let meters = Number(course.steps[1]?.walkDistanceMeters);
-  if (!Number.isFinite(meters) || meters <= 0) {
-    meters = haversineMeters(a.lat, a.lng, b.lat, b.lng);
-  }
+  const meters = getCourseLegMeters(course);
+  const m =
+    meters != null && Number.isFinite(meters) && meters > 0
+      ? meters
+      : haversineMeters(
+          polylinePath[0].lat,
+          polylinePath[0].lng,
+          polylinePath[polylinePath.length - 1].lat,
+          polylinePath[polylinePath.length - 1].lng
+        );
 
   const dist =
-    meters >= 1000
-      ? `약 ${(meters / 1000).toFixed(1)}km`
-      : `약 ${Math.round(meters)}m`;
-  const walk = formatCourseWalkApprox(meters);
-  const legLabel = dist && walk ? `${dist} · ${walk}` : dist || walk || "";
+    m >= 1000 ? `약 ${(m / 1000).toFixed(1)}km` : `약 ${Math.round(m)}m`;
+  const walk = formatCourseWalkApprox(m);
+  const totalPrefix = (course.steps?.length ?? 0) >= 3 ? "총 " : "";
+  const legLabel =
+    dist && walk
+      ? `${totalPrefix}${dist} · ${walk}`
+      : `${totalPrefix}${dist || walk || ""}`.trim() || "";
 
-  const labelPosition = {
-    lat: (a.lat + b.lat) / 2,
-    lng: (a.lng + b.lng) / 2,
-  };
+  const midIdx = Math.floor(polylinePath.length / 2);
+  const mid = polylinePath[midIdx] || polylinePath[0];
+  const labelPosition = { lat: mid.lat, lng: mid.lng };
 
   return { markers, polylinePath, legLabel, labelPosition };
 }

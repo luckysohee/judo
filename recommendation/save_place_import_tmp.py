@@ -10,6 +10,25 @@ def _compact(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").strip())
 
 
+def _pick_canonical_place_name(x: dict[str, Any]) -> str:
+    """
+    CrewAI/에이전트가 title·name에 분위기 문장을 넣어도,
+    place_name·official_name 등이 있으면 그걸 상호로 쓴다.
+    """
+    for k in (
+        "place_name",
+        "official_name",
+        "business_name",
+        "store_name",
+        "name",
+    ):
+        v = x.get(k)
+        if v and str(v).strip():
+            return str(v).strip()
+    t = (x.get("title") or "").strip()
+    return t
+
+
 def extract_signals_from_text(text: str) -> list[str]:
     c = _compact(text)
     if not c:
@@ -56,9 +75,10 @@ def build_place_row_from_item(i: dict[str, Any]) -> dict[str, Any]:
     desc = (i.get("description") or "").strip()
     blob = f"{title} {desc}".strip()
     signals = extract_signals_from_text(blob)
-    name = i.get("place_name") or i.get("name")
+    name = _pick_canonical_place_name(i)
     return {
         "name": name,
+        "place_name": name,
         "score": i.get("score", 0),
         "reason": reason_from_signals(signals, str(name or "")),
         "signals": signals,
@@ -73,7 +93,7 @@ def places_payload_from_items(items):
 
 def _finalize_place_dict(d: dict[str, Any]) -> dict[str, Any]:
     x = dict(d)
-    name = x.get("name") or x.get("place_name")
+    name = _pick_canonical_place_name(x)
     title = (x.get("title") or "").strip()
     desc = (x.get("description") or "").strip()
     blob = f"{title} {desc}".strip()
@@ -85,6 +105,7 @@ def _finalize_place_dict(d: dict[str, Any]) -> dict[str, Any]:
         reason = reason_from_signals(signals, str(name or ""))
     return {
         "name": name,
+        "place_name": name,
         "score": x.get("score", 0),
         "reason": reason,
         "signals": signals,

@@ -27,6 +27,17 @@ function appendSeenFromCourses(courses = []) {
   return { keys, pairs };
 }
 
+/**
+ * 지도에서 연 장소로「2차 찾기」할 때 넘기는 검색어(예: «합정 데이트 와인바»)는
+ * `parseCourseQuery`가 steps=1로 두어 패턴이 null → 후보 0건이 된다.
+ * `withTwoStepCourseIntent`로 steps=2로 올린 뒤, 쩜오차 코스면 `includeHalfStep`을 유지한다.
+ */
+function withTwoStepCourseIntent(parsed) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  if (parsed.steps === 2) return parsed;
+  return { ...parsed, steps: 2 };
+}
+
 /** `places`에 is_archived 컬럼이 없는 DB면 .eq 필터가 400 — select 후 로컬 필터 */
 async function fetchCoursePlacesRows(supabaseClient) {
   const { data, error } = await supabaseClient.from("places").select("*");
@@ -126,7 +137,7 @@ export function useCourseSearch() {
 
   /** 코스 검색·홈 「코스」바로가기 공통
    * @param {string} q
-   * @param {{ userOrigin?: { lat: number, lng: number }, maxDistanceMeters?: number, strictNearbyOnly?: boolean }} [loadOpts] — 내 주변 코스: GPS 기준 반경만 사용. strictNearby면 반경 안만 쓰고 전역 풀 폴백 안 함
+   * @param {{ userOrigin?: { lat: number, lng: number }, maxDistanceMeters?: number, strictNearbyOnly?: boolean }} [loadOpts] — 내 주변 코스: GPS·앵커 반경만 쓸 때 strictNearby. 검색어에 지역(`parseCourseQuery.area`)이 있으면 후보는 전역 풀에서 지역 매칭으로 좁힘(반경만 쓰면 DB 좌표 편향으로 0건이 되기 쉬움).
    */
   const loadCourseOptionsFromQuery = useCallback(async (q, loadOpts = {}) => {
     const trimmed = normalizeHangulSearchCompounds(String(q || "")).trim();
@@ -143,7 +154,9 @@ export function useCourseSearch() {
     setIsCourseMode(true);
     setIsLoadingCourse(true);
 
-    const parsed = parseCourseQuery(trimmed);
+    const parsed = parseCourseQuery(trimmed, {
+      includeHalfStep: Boolean(loadOpts?.includeHalfStep),
+    });
     setCourseQueryParsed(parsed);
 
     try {
@@ -159,6 +172,18 @@ export function useCourseSearch() {
       }
 
       const normalizedPlaces = normalizePlaces(rows);
+      if (!normalizedPlaces.length) {
+        setCourseError(
+          "코스용 장소 목록이 비어 있어요. Supabase `places`에 데이터가 있는지 확인해 주세요."
+        );
+        setCourseOptions((prev) =>
+          (prev || []).filter((c) => c?.profileKey === "my_own")
+        );
+        setSelectedCourse(null);
+        setCoursePlaces([]);
+        return { handled: true, options: [], mapPlaces: [], parsed };
+      }
+
       const origin = loadOpts?.userOrigin;
       const strictNearbyOnly = Boolean(loadOpts?.strictNearbyOnly);
       const maxParam = Number(loadOpts?.maxDistanceMeters);
@@ -181,8 +206,11 @@ export function useCourseSearch() {
           if (!c) return false;
           return haversineMeters(c.lat, c.lng, olat, olng) <= maxM;
         });
-        /** strict(GPS 내 위치): 반경 안만 사용. 그 외는 후보가 충분할 때만 근처 풀 */
-        if (strictNearbyOnly || near.length >= 8) {
+        const namedAreaCourse = Boolean(parsed?.area);
+        /** 지명 코스: 전역 풀 → `generateCourseOptions` 안 `resolveCourseAreaPool`. 반경만이면 비성수 DB에서 0건. */
+        if (strictNearbyOnly && !namedAreaCourse) {
+          placesForCourse = near;
+        } else if (!strictNearbyOnly && !namedAreaCourse && near.length >= 8) {
           placesForCourse = near;
         }
       }
@@ -225,7 +253,7 @@ export function useCourseSearch() {
 
   const runCourseSearch = useCallback(
     async (query, loadOpts) => {
-      const q = String(query || "").trim();
+      const q = normalizeHangulSearchCompounds(String(query || "")).trim();
       if (!isCourseQuery(q)) {
         return { handled: false, options: [], mapPlaces: [], parsed: null };
       }
@@ -532,6 +560,50 @@ export function useCourseSearch() {
       return newCourse;
     }
 
+    if (steps.length >= 3) {
+      const st1 = steps[1];
+      const st2 = steps[2];
+      const w1 = resolvePlaceWgs84(st1.place);
+      const w2 = resolvePlaceWgs84(st2.place);
+      let walk01 = st1.walkDistanceMeters;
+      let walk12 = st2.walkDistanceMeters;
+      if (w1 && Number.isFinite(w1.lat) && Number.isFinite(w1.lng)) {
+        walk01 = Math.round(haversineMeters(w.lat, w.lng, w1.lat, w1.lng));
+      }
+      if (
+        w1 &&
+        w2 &&
+        Number.isFinite(w1.lat) &&
+        Number.isFinite(w1.lng) &&
+        Number.isFinite(w2.lat) &&
+        Number.isFinite(w2.lng)
+      ) {
+        walk12 = Math.round(haversineMeters(w1.lat, w1.lng, w2.lat, w2.lng));
+      }
+      const newStep1 = {
+        ...st1,
+        step: 2,
+        walkDistanceMeters: Number.isFinite(walk01) ? walk01 : st1.walkDistanceMeters,
+      };
+      const newStep2 = {
+        ...st2,
+        step: 3,
+        walkDistanceMeters: Number.isFinite(walk12) ? walk12 : st2.walkDistanceMeters,
+      };
+      const newCourse = {
+        ...selectedCourse,
+        key: `${slotKey}-m1-${Date.now()}`,
+        steps: [newStep0, newStep1, newStep2],
+      };
+      setCourseOptions((prev) =>
+        replaceCourseOptionsSlot(prev, slotKey, newCourse)
+      );
+      setSelectedCourse(newCourse);
+      setAltFirstCourses([]);
+      setAltSecondCourses([]);
+      return newCourse;
+    }
+
     const st1 = steps[1];
     const w1 = resolvePlaceWgs84(st1.place);
     let walkM = st1.walkDistanceMeters;
@@ -597,6 +669,13 @@ export function useCourseSearch() {
         if (!parsedForSecond.area) {
           parsedForSecond = parsedHintOrPlace("코스 짜기");
         }
+        parsedForSecond = withTwoStepCourseIntent(parsedForSecond);
+        if (courseQueryParsed?.includeHalfStep) {
+          parsedForSecond = {
+            ...parsedForSecond,
+            includeHalfStep: true,
+          };
+        }
         return {
           ok: true,
           courseForSecond: next,
@@ -611,7 +690,10 @@ export function useCourseSearch() {
         x: String(w.lng),
         y: String(w.lat),
       };
-      const parsed = parsedHintOrPlace("코스 짜기");
+      let parsed = withTwoStepCourseIntent(parsedHintOrPlace("코스 짜기"));
+      if (courseQueryParsed?.includeHalfStep) {
+        parsed = { ...parsed, includeHalfStep: true };
+      }
       const baseCourse = buildBootstrapOneStepCourse(mergedPlace);
       setCourseQueryParsed(parsed);
       setIsCourseMode(true);
@@ -631,40 +713,37 @@ export function useCourseSearch() {
     [selectedCourse, applyMapPickAsFirstStep, courseQueryParsed]
   );
 
-  /** 1차만·2차만에서 각각 고른 코스의 1차·2차를 한 코스로 합쳐 목록 하단에 「나만의 코스」로 추가 */
-  const applyComposedCourseFromPicks = useCallback((pick1Course, pick2Course) => {
-    if (!pick1Course || !pick2Course) return false;
-    const st0 = pick1Course.steps?.[0];
-    const st1 = pick2Course.steps?.[1];
-    if (!st0?.place || !st1?.place) return false;
+  /** 조합으로 담은 두 스텝으로 「나만의 코스」 추가 — 담기 순서가 1차·2차가 됨 */
+  const applyComposedCourseFromSteps = useCallback((stepFirst, stepSecond) => {
+    if (!stepFirst?.place || !stepSecond?.place) return false;
 
-    const w0 = resolvePlaceWgs84(st0.place);
-    const w1 = resolvePlaceWgs84(st1.place);
+    const w0 = resolvePlaceWgs84(stepFirst.place);
+    const w1 = resolvePlaceWgs84(stepSecond.place);
     if (!w0 || !w1) return false;
     const d = haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
     if (!Number.isFinite(d)) return false;
 
-    const idPart = `${placeId(st0.place) ?? "p0"}-${placeId(st1.place) ?? "p1"}`;
+    const idPart = `${placeId(stepFirst.place) ?? "p0"}-${placeId(stepSecond.place) ?? "p1"}`;
     const newCourse = {
       key: `my-own-${Date.now()}-${idPart}`,
       profileKey: "my_own",
       profileTitle: "나만의 코스",
-      profileDescription: `${st0.place?.name ?? "1차"} → ${st1.place?.name ?? "2차"}`,
+      profileDescription: `${stepFirst.place?.name ?? "1차"} → ${stepSecond.place?.name ?? "2차"}`,
       totalScore: 0,
       composedFromPicks: true,
       isMyOwnCourse: true,
       steps: [
         {
-          ...st0,
+          ...stepFirst,
           step: 1,
-          label: st0.label ?? "1차",
-          place: st0.place,
+          label: "1차",
+          place: stepFirst.place,
         },
         {
-          ...st1,
+          ...stepSecond,
           step: 2,
-          label: st1.label ?? "2차",
-          place: st1.place,
+          label: "2차",
+          place: stepSecond.place,
           walkDistanceMeters: Math.round(d),
         },
       ],
@@ -676,6 +755,19 @@ export function useCourseSearch() {
     setAltSecondCourses([]);
     return true;
   }, []);
+
+  /** 레거시: 코스 카드 전체를 1·2번 소스로 쓸 때 */
+  const applyComposedCourseFromPicks = useCallback(
+    (pick1Course, pick2Course) => {
+      if (!pick1Course || !pick2Course) return false;
+      const st0 = pick1Course.steps?.[0];
+      const p2 = pick2Course.steps || [];
+      const st1 =
+        p2.length >= 2 ? p2[p2.length - 1] : pick2Course.steps?.[1];
+      return applyComposedCourseFromSteps(st0, st1);
+    },
+    [applyComposedCourseFromSteps]
+  );
 
   return {
     courseOptions,
@@ -703,6 +795,7 @@ export function useCourseSearch() {
     applyAlternativeSecond,
     applyAlternativeFirst,
     applyComposedCourseFromPicks,
+    applyComposedCourseFromSteps,
     applyMapPickAsFirstStep,
     applyMapPickAsFirstStepAsync,
     computeSecondStepCandidatesOnly,

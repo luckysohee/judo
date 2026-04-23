@@ -505,15 +505,16 @@ function createMarkerImage(
       </svg>
     `;
     
-    // 카카오 마커 이미지 생성
+    // 카카오 마커 이미지 생성 — 앵커는 핀 끝(좌표). 맨 아래(상호 라벨 끝)로 두면 전부 북쪽으로 밀려 2시 방향처럼 보임
     try {
       if (window.kakao?.maps?.MarkerImage) {
         const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+        const pinTipY = Math.round(totalHeight * 0.75);
         return new window.kakao.maps.MarkerImage(
           encoded,
           new window.kakao.maps.Size(totalWidth, totalHeight),
           {
-            offset: new window.kakao.maps.Point(totalWidth / 2, totalHeight)
+            offset: new window.kakao.maps.Point(totalWidth / 2, pinTipY),
           }
         );
       }

@@ -1750,7 +1750,7 @@ export default function PlacePreviewCard({
               ))}
           </div>
 
-          <div style={styles.curatorRow}>
+          <div className="hide-scrollbar" style={styles.curatorRow}>
             <div style={styles.curatorScrollContainer}>
               {place.curatorPlaces?.map((curatorPlace, index) => {
                 // curatorPlaces에서 직접 데이터 가져오기
@@ -1887,9 +1887,10 @@ const styles = {
     width: "100%",
     display: "flex",
     justifyContent: "center",
-    pointerEvents: "auto",
+    pointerEvents: "none",
   },
   card: {
+    pointerEvents: "auto",
     width: "92%",
     maxWidth: "400px",
     maxHeight: "min(50vh, 360px)",
@@ -2255,9 +2256,7 @@ const styles = {
     scrollbarWidth: "none", // Firefox 스크롤바 숨김
     msOverflowStyle: "none", // IE/Edge 스크롤바 숨김
     WebkitOverflowScrolling: "touch", // iOS 스크롤 부드럽게
-    "&::-webkit-scrollbar": {
-      display: "none" // Chrome/Safari 스크롤바 숨김
-    }
+    // WebKit 스크롤바는 className `hide-scrollbar`(index.css)로 처리
   },
   curatorScrollContainer: {
     display: "flex",

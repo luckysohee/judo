@@ -14,8 +14,9 @@ const WALKABLE_HINTS = [
 
 /**
  * 코스 의도 전용 경량 파서 (MVP: 룰 기반, 나중에 intent-assist로 보강 가능).
+ * @param {{ includeHalfStep?: boolean }} [options] — UI에서 「쩜오차」 포함 시 true. 1·2차 사이 달달 구간을 넣을지 여부
  */
-export function parseCourseQuery(query = "") {
+export function parseCourseQuery(query = "", options = {}) {
   const text = String(normalizeHangulSearchCompounds(query) || "")
     .replace(/\s+/g, " ")
     .trim();
@@ -28,6 +29,8 @@ export function parseCourseQuery(query = "") {
   if (text.includes("3차")) steps = 3;
   else if (text.includes("2차")) steps = 2;
   else if (/코스|루트|코스\s*짜|짜\s*줘/i.test(text)) steps = 2;
+
+  const includeHalfStep = Boolean(options.includeHalfStep);
 
   const walkable = WALKABLE_HINTS.some((w) => lower.includes(w.toLowerCase()));
 
@@ -46,6 +49,7 @@ export function parseCourseQuery(query = "") {
     raw: text,
     area,
     steps,
+    includeHalfStep,
     walkable,
     dateMode,
     rightNow,

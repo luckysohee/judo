@@ -202,13 +202,14 @@ function resolvePlaceCoords(place) {
   return resolvePlaceWgs84(place);
 }
 
-/** 하단 미리보기 카드·시트에 핀이 가리지 않도록 화면 위로 밀 만큼의 픽셀 오프셋 */
+/**
+ * 하단 미리보기·검색바에 핀이 가리지 않도록 하는 패닝(px).
+ * 예전(높이 58%+140, 최소 320)은 카드보다 과하게 올려 사용자가 매번 아래로 팬해야 했음.
+ */
 function bottomPreviewPanPixels() {
-  if (typeof window === "undefined") return 340;
-  return Math.min(
-    680,
-    Math.max(300, Math.round(window.innerHeight * 0.52) + 120)
-  );
+  if (typeof window === "undefined") return 260;
+  const h = window.innerHeight;
+  return Math.min(440, Math.max(200, Math.round(h * 0.24) + 96));
 }
 
 /** 지도 중심을 실제 좌표보다 남쪽으로 옮겨, 핀이 화면 위쪽에 오게 함 */
@@ -222,13 +223,13 @@ function offsetLatLngForBottomPreview(map, lat, lng, panUpPx) {
   try {
     const projection = map.getProjection?.();
     if (!projection?.pointFromCoords || !projection?.coordsFromPoint) {
-      return new window.kakao.maps.LatLng(lat + 0.0018, lng);
+      return new window.kakao.maps.LatLng(lat + 0.0024, lng);
     }
     const point = projection.pointFromCoords(targetLatLng);
     point.y += px;
     return projection.coordsFromPoint(point);
   } catch {
-    return new window.kakao.maps.LatLng(lat + 0.0018, lng);
+    return new window.kakao.maps.LatLng(lat + 0.0024, lng);
   }
 }
 
@@ -403,8 +404,9 @@ const MapView = forwardRef(({
   const isLockedRef = useRef(false);
   const lockTimerRef = useRef(null);
   const lastMoveReasonRef = useRef(null);
-  /** places 데이터로 자동 setBounds/setCenter — 세션당 최초 1회만 (fetch 루프 차단) */
-  const hasAutoFitFromPlacesDataRef = useRef(false);
+  /** 마커 시그니처 바뀔 때마다 한 번 setBounds — 검색 결과마다 전부 보이게 */
+  const lastAutoFitPlacesSigRef = useRef("");
+  const prevPreserveViewportRef = useRef(false);
   const ignoreViewportEventRef = useRef(false);
   const viewportNotifyReadyRef = useRef(false);
   const onViewportChangeRef = useRef(onMapViewportChange);
@@ -412,6 +414,14 @@ const MapView = forwardRef(({
   useEffect(() => {
     onViewportChangeRef.current = onMapViewportChange;
   }, [onMapViewportChange]);
+
+  /** 카카오 타이핑 미리보기 끝나고 실제 결과만 남을 때 다시 한 번 맞춤 */
+  useEffect(() => {
+    if (prevPreserveViewportRef.current && !preserveViewportOnPlacesChange) {
+      lastAutoFitPlacesSigRef.current = "";
+    }
+    prevPreserveViewportRef.current = Boolean(preserveViewportOnPlacesChange);
+  }, [preserveViewportOnPlacesChange]);
 
   useEffect(() => {
     clusterLayoutDebounceRef.current = debounce(() => {
@@ -842,12 +852,40 @@ const MapView = forwardRef(({
           mapRef.current.setCenter(moveLatLon);
         });
       },
-      moveToLocation: (lat, lng) => {
+      /**
+       * @param {number|string} lat
+       * @param {number|string} lng
+       * @param {{ bottomChromePx?: number }} [opts] — 하단 검색·피크 UI만큼 중심을 내려 핀이 가리지 않게
+       */
+      moveToLocation: (lat, lng, opts) => {
         if (!mapRef.current) return;
         lockAutoMoveRef.current?.(800, "imperative-moveToLocation");
         runWithIgnoredViewportEvents(() => {
-          const moveLatLon = new window.kakao.maps.LatLng(lat, lng);
-          mapRef.current.setCenter(moveLatLon);
+          const latNum =
+            typeof lat === "string" ? parseFloat(lat) : Number(lat);
+          const lngNum =
+            typeof lng === "string" ? parseFloat(lng) : Number(lng);
+          if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+          let bottomPx = 0;
+          if (
+            opts &&
+            typeof opts === "object" &&
+            Number.isFinite(opts.bottomChromePx) &&
+            opts.bottomChromePx > 0
+          ) {
+            bottomPx = opts.bottomChromePx;
+          }
+          let center = new window.kakao.maps.LatLng(latNum, lngNum);
+          if (bottomPx > 0) {
+            const off = offsetLatLngForBottomPreview(
+              mapRef.current,
+              latNum,
+              lngNum,
+              bottomPx,
+            );
+            if (off) center = off;
+          }
+          mapRef.current.setCenter(center);
           mapRef.current.setLevel(4);
         });
       },
@@ -1002,8 +1040,12 @@ const MapView = forwardRef(({
           /* ignore */
         }
       },
-      /** 후보 여러 곳이 보이도록 경계 맞춤 (타이핑 자동완성 등) */
-      fitToPlaces: (placeList) => {
+      /**
+       * 후보 여러 곳이 보이도록 경계 맞춤 (검색 확정·맞춤 피크 등).
+       * @param {unknown[]} placeList
+       * @param {number | { top?: number; right?: number; bottom?: number; left?: number } | null} [paddingOverride] 미지정 시 `placesFitBoundsPadding` 사용
+       */
+      fitToPlaces: (placeList, paddingOverride) => {
         if (!mapRef.current || !Array.isArray(placeList) || placeList.length === 0)
           return;
         lockAutoMoveRef.current?.(800, "fit-to-places");
@@ -1014,6 +1056,8 @@ const MapView = forwardRef(({
             if (c) pts.push(c);
           }
           if (pts.length === 0) return;
+          const pPad =
+            paddingOverride !== undefined ? paddingOverride : placesFitBoundsPadding;
           if (pts.length === 1) {
             mapRef.current.setCenter(
               new window.kakao.maps.LatLng(pts[0].lat, pts[0].lng)
@@ -1024,7 +1068,22 @@ const MapView = forwardRef(({
             for (const { lat, lng } of pts) {
               bounds.extend(new window.kakao.maps.LatLng(lat, lng));
             }
-            mapRef.current.setBounds(bounds);
+            if (pPad != null && typeof pPad === "object") {
+              const t = Math.round(Number(pPad.top) || 0);
+              const r = Math.round(Number(pPad.right) || 0);
+              const b = Math.round(Number(pPad.bottom) || 0);
+              const l = Math.round(Number(pPad.left) || 0);
+              if (t + r + b + l > 0) {
+                mapRef.current.setBounds(bounds, t, r, b, l);
+              } else {
+                mapRef.current.setBounds(bounds);
+              }
+            } else if (typeof pPad === "number" && Number.isFinite(pPad) && pPad > 0) {
+              const n = Math.round(pPad);
+              mapRef.current.setBounds(bounds, n, n, n, n);
+            } else {
+              mapRef.current.setBounds(bounds);
+            }
           }
           try {
             mapRef.current.relayout?.();
@@ -1034,7 +1093,7 @@ const MapView = forwardRef(({
         }, 420);
       },
     }),
-    [onCurrentLocationChange, runWithIgnoredViewportEvents]
+    [onCurrentLocationChange, runWithIgnoredViewportEvents, placesFitBoundsPadding]
   );
 
   // 1. 지도 초기화
@@ -1076,14 +1135,32 @@ const MapView = forwardRef(({
                 }
               }, 100);
 
-              const markUserInteracted = () => {
+              /** 프로그램 이동(idle)은 무시, 실제 손·마우스 드래그·줌은 항상 반영 */
+              const markUserInteractedFromIdle = () => {
                 if (ignoreViewportEventRef.current) return;
                 userInteractedRef.current = true;
               };
+              const markUserInteractedFromGesture = () => {
+                userInteractedRef.current = true;
+              };
 
-              /** idle 전에만 켜지던 플래그 때문에: 첫 팬/줌 중 places 갱신 → setBounds가 드래그를 덮어씀 */
-              window.kakao.maps.event.addListener(map, "dragstart", markUserInteracted);
-              window.kakao.maps.event.addListener(map, "zoom_start", markUserInteracted);
+              window.kakao.maps.event.addListener(
+                map,
+                "dragstart",
+                markUserInteractedFromGesture
+              );
+              window.kakao.maps.event.addListener(
+                map,
+                "zoom_start",
+                markUserInteractedFromGesture
+              );
+
+              try {
+                if (typeof map.setDraggable === "function") map.setDraggable(true);
+                if (typeof map.setZoomable === "function") map.setZoomable(true);
+              } catch {
+                /* ignore */
+              }
 
               window.kakao.maps.event.addListener(map, "click", (mouseEvent) => {
                 if (ignoreMapClickRef.current) return;
@@ -1120,7 +1197,7 @@ const MapView = forwardRef(({
               });
 
               window.kakao.maps.event.addListener(map, "idle", () => {
-                markUserInteracted();
+                markUserInteractedFromIdle();
 
                 try {
                   const bounds = map.getBounds();
@@ -1288,6 +1365,7 @@ const MapView = forwardRef(({
           calculator: MAP_CLUSTER_CALCULATOR,
           styles: MAP_CLUSTER_STYLES,
           texts: (size) => formatClusterMarkerCount(size),
+          disableClickZoom: true,
         });
         lastAppliedClusterOptionsRef.current = optsSnapshot;
       }
@@ -1428,58 +1506,57 @@ const MapView = forwardRef(({
     const isPlacesChanged = prevPlacesSigRef.current !== sig;
     if (isPlacesChanged) {
       prevPlacesSigRef.current = sig;
-      // 장소 미리보기 카드 열린 채 검색창 타이핑 → 자동완성 마커만 바뀌어도 setBounds로 줌아웃됨.
-      // 후보가 전부 타이핑 미리보기일 때도 동일 — 마커만 갱신하고 뷰는 유지.
-      const skipViewportAdjust =
-        Boolean(selectedPlace) ||
-        preserveViewportOnPlacesChange ||
-        (validPlaces.length > 0 &&
-          validPlaces.every((p) => p.isKakaoTypingPreview));
+    }
 
-      /** fetch → places 갱신 시 지도는 유지. 잠금·사용자 조작·미리보기·이미 1회 맞춤 후면 금지 */
-      const shouldAutoFitFromPlaces =
-        validPlaces.length > 0 &&
-        !skipViewportAdjust &&
-        !isLockedRef.current &&
-        !userInteractedRef.current &&
-        !selectedPlace &&
-        !hasAutoFitFromPlacesDataRef.current;
+    // 장소 미리보기 열림·카카오 타이핑 미리보기만 있을 때는 뷰 유지. 그 외(검색 확정 등)는 마커 전부 보이게 맞춤.
+    const skipViewportAdjust =
+      Boolean(selectedPlace) ||
+      preserveViewportOnPlacesChange ||
+      (validPlaces.length > 0 &&
+        validPlaces.every((p) => p.isKakaoTypingPreview));
 
-      if (shouldAutoFitFromPlaces) {
-        hasAutoFitFromPlacesDataRef.current = true;
-        lockAutoMove(900, "places-auto-fit");
-        ignoreViewportEventRef.current = true;
-        if (validPlaces.length === 1) {
-          const c = resolvePlaceCoords(validPlaces[0]);
-          if (c) {
-            mapRef.current.setCenter(
-              new window.kakao.maps.LatLng(c.lat, c.lng)
-            );
-            mapRef.current.setLevel(4);
-          }
-        } else if (validPlaces.length > 1) {
-          const p = placesFitBoundsPadding;
-          if (p != null && typeof p === "object") {
-            const t = Math.round(Number(p.top) || 0);
-            const r = Math.round(Number(p.right) || 0);
-            const b = Math.round(Number(p.bottom) || 0);
-            const l = Math.round(Number(p.left) || 0);
-            if (t + r + b + l > 0) {
-              mapRef.current.setBounds(bounds, t, r, b, l);
-            } else {
-              mapRef.current.setBounds(bounds);
-            }
-          } else if (typeof p === "number" && Number.isFinite(p) && p > 0) {
-            const n = Math.round(p);
-            mapRef.current.setBounds(bounds, n, n, n, n);
+    const shouldAutoFitFromPlaces =
+      validPlaces.length > 0 &&
+      !skipViewportAdjust &&
+      !isLockedRef.current &&
+      !userInteractedRef.current &&
+      !selectedPlace &&
+      lastAutoFitPlacesSigRef.current !== sig;
+
+    if (shouldAutoFitFromPlaces) {
+      lastAutoFitPlacesSigRef.current = sig;
+      lockAutoMove(900, "places-auto-fit");
+      ignoreViewportEventRef.current = true;
+      if (validPlaces.length === 1) {
+        const c = resolvePlaceCoords(validPlaces[0]);
+        if (c) {
+          mapRef.current.setCenter(
+            new window.kakao.maps.LatLng(c.lat, c.lng)
+          );
+          mapRef.current.setLevel(4);
+        }
+      } else if (validPlaces.length > 1) {
+        const p = placesFitBoundsPadding;
+        if (p != null && typeof p === "object") {
+          const t = Math.round(Number(p.top) || 0);
+          const r = Math.round(Number(p.right) || 0);
+          const b = Math.round(Number(p.bottom) || 0);
+          const l = Math.round(Number(p.left) || 0);
+          if (t + r + b + l > 0) {
+            mapRef.current.setBounds(bounds, t, r, b, l);
           } else {
             mapRef.current.setBounds(bounds);
           }
+        } else if (typeof p === "number" && Number.isFinite(p) && p > 0) {
+          const n = Math.round(p);
+          mapRef.current.setBounds(bounds, n, n, n, n);
+        } else {
+          mapRef.current.setBounds(bounds);
         }
-        setTimeout(() => {
-          ignoreViewportEventRef.current = false;
-        }, 450);
       }
+      setTimeout(() => {
+        ignoreViewportEventRef.current = false;
+      }, 450);
     }
   }, [
     places,
@@ -1576,6 +1653,16 @@ const MapView = forwardRef(({
       }
       try {
         mapRef.current.relayout?.();
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (typeof mapRef.current?.setDraggable === "function") {
+          mapRef.current.setDraggable(true);
+        }
+        if (typeof mapRef.current?.setZoomable === "function") {
+          mapRef.current.setZoomable(true);
+        }
       } catch {
         /* ignore */
       }
@@ -2216,7 +2303,8 @@ const styles = {
     position: "absolute",
     top: 0,
     left: 0,
-    zIndex: 2
+    zIndex: 2,
+    touchAction: "pan-x pan-y pinch-zoom",
   },
   errorBox: {
     width: "100%",

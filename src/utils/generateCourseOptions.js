@@ -73,14 +73,40 @@ function placeAreaHaystack(place) {
     .toLowerCase();
 }
 
+/** 을지로 코스: 주소에 이 구가 있으면 상호만 «을지로»여도 제외(용산·영등포 등 오탐 방지) */
+const EULJIRO_EXCLUDED_GU_MARKERS = [
+  "성동구",
+  "광진구",
+  "강남구",
+  "서초구",
+  "송파구",
+  "강동구",
+  "마포구",
+  "영등포구",
+  "양천구",
+  "구로구",
+  "용산구",
+];
+
 function placeMatchesArea(place, areaKey) {
   if (!areaKey) return true;
   const blob = placeAreaHaystack(place);
   const synonyms = REGION_KEYWORDS[areaKey];
-  if (synonyms?.length) {
-    return synonyms.some((s) => blob.includes(String(s).toLowerCase()));
+  const matched = synonyms?.length
+    ? synonyms.some((s) => blob.includes(String(s).toLowerCase()))
+    : blob.includes(String(areaKey).toLowerCase());
+  if (!matched) return false;
+  if (areaKey === "을지로") {
+    const b = blob.toLowerCase();
+    if (
+      EULJIRO_EXCLUDED_GU_MARKERS.some((g) =>
+        b.includes(String(g).toLowerCase())
+      )
+    ) {
+      return false;
+    }
   }
-  return blob.includes(String(areaKey).toLowerCase());
+  return true;
 }
 
 function includesAny(source, target) {
@@ -128,6 +154,21 @@ const RULE_CATEGORY_NEEDLES = {
   양식: ["양식", "이탈리", "프렌치", "파스타", "스테이크"],
   다이닝: ["다이닝", "파인", "코스"],
   카페: ["카페", "커피"],
+  디저트: [
+    "디저트",
+    "아이스크림",
+    "젤라또",
+    "gelato",
+    "빙수",
+    "팥빙수",
+    "케이크",
+    "도넛",
+    "도너츠",
+    "베이커리",
+    "초콜릿",
+    "브레드",
+    "빵",
+  ],
   칵테일: ["칵테일", "칵테일바"],
 };
 
@@ -235,8 +276,16 @@ export function isSameVenueForCourseStep(first, second) {
   return false;
 }
 
-/** 1차·2차 장소 id 조합 (프로필 무관 — 이미 본 조합 제외용) */
+/** 1차·2차(또는 1·쩜오차·2) 장소 id 조합 (프로필 무관 — 이미 본 조합 제외용) */
 export function courseVenuePairKey(course) {
+  const steps = course?.steps || [];
+  if (steps.length >= 3) {
+    const ids = steps
+      .map((s) => placeId(s?.place))
+      .filter((x) => x != null)
+      .map(String);
+    if (ids.length >= 3) return ids.join("|");
+  }
   const p0 = course?.steps?.[0]?.place;
   const p1 = course?.steps?.[1]?.place;
   const a = placeId(p0);
@@ -330,7 +379,86 @@ export function filterByArea(places, area) {
   return places.filter((p) => placeMatchesArea(p, area));
 }
 
+/**
+ * 주소에 "을지로" 토큰이 없어도 `서울 중구` 등으로만 저장된 장소가 많아 `REGION_KEYWORDS`만 쓰면 0건 →
+ * `area`를 버리고 전국(또는 넓은 반경) 풀로 코스를 짜 성동·강남 등이 섞이는 문제를 막음.
+ * 짧은 단어만 쓰지 않음(부산 중구 등 오탐 방지).
+ */
+const COURSE_AREA_FALLBACK_PHRASES = {
+  을지로: [
+    "서울특별시 중구",
+    "서울 중구",
+    "서울특별시 종로구",
+    "서울 종로구",
+    "을지로동",
+    "을지로1가",
+    "을지로2가",
+    "을지로3가",
+    "을지로4가",
+    "을지로5가",
+    "을지로6가",
+    "을지로7가",
+    "남대문로",
+    "세종대로",
+    "소공동",
+    "회현동",
+    "다동",
+    "무교동",
+    "명동",
+    "충무로",
+    "필동",
+    "장교동",
+    "인현동",
+    "예장동",
+    "주교동",
+    "입정동",
+    "남창동",
+    "봉래동",
+  ],
+};
+
+function filterPlacesByCourseAreaFallback(places, areaKey) {
+  const phrases = COURSE_AREA_FALLBACK_PHRASES[areaKey];
+  if (!phrases?.length || !Array.isArray(places)) return [];
+  return places.filter((p) => {
+    const blob = placeAreaHaystack(p);
+    if (areaKey === "을지로") {
+      if (
+        EULJIRO_EXCLUDED_GU_MARKERS.some((g) =>
+          blob.includes(String(g).toLowerCase())
+        )
+      ) {
+        return false;
+      }
+    }
+    return phrases.some((s) => blob.includes(String(s).toLowerCase()));
+  });
+}
+
+/**
+ * 코스 엔진·1·2차 재생성 공통: 지역 키워드 매칭 → 주소구문 완화 → 그래도 없으면 area 해제·전체 풀
+ */
+export function resolveCourseAreaPool(places, parsedQuery) {
+  let areaPlaces = filterByArea(places, parsedQuery.area);
+  let effectiveParsed = parsedQuery;
+  if (!areaPlaces.length && parsedQuery.area) {
+    const relaxed = filterPlacesByCourseAreaFallback(places, parsedQuery.area);
+    if (relaxed.length) {
+      areaPlaces = relaxed;
+    } else {
+      areaPlaces = places;
+      effectiveParsed = { ...parsedQuery, area: null };
+    }
+  }
+  return { areaPlaces, effectiveParsed };
+}
+
 function choosePattern(parsed) {
+  if (parsed.includeHalfStep && parsed.steps === 2) {
+    const mode = parsed.mode ?? parsed.dateMode;
+    if (mode === "date") return COURSE_PATTERNS.date_3step;
+    return COURSE_PATTERNS.casual_3step;
+  }
   if (parsed.steps !== 2) return null;
   const mode = parsed.mode ?? parsed.dateMode;
   if (mode === "date") return COURSE_PATTERNS.date_2step;
@@ -449,14 +577,200 @@ function tryBuildCoursesForProfile({
   return results.sort((a, b) => b.totalScore - a.totalScore);
 }
 
-function buildCoursesWithProfile({
-  parsedQuery,
-  places,
+const BRIDGE_LEG_MIN_M = 45;
+const BRIDGE_LEG_MAX_M = 1800;
+
+/** 1차 → 쩜오차 → 2차 (쩜오차는 1차 근처, 2차는 쩜오차 기준 거리) */
+function tryBuildCoursesForProfileThree({
+  firstCandidates,
+  bridgePool,
+  secondPool,
   rule1,
+  ruleBridge,
   rule2,
+  distanceLimitSecond,
+  parsedQuery,
   profile,
   rng,
 }) {
+  const results = [];
+
+  for (const first of firstCandidates) {
+    const firstClose = getMinutesUntilClose(first);
+    if (
+      parsedQuery.rightNow &&
+      firstClose != null &&
+      firstClose < (rule1.stayMinutes ?? 90) * 0.6
+    ) {
+      continue;
+    }
+
+    const bridgeCandidates = bridgePool
+      .filter(
+        (b) =>
+          !isSameVenueForCourseStep(first, b) &&
+          haversineMeters(
+            Number(first.lat),
+            Number(first.lng),
+            Number(b.lat),
+            Number(b.lng)
+          ) >= BRIDGE_LEG_MIN_M &&
+          haversineMeters(
+            Number(first.lat),
+            Number(first.lng),
+            Number(b.lat),
+            Number(b.lng)
+          ) <= BRIDGE_LEG_MAX_M
+      )
+      .sort((a, b) => b.matchScore - a.matchScore);
+
+    if (!bridgeCandidates.length) continue;
+
+    const pickBn = Math.min(5, bridgeCandidates.length);
+    const bridge = bridgeCandidates[Math.floor(rng() * pickBn)];
+
+    const secondCandidates = secondPool
+      .filter(
+        (s) =>
+          !isSameVenueForCourseStep(first, s) &&
+          !isSameVenueForCourseStep(bridge, s) &&
+          haversineMeters(
+            Number(bridge.lat),
+            Number(bridge.lng),
+            Number(s.lat),
+            Number(s.lng)
+          ) >= SECOND_MIN_DISTANCE_METERS
+      )
+      .map((s) => {
+        const distance = haversineMeters(
+          Number(bridge.lat),
+          Number(bridge.lng),
+          Number(s.lat),
+          Number(s.lng)
+        );
+        const distanceBonus =
+          Math.max(0, 30 - distance / 25) * profile.weights.distance;
+
+        const secondClose = getMinutesUntilClose(s);
+        let timingBonus = 0;
+        if (parsedQuery.rightNow && secondClose != null) {
+          if (secondClose >= (rule2.stayMinutes ?? 60)) timingBonus += 10;
+          else if (secondClose < 40) timingBonus -= 50;
+        }
+
+        return {
+          ...s,
+          distanceFromBridge: Math.round(distance),
+          pairScore:
+            first.matchScore +
+            bridge.matchScore +
+            s.matchScore +
+            distanceBonus +
+            timingBonus,
+        };
+      })
+      .filter((s) =>
+        Number.isFinite(distanceLimitSecond) && distanceLimitSecond < 1e8
+          ? s.distanceFromBridge <= distanceLimitSecond
+          : true
+      )
+      .sort((a, b) => b.pairScore - a.pairScore);
+
+    if (!secondCandidates.length) continue;
+
+    const pickN = Math.min(5, secondCandidates.length);
+    const second = secondCandidates[Math.floor(rng() * pickN)];
+    const dFirstBridge = Math.round(
+      haversineMeters(
+        Number(first.lat),
+        Number(first.lng),
+        Number(bridge.lat),
+        Number(bridge.lng)
+      )
+    );
+
+    const key = `${profile.key}-${placeId(first)}-${placeId(bridge)}-${placeId(second)}`;
+
+    results.push({
+      key,
+      profileKey: profile.key,
+      profileTitle: profile.title,
+      profileDescription: profile.description,
+      totalScore: second.pairScore,
+      includeHalfStep: true,
+      steps: [
+        {
+          step: 1,
+          label: rule1.label,
+          stayMinutes: rule1.stayMinutes,
+          place: first,
+        },
+        {
+          step: 2,
+          label: ruleBridge.label,
+          stayMinutes: ruleBridge.stayMinutes,
+          walkDistanceMeters: dFirstBridge,
+          place: bridge,
+        },
+        {
+          step: 3,
+          label: rule2.label,
+          stayMinutes: rule2.stayMinutes,
+          walkDistanceMeters: second.distanceFromBridge,
+          place: second,
+        },
+      ],
+    });
+  }
+
+  return results.sort((a, b) => b.totalScore - a.totalScore);
+}
+
+function buildCoursesWithProfile({
+  parsedQuery,
+  places,
+  pattern,
+  profile,
+  rng,
+}) {
+  if (Array.isArray(pattern) && pattern.length === 3) {
+    const [rule1, ruleBridge, rule2] = pattern;
+    const rankedFirst = rankByRule(places, rule1, parsedQuery, profile).slice(
+      0,
+      20
+    );
+    const firstCandidates = shuffleHeadInCopy(rankedFirst, 12, rng);
+    const bridgePool = rankByRule(places, ruleBridge, parsedQuery, profile);
+    const secondPool = rankByRule(places, rule2, parsedQuery, profile);
+
+    if (!firstCandidates.length || !bridgePool.length || !secondPool.length) {
+      return [];
+    }
+
+    const walkable = Boolean(parsedQuery.walkable);
+    const distanceTiers = walkable
+      ? [500, 900, 1400, 2800, Number.POSITIVE_INFINITY]
+      : [2000, 8000, Number.POSITIVE_INFINITY];
+
+    for (const limit of distanceTiers) {
+      const batch = tryBuildCoursesForProfileThree({
+        firstCandidates,
+        bridgePool,
+        secondPool,
+        rule1,
+        ruleBridge,
+        rule2,
+        distanceLimitSecond: limit,
+        parsedQuery,
+        profile,
+        rng,
+      });
+      if (batch.length) return batch;
+    }
+    return [];
+  }
+
+  const [rule1, rule2] = pattern;
   const rankedFirst = rankByRule(places, rule1, parsedQuery, profile).slice(0, 20);
   const firstCandidates = shuffleHeadInCopy(rankedFirst, 12, rng);
   const secondPool = rankByRule(places, rule2, parsedQuery, profile);
@@ -534,17 +848,12 @@ export function generateCourseOptions({
   excludeVenuePairKeys = [],
 }) {
   const pattern = choosePattern(parsedQuery);
-  if (!pattern) return [];
+  if (!pattern || !Array.isArray(pattern) || pattern.length < 2) return [];
 
-  const [rule1, rule2] = pattern;
-
-  let areaPlaces = filterByArea(places, parsedQuery.area);
-  let effectiveParsed = parsedQuery;
-
-  if (!areaPlaces.length && parsedQuery.area) {
-    areaPlaces = places;
-    effectiveParsed = { ...parsedQuery, area: null };
-  }
+  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
+    places,
+    parsedQuery
+  );
 
   if (!areaPlaces.length) return [];
 
@@ -575,8 +884,7 @@ export function generateCourseOptions({
     const candidates = buildCoursesWithProfile({
       parsedQuery: effectiveParsed,
       places: areaPlaces,
-      rule1,
-      rule2,
+      pattern,
       profile,
       rng,
     });
@@ -608,15 +916,22 @@ export function courseOptionsToMapPlaces(options = []) {
   for (const course of options) {
     for (const step of course?.steps || []) {
       const p = step.place;
+      if (!p) continue;
+      const w = resolvePlaceWgs84(p);
+      if (!w || !Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
       const id = placeId(p);
       const sid = id != null ? String(id) : `course_${out.length}`;
       if (seen.has(sid)) continue;
       seen.add(sid);
-      const lat = Number(p.lat);
-      const lng = Number(p.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const lat = w.lat;
+      const lng = w.lng;
       const stepNum = Number(step.step) || 1;
-      const mapCaption = stepNum === 1 ? "1차" : "2차";
+      const mapCaption =
+        typeof step.label === "string" && step.label.trim()
+          ? step.label.trim()
+          : stepNum === 1
+            ? "1차"
+            : "2차";
       out.push({
         ...p,
         id: sid,
@@ -667,9 +982,38 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       });
     }
   }
+  const refSteps = courses[0]?.steps || [];
+  if (refSteps.length >= 3) {
+    const bp = refSteps[1]?.place;
+    const wb = resolvePlaceWgs84(bp);
+    if (wb && Number.isFinite(wb.lat) && Number.isFinite(wb.lng)) {
+      const bid = placeId(bp);
+      const bkey = bid != null ? String(bid) : "course_bridge";
+      const firstKey = firstPlace ? String(placeId(firstPlace) ?? "course_1st") : "";
+      if (!firstKey || bkey !== firstKey) {
+        out.push({
+          ...bp,
+          id: bkey,
+          name: bp.name,
+          place_name: bp.place_name || bp.name,
+          lat: wb.lat,
+          lng: wb.lng,
+          y: String(wb.lat),
+          x: String(wb.lng),
+          category_name: bp.category_name || "",
+          address_name: bp.address_name || "",
+          isCoursePin: true,
+          courseMapCaption: "쩜오차",
+          courseStepIndex: 2,
+          courseMarkerPulse: false,
+        });
+      }
+    }
+  }
   const seenSecond = new Set();
   for (let i = 0; i < courses.length; i++) {
-    const p = courses[i]?.steps?.[1]?.place;
+    const steps = courses[i]?.steps || [];
+    const p = steps.length >= 2 ? steps[steps.length - 1]?.place : null;
     if (!p) continue;
     const w = resolvePlaceWgs84(p);
     if (!w || !Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
@@ -678,6 +1022,11 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       id != null ? String(id) : `course_2_${i}_${String(p.name || "").slice(0, 24)}`;
     if (seenSecond.has(key)) continue;
     seenSecond.add(key);
+    const lastStep = steps[steps.length - 1];
+    const cap =
+      typeof lastStep?.label === "string" && lastStep.label.trim()
+        ? lastStep.label.trim()
+        : "2차";
     out.push({
       ...p,
       id: key,
@@ -690,8 +1039,8 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       category_name: p.category_name || "",
       address_name: p.address_name || "",
       isCoursePin: true,
-      courseMapCaption: "2차",
-      courseStepIndex: 2,
+      courseMapCaption: cap,
+      courseStepIndex: Number(lastStep?.step) || 2,
       courseMarkerPulse: true,
     });
   }

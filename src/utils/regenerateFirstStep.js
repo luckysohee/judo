@@ -4,14 +4,19 @@ import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { getMinutesUntilClose } from "./timeUtils.js";
 import {
   calculateCoursePlaceScore,
-  filterByArea,
   isSameVenueForCourseStep,
   placeId,
+  resolveCourseAreaPool,
 } from "./generateCourseOptions.js";
 
 const MIN_STEP_SEPARATION_M = 35;
 
 function choosePattern(parsedQuery) {
+  if (parsedQuery.includeHalfStep && parsedQuery.steps === 2) {
+    const mode = parsedQuery.mode ?? parsedQuery.dateMode;
+    if (mode === "date") return COURSE_PATTERNS.date_3step;
+    return COURSE_PATTERNS.casual_3step;
+  }
   if (parsedQuery.steps !== 2) return null;
   const mode = parsedQuery.mode ?? parsedQuery.dateMode;
   if (mode === "date") return COURSE_PATTERNS.date_2step;
@@ -38,7 +43,13 @@ export function regenerateFirstStep({
 }) {
   if (!selectedCourse?.steps?.length) return [];
 
-  const pattern = choosePattern(parsedQuery);
+  const stepsIn = selectedCourse.steps || [];
+  const useBridgeLayout = stepsIn.length >= 3;
+  const pattern = useBridgeLayout
+    ? (parsedQuery.mode ?? parsedQuery.dateMode) === "date"
+      ? COURSE_PATTERNS.date_3step
+      : COURSE_PATTERNS.casual_3step
+    : choosePattern(parsedQuery);
   if (!pattern) return [];
 
   const [rule1] = pattern;
@@ -48,12 +59,10 @@ export function regenerateFirstStep({
   const currentFirstResolved = withWgs84(selectedCourse.steps[0]?.place);
   if (!secondResolved || !currentFirstResolved) return [];
 
-  let areaPlaces = filterByArea(places, parsedQuery.area);
-  let effectiveParsed = parsedQuery;
-  if (!areaPlaces.length && parsedQuery.area) {
-    areaPlaces = places;
-    effectiveParsed = { ...parsedQuery, area: null };
-  }
+  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
+    places,
+    parsedQuery
+  );
 
   const walkable = Boolean(effectiveParsed.walkable);
   const distanceLimits = walkable ? [500, 700, 1000] : [2000];
@@ -135,8 +144,54 @@ export function regenerateFirstStep({
   const sliceSource = top.length ? top : filtered;
 
   const secondStepTemplate = selectedCourse.steps[1];
+  const thirdStepTemplate = selectedCourse.steps[2];
 
   return sliceSource.slice(0, 3).map((first) => {
+    if (useBridgeLayout && thirdStepTemplate) {
+      const bridge = secondResolved;
+      const last = withWgs84(thirdStepTemplate.place);
+      if (!last) return null;
+      const d01 = haversineMeters(
+        Number(first.lat),
+        Number(first.lng),
+        Number(bridge.lat),
+        Number(bridge.lng)
+      );
+      const d12 = haversineMeters(
+        Number(bridge.lat),
+        Number(bridge.lng),
+        Number(last.lat),
+        Number(last.lng)
+      );
+      return {
+        key: `${selectedCourse.key}-r1-${placeId(first) ?? first.name}`,
+        profileKey: selectedCourse.profileKey,
+        profileTitle: selectedCourse.profileTitle,
+        profileDescription: selectedCourse.profileDescription,
+        regenerated: true,
+        regenerateVariant: "first",
+        totalScore: first.candidateScore,
+        includeHalfStep: true,
+        steps: [
+          {
+            step: 1,
+            label: rule1.label,
+            stayMinutes: rule1.stayMinutes,
+            place: first,
+          },
+          {
+            ...secondStepTemplate,
+            step: 2,
+            walkDistanceMeters: Math.round(d01),
+          },
+          {
+            ...thirdStepTemplate,
+            step: 3,
+            walkDistanceMeters: Math.round(d12),
+          },
+        ],
+      };
+    }
     const d = haversineMeters(
       Number(first.lat),
       Number(first.lng),
@@ -164,5 +219,5 @@ export function regenerateFirstStep({
         },
       ],
     };
-  });
+  }).filter(Boolean);
 }

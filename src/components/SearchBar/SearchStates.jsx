@@ -1,14 +1,12 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import './scrollbar.css'; // 동글 스크롤바 스타일 import
 
 // 입력 전 상태: 아무것도 표시 안 함
 const InitialState = () => null;
 
-// 입력 중 상태: 자동완성 + 상황 태그 하이라이트
+// 입력 중 상태: 자동완성 등
 function TypingState({
   query,
-  matchedContexts,
-  onContextTagClick,
   kakaoResults,
   isKakaoLoading,
   showKakaoResults,
@@ -31,80 +29,6 @@ function TypingState({
 
   return (
   <div className="absolute top-full left-0 right-0 mt-2 z-40">
-    {/* 상황 태그 하이라이트 - 다크 모드 */}
-    {matchedContexts.length > 0 && (
-      <div 
-        style={{
-          marginBottom: '8px',
-          padding: '12px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.85)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: '12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
-        }}
-      >
-        <div style={{
-          fontSize: '11px',
-          color: 'rgba(255, 255, 255, 0.6)',
-          fontWeight: '500',
-          marginBottom: '8px'
-        }}>
-          💡 상황별 추천
-        </div>
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          {matchedContexts.map((context) => (
-            <button
-              key={context.key}
-              onClick={() => onContextTagClick(context.key, context.name)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: '20px',
-                fontSize: '12px',
-                fontWeight: '500',
-                color: 'rgba(255, 255, 255, 0.9)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-                transition: 'all 0.2s ease',
-                cursor: 'pointer',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                backgroundColor: context.color.includes('red') 
-                  ? 'rgba(239, 68, 68, 0.8)' 
-                  : context.color.includes('blue') 
-                  ? 'rgba(59, 130, 246, 0.8)'
-                  : context.color.includes('green') 
-                  ? 'rgba(34, 197, 94, 0.8)'
-                  : context.color.includes('yellow') 
-                  ? 'rgba(245, 158, 11, 0.8)'
-                  : context.color.includes('purple') 
-                  ? 'rgba(168, 85, 247, 0.8)'
-                  : 'rgba(107, 114, 128, 0.8)'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'scale(1.05)';
-                e.target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'scale(1)';
-                e.target.style.boxShadow = 'none';
-              }}
-            >
-              <span style={{ fontSize: '13px' }}>{context.icon}</span>
-              <span>{context.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    )}
-
     {/* nearby search button */}
     {userLocation && onNearbySearch && (
       <div
@@ -376,78 +300,6 @@ function TypingState({
   );
 }
 
-// 검색 후 상태: 필터 칩 - 다크 모드
-const SearchCompleteState = ({ appliedFilters, onFilterRemove }) => (
-  <div 
-    style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '8px',
-      padding: '12px 16px',
-      backgroundColor: 'rgba(0, 0, 0, 0.85)',
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
-      border: '1px solid rgba(255, 255, 255, 0.2)',
-      borderRadius: '12px',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
-    }}
-  >
-    {appliedFilters.map((filter, index) => (
-      <div
-        key={index}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '6px 12px',
-          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: '20px',
-          fontSize: '13px',
-          color: '#ffffff',
-          fontWeight: '500',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-        }}
-        onClick={() => onFilterRemove(index)}
-      >
-        <span>{filter.icon}</span>
-        <span>{filter.label}</span>
-        <button
-          style={{
-            marginLeft: '4px',
-            color: 'rgba(255, 255, 255, 0.7)',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            borderRadius: '50%',
-            width: '16px',
-            height: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '10px',
-            border: 'none',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-            e.target.style.color = '#ffffff';
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-            e.target.style.color = 'rgba(255, 255, 255, 0.7)';
-          }}
-        >
-          ×
-        </button>
-      </div>
-    ))}
-  </div>
-);
-
-export { InitialState, TypingState, SearchCompleteState };
+export { InitialState, TypingState };
 
 export default TypingState;
