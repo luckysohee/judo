@@ -13,7 +13,6 @@ const PLACE_DETAIL_COLUMNS = [
   "lng",
   "tags",
   "address",
-  "phone",
   "kakao_place_id",
   "atmosphere",
   "alcohol_type",

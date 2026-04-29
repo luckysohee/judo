@@ -6,7 +6,10 @@ import {
   pickPlace,
   unpickPlace,
 } from "../../api/placePicks";
-import { resolvePlaceUuidForPick } from "../../utils/resolvePlaceUuidForPick";
+import {
+  ensurePlaceUuidForPick,
+  resolvePlaceUuidForPick,
+} from "../../utils/resolvePlaceUuidForPick";
 
 /** 픽은 `place_picks` 행만 추가·삭제. 폴더·로컬 저장 맵과 무관(픽 전용 폴더 없음). */
 
@@ -313,18 +316,26 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
       e?.preventDefault?.();
       if (busy) return;
       if (!user?.id) {
-        showToast("로그인 후 픽할 수 있어요", "info", 3200);
+        showToast("로그인하고 이 가게를 픽해보세요.\n내 픽이 모여 취향이 만들어져요.", "info", 3800);
         return;
       }
       if (resolving) return;
-      if (!placeUuid) {
-        showToast("이 장소는 아직 주도에 등록되지 않았어요", "info", 3200);
-        return;
-      }
       setBusy(true);
       try {
+        let targetPlaceUuid = placeUuid;
+        if (!targetPlaceUuid) {
+          targetPlaceUuid = await ensurePlaceUuidForPick(place, {
+            createIfMissing: true,
+          });
+          if (targetPlaceUuid) {
+            setPlaceUuid(targetPlaceUuid);
+          } else {
+            showToast("이 장소는 아직 픽할 수 없어요. 잠시 후 다시 시도해 주세요.", "info", 3200);
+            return;
+          }
+        }
         if (picked) {
-          const { error } = await unpickPlace(placeUuid);
+          const { error } = await unpickPlace(targetPlaceUuid);
           if (error) {
             showToast(error.message || "픽 취소에 실패했어요", "info", 3200);
             return;
@@ -332,23 +343,23 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
           setPicked(false);
           return;
         }
-        const { error } = await pickPlace(placeUuid);
+        const { error } = await pickPlace(targetPlaceUuid);
         if (error) {
           if (isUniqueViolation(error)) {
             setPicked(true);
-            maybeShowPickPublicNotice(placeUuid, showToast);
+            maybeShowPickPublicNotice(targetPlaceUuid, showToast);
             return;
           }
           showToast(error.message || "픽하기에 실패했어요", "info", 3200);
           return;
         }
         setPicked(true);
-        maybeShowPickPublicNotice(placeUuid, showToast);
+        maybeShowPickPublicNotice(targetPlaceUuid, showToast);
       } finally {
         setBusy(false);
       }
     },
-    [busy, resolving, picked, placeUuid, user?.id, showToast]
+    [busy, resolving, picked, placeUuid, place, user?.id, showToast]
   );
 
   const v = VARIANT_STYLES[variant] || VARIANT_STYLES.card;

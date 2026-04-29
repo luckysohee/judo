@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useToast } from "../Toast/ToastProvider";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 
@@ -45,15 +45,6 @@ export default function HotCheckinStrip({
     !hideWhenPreviewOpen &&
     !hideWhenSearchActive &&
     (topFive.length > 0 || curators.length > 0);
-
-  useEffect(() => {
-    if (tab === TAB_HOT && topFive.length === 0 && curators.length > 0) {
-      setTab(TAB_CURATORS);
-    }
-    if (tab === TAB_CURATORS && curators.length === 0 && topFive.length > 0) {
-      setTab(TAB_HOT);
-    }
-  }, [tab, topFive.length, curators.length]);
 
   if (!showStrip) return null;
 
@@ -222,64 +213,28 @@ export default function HotCheckinStrip({
   return (
     <div style={styles.wrap} aria-label="홈 추천 스트립">
       <div style={styles.bar}>
-        {topFive.length > 0 && curators.length > 0 ? (
-          <div style={styles.tabRow} role="tablist" aria-label="스트립 탭">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === TAB_HOT}
-              style={styles.tabBtn(tab === TAB_HOT)}
-              onClick={() => setTab(TAB_HOT)}
-            >
-              🔥 오늘 한잔 TOP
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === TAB_CURATORS}
-              style={styles.tabBtn(tab === TAB_CURATORS)}
-              onClick={() => setTab(TAB_CURATORS)}
-            >
-              ✨ 떠오르는 큐레이터
-            </button>
-          </div>
-        ) : topFive.length > 0 ? (
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              color: "#1f2937",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              minHeight: STRIP_ROW_PX,
-              boxSizing: "border-box",
-            }}
+        <div style={styles.tabRow} role="tablist" aria-label="스트립 탭">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === TAB_HOT}
+            style={styles.tabBtn(tab === TAB_HOT)}
+            onClick={() => setTab(TAB_HOT)}
+            title="오늘 한잔 TOP"
           >
-            <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
-              🔥
-            </span>
-            오늘 한잔 TOP
-          </div>
-        ) : (
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              color: "#1f2937",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              minHeight: STRIP_ROW_PX,
-              boxSizing: "border-box",
-            }}
+            🔥 오늘 한잔 TOP
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === TAB_CURATORS}
+            style={styles.tabBtn(tab === TAB_CURATORS)}
+            onClick={() => setTab(TAB_CURATORS)}
+            title="떠오르는 큐레이터"
           >
-            <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
-              ✨
-            </span>
-            떠오르는 큐레이터
-          </div>
-        )}
+            ✨ 떠오르는 큐레이터
+          </button>
+        </div>
 
         <div style={styles.scroll} role="tabpanel">
           {tab === TAB_HOT ? (
