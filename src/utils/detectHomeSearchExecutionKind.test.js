@@ -15,11 +15,22 @@ describe("detectHomeSearchExecutionKind", () => {
       "을지로 와인바",
       "성수 이자카야",
       "강남 야장",
-      "한남 소개팅",
       "을지로 2차",
     ])("%s", (q) => {
       expect(detectHomeSearchExecutionKind(q, null)).toBe(
         HOME_SEARCH_KIND.KEYWORD_SEARCH
+      );
+    });
+  });
+
+  describe("ai_parse_search (무드·목적 단어 → 통합·의도 파이프)", () => {
+    it.each([
+      "을지로 조용한 와인바",
+      "을지로 데이트 와인바",
+      "한남 소개팅",
+    ])("%s", (q) => {
+      expect(detectHomeSearchExecutionKind(q, null)).toBe(
+        HOME_SEARCH_KIND.AI_PARSE_SEARCH
       );
     });
   });
@@ -38,9 +49,9 @@ describe("detectHomeSearchExecutionKind", () => {
     });
   });
 
-  it("을지로 노포는 vibe 꼬리라 AI (키워드 명사 조합 예외)", () => {
+  it("을지로 노포는 지역+키워드 직검색 (카카오 fast path)", () => {
     expect(detectHomeSearchExecutionKind("을지로 노포", null)).toBe(
-      HOME_SEARCH_KIND.AI_PARSE_SEARCH
+      HOME_SEARCH_KIND.KEYWORD_SEARCH
     );
   });
 

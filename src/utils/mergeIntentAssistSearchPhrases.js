@@ -192,6 +192,64 @@ function phraseIsGenericCafeBrunchMealTail(phrase) {
   return /\s(카페|브런치|식사)$/.test(p);
 }
 
+/** 원문·통합 키워드가 특정 바 업종이면, 다른 업종 phrase(이자카야·주점 등)는 넣지 않는다. */
+function specificBarVenueLockFromQuery(rawQuery, kwUnified) {
+  const q = String(rawQuery || "").trim();
+  const u = String(kwUnified || "").trim();
+  const s = `${q} ${u}`.toLowerCase();
+  if (!s.trim()) return null;
+  /** 사용자가 둘 이상 업종을 동시에 염두에 둔 경우만 넓힌다 */
+  if (
+    /\b(?:또는|or)\b/i.test(q) &&
+    /와인바|이자카야|주점|호프|칵테일|위스키/i.test(q) &&
+    /(?:와인바.*(?:이자카야|주점|호프)|(?:이자카야|주점|호프).*와인바)/i.test(q)
+  ) {
+    return null;
+  }
+  if (/위스키바|위스키\s*바|whisky\s*bar|whiskey\s*bar/i.test(s)) return "whisky_bar";
+  if (
+    /칵테일바|칵테일\s*바|\.?\s*cocktail/i.test(s) &&
+    !/와인바|와인\s*바/i.test(s)
+  ) {
+    return "cocktail_bar";
+  }
+  if (
+    /와인바|와인\s*바|wine\s*bar|natural\s*wine|네츄럴\s*와인|자연\s*와인|와인룸|와인\s*펍/i.test(
+      s,
+    )
+  ) {
+    return "wine_bar";
+  }
+  return null;
+}
+
+function phraseAllowedForVenueLock(phrase, lock) {
+  if (!lock) return true;
+  const p = norm(phrase).toLowerCase();
+  if (lock === "wine_bar") {
+    if (
+      /이자카야|야키토리|사케|오뎅|주점|단란주점|포장마차|포차|호프(?!\s*와인)|노래방|코인노래|맥주전문|소주방|맥주집|칵테일바(?!\s*와인)|위스키바/i.test(
+        p,
+      )
+    ) {
+      return false;
+    }
+    return /와인|wine|natural|네츄럴|셀러|cellar|바이더글래스|와인바|vin(?![a-z])|vino|w\s*bar/i.test(
+      p,
+    );
+  }
+  if (lock === "cocktail_bar") {
+    if (/이자카야|주점|포장마차|포차|와인바(?!\s*칵테일)|wine\s*bar/i.test(p))
+      return false;
+    return /칵테일|cocktail|믹솔/i.test(p);
+  }
+  if (lock === "whisky_bar") {
+    if (/이자카야|주점|포장마차|포차|와인바|wine\s*bar/i.test(p)) return false;
+    return /위스키|whisky|whiskey|위스키바/i.test(p);
+  }
+  return true;
+}
+
 export function mergeIntentAssistIntoSearchPhrases(
   kwUnified,
   intentAssist,
@@ -257,7 +315,21 @@ export function mergeIntentAssistIntoSearchPhrases(
   const dedupedCore = dedupeByRegionCategoryCore(meaningful);
 
   const rq = opts.rawQuery != null ? String(opts.rawQuery) : "";
-  let ranked = dedupedCore;
+  const venueLock = specificBarVenueLockFromQuery(rq, root);
+  let narrowedCore = dedupedCore;
+  if (venueLock) {
+    const filtered = dedupedCore.filter((ph) =>
+      phraseAllowedForVenueLock(ph, venueLock),
+    );
+    narrowedCore =
+      filtered.length > 0
+        ? filtered
+        : root && phraseAllowedForVenueLock(root, venueLock)
+          ? [root]
+          : [];
+  }
+
+  let ranked = narrowedCore;
   if (
     rq &&
     rawQueryBlindDateSecondVenueContext(rq) &&
@@ -265,7 +337,7 @@ export function mergeIntentAssistIntoSearchPhrases(
   ) {
     const front = [];
     const back = [];
-    for (const ph of dedupedCore) {
+    for (const ph of narrowedCore) {
       if (phraseIsGenericCafeBrunchMealTail(ph)) back.push(ph);
       else front.push(ph);
     }

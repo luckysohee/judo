@@ -8,62 +8,42 @@ export function getLimitByZoom(level) {
   return 250;
 }
 
-/**
- * 현재 지도 bounds 안에 있는 장소만 가져옴 (지도용 최소 필드).
- * @param {{ south: number, west: number, north: number, east: number, limit?: number }} bounds
- */
-export async function fetchPlacesByBounds({
-  south,
-  west,
-  north,
-  east,
-  limit = 1000,
-}) {
-  const { data, error } = await supabase
-    .from("places")
-    .select("id, name, category, lat, lng")
-    .gte("lat", south)
-    .lte("lat", north)
-    .gte("lng", west)
-    .lte("lng", east)
-    .order("id", { ascending: true })
-    .limit(limit);
-
-  if (error) {
-    throw error;
-  }
-
-  return data ?? [];
-}
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 장소 상세 — 카드/시트 오픈 후 등에서만 호출
+ * 장소 상세 — 카드/시트 오픈 후 등에서만 호출.
+ * 서버 `GET /api/place-detail` (service role + 컬럼 화이트리스트, curator_id 미반환).
+ *
+ * @param {string} placeId UUID
+ * @param {string} [apiBaseUrl] `VITE_AI_API_BASE_URL` — 비우면 상대 경로(프록시)
  * @returns {Promise<{ place: object, curatorPlaceRows: object[] }>}
  */
-export async function fetchPlaceDetail(placeId) {
-  const { data: placeRow, error } = await supabase
-    .from("places")
-    .select("*")
-    .eq("id", placeId)
-    .single();
-
-  if (error) {
-    throw error;
+export async function fetchPlaceDetail(placeId, apiBaseUrl = "") {
+  const id = String(placeId ?? "").trim();
+  if (!id || !UUID_RE.test(id)) {
+    throw new Error("fetchPlaceDetail: invalid place id");
   }
-
-  const { data: cpRows, error: cpError } = await supabase
-    .from("curator_places")
-    .select("*")
-    .eq("place_id", placeId)
-    .eq("is_archived", false);
-
-  if (cpError) {
-    throw cpError;
+  const base = String(apiBaseUrl || "").replace(/\/$/, "");
+  const path = `/api/place-detail?id=${encodeURIComponent(id)}`;
+  const url = base ? `${base}${path}` : path;
+  const res = await fetch(url);
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
-
+  if (!res.ok || !data?.ok) {
+    const msg =
+      (data && data.message) || res.statusText || "place-detail failed";
+    throw new Error(msg);
+  }
   return {
-    place: placeRow,
-    curatorPlaceRows: cpRows ?? [],
+    place: data.place,
+    curatorPlaceRows: Array.isArray(data.curator_place_rows)
+      ? data.curator_place_rows
+      : [],
   };
 }
 

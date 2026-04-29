@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from "react";
-import createMarker from "../../utils/createMarker";
+import createMarker, {
+  isEphemeralSearchMapMarker,
+} from "../../utils/createMarker";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import { debounce } from "../../utils/debounce";
 import {
@@ -204,12 +206,12 @@ function resolvePlaceCoords(place) {
 
 /**
  * 하단 미리보기·검색바에 핀이 가리지 않도록 하는 패닝(px).
- * 예전(높이 58%+140, 최소 320)은 카드보다 과하게 올려 사용자가 매번 아래로 팬해야 했음.
+ * 값이 클수록 핀이 화면에서 더 위로 — 너무 크면 지도가 위로 치우쳐 보여서 상한·계수를 낮춤.
  */
 function bottomPreviewPanPixels() {
-  if (typeof window === "undefined") return 260;
+  if (typeof window === "undefined") return 232;
   const h = window.innerHeight;
-  return Math.min(440, Math.max(200, Math.round(h * 0.24) + 96));
+  return Math.min(400, Math.max(168, Math.round(h * 0.21) + 72));
 }
 
 /** 지도 중심을 실제 좌표보다 남쪽으로 옮겨, 핀이 화면 위쪽에 오게 함 */
@@ -237,11 +239,10 @@ function placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins) {
   const c = resolvePlaceCoords(p);
   if (!c) return false;
   if (p.isKakaoTypingPreview) return true;
-  if (
-    skipKoreaBBoxForCuratorPins &&
-    Array.isArray(p.curatorPlaces) &&
-    p.curatorPlaces.length > 0
-  ) {
+  const hasCuratorGeoBypass =
+    (Array.isArray(p.curatorPlaces) && p.curatorPlaces.length > 0) ||
+    (typeof p.curatorCount === "number" && p.curatorCount > 0);
+  if (skipKoreaBBoxForCuratorPins && hasCuratorGeoBypass) {
     return Number.isFinite(c.lat) && Number.isFinite(c.lng);
   }
   return isLikelyKoreaWgs84(c.lat, c.lng);
@@ -329,7 +330,7 @@ const MapView = forwardRef(({
    */
   preserveViewportOnPlacesChange = false,
   /**
-   * 코스 1→2차 보행 경로 `{ polylinePath, legLabel?, labelPosition?, key }` — key는 effect 의존용
+   * 코스 1→2차 보행 경로 `{ polylinePath, legLabel?, legSubLabel?, labelPosition?, key }` — key는 effect 의존용
    */
   courseOverlay = null,
   /**
@@ -1387,7 +1388,8 @@ const MapView = forwardRef(({
         useCluster &&
         !isLive &&
         !p.isKakaoTypingPreview &&
-        !p.isCoursePin;
+        !p.isCoursePin &&
+        !isEphemeralSearchMapMarker(p);
 
       const checkinMeta = markerCheckinMeta(p, checkinCountByPlaceId, hotRankTopPlaceIds);
       const mapShortCaption = buildMapShortCaption(
@@ -1758,6 +1760,7 @@ const MapView = forwardRef(({
     }
 
     const legLabel = String(courseOverlay?.legLabel || "").trim();
+    const legSubLabel = String(courseOverlay?.legSubLabel || "").trim();
     const lp = courseOverlay?.labelPosition;
     let overlayLat = null;
     let overlayLng = null;
@@ -1779,7 +1782,7 @@ const MapView = forwardRef(({
       overlayLat != null &&
       overlayLng != null &&
       typeof window.kakao.maps.CustomOverlay === "function" &&
-      (legLabel || canDismiss)
+      (legLabel || legSubLabel || canDismiss)
     ) {
       const wrap = document.createElement("div");
       wrap.style.cssText = [
@@ -1790,22 +1793,51 @@ const MapView = forwardRef(({
         "pointer-events:none",
       ].join(";");
 
-      if (legLabel) {
-        const labelEl = document.createElement("div");
-        labelEl.textContent = legLabel;
-        labelEl.style.cssText = [
-          "padding:5px 10px",
-          "background:rgba(255,255,255,0.96)",
-          "border:1px solid rgba(124,58,237,0.45)",
-          "border-radius:10px",
-          "font-size:11px",
-          "font-weight:700",
-          "color:#5b21b6",
+      if (legLabel || legSubLabel) {
+        const col = document.createElement("div");
+        col.style.cssText = [
+          "display:flex",
+          "flex-direction:column",
+          "align-items:center",
+          "gap:4px",
+          "max-width:min(88vw, 268px)",
           "pointer-events:none",
-          "white-space:nowrap",
-          "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
         ].join(";");
-        wrap.appendChild(labelEl);
+        if (legLabel) {
+          const labelEl = document.createElement("div");
+          labelEl.textContent = legLabel;
+          labelEl.style.cssText = [
+            "padding:5px 10px",
+            "background:rgba(255,255,255,0.96)",
+            "border:1px solid rgba(124,58,237,0.45)",
+            "border-radius:10px",
+            "font-size:11px",
+            "font-weight:700",
+            "color:#5b21b6",
+            "pointer-events:none",
+            "white-space:normal",
+            "text-align:center",
+            "line-height:1.35",
+            "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
+          ].join(";");
+          col.appendChild(labelEl);
+        }
+        if (legSubLabel) {
+          const subEl = document.createElement("div");
+          subEl.textContent = legSubLabel;
+          subEl.style.cssText = [
+            "padding:3px 8px 5px",
+            "font-size:10px",
+            "font-weight:600",
+            "color:#6d28d9",
+            "line-height:1.35",
+            "text-align:center",
+            "white-space:normal",
+            "pointer-events:none",
+          ].join(";");
+          col.appendChild(subEl);
+        }
+        wrap.appendChild(col);
       }
 
       if (canDismiss) {
@@ -1850,7 +1882,7 @@ const MapView = forwardRef(({
           position: new window.kakao.maps.LatLng(overlayLat, overlayLng),
           content: wrap,
           xAnchor: 0.5,
-          yAnchor: legLabel ? 0.45 : 0.5,
+          yAnchor: legLabel || legSubLabel ? 0.45 : 0.5,
           zIndex: 5,
           /** true면 지도 클릭·드래그가 막히는 구간이 넓어질 수 있음 — × 버튼은 DOM pointer-events로 유지 */
           clickable: false,
@@ -2296,12 +2328,13 @@ const styles = {
     position: "relative",
     zIndex: 1
   },
+  /** 살짝 아래로 — 상단 헤더·스트립과 붙어 보이는 느낌 완화 */
   mapInner: {
     width: "100%",
-    height: "100%",
+    height: "calc(100% - 14px)",
     backgroundColor: "#f0f0f0",
     position: "absolute",
-    top: 0,
+    top: 14,
     left: 0,
     zIndex: 2,
     touchAction: "pan-x pan-y pinch-zoom",

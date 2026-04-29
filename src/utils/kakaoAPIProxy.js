@@ -10,46 +10,88 @@ const API_BASE_URL = (
 /**
  * @param {string} placeId 카카오 장소 숫자 id
  * @param {{ query?: string, x?: number, y?: number }} [opts] query=장소명, x=경도·y=위도(WGS84) — keyword 검색 매칭용
+ * @returns {Promise<{ ok: boolean, status: number, document: object | null }>}
+ */
+async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
+  const base = API_BASE_URL;
+  const url = base ? `${base}/api/kakao/place-details` : "/api/kakao/place-details";
+  const body = { placeId };
+  if (typeof opts.query === "string" && opts.query.trim()) {
+    body.query = opts.query.trim();
+  }
+  if (opts.x != null && Number.isFinite(Number(opts.x))) {
+    body.x = Number(opts.x);
+  }
+  if (opts.y != null && Number.isFinite(Number(opts.y))) {
+    body.y = Number(opts.y);
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (import.meta.env.DEV) {
+      console.warn("kakao place-details", {
+        proxyHttp: response.status,
+        kakaoHttp: data?.status,
+        error: data?.error,
+        hint: data?.hint,
+        kakao: data?.kakao,
+      });
+    }
+    return { ok: false, status: response.status, document: null };
+  }
+  const document = data.documents?.[0] || null;
+  return { ok: true, status: response.status, document };
+}
+
+/**
+ * @param {string} placeId 카카오 장소 숫자 id
+ * @param {{ query?: string, x?: number, y?: number }} [opts] query=장소명, x=경도·y=위도(WGS84) — keyword 검색 매칭용
  */
 export async function getKakaoPlaceDetailsViaProxy(placeId, opts = {}) {
   try {
-    const base = API_BASE_URL;
-    const url = base ? `${base}/api/kakao/place-details` : "/api/kakao/place-details";
-    const body = { placeId };
-    if (typeof opts.query === "string" && opts.query.trim()) {
-      body.query = opts.query.trim();
-    }
-    if (opts.x != null && Number.isFinite(Number(opts.x))) {
-      body.x = Number(opts.x);
-    }
-    if (opts.y != null && Number.isFinite(Number(opts.y))) {
-      body.y = Number(opts.y);
-    }
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (import.meta.env.DEV) {
-        console.warn("kakao place-details", {
-          proxyHttp: response.status,
-          kakaoHttp: data?.status,
-          error: data?.error,
-          hint: data?.hint,
-          kakao: data?.kakao,
-        });
-      }
-      return null;
-    }
-    return data.documents?.[0] || null;
+    const { ok, document } = await fetchKakaoPlaceDetailsRaw(placeId, opts);
+    if (!ok) return null;
+    return document;
   } catch (error) {
     console.error("프록시 카카오 API 호출 실패:", error);
     return null;
+  }
+}
+
+/**
+ * 키워드 재검색으로 id가 아직 카카오 목록에 있는지 확인.
+ * HTTP/네트워크 실패 시 softFail=true → 호출부에서 원본 후보 유지.
+ * 200인데 문서 없음·id 불일치(근접 대체)면 softFail=false → 후보 제거.
+ *
+ * @param {string} placeId
+ * @param {{ query?: string, x?: number, y?: number }} [opts]
+ */
+export async function verifyKakaoPlaceStillListed(placeId, opts = {}) {
+  const pid = String(placeId ?? "").trim();
+  try {
+    const { ok, document } = await fetchKakaoPlaceDetailsRaw(pid, opts);
+    if (!ok) {
+      return { softFail: true, document: null };
+    }
+    if (!document) {
+      return { softFail: false, document: null };
+    }
+    if (String(document.id) !== pid) {
+      return { softFail: false, document: null };
+    }
+    return { softFail: false, document };
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn("verifyKakaoPlaceStillListed", e?.message || e);
+    }
+    return { softFail: true, document: null };
   }
 }
 

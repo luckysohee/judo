@@ -21,11 +21,12 @@ _LOCATION_CANON: list[tuple[str, str]] = [
     ("잠실", "잠실"),
 ]
 
-_CATEGORIES = frozenset(
+# DB `fetch_latest_recommendation` 시도 순서 — recommend 가 그대로 사용
+CATEGORY_FALLBACK_ORDER: tuple[str, ...] = ("와인바", "이자카야", "노포", "야장", "낮술")
+
+# 질문 문자열에서 업종 스팬을 찾을 때만 쓰는 추가 키워드(위 순서에 없는 것들)
+_QUERY_CATEGORY_EXTRA: frozenset[str] = frozenset(
     {
-        "노포",
-        "와인바",
-        "이자카야",
         "바",
         "펍",
         "칵테일바",
@@ -35,6 +36,7 @@ _CATEGORIES = frozenset(
         "오마카세",
     }
 )
+_CATEGORIES: frozenset[str] = frozenset(CATEGORY_FALLBACK_ORDER) | _QUERY_CATEGORY_EXTRA
 
 MOOD_KEYWORDS = frozenset(
     {
@@ -43,6 +45,7 @@ MOOD_KEYWORDS = frozenset(
         "2차",
         "가성비",
         "분위기",
+        "낮술",
         "야장",
         "시끄러운",
         "로맨틱",
@@ -93,16 +96,41 @@ def parse_query(query: str) -> dict[str, Any]:
     cat_span = _find_category_span(raw)
 
     location = loc_span[0] if loc_span else None
-    category = cat_span[0] if cat_span else None
+
+    theme_category: str | None = None
+    theme_span: tuple[int, int] | None = None
+    if "야장" in raw:
+        theme_category = "야장"
+        p = raw.find("야장")
+        theme_span = (p, p + len("야장"))
+    elif "노포" in raw:
+        theme_category = "노포"
+        p = raw.find("노포")
+        theme_span = (p, p + len("노포"))
+    elif "낮술" in raw:
+        theme_category = "낮술"
+        p = raw.find("낮술")
+        theme_span = (p, p + len("낮술"))
+
+    if theme_category:
+        category = theme_category
+    else:
+        category = cat_span[0] if cat_span else None
 
     reserved: list[tuple[int, int]] = []
     if loc_span:
         reserved.append((loc_span[1], loc_span[2]))
-    if cat_span:
+    if theme_span:
+        reserved.append(theme_span)
+    elif cat_span:
         reserved.append((cat_span[1], cat_span[2]))
 
     mood_hits: list[tuple[int, str]] = []
     for mood in MOOD_KEYWORDS:
+        if theme_category == "야장" and mood == "야장":
+            continue
+        if theme_category == "낮술" and mood == "낮술":
+            continue
         pos = raw.find(mood)
         if pos == -1:
             continue
@@ -143,6 +171,16 @@ if __name__ == "__main__":
         "location": "압구정",
         "category": "와인바",
         "moods": ["데이트"],
+    }
+    assert parse_query("을지로 야장") == {
+        "location": "을지로",
+        "category": "야장",
+        "moods": [],
+    }
+    assert parse_query("성수 낮술") == {
+        "location": "성수",
+        "category": "낮술",
+        "moods": [],
     }
     assert parse_query("성수조용한와인바") == {
         "location": "성수",

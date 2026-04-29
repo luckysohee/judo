@@ -1,5 +1,7 @@
 import MapView from "../Map/MapView";
 import { useNavigate } from "react-router-dom";
+import PlacePicksPublicList from "../PlacePick/PlacePicksPublicList";
+import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 
 export default function CuratorPage({
   open,
@@ -15,6 +17,9 @@ export default function CuratorPage({
   canEditLive,
   onToggleFollow,
   onToggleLive,
+  /** `place_picks` 조인 행 (curator_places 와 무관) */
+  pickedPlacesRows = [],
+  pickedPlacesLoading = false,
 }) {
   const navigate = useNavigate();
   
@@ -143,6 +148,20 @@ export default function CuratorPage({
             </button>
           ))}
         </div>
+
+        <div style={{ ...styles.sectionTitle, marginTop: "18px" }}>픽한 가게</div>
+        <p style={styles.picksHint}>
+          공개 추천(place_picks). 추천 술집(curator_places)과 별도입니다.
+        </p>
+        <PlacePicksPublicList
+          rows={pickedPlacesRows}
+          loading={pickedPlacesLoading}
+          showCuratorPickBadge
+          onRowClick={(row) => {
+            const p = placePickJoinRowToDetailPlace(row);
+            if (p) onOpenPlaceDetail(p);
+          }}
+        />
       </div>
     </div>
   );
@@ -308,6 +327,12 @@ const styles = {
     fontSize: "16px",
     fontWeight: 700,
     color: "#ffffff",
+  },
+  picksHint: {
+    fontSize: "12px",
+    color: "#888",
+    margin: "0 0 10px",
+    lineHeight: 1.45,
   },
   mapWrap: {
     borderRadius: "18px",

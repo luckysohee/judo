@@ -46,14 +46,18 @@ export function tryCuratorPlacesCuratorId(authUserId) {
  */
 export function curatorPlaceMatchesLoggedInCurator(cp, curatorProfile, userId) {
   const cid = String(cp?.curator_id ?? "").trim();
-  if (!cid) return false;
-
   const authUid = String(userId ?? "").trim();
   const rowUserId = String(
     curatorProfile?.user_id ?? curatorProfile?.userId ?? ""
   ).trim();
 
-  if (authUid && cid === authUid) return true;
-  if (rowUserId && cid === rowUserId) return true;
+  if (cid) {
+    if (authUid && cid === authUid) return true;
+    if (rowUserId && cid === rowUserId) return true;
+  }
+
+  const cpUser = String(cp?.curators?.username ?? "").trim().toLowerCase();
+  const profileUser = String(curatorProfile?.username ?? "").trim().toLowerCase();
+  if (cpUser && profileUser && cpUser === profileUser) return true;
   return false;
 }

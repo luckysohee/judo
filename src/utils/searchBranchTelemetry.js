@@ -94,6 +94,30 @@ export const KEYWORD_FALLBACK_UI_MAX_ROWS_PRESETS = Object.freeze([
  */
 export const AI_PARSE_SEARCH_UI_MAX_ROWS = 5;
 
+/**
+ * 무드 키워드(낮술·노포·야장) 검색 시 시트·지도 후보 **최대 행 수**.
+ * 엔진 풀(`engineScoredPoolSize`)은 그대로 두고, 화면에만 더 많이 올림 — 일반 키워드 A/B와 분리됨.
+ */
+export const MOOD_DENSE_UI_MAX_ROWS = 30;
+
+const MOOD_DENSE_QUERY_SUBSTRINGS = Object.freeze(["낮술", "노포", "야장"]);
+
+/** 쿼리에 낮술/노포/야장 중 하나라도 포함되면 무드-밀집 UI 상한 사용 */
+export function queryRequestsMoodDenseSearchUi(query) {
+  const q = String(query ?? "").replace(/\s+/g, "");
+  return MOOD_DENSE_QUERY_SUBSTRINGS.some((s) => q.includes(s));
+}
+
+/**
+ * 주변/지도 검색 직후 `scoredPlaces` → 화면·`externalPlaces` 슬라이스에 쓰는 행 수 상한.
+ */
+export function resolveKeywordSearchUiRowCap(query, keywordAiFallback) {
+  if (queryRequestsMoodDenseSearchUi(query)) return MOOD_DENSE_UI_MAX_ROWS;
+  return keywordAiFallback
+    ? KEYWORD_FALLBACK_UI_MAX_ROWS
+    : AI_PARSE_SEARCH_UI_MAX_ROWS;
+}
+
 /** 상위 N건 룰 점수(aiScore) 평균 — 건수만이 아닌 질 감시 1차 지표 */
 export function summarizeSearchResultQualityForTelemetry(
   scoredPlaces,

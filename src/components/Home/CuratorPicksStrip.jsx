@@ -1,5 +1,22 @@
 import { useMemo } from "react";
 
+function curatorPickHoverText(place) {
+  const name = String(place?.name || "").trim();
+  let s = name;
+  const cc = Number(place?.curatorCount);
+  if (Number.isFinite(cc) && cc > 0) s += ` · 추천 ${cc}명`;
+  const cat = String(place?.category || place?.category_name || "").trim();
+  if (cat) s += ` · ${cat}`;
+  const addr = String(place?.address || "").trim();
+  if (addr) s += ` · ${addr.slice(0, 48)}`;
+  const cp0 = Array.isArray(place?.curatorPlaces) ? place.curatorPlaces[0] : null;
+  const line = String(
+    cp0?.one_line_reason || cp0?.menu_reason || cp0?.one_line_review || "",
+  ).trim();
+  if (line) s += ` — ${line.slice(0, 140)}`;
+  return s;
+}
+
 /**
  * 검색창 위: 큐레이터 추천 장소 미니 칩 — 좌측 무한 흐름(마퀴).
  */
@@ -96,13 +113,7 @@ export default function CuratorPicksStrip({ places, onPick, visible }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
-              title={
-                p.name +
-                (p.curatorCount
-                  ? ` · 추천 ${p.curatorCount}명`
-                  : "") +
-                (p.category ? ` · ${p.category}` : "")
-              }
+              title={curatorPickHoverText(p)}
             >
               {p.name}
               {p.curatorCount > 1 ? (

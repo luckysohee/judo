@@ -20,9 +20,35 @@ LOCATIONS = ["성수", "합정", "압구정", "을지로"]
 if INPUT_CATEGORY:
     CATEGORIES = [INPUT_CATEGORY]
 else:
-    CATEGORIES = ["노포", "와인바"]
+    CATEGORIES = ["노포", "와인바", "야장", "낮술"]
+
+THEME_QUERIES = {
+    "노포": ["{loc} 노포", "{loc} 오래된 맛집", "{loc} 포차", "{loc} 실비집"],
+    "야장": ["{loc} 야장", "{loc} 야외 술집", "{loc} 테라스 술집", "{loc} 포차"],
+    "낮술": ["{loc} 낮술", "{loc} 낮술 맛집", "{loc} 낮술 술집"],
+    "와인바": [
+        "{loc} 와인바",
+        "{loc} 조용한 와인바",
+        "{loc} 분위기 좋은 와인바",
+        "{loc} 데이트 와인바",
+        "{loc} 소개팅 와인바",
+        "{loc} 대화하기 좋은 와인바",
+        "{loc} 아늑한 와인바",
+    ],
+}
+
+# 노포·야장·와인바는 후보를 넓게 쌓고 DB `places`에도 전량 저장. GPT 요약만 토큰 상한으로 발췌.
+UNCAPPED_NAVER_IMPORT_CATEGORIES = frozenset({"노포", "야장", "와인바"})
+NAVER_IMPORT_GPT_SOURCE_CAP = 28
 
 AD_KEYWORDS = ["협찬", "제공받아", "광고", "지원받아", "파트너스", "원고료"]
+
+
+def naver_queries_for_location_category(loc: str, cat: str) -> list[str]:
+    templates = THEME_QUERIES.get(cat)
+    if templates:
+        return [t.format(loc=loc) for t in templates]
+    return [f"{loc} {cat}"]
 
 
 def validate_env():
@@ -107,7 +133,7 @@ def score_item(text, loc):
     return score
 
 
-def process_items(items, loc):
+def process_items(items, loc, max_places=5):
     result = []
 
     for item in items:
@@ -138,7 +164,9 @@ def process_items(items, loc):
             seen.add(r["place_name"])
             dedup.append(r)
 
-    return dedup[:5]
+    if max_places is None:
+        return dedup
+    return dedup[:max_places]
 
 
 def build_raw_data(items):
@@ -199,17 +227,43 @@ def run():
             print(f"{loc} {cat}")
 
             try:
-                items = get_naver_items(f"{loc} {cat}")
-                selected = process_items(items, loc)
+                merged_items = []
+                seen_key = set()
+                for nq in naver_queries_for_location_category(loc, cat):
+                    chunk = get_naver_items(nq)
+                    for it in chunk:
+                        if not isinstance(it, dict):
+                            continue
+                        t = clean_text(it.get("title", ""))
+                        key = t[:120] if t else str(it.get("link", ""))
+                        if not key or key in seen_key:
+                            continue
+                        seen_key.add(key)
+                        merged_items.append(it)
 
-                if len(selected) < 3:
+                uncapped = cat in UNCAPPED_NAVER_IMPORT_CATEGORIES
+                cap = None if uncapped else 5
+                selected = process_items(merged_items, loc, max_places=cap)
+
+                min_required = 1 if uncapped else 3
+                if len(selected) < min_required:
                     print("데이터 부족")
                     continue
 
-                raw = build_raw_data(selected)
-                gpt = get_gpt(loc, cat, raw)
+                raw_full = build_raw_data(selected)
+                if (
+                    uncapped
+                    and len(selected) > NAVER_IMPORT_GPT_SOURCE_CAP
+                ):
+                    raw_for_gpt = build_raw_data(
+                        selected[:NAVER_IMPORT_GPT_SOURCE_CAP]
+                    )
+                else:
+                    raw_for_gpt = raw_full
 
-                persist_result(loc, cat, gpt, raw, selected)
+                gpt = get_gpt(loc, cat, raw_for_gpt)
+
+                persist_result(loc, cat, gpt, raw_full, selected)
 
             except Exception as e:
                 print(f"[ERROR] {loc}-{cat} → {e}")

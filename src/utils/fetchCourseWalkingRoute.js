@@ -31,3 +31,74 @@ export async function fetchCourseWalkingRoute(slat, slng, dlat, dlng) {
     return { ok: false, error: "network" };
   }
 }
+
+function appendWalkingPathSegment(basePath, nextSegment) {
+  if (!Array.isArray(nextSegment) || nextSegment.length === 0) return basePath;
+  const norm = (p) => ({
+    lat: Number(p.lat),
+    lng: Number(p.lng),
+  });
+  const seg = nextSegment.map(norm).filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)
+  );
+  if (!seg.length) return basePath;
+  if (!basePath.length) return seg;
+  const last = basePath[basePath.length - 1];
+  const first = seg[0];
+  const eps = 1e-5;
+  const same =
+    Math.abs(last.lat - first.lat) < eps &&
+    Math.abs(last.lng - first.lng) < eps;
+  return same ? [...basePath, ...seg.slice(1)] : [...basePath, ...seg];
+}
+
+/**
+ * 1차→쩜오→2차 등 다구간 보행 경로를 OSRM로 각각 받아 이어 붙임.
+ * @param {{ lat: number, lng: number }[]} waypoints 순서대로 최소 2개
+ * @returns {Promise<{ ok: true, path: {lat,lng}[], distanceMeters: number, durationSeconds: number } | null>}
+ */
+export async function fetchChainedCourseWalkingRoutes(waypoints) {
+  if (!Array.isArray(waypoints) || waypoints.length < 2) return null;
+  const legs = [];
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const a = waypoints[i];
+    const b = waypoints[i + 1];
+    if (
+      !a ||
+      !b ||
+      !Number.isFinite(Number(a.lat)) ||
+      !Number.isFinite(Number(a.lng)) ||
+      !Number.isFinite(Number(b.lat)) ||
+      !Number.isFinite(Number(b.lng))
+    ) {
+      return null;
+    }
+    legs.push(
+      fetchCourseWalkingRoute(
+        Number(a.lat),
+        Number(a.lng),
+        Number(b.lat),
+        Number(b.lng)
+      )
+    );
+  }
+  const routes = await Promise.all(legs);
+  let merged = [];
+  let distanceMeters = 0;
+  let durationSeconds = 0;
+  for (const route of routes) {
+    if (!route?.ok || !Array.isArray(route.path) || route.path.length < 2) {
+      return null;
+    }
+    merged = appendWalkingPathSegment(merged, route.path);
+    distanceMeters += Number(route.distanceMeters) || 0;
+    durationSeconds += Number(route.durationSeconds) || 0;
+  }
+  if (merged.length < 2) return null;
+  return {
+    ok: true,
+    path: merged,
+    distanceMeters,
+    durationSeconds,
+  };
+}

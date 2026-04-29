@@ -43,8 +43,8 @@ export function formatSaveLine(savedCount) {
 export function formatFireLine(fireTodayDedup, fire24hDedup) {
   const t = Number(fireTodayDedup) || 0;
   const f = Number(fire24hDedup) || 0;
-  if (t >= 1) return `🔥 오늘 ${t}명 한잔`;
-  if (f >= 1) return `🔥 최근 24시간 ${f}명 한잔`;
+  if (t >= 1) return `🔥 오늘 ${t}명`;
+  if (f >= 1) return `🔥 최근 24시간 ${f}명`;
   return null;
 }
 
@@ -68,8 +68,9 @@ export function pickHanjanSocialLines({ savedCount = 0, stats, maxLines = 3 }) {
     const only = formatSaveLine(savedCount);
     return only ? [only] : [];
   }
+  const fireLine = formatFireLine(stats.fireTodayDedup, stats.fire24hDedup);
   const candidates = [
-    formatFireLine(stats.fireTodayDedup, stats.fire24hDedup),
+    fireLine,
     formatSaveLine(savedCount),
     formatHanjanTotalPublicLine(stats.totalDedup),
     formatNearbyHanjanLine(stats.nearbyDedup),
@@ -80,10 +81,6 @@ export function pickHanjanSocialLines({ savedCount = 0, stats, maxLines = 3 }) {
   for (const line of candidates) {
     if (out.length >= cap) break;
     if (!out.includes(line)) out.push(line);
-  }
-  if (out.length < cap && stats.lastAt) {
-    const recent = formatRecentActivityLine(stats.lastAt);
-    if (recent && !out.includes(recent)) out.push(recent);
   }
   return out.slice(0, cap);
 }

@@ -1,5 +1,13 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
 
+/** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
+function isCourseBridgeMapPin(place) {
+  return (
+    Boolean(place?.isCoursePin) &&
+    /쩜오/.test(String(place?.courseMapCaption || ""))
+  );
+}
+
 // 폴더 색상 매핑
 const FOLDER_COLORS = {
   after_party: '#FF8C42',    // orange
@@ -402,6 +410,65 @@ function createMarkerImage(
     showHotFlame: Boolean(checkinMeta?.showHotFlame),
   };
 
+  /** 코스 쩜오차(1·2차 사이) — 소프트아이스크림 이모지로 한눈에 */
+  if (isCourseBridgeMapPin(place)) {
+    const w = isSelected ? 52 : 44;
+    const h = isSelected ? 52 : 44;
+    const r = isSelected ? 22 : 19;
+    const fs = isSelected ? 26 : 22;
+    const cx = w / 2;
+    const cy = h / 2;
+    const svgString = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <defs>
+          <filter id="bridgeShadow" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#831843" flood-opacity="0.35" />
+          </filter>
+        </defs>
+        <g filter="url(#bridgeShadow)">
+          <circle
+            cx="${cx}"
+            cy="${cy}"
+            r="${r}"
+            fill="#fbcfe8"
+            stroke="#ffffff"
+            stroke-width="${isSelected ? 3.2 : 2.6}"
+          />
+          <circle
+            cx="${cx}"
+            cy="${cy}"
+            r="${r - 2.5}"
+            fill="none"
+            stroke="rgba(157, 23, 77, 0.35)"
+            stroke-width="1.2"
+          />
+          <text
+            x="${cx}"
+            y="${cy}"
+            dominant-baseline="central"
+            text-anchor="middle"
+            font-size="${fs}"
+            font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
+          >🍦</text>
+        </g>
+      </svg>
+    `;
+    try {
+      if (window.kakao?.maps?.MarkerImage) {
+        const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+        return new window.kakao.maps.MarkerImage(
+          encoded,
+          new window.kakao.maps.Size(w, h),
+          {
+            offset: new window.kakao.maps.Point(Math.round(cx), Math.round(cy)),
+          }
+        );
+      }
+    } catch (e) {
+      console.error("쩜오차 마커 이미지 생성 오류:", e);
+    }
+  }
+
   // 검색·카카오 API 전용 핀 (DB 큐레이터 추천은 아래 등급 마커 사용)
   // 코스 2차 후보(`courseMarkerPulse`): 큐레이터 추천집은 녹색 등급 마커+깜빡임, 그 외만 일반 핀
   const curatorListed = isCuratorListedPlace(place);
@@ -410,6 +477,56 @@ function createMarkerImage(
     (Boolean(place.isKakaoPlace) || Boolean(place.courseMarkerPulse));
 
   if (useKakaoGenericPin) {
+    /** 핫 랭킹: 빨간 핀 없이 🔥 + 보라 칩만 — 미리보기 닫으면 일반 핀으로 돌아감 */
+    if (meta.showHotFlame) {
+      const capLabel =
+        String(mapShortCaption || "HOT").trim().slice(0, 8) || "HOT";
+      const capKW = Math.min(78, Math.max(40, capLabel.length * 7 + 14));
+      const w = Math.round(Math.max(48, capKW + 10));
+      const flameFs = 18;
+      const pillH = 13;
+      const pillY = 4 + flameFs + 2;
+      const h = Math.round(pillY + pillH + 8);
+      const cx = w / 2;
+      const pillX = cx - capKW / 2;
+      const countBadge =
+        meta.checkinCount > 0
+          ? `<g>
+          <circle cx="${w - 4}" cy="${pillY + 1}" r="9" fill="#E11D48" stroke="#fff" stroke-width="1.4"/>
+          <text x="${w - 4}" y="${pillY + 2}" dominant-baseline="middle" text-anchor="middle" fill="#fff" font-size="8" font-weight="800" font-family="Arial,sans-serif">${meta.checkinCount > 99 ? "99+" : meta.checkinCount}</text>
+        </g>`
+          : "";
+      const hotOnlySvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <defs>
+          <filter id="hotChipShade" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#000000" flood-opacity="0.28" />
+          </filter>
+        </defs>
+        <text x="${cx}" y="${pillY / 2}" dominant-baseline="middle" text-anchor="middle" font-size="${flameFs}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>
+        <g filter="url(#hotChipShade)">
+          <rect x="${pillX}" y="${pillY}" width="${capKW}" height="${pillH}" rx="${pillH / 2}" fill="rgba(124,58,237,0.94)" stroke="rgba(255,255,255,0.9)" stroke-width="0.85"/>
+          <text x="${cx}" y="${pillY + pillH / 2 + 0.5}" dominant-baseline="middle" text-anchor="middle" font-size="8" font-weight="800" fill="#ffffff" font-family="system-ui, Apple SD Gothic Neo, sans-serif">${escapeSvgText(capLabel)}</text>
+        </g>
+        ${countBadge}
+      </svg>`;
+      try {
+        if (window.kakao?.maps?.MarkerImage) {
+          const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(hotOnlySvg)}`;
+          const anchorY = pillY + pillH;
+          return new window.kakao.maps.MarkerImage(
+            encoded,
+            new window.kakao.maps.Size(w, h),
+            {
+              offset: new window.kakao.maps.Point(Math.round(cx), anchorY),
+            }
+          );
+        }
+      } catch (e) {
+        console.error("핫 전용 마커 이미지 오류:", e);
+      }
+    }
+
     const name = place.name || place.place_name || '알 수 없는 장소';
     const nameSafe = escapeSvgText(name);
     const nameWidth = Math.min(name.length * 8 + 10, 120);
@@ -419,27 +536,15 @@ function createMarkerImage(
       ? Math.min(78, Math.max(36, capK.length * 7 + 12))
       : 0;
     const totalHeight = 35 + 25 + (capK ? 14 : 0); // 핀 + 상호명 라벨 + 선택 자막
-    const kakaoFlame = meta.showHotFlame
-      ? `<text x="${totalWidth - 2}" y="15" text-anchor="end" font-size="13" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>`
-      : "";
     const kakaoCount =
       meta.checkinCount > 0
         ? `<g><circle cx="${totalWidth - 10}" cy="${totalHeight * 0.22}" r="9" fill="#E11D48" stroke="#fff" stroke-width="1.5"/><text x="${totalWidth - 10}" y="${totalHeight * 0.22 + 1}" dominant-baseline="middle" text-anchor="middle" fill="#fff" font-size="8" font-weight="800" font-family="Arial,sans-serif">${meta.checkinCount > 99 ? "99+" : meta.checkinCount}</text></g>`
         : "";
     
     // 카카오 기본 핀 + 상호명 라벨 SVG
-    const svgString = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
-        <defs>
-          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
-          </filter>
-        </defs>
-        ${kakaoFlame}
-        ${kakaoCount}
-        ${
-          capK
-            ? `<g>
+    const capKBlock =
+      capK &&
+      `<g>
           <rect
             x="${totalWidth / 2 - capKW / 2}"
             y="${totalHeight - 34}"
@@ -459,9 +564,16 @@ function createMarkerImage(
             fill="#ffffff"
             font-family="system-ui, Apple SD Gothic Neo, sans-serif"
           >${escapeSvgText(capK)}</text>
-        </g>`
-            : ""
-        }
+        </g>`;
+
+    // 상호·핀을 먼저 그린 뒤 불꽃·HOT 자막·한잔 수를 위에 올림(SVG는 후순위가 앞면)
+    const svgString = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
+        <defs>
+          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
+          </filter>
+        </defs>
         <!-- 상호명 라벨 (블랙 박스 + 흰 글씨) -->
         <rect
           x="${(totalWidth - nameWidth) / 2}"
@@ -502,6 +614,8 @@ function createMarkerImage(
             fill="white"
           />
         </g>
+        ${kakaoCount}
+        ${capKBlock || ""}
       </svg>
     `;
     
@@ -580,6 +694,17 @@ function createMarkerImage(
   );
 }
 
+/**
+ * 지도 검색·통합 후보만 해당(큐레이터 DB 핀과 구분) — z-order·클러스터 제외에 사용
+ */
+export function isEphemeralSearchMapMarker(place) {
+  if (!place || typeof place !== "object") return false;
+  if (place.isKakaoTypingPreview) return true;
+  const id = String(place.id ?? "").trim();
+  if (id.startsWith("local_") || id.startsWith("naver_")) return true;
+  return false;
+}
+
 export default function createMarker({
   map,
   place,
@@ -609,12 +734,22 @@ export default function createMarker({
       meta,
       mapShortCaption
     ),
-    zIndex: isSelected ? 20 : 1,
+    zIndex: isSelected
+      ? 22
+      : meta.showHotFlame || meta.checkinCount > 0
+        ? 20
+        : isCourseBridgeMapPin(place)
+          ? 14
+          : isEphemeralSearchMapMarker(place)
+            ? 18
+            : 1,
   });
 
   const placeName = String(place?.name || "장소").trim() || "장소";
   let hoverTitle = `${placeName} · 주도`;
-  if (meta.checkinCount > 0) {
+  if (isCourseBridgeMapPin(place)) {
+    hoverTitle = `쩜오차 · ${placeName}`;
+  } else if (meta.checkinCount > 0) {
     hoverTitle = `${placeName} · 오늘 ${meta.checkinCount}명 한잔`;
   } else if (meta.showHotFlame) {
     hoverTitle = `${placeName} · 🔥 오늘 핫한 술집`;

@@ -147,6 +147,95 @@ export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {
 }
 
 /**
+ * 검색바 키워드 자동완성과 동일 계열(카카오 local keyword) — 쩜오차용 달달·카페 쿼리.
+ * 사용자가 입력창에 자주 치는 단어 위주.
+ */
+const DEFAULT_BRIDGE_KAKAO_QUERIES = [
+  "아이스크림",
+  "소프트아이스크림",
+  "디저트",
+  "디저트카페",
+  "카페",
+  "케이크",
+  "빙수",
+  "팥빙수",
+  "마카롱",
+  "젤라또",
+  "와플",
+  "베이커리",
+  "초콜릿",
+  "빵",
+];
+
+function kakaoDocLooksLikeBridgeStop(doc) {
+  const blob = [doc?.place_name, doc?.category_name]
+    .map((s) => String(s || "").toLowerCase())
+    .join(" ");
+  if (!blob.trim()) return false;
+  return /카페|커피|coffee|디저트|dessert|아이스|크림|ice|gelato|젤라|빙수|bingsu|케이크|cake|도넛|donut|마카롱|macaron|와플|waffle|초콜|chocolate|베이커리|브레드|빵집|티\s|tea|파르페|스무디|프라페|요거트|froyo/.test(
+    blob
+  );
+}
+
+/**
+ * 1차(또는 앵커) 주변 — SearchBar·프록시와 같은 `searchKakaoKeywordViaProxy` 로
+ * 디저트·카페 키워드 후보를 모아 쩜오차 풀에 붙임.
+ *
+ * @param {object} anchorPlace — `resolvePlaceWgs84` 로 좌표 나오는 아무 장소
+ * @param {{ radius?: number, queries?: string[], maxQueries?: number, perQuerySize?: number }} [opts]
+ */
+export async function fetchKakaoPlacesForCourseBridgeAround(anchorPlace, opts = {}) {
+  const w = resolvePlaceWgs84(anchorPlace);
+  if (!w) return [];
+
+  const radius =
+    opts.radius != null && Number.isFinite(Number(opts.radius))
+      ? Math.min(8000, Math.max(400, Number(opts.radius)))
+      : 2000;
+  const queries = Array.isArray(opts.queries) && opts.queries.length
+    ? opts.queries.map((q) => String(q).trim()).filter(Boolean)
+    : DEFAULT_BRIDGE_KAKAO_QUERIES;
+  const maxQueries =
+    opts.maxQueries != null && Number.isFinite(Number(opts.maxQueries))
+      ? Math.min(12, Math.max(1, Number(opts.maxQueries)))
+      : 10;
+  const perQuerySize =
+    opts.perQuerySize != null && Number.isFinite(Number(opts.perQuerySize))
+      ? Math.min(15, Math.max(5, Number(opts.perQuerySize)))
+      : 10;
+
+  const list = [...new Set(queries)].slice(0, maxQueries);
+  const seenDoc = new Set();
+  const out = [];
+
+  await Promise.all(
+    list.map(async (query) => {
+      try {
+        const { documents } = await searchKakaoKeywordViaProxy({
+          query,
+          x: w.lng,
+          y: w.lat,
+          radius,
+          size: perQuerySize,
+        });
+        for (const doc of documents || []) {
+          if (!kakaoDocLooksLikeBridgeStop(doc)) continue;
+          const id = doc?.id != null ? String(doc.id) : "";
+          if (!id || seenDoc.has(id)) continue;
+          seenDoc.add(id);
+          const row = kakaoDocToCourseCandidatePlace(doc);
+          if (row) out.push(row);
+        }
+      } catch {
+        /* ignore per-query */
+      }
+    })
+  );
+
+  return out;
+}
+
+/**
  * DB 코스 풀 뒤에 카카오 주변 결과를 붙이고, 동일 카카오 id는 한 번만 유지(DB 우선).
  */
 export function mergeCoursePlacePoolsWithKakao(dbPlaces, kakaoPlaces) {

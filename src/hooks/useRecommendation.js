@@ -3,6 +3,10 @@ import { useCallback, useState } from "react";
 /**
  * `/recommend` places[].reason 이 비어도 summary(= DB content·또는 refine)에서 한 줄 채움.
  * 서버 매칭 실패·이름 불일치 시에도 UI가 검색 태그 템플릿으로만 가지 않게 함.
+ *
+ * 성공 payload에는 `moods`, `mood_refinement_applied`, `mood_refinement_skipped_reason` 이 올 수 있음.
+ * 무드가 있는데 `mood_refinement_skipped_reason === "openai_key_missing"` 이면 summary는 DB 원문 그대로.
+ * `"refine_failed"` 이면 OpenAI 호출은 했으나 오류로 원문으로 되돌린 경우.
  */
 function enrichRecommendationFromSummary(data) {
   if (!data || typeof data !== "object" || !data.ok || !Array.isArray(data.places)) {

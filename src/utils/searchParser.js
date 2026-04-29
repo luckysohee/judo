@@ -313,6 +313,29 @@ export const HOME_SEARCH_KIND = Object.freeze({
   AI_PARSE_SEARCH: "ai_parse_search",
 });
 
+/**
+ * 지도 `mapQuery`·카카오 키워드를 «지역+업종»만 남기지 않게 할 때 쓰는 힌트.
+ * `isKeywordShortNounCompoundQuery`(짧은 명사 조합)보다 먼저 검사한다.
+ */
+export const HOME_SEARCH_MOOD_INTENT_HINT_WORDS = [
+  "조용한",
+  "조용",
+  "데이트",
+  "소개팅",
+  "분위기",
+  "아늑한",
+  "차분한",
+  "대화",
+  "혼술",
+  "잔잔한",
+  "프라이빗",
+];
+
+export function homeSearchQueryHasMoodIntentHint(query) {
+  const q = String(query || "");
+  return HOME_SEARCH_MOOD_INTENT_HINT_WORDS.some((w) => q.includes(w));
+}
+
 /** 분위기·상황·행동 표현(키워드만 검색으로 처리하기 애매한 서술) */
 const AI_PARSE_MOOD_SITUATION_ACTION_RE =
   /가볼만|가볼까|먹으러|마시러|놀러|모이기|만나기|분위기\s*좋|느낌\s*있|상황에\s*맞|같은\s*느낌|어떤\s*느낌|기분\s*전환|분위기\s*있는/i;
@@ -326,18 +349,27 @@ export function detectHomeSearchExecutionKind(query, naturalQ = null) {
   const q = String(query || "").trim();
   if (!q) return HOME_SEARCH_KIND.KEYWORD_SEARCH;
 
+  /** 분위기·목적 단어가 있으면 지도 키워드만 파이프보다 통합·의도 파싱 우선 */
+  if (homeSearchQueryHasMoodIntentHint(q)) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  }
+
   /** 1차: 원문 — 짧은 지역+명사 조합은 키워드 우선 */
   if (isKeywordShortNounCompoundQuery(q)) {
+    return HOME_SEARCH_KIND.KEYWORD_SEARCH;
+  }
+
+  /**
+   * 짧은 지명+메뉴·테마(노포·야장 등) — `isLikelyNaturalLanguageFromQueryOnly`의
+   * 노포·회식 토큰보다 먼저 두어 카카오 직검색이 AI로 잡히지 않게 함.
+   */
+  if (isSimpleLocationMenuMapQuery(q)) {
     return HOME_SEARCH_KIND.KEYWORD_SEARCH;
   }
 
   /** 원문만으로도 문장·장문이면 AI */
   if (isLikelyNaturalLanguageFromQueryOnly(q)) {
     return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
-  }
-
-  if (isSimpleLocationMenuMapQuery(q)) {
-    return HOME_SEARCH_KIND.KEYWORD_SEARCH;
   }
 
   /** 2차: naturalQ 보조 (원문이 짧은 키워드 조합이면 위에서 이미 종료) */

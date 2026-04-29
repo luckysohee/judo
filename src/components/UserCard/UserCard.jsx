@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { supabase } from '../../lib/supabase';
 import { uploadUserProfileAvatarFile } from "../../utils/curatorPlacePhotos";
 import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
@@ -12,6 +18,10 @@ import {
   selectSystemFoldersOrdered,
 } from "../../utils/systemFoldersSupabase";
 import { useAuth } from "../../context/AuthContext";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
+import { fetchUserPickedPlaces } from "../../api/placePicks";
+import { fetchUserHanjanHistory } from "../../api/userHanjan";
+import PlacePickButton from "../PlacePick/PlacePickButton";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -246,6 +256,32 @@ function getSavedPlaceDisplayFields(item) {
   };
 }
 
+/** `PlacePickButton` / `resolvePlaceUuidForPick` — 저장 행·드래프트 행 */
+function savedItemToPickPlace(item) {
+  if (!item || typeof item !== "object") return {};
+  const pl = item.places;
+  if (pl && typeof pl === "object") {
+    return {
+      ...pl,
+      id: pl.id ?? item.place_id,
+      kakao_place_id: pl.kakao_place_id ?? item.kakao_place_id,
+    };
+  }
+  const inner = item.place;
+  if (inner && typeof inner === "object") {
+    return {
+      ...inner,
+      id: inner.id ?? item.place_id,
+      kakao_place_id: inner.kakao_place_id ?? item.kakao_place_id,
+    };
+  }
+  return {
+    id: item.place_id,
+    kakao_place_id: item.kakao_place_id,
+    name: item.place?.name,
+  };
+}
+
 /** curators 행: Studio·DB와 동일하게 avatar_url → avatar → image */
 function curatorProfileImageUrl(curator) {
   if (!curator || typeof curator !== "object") return "";
@@ -326,10 +362,34 @@ const UserCard = ({
   adminEmbedBanner = null,
   adminTallSheet = false,
   layerZIndex = 1000,
+  /**
+   * 생략 시: 인증 완료 후 `sessionUser.id === user.id` 로 본인 판별.
+   * 타인 프로필 시트는 `false` 명시 권장(세션 로딩 중 저장 탭 노출 방지).
+   */
+  isOwnProfile: explicitIsOwnProfile = null,
 }) => {
-  const { user: sessionUser } = useAuth();
+  const { user: sessionUser, loading: authLoading } = useAuth();
+
+  const showSavedFoldersTab = useMemo(() => {
+    if (embeddedSavedRows != null && Array.isArray(embeddedSavedRows)) {
+      return true;
+    }
+    if (explicitIsOwnProfile === false) return false;
+    if (explicitIsOwnProfile === true) return true;
+    if (!user?.id) return false;
+    if (authLoading) return false;
+    return Boolean(sessionUser?.id && sessionUser.id === user.id);
+  }, [
+    embeddedSavedRows,
+    explicitIsOwnProfile,
+    user?.id,
+    sessionUser?.id,
+    authLoading,
+  ]);
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
+  const [pickedPlaces, setPickedPlaces] = useState([]);
+  const [hanjanRows, setHanjanRows] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -530,9 +590,21 @@ const UserCard = ({
 
   useEffect(() => {
     if (hideFollowingTab && activeTab === "following") {
-      setActiveTab("saved");
+      setActiveTab(showSavedFoldersTab ? "saved" : "picked");
     }
-  }, [hideFollowingTab, activeTab]);
+  }, [hideFollowingTab, activeTab, showSavedFoldersTab]);
+
+  useEffect(() => {
+    if (!showSavedFoldersTab && activeTab === "saved") {
+      setActiveTab("picked");
+    }
+  }, [showSavedFoldersTab, activeTab]);
+
+  useEffect(() => {
+    if (!showSavedFoldersTab) {
+      setSelectedFolder(null);
+    }
+  }, [showSavedFoldersTab]);
 
   useEffect(() => {
     console.log('🔄 UserCard useEffect 호출:', { isVisible, user });
@@ -540,7 +612,13 @@ const UserCard = ({
       console.log('✅ loadUserData 시작');
       loadUserData();
     }
-  }, [isVisible, user, embeddedSavedRows, embeddedFollowingCurators]);
+  }, [
+    isVisible,
+    user,
+    embeddedSavedRows,
+    embeddedFollowingCurators,
+    showSavedFoldersTab,
+  ]);
 
   useEffect(() => {
     if (!isVisible) {
@@ -623,7 +701,8 @@ const UserCard = ({
       // localStorage 데이터인지 Supabase 데이터인지 확인
       if (placeItem.isKakaoPlace || placeItem.isDbPlace || placeItem.id?.startsWith('kakao_') || placeItem.id?.startsWith('local_')) {
         // localStorage 데이터 삭제
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const draftOwnerId = sessionUser?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         let updatedDrafts;
         
         if (placeItem.id?.startsWith('kakao_')) {
@@ -639,7 +718,7 @@ const UserCard = ({
           );
         }
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
         console.log("✅ localStorage 장소 삭제 완료:", delName);
       } else if (placeItem.id && !placeItem.id.startsWith('kakao_') && !placeItem.id.startsWith('local_')) {
         // Supabase 데이터 삭제 (UUID 형식인 경우만)
@@ -730,7 +809,8 @@ const UserCard = ({
       // localStorage 데이터인지 Supabase 데이터인지 확인
       if (editingPlace.isKakaoPlace || editingPlace.isDbPlace) {
         // localStorage 데이터 수정
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const draftOwnerId = sessionUser?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         const updatedDrafts = existingDrafts.map(draft => {
           if (draft.id === editingPlace.id || 
               (editingPlace.isKakaoPlace && draft.kakao_place_id === editingPlace.id.replace('kakao_', '')) ||
@@ -741,7 +821,7 @@ const UserCard = ({
           return draft;
         });
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
         console.log(
           "✅ localStorage 폴더 수정 완료:",
           getSavedPlaceDisplayFields(editingPlace).name
@@ -867,23 +947,39 @@ const UserCard = ({
   };
 
   const loadUserData = async () => {
+    let picksHanjanPromise = Promise.resolve([[], []]);
     try {
       console.log('🚀 loadUserData 함수 시작');
       setLoading(true);
 
+      picksHanjanPromise =
+        user?.id != null
+          ? Promise.all([
+              fetchUserPickedPlaces(user.id, { limit: 150 }).catch((err) => {
+                console.warn("UserCard fetchUserPickedPlaces:", err);
+                return [];
+              }),
+              fetchUserHanjanHistory(user.id, { limit: 80 }).catch((err) => {
+                console.warn("UserCard fetchUserHanjanHistory:", err);
+                return [];
+              }),
+            ])
+          : Promise.resolve([[], []]);
+
       const useEmbedded =
         embeddedSavedRows != null && Array.isArray(embeddedSavedRows);
 
-      let savedData = null;
-      let savedError = null;
+      if (showSavedFoldersTab) {
+        let savedData = null;
+        let savedError = null;
 
-      if (useEmbedded) {
-        savedData = embeddedSavedRows;
-      } else {
-        const res = await supabase
-          .from("user_saved_places")
-          .select(
-            `
+        if (useEmbedded) {
+          savedData = embeddedSavedRows;
+        } else {
+          const res = await supabase
+            .from("user_saved_places")
+            .select(
+              `
           *,
           places (*), 
           user_saved_place_folders (
@@ -895,123 +991,131 @@ const UserCard = ({
             )
           )
         `
-          )
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        savedData = res.data;
-        savedError = res.error;
-      }
-
-      console.log("UserCard - savedData:", savedData);
-      console.log("UserCard - savedError:", savedError);
-
-      const localStorageDrafts = useEmbedded
-        ? []
-        : JSON.parse(localStorage.getItem("studio_drafts") || "[]");
-      console.log('🗂️ UserCard - localStorage 데이터:', localStorageDrafts);
-      
-      let folderDefsForGrid = UCARD_DRAFT_FOLDER_ROWS.map((f, i) => ({
-        key: f.key,
-        name: f.name,
-        color: f.color,
-        icon: f.icon,
-        sort_order: i + 1,
-      }));
-
-      if (!useEmbedded) {
-        const { data: sfRows, error: sfErr } =
-          await selectSystemFoldersOrdered(supabase, sessionUser?.id ?? null);
-        if (!sfErr && sfRows?.length) {
-          folderDefsForGrid = sfRows;
+            )
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(50);
+          savedData = res.data;
+          savedError = res.error;
         }
-      }
 
-      const groupedByFolder = {};
-      folderDefsForGrid.forEach((folder) => {
-        groupedByFolder[folder.key] = {
-          folderInfo: {
-            key: folder.key,
-            name: folder.name,
-            color: folder.color,
-            icon: folder.icon,
-          },
-          places: [],
-        };
-      });
+        console.log("UserCard - savedData:", savedData);
+        console.log("UserCard - savedError:", savedError);
 
-      // localStorage 데이터 처리
-      localStorageDrafts.forEach(draft => {
-        const folders = draft.folders || [];
-        folders.forEach(folderName => {
-          const folderKey = UCARD_DRAFT_FOLDER_ROWS.find(
-            (f) => f.name === folderName
-          )?.key;
-          if (folderKey && groupedByFolder[folderKey]) {
-            // localStorage 데이터를 Supabase 형식으로 변환
-            const placeData = {
-              id: draft.id || `local_${draft.kakao_place_id || draft.place_name}_${Date.now()}`,
-              place: {
-                name: draft.place_name,
-                address: draft.address,
-                category: draft.category,
-                lat: draft.lat,
-                lng: draft.lng
-              },
-              created_at: draft.created_at,
-              isKakaoPlace: draft.isKakaoPlace || false,
-              isDbPlace: draft.isDbPlace || false,
-              kakao_place_id: draft.kakao_place_id // 추가 정보 저장
-            };
-            groupedByFolder[folderKey].places.push(placeData);
-            console.log(`✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`);
+        const localStorageDrafts = useEmbedded
+          ? []
+          : readStudioDrafts(sessionUser?.id ?? null);
+        console.log("🗂️ UserCard - localStorage 데이터:", localStorageDrafts);
+
+        let folderDefsForGrid = UCARD_DRAFT_FOLDER_ROWS.map((f, i) => ({
+          key: f.key,
+          name: f.name,
+          color: f.color,
+          icon: f.icon,
+          sort_order: i + 1,
+        }));
+
+        if (!useEmbedded) {
+          const { data: sfRows, error: sfErr } =
+            await selectSystemFoldersOrdered(supabase, sessionUser?.id ?? null);
+          if (!sfErr && sfRows?.length) {
+            folderDefsForGrid = sfRows;
           }
-        });
-      });
+        }
 
-      if (savedError) {
-        console.error('저장된 장소 로드 오류:', savedError);
-      } else if (savedData && savedData.length > 0) {
-        savedData.forEach((saved) => {
-          if (
-            saved.user_saved_place_folders &&
-            saved.user_saved_place_folders.length > 0
-          ) {
-            saved.user_saved_place_folders.forEach((folder) => {
-              const folderKey = folder.folder_key;
-              const sf = folder.system_folders;
-              if (!groupedByFolder[folderKey]) {
-                groupedByFolder[folderKey] = {
-                  folderInfo: {
-                    key: folderKey,
-                    name: sf?.name || folderKey,
-                    color: sf?.color || "#3498DB",
-                    icon: sf?.icon || "📁",
-                  },
-                  places: [],
-                };
-              }
-              groupedByFolder[folderKey].places.push(saved);
-            });
-          }
+        const groupedByFolder = {};
+        folderDefsForGrid.forEach((folder) => {
+          groupedByFolder[folder.key] = {
+            folderInfo: {
+              key: folder.key,
+              name: folder.name,
+              color: folder.color,
+              icon: folder.icon,
+            },
+            places: [],
+          };
         });
-      }
 
-      console.log('UserCard - 그룹화된 데이터:', groupedByFolder);
-      
-      // 각 폴더별 장소 수 확인
-      Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
-        console.log(
-          `📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`,
-          folderData.places.map((p) => getSavedPlaceDisplayFields(p).name)
+        localStorageDrafts.forEach((draft) => {
+          const folders = draft.folders || [];
+          folders.forEach((folderName) => {
+            const folderKey = UCARD_DRAFT_FOLDER_ROWS.find(
+              (f) => f.name === folderName
+            )?.key;
+            if (folderKey && groupedByFolder[folderKey]) {
+              const placeData = {
+                id:
+                  draft.id ||
+                  `local_${draft.kakao_place_id || draft.place_name}_${Date.now()}`,
+                place: {
+                  name: draft.place_name,
+                  address: draft.address,
+                  category: draft.category,
+                  lat: draft.lat,
+                  lng: draft.lng,
+                },
+                created_at: draft.created_at,
+                isKakaoPlace: draft.isKakaoPlace || false,
+                isDbPlace: draft.isDbPlace || false,
+                kakao_place_id: draft.kakao_place_id,
+              };
+              groupedByFolder[folderKey].places.push(placeData);
+              console.log(
+                `✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`
+              );
+            }
+          });
+        });
+
+        if (savedError) {
+          console.error("저장된 장소 로드 오류:", savedError);
+        } else if (savedData && savedData.length > 0) {
+          savedData.forEach((saved) => {
+            if (
+              saved.user_saved_place_folders &&
+              saved.user_saved_place_folders.length > 0
+            ) {
+              saved.user_saved_place_folders.forEach((folder) => {
+                const folderKey = folder.folder_key;
+                const sf = folder.system_folders;
+                if (!groupedByFolder[folderKey]) {
+                  groupedByFolder[folderKey] = {
+                    folderInfo: {
+                      key: folderKey,
+                      name: sf?.name || folderKey,
+                      color: sf?.color || "#3498DB",
+                      icon: sf?.icon || "📁",
+                    },
+                    places: [],
+                  };
+                }
+                groupedByFolder[folderKey].places.push(saved);
+              });
+            }
+          });
+        }
+
+        console.log("UserCard - 그룹화된 데이터:", groupedByFolder);
+
+        Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
+          console.log(
+            `📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`,
+            folderData.places.map((p) => getSavedPlaceDisplayFields(p).name)
+          );
+        });
+
+        const totalPlaces = Object.values(groupedByFolder).reduce(
+          (sum, folder) => sum + folder.places.length,
+          0
         );
-      });
-      
-      // 전체 장소 수 확인
-      const totalPlaces = Object.values(groupedByFolder).reduce((sum, folder) => sum + folder.places.length, 0);
-      console.log(`📊 전체 장소 수: ${totalPlaces}개 (localStorage: ${localStorageDrafts.length}개, Supabase: ${savedData?.length || 0}개)`);
-      
-      setSavedPlaces(groupedByFolder);
+        console.log(
+          `📊 전체 장소 수: ${totalPlaces}개 (localStorage: ${localStorageDrafts.length}개, Supabase: ${savedData?.length || 0}개)`
+        );
+
+        setSavedPlaces(groupedByFolder);
+      } else {
+        setSavedPlaces({});
+      }
 
       if (hideFollowingTab) {
         setFollowingCurators([]);
@@ -1101,6 +1205,15 @@ const UserCard = ({
     } catch (error) {
       console.error('사용자 데이터 로드 오류:', error);
     } finally {
+      try {
+        const [pickedRows, hanjan] = await picksHanjanPromise;
+        setPickedPlaces(Array.isArray(pickedRows) ? pickedRows : []);
+        setHanjanRows(Array.isArray(hanjan) ? hanjan : []);
+      } catch (e) {
+        console.warn("UserCard picks/hanjan:", e);
+        setPickedPlaces([]);
+        setHanjanRows([]);
+      }
       setLoading(false);
     }
   };
@@ -1791,7 +1904,7 @@ const UserCard = ({
             </div>
           ) : null}
 
-          {/* 탭 버튼 */}
+          {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → (팔로우) */}
           <div
             style={{
               display: "flex",
@@ -1802,38 +1915,100 @@ const UserCard = ({
           >
             <button
               type="button"
-              onClick={() => handleTabChange("saved")}
+              onClick={() => handleTabChange("picked")}
               style={{
                 flex: 1,
-                padding: "9px 8px",
+                minWidth: 0,
+                padding: "9px 4px",
                 background:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
                     : "transparent",
                 color:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "white"
                     : "rgba(255, 255, 255, 0.55)",
                 border: "none",
-                fontSize: "12px",
+                fontSize: "11px",
                 fontWeight: "600",
                 cursor: "pointer",
                 transition: "all 0.2s ease",
                 boxShadow:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "inset 0 1px 0 rgba(255,255,255,0.2)"
                     : "none",
               }}
             >
-              ❤️ 내 저장 ({getTotalPlacesCount()})
+              픽한 가게 ({pickedPlaces.length})
             </button>
+            <button
+              type="button"
+              onClick={() => handleTabChange("hanjan")}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: "9px 4px",
+                background:
+                  activeTab === "hanjan"
+                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                    : "transparent",
+                color:
+                  activeTab === "hanjan"
+                    ? "white"
+                    : "rgba(255, 255, 255, 0.55)",
+                border: "none",
+                borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                fontSize: "11px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow:
+                  activeTab === "hanjan"
+                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                    : "none",
+              }}
+            >
+              한잔함 ({hanjanRows.length})
+            </button>
+            {showSavedFoldersTab ? (
+              <button
+                type="button"
+                onClick={() => handleTabChange("saved")}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: "9px 4px",
+                  background:
+                    activeTab === "saved"
+                      ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                      : "transparent",
+                  color:
+                    activeTab === "saved"
+                      ? "white"
+                      : "rgba(255, 255, 255, 0.55)",
+                  border: "none",
+                  borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                  fontSize: "11px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  boxShadow:
+                    activeTab === "saved"
+                      ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                      : "none",
+                }}
+              >
+                저장 폴더 ({getTotalPlacesCount()})
+              </button>
+            ) : null}
             {hideFollowingTab ? null : (
               <button
                 type="button"
                 onClick={() => handleTabChange("following")}
                 style={{
                   flex: 1,
-                  padding: "9px 8px",
+                  minWidth: 0,
+                  padding: "9px 4px",
                   background:
                     activeTab === "following"
                       ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
@@ -1844,7 +2019,7 @@ const UserCard = ({
                       : "rgba(255, 255, 255, 0.55)",
                   border: "none",
                   borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  fontSize: "12px",
+                  fontSize: "11px",
                   fontWeight: "600",
                   cursor: "pointer",
                   transition: "all 0.2s ease",
@@ -1858,7 +2033,7 @@ const UserCard = ({
                       : "none",
                 }}
               >
-                🤝 팔로우 큐레이터 ({followingCurators.length})
+                팔로우 ({followingCurators.length})
                 {activeTab === "following" && !embeddedAdminReadOnly && (
                   <div
                     onClick={(e) => {
@@ -1942,8 +2117,149 @@ const UserCard = ({
               <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                 로딩 중...
               </div>
+            ) : activeTab === "picked" ? (
+              pickedPlaces.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "14px", color: "#999", fontSize: "13px" }}>
+                  아직 픽한 가게가 없어요.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {pickedPlaces.map((row) => {
+                    const { name: placeName, address: placeAddress } =
+                      getSavedPlaceDisplayFields({ places: row.places });
+                    return (
+                      <div
+                        key={row.id}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "10px",
+                          ...userCardGlass.panel,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                color: "white",
+                                fontSize: "13px",
+                                fontWeight: "bold",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {placeName}
+                            </div>
+                            {placeAddress ? (
+                              <div
+                                style={{
+                                  color: "#999",
+                                  fontSize: "11px",
+                                  marginTop: "2px",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {placeAddress}
+                              </div>
+                            ) : null}
+                            {row.is_curator ? (
+                              <div
+                                style={{
+                                  marginTop: "4px",
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  color: "#f9a8d4",
+                                }}
+                              >
+                                큐레이터 픽
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : activeTab === "hanjan" ? (
+              hanjanRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "14px", color: "#999", fontSize: "13px" }}>
+                  한잔 기록이 없어요.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {hanjanRows.map((row) => (
+                    <div
+                      key={row.id}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "10px",
+                        ...userCardGlass.panel,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: "white",
+                          fontSize: "13px",
+                          fontWeight: "bold",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {row.place_name || "이름 없음"}
+                      </div>
+                      {row.place_address ? (
+                        <div
+                          style={{
+                            color: "#999",
+                            fontSize: "11px",
+                            marginTop: "2px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {row.place_address}
+                        </div>
+                      ) : null}
+                      <div
+                        style={{
+                          color: "#777",
+                          fontSize: "10px",
+                          marginTop: "4px",
+                        }}
+                      >
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString("ko-KR")
+                          : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
             ) : activeTab === 'saved' ? (
-              Object.keys(savedPlaces).length === 0 ? (
+              !showSavedFoldersTab ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "14px",
+                    color: "#999",
+                    fontSize: "13px",
+                  }}
+                >
+                  저장 폴더는 프로필 주인만 볼 수 있어요.
+                </div>
+              ) : Object.keys(savedPlaces).length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                   아직 저장한 장소가 없습니다.
                 </div>
@@ -2010,6 +2326,11 @@ const UserCard = ({
                                 ) : null}
                               </div>
                               {!embeddedAdminReadOnly ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                <PlacePickButton
+                                  place={savedItemToPickPlace(item)}
+                                  variant="folderChip"
+                                />
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                 <button
                                   onClick={() => {
@@ -2051,6 +2372,7 @@ const UserCard = ({
                                 >
                                   삭제
                                 </button>
+                              </div>
                               </div>
                               ) : null}
                             </div>

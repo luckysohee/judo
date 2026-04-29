@@ -4,6 +4,12 @@ import {
   primaryParsedFood,
 } from "./searchTagNormalize.js";
 import { emitSearchTelemetry } from "./searchBranchTelemetry.js";
+import {
+  normalizeQueryForFeedback,
+  placeKeyForFeedback,
+  rpcIncrementSearchPlaceFeedbackClick,
+  rpcIncrementSearchPlaceFeedbackSave,
+} from "./searchPlaceFeedback.js";
 
 // ML·랭킹 학습 타이밍·ML 전 룰 전략: `searchPhase7Guidance.js`
 
@@ -22,6 +28,7 @@ function analyticsFlags(user) {
 
 /**
  * 검색 직후 1행 적재. 실패해도 UX에 영향 없음.
+ * @returns {Promise<string|null>} `search_logs.id` (bigint면 문자열로) — 없으면 null
  */
 export async function insertSearchLog({
   sessionId,
@@ -38,7 +45,7 @@ export async function insertSearchLog({
   submitInitialSearchKind = null,
   submitKeywordAiFallback = false,
 }) {
-  if (!sessionId || !userQuery) return;
+  if (!sessionId || !userQuery) return null;
 
   const purpose =
     parsed?.situation ??
@@ -49,6 +56,7 @@ export async function insertSearchLog({
   const row = {
     session_id: sessionId,
     user_query: userQuery,
+    normalized_query: normalizeQueryForFeedback(userQuery),
     parsed_region: parsed?.region ?? null,
     parsed_alcohol: parsed?.alcohol ?? null,
     parsed_vibe: parsed?.vibe ?? null,
@@ -76,7 +84,11 @@ export async function insertSearchLog({
   };
 
   try {
-    let { error } = await supabase.from("search_logs").insert(row);
+    let { data, error } = await supabase
+      .from("search_logs")
+      .insert(row)
+      .select("id")
+      .maybeSingle();
     if (
       error &&
       /column|schema|does not exist|42703/i.test(String(error.message || error))
@@ -89,6 +101,7 @@ export async function insertSearchLog({
         submit_user_visible_candidate_count,
         submit_initial_search_kind,
         submit_keyword_ai_fallback,
+        normalized_query,
         ...legacyRow
       } = row;
       void parsed_food;
@@ -98,14 +111,23 @@ export async function insertSearchLog({
       void submit_user_visible_candidate_count;
       void submit_initial_search_kind;
       void submit_keyword_ai_fallback;
-      const retry = await supabase.from("search_logs").insert(legacyRow);
+      void normalized_query;
+      const retry = await supabase
+        .from("search_logs")
+        .insert(legacyRow)
+        .select("id")
+        .maybeSingle();
       error = retry.error;
+      data = retry.data;
     }
     if (error) {
       console.warn("[searchAnalytics] search_logs insert:", error.message || error);
+      return null;
     }
+    return data?.id != null ? String(data.id) : null;
   } catch (e) {
     console.warn("[searchAnalytics] search_logs insert failed:", e);
+    return null;
   }
 }
 
@@ -116,6 +138,15 @@ export async function insertPlaceClickLog({
   placeName,
   source = "map_click",
   user,
+  /** `search_logs.id` — 검색-클릭 조인 */
+  searchLogId = null,
+  /** 원문 검색어(선택) */
+  userQueryForLog = null,
+  /** `normalizeQueryForFeedback` 결과(선택) */
+  normalizedQueryForLog = null,
+  /** 검색 세션 직후 클릭일 때만 RPC — `deriveSearchClickPath` 가 null 이 아닐 때 */
+  searchFeedbackRpcArea = null,
+  searchFeedbackRpcIntentTags = null,
   /** `keyword_pure` | `keyword_fallback` | `ai_direct` — 검색 CTR 버킷 (선택) */
   searchClickPath = null,
   /** 1-based 리스트·시트에서의 클릭 순번 (선택; DB `clicked_rank` + 콘솔 텔레메트리) */
@@ -131,6 +162,15 @@ export async function insertPlaceClickLog({
     clicked_curator_id: clickedCuratorId != null ? String(clickedCuratorId) : null,
     place_name: placeName || "(unknown)",
     search_session_id: sessionId || null,
+    search_log_id: searchLogId != null ? String(searchLogId) : null,
+    user_query:
+      userQueryForLog != null && String(userQueryForLog).trim()
+        ? String(userQueryForLog).trim()
+        : null,
+    normalized_query:
+      normalizedQueryForLog != null && String(normalizedQueryForLog).trim()
+        ? String(normalizedQueryForLog).trim()
+        : null,
     source,
     search_click_path: searchClickPath || null,
     clicked_rank:
@@ -155,17 +195,38 @@ export async function insertPlaceClickLog({
         search_click_path,
         clicked_rank,
         user_visible_candidate_count,
+        search_log_id,
+        user_query,
+        normalized_query,
         ...legacyRow
       } = row;
       void search_click_path;
       void clicked_rank;
       void user_visible_candidate_count;
+      void search_log_id;
+      void user_query;
+      void normalized_query;
       const retry = await supabase.from("place_click_logs").insert(legacyRow);
       error = retry.error;
     }
     if (error) {
       console.warn("[searchAnalytics] place_click_logs insert:", error.message || error);
     } else {
+      if (
+        searchClickPath &&
+        normalizedQueryForLog &&
+        String(normalizedQueryForLog).trim()
+      ) {
+        const pk = placeKeyForFeedback({ id: pid });
+        if (pk) {
+          void rpcIncrementSearchPlaceFeedbackClick({
+            normalizedQuery: String(normalizedQueryForLog).trim(),
+            area: searchFeedbackRpcArea,
+            intentTags: searchFeedbackRpcIntentTags,
+            placeKey: pk,
+          });
+        }
+      }
       emitSearchTelemetry({
         event: "place_click",
         sessionId: sessionId || null,
@@ -192,7 +253,13 @@ export async function insertPlaceClickLog({
 /**
  * 저장 완료 시 해당 검색 세션의 전환 표시 (user_saved_places.search_session_id 는 SaveModal upsert에서 설정).
  */
-export async function markSearchSessionBookmarked({ sessionId, placeId, user }) {
+export async function markSearchSessionBookmarked({
+  sessionId,
+  placeId,
+  user,
+  /** 검색어별 저장 집계 — `normalizedQuery` + `placeKey` 있을 때만 RPC */
+  searchPlaceFeedback = null,
+}) {
   if (!sessionId || !user?.id) return;
 
   try {
@@ -210,5 +277,23 @@ export async function markSearchSessionBookmarked({ sessionId, placeId, user }) 
     }
   } catch (e) {
     console.warn("[searchAnalytics] search_logs bookmark update failed:", e);
+  }
+
+  const fq =
+    searchPlaceFeedback?.normalizedQuery != null
+      ? String(searchPlaceFeedback.normalizedQuery).trim()
+      : "";
+  const pk =
+    searchPlaceFeedback?.placeKey != null
+      ? String(searchPlaceFeedback.placeKey).trim()
+      : "";
+  if (fq && pk) {
+    void rpcIncrementSearchPlaceFeedbackSave({
+      normalizedQuery: fq,
+      area: searchPlaceFeedback.area ?? null,
+      intentTags: searchPlaceFeedback.intentTags ?? null,
+      placeKey: pk,
+      delta: 1,
+    });
   }
 }

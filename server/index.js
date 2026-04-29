@@ -164,6 +164,8 @@ import {
   upsertPlaceBlogInsight,
 } from "./placeBlogInsightsCache.js";
 import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
+import { handlePlacesInBounds } from "./placesInBounds.js";
+import { handlePlaceDetail } from "./placeDetail.js";
 
 const app = express();
 app.use(cors());
@@ -614,6 +616,12 @@ app.post("/api/search/curator-places", async (req, res) => {
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
+
+/** 홈 지도: bbox + limit — Supabase RPC `get_places_in_bounds` (service role 전용) */
+app.get("/api/places-in-bounds", handlePlacesInBounds);
+
+/** 장소 1건 + 추천 행(공개 필드) — 카드/시트 오픈 후 (service role 전용) */
+app.get("/api/place-detail", handlePlaceDetail);
 
 function getRecommendSupabaseEnv() {
   return {
@@ -2340,9 +2348,14 @@ async function fetchKakaoPlacesForPhrases(phrases) {
     );
     return [];
   }
-  const byId = new Map();
-  await Promise.all(
-    phrases.map(async (query) => {
+  const phraseList = Array.isArray(phrases)
+    ? phrases.map((q) => String(q || "").trim()).filter((q) => q.length >= 2)
+    : [];
+  if (!phraseList.length) return [];
+
+  /** phrase별로 병렬 요청 후, 순위를 라운드로빈으로 섞어 한 phrase(accuracy 상단)만 독식하지 않게 함 */
+  const lists = await Promise.all(
+    phraseList.map(async (query) => {
       try {
         const { data } = await axios.get(
           "https://dapi.kakao.com/v2/local/search/keyword.json",
@@ -2351,16 +2364,28 @@ async function fetchKakaoPlacesForPhrases(phrases) {
             headers: { Authorization: `KakaoAK ${key}` },
           }
         );
-        for (const d of data.documents || []) {
-          const id = String(d.id || "");
-          if (id && !byId.has(id)) byId.set(id, kakaoDocToUnifiedPlace(d));
-        }
+        return Array.isArray(data.documents) ? data.documents : [];
       } catch (e) {
         console.warn("unified-map-search kakao:", query, e.message);
+        return [];
       }
     })
   );
-  return [...byId.values()];
+
+  const byId = new Map();
+  const order = [];
+  const maxLen = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < maxLen; i++) {
+    for (let p = 0; p < lists.length; p++) {
+      const d = lists[p][i];
+      if (!d) continue;
+      const id = String(d.id || "");
+      if (!id || byId.has(id)) continue;
+      byId.set(id, kakaoDocToUnifiedPlace(d));
+      order.push(id);
+    }
+  }
+  return order.map((id) => byId.get(id));
 }
 
 /** "성수 바, 성수 펍, …" 한 요소로 온 경우 → phrase별 네이버·카카오 호출 */
@@ -2390,19 +2415,30 @@ function flattenCommaSeparatedSearchPhrases(phrases) {
 }
 
 async function fetchNaverPlacesForPhrases(phrases) {
-  const arrays = await Promise.all(phrases.map((q) => searchNaverLocal(q)));
+  const phraseList = Array.isArray(phrases)
+    ? phrases.map((q) => String(q || "").trim()).filter((q) => q.length >= 2)
+    : [];
+  if (!phraseList.length) return [];
+
+  const arrays = await Promise.all(phraseList.map((q) => searchNaverLocal(q)));
   const byName = new Map();
+  const order = [];
   let salt = 0;
-  for (const items of arrays) {
-    if (!Array.isArray(items)) continue;
-    for (const item of items) {
+  const maxLen = Math.max(0, ...arrays.map((a) => (Array.isArray(a) ? a.length : 0)));
+  for (let i = 0; i < maxLen; i++) {
+    for (let p = 0; p < arrays.length; p++) {
+      const items = arrays[p];
+      if (!Array.isArray(items)) continue;
+      const item = items[i];
+      if (!item) continue;
       const u = naverItemToUnifiedPlace(item, salt++);
       const nk = normalizeUnifiedPlaceName(u.place_name);
-      if (!nk) continue;
-      if (!byName.has(nk)) byName.set(nk, u);
+      if (!nk || byName.has(nk)) continue;
+      byName.set(nk, u);
+      order.push(nk);
     }
   }
-  return [...byName.values()];
+  return order.map((k) => byName.get(k));
 }
 
 function mergeKakaoNaverPlaces(kakaoList, naverList) {

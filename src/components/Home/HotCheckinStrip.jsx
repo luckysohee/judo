@@ -18,6 +18,9 @@ function placeMatchesRankId(place, rankPlaceId) {
 const TAB_HOT = "hot";
 const TAB_CURATORS = "curators";
 
+/** 한 줄 칩·탭 행 기준 — 낮은 쪽(핫 TOP)에 맞춤 */
+const STRIP_ROW_PX = 28;
+
 /**
  * 지도 위 가로 스트립: 탭 — 오늘 한잔 랭킹(24h) / 떠오르는 큐레이터(7일)
  */
@@ -29,6 +32,8 @@ export default function HotCheckinStrip({
   onPickPlace,
   onPickCurator,
   hideWhenPreviewOpen = false,
+  /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
+  hideWhenSearchActive = false,
 }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState(TAB_HOT);
@@ -37,7 +42,9 @@ export default function HotCheckinStrip({
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
 
   const showStrip =
-    !hideWhenPreviewOpen && (topFive.length > 0 || curators.length > 0);
+    !hideWhenPreviewOpen &&
+    !hideWhenSearchActive &&
+    (topFive.length > 0 || curators.length > 0);
 
   useEffect(() => {
     if (tab === TAB_HOT && topFive.length === 0 && curators.length > 0) {
@@ -64,9 +71,9 @@ export default function HotCheckinStrip({
     bar: {
       display: "flex",
       flexDirection: "column",
-      gap: 8,
-      padding: "8px 10px",
-      borderRadius: 16,
+      gap: 6,
+      padding: "6px 8px",
+      borderRadius: 14,
       background: "rgba(255,255,255,0.4)",
       boxShadow:
         "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
@@ -78,11 +85,13 @@ export default function HotCheckinStrip({
       display: "flex",
       gap: 6,
       flexShrink: 0,
+      minHeight: STRIP_ROW_PX,
+      alignItems: "center",
     },
     tabBtn: (active) => ({
       flex: "1 1 0%",
       minWidth: 0,
-      padding: "6px 8px",
+      padding: "3px 8px",
       borderRadius: 999,
       border: active
         ? "1px solid rgba(225,29,72,0.35)"
@@ -91,8 +100,9 @@ export default function HotCheckinStrip({
         ? "linear-gradient(135deg, #fff1f2 0%, #fff7ed 100%)"
         : "rgba(255,255,255,0.55)",
       color: active ? "#9f1239" : "#4b5563",
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: 800,
+      lineHeight: 1.2,
       letterSpacing: "-0.02em",
       cursor: "pointer",
       whiteSpace: "nowrap",
@@ -101,69 +111,88 @@ export default function HotCheckinStrip({
     }),
     scroll: {
       display: "flex",
-      gap: 8,
+      gap: 6,
       overflowX: "auto",
       flex: 1,
       minWidth: 0,
-      paddingBottom: 2,
+      paddingBottom: 0,
       scrollbarWidth: "thin",
+      minHeight: STRIP_ROW_PX,
+      alignItems: "center",
+      boxSizing: "border-box",
     },
     chipHot: {
       flexShrink: 0,
       maxWidth: 200,
-      padding: "6px 12px",
+      padding: "3px 10px",
       borderRadius: 999,
       border: "1px solid #fecaca",
       background: "linear-gradient(135deg, #fff7ed 0%, #fff1f2 100%)",
       cursor: "pointer",
       textAlign: "left",
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
+      lineHeight: 1.25,
       color: "#9f1239",
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
+      display: "inline-flex",
+      alignItems: "center",
+      minHeight: STRIP_ROW_PX,
+      boxSizing: "border-box",
     },
     chipCurator: {
       flexShrink: 0,
-      maxWidth: 220,
-      padding: "6px 12px",
+      maxWidth: 240,
+      padding: "3px 10px",
       borderRadius: 999,
       border: "1px solid #ddd6fe",
       background: "linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%)",
       cursor: "pointer",
       textAlign: "left",
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
+      lineHeight: 1.25,
       color: "#5b21b6",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      gap: 2,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
       minWidth: 0,
+      minHeight: STRIP_ROW_PX,
+      maxHeight: STRIP_ROW_PX,
+      boxSizing: "border-box",
     },
-    chipSub: {
-      fontSize: 10,
-      fontWeight: 600,
-      color: "rgba(91,33,182,0.72)",
-      maxWidth: "100%",
+    chipCuratorName: {
+      minWidth: 0,
+      flex: "1 1 auto",
       overflow: "hidden",
       textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+    chipCuratorStat: {
+      flexShrink: 0,
+      fontSize: 9,
+      fontWeight: 600,
+      color: "rgba(91,33,182,0.68)",
     },
     count: {
-      marginLeft: 6,
+      marginLeft: 4,
       fontWeight: 800,
       color: "#e11d48",
       fontVariantNumeric: "tabular-nums",
+      fontSize: 10,
     },
     empty: {
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
       color: "#6b7280",
-      padding: "4px 4px 2px",
+      padding: "2px 2px 0",
+      minHeight: STRIP_ROW_PX,
+      display: "flex",
+      alignItems: "center",
+      boxSizing: "border-box",
+      lineHeight: 1.25,
     },
   };
 
@@ -223,9 +252,11 @@ export default function HotCheckinStrip({
               display: "flex",
               alignItems: "center",
               gap: 6,
+              minHeight: STRIP_ROW_PX,
+              boxSizing: "border-box",
             }}
           >
-            <span style={{ fontSize: 15 }} aria-hidden>
+            <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
               🔥
             </span>
             오늘 한잔 TOP
@@ -239,9 +270,11 @@ export default function HotCheckinStrip({
               display: "flex",
               alignItems: "center",
               gap: 6,
+              minHeight: STRIP_ROW_PX,
+              boxSizing: "border-box",
             }}
           >
-            <span style={{ fontSize: 15 }} aria-hidden>
+            <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
               ✨
             </span>
             떠오르는 큐레이터
@@ -275,7 +308,15 @@ export default function HotCheckinStrip({
                 `@${String(row.username || "").trim()}`;
               const wp = Number(row.week_places) || 0;
               const wf = Number(row.week_follows) || 0;
-              const sub =
+              const statShort =
+                wp > 0 && wf > 0
+                  ? `잔+${wp} · 팔+${wf}`
+                  : wp > 0
+                    ? `잔+${wp}`
+                    : wf > 0
+                      ? `팔+${wf}`
+                      : "";
+              const titleLong =
                 wp > 0 && wf > 0
                   ? `이번 주 잔 +${wp} · 팔로 +${wf}`
                   : wp > 0
@@ -288,19 +329,13 @@ export default function HotCheckinStrip({
                   key={String(row.curator_id ?? row.username)}
                   type="button"
                   style={styles.chipCurator}
-                  title={sub}
+                  title={titleLong || name}
                   onClick={() => handleCuratorChip(row)}
                 >
-                  <span
-                    style={{
-                      maxWidth: "100%",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {name}
-                  </span>
-                  {sub ? <span style={styles.chipSub}>{sub}</span> : null}
+                  <span style={styles.chipCuratorName}>{name}</span>
+                  {statShort ? (
+                    <span style={styles.chipCuratorStat}>{statShort}</span>
+                  ) : null}
                 </button>
               );
             })

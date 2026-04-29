@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import { markSearchSessionBookmarked } from "../../utils/searchAnalytics";
+import { placeKeyForFeedback } from "../../utils/searchPlaceFeedback";
 import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
 import {
   selectSystemFoldersOrdered,
@@ -26,6 +27,8 @@ export default function SaveModal({
   onSaveComplete,
   firstSavedFrom = 'home',
   searchSessionIdRef,
+  /** 직전 검색 집계 컨텍스트 — 있으면 저장 RPC */
+  searchFeedbackContextRef = null,
   /** true: 장소 미리보기 카드 안에만 채움(전체 화면 X) */
   embeddedInPlaceCard = false,
 }) {
@@ -166,10 +169,21 @@ export default function SaveModal({
       }
 
       if (sessionId) {
+        const fb = searchFeedbackContextRef?.current;
+        const pk = placeKeyForFeedback(place);
         await markSearchSessionBookmarked({
           sessionId,
           placeId: folderRes.placeUuid ?? place.id,
           user,
+          searchPlaceFeedback:
+            fb?.normalizedQuery && pk
+              ? {
+                  normalizedQuery: fb.normalizedQuery,
+                  area: fb.area ?? null,
+                  intentTags: fb.intentTags ?? null,
+                  placeKey: pk,
+                }
+              : null,
         });
       }
 

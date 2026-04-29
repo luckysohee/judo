@@ -6,17 +6,30 @@ import {
 export function RecommendedPlacesList({ recommendation, onSelectPlace }) {
   if (!recommendation) return null;
 
-  const places = (recommendation.places ?? []).slice(0, 5);
-  const batch = recommendation.places ?? [];
+  const pool =
+    Array.isArray(recommendation.import_pool) &&
+    recommendation.import_pool.length > 0
+      ? recommendation.import_pool
+      : recommendation.places ?? [];
+  const places = pool;
+  const batch = pool;
 
   return (
     <ul className="flex flex-col gap-1">
       {places.map((place, i) => {
-        const sub = recommendPlaceSubtitle(place, {
+        const subtitle = recommendPlaceSubtitle(place, {
           summary: recommendation?.summary,
           query: String(recommendation?.query || "").trim(),
           siblingNames: siblingPlaceNamesFromBatch(batch, place),
         });
+        const reasonText =
+          String(
+            place?.reasonShort ||
+              place?.reason ||
+              place?.why ||
+              place?.description ||
+              "",
+          ).trim() || subtitle;
         return (
           <li key={place?.id ?? place?.name ?? i}>
             <button
@@ -27,9 +40,9 @@ export function RecommendedPlacesList({ recommendation, onSelectPlace }) {
               <span className="block font-medium text-neutral-900">
                 {place?.name ?? ""}
               </span>
-              {sub ? (
-                <span className="mt-0.5 block truncate text-xs font-normal leading-snug text-neutral-500">
-                  {sub}
+              {reasonText ? (
+                <span className="mt-0.5 block text-xs font-normal leading-snug text-neutral-500">
+                  {`추천 이유: ${reasonText}`}
                 </span>
               ) : null}
             </button>

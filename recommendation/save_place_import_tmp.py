@@ -31,6 +31,7 @@ def _pick_canonical_place_name(x: dict[str, Any]) -> str:
 
 def extract_signals_from_text(text: str) -> list[str]:
     c = _compact(text)
+    low = (text or "").lower()
     if not c:
         return []
     out: list[str] = []
@@ -41,6 +42,13 @@ def extract_signals_from_text(text: str) -> list[str]:
             seen.add(label)
             out.append(label)
 
+    if "노포" in c or "오래된" in c or "since" in low or "단골" in c:
+        add("노포")
+    if "포차" in c or "실비" in c:
+        add("포차 감성")
+    if "야외" in c or "테라스" in c or "바깥자리" in c:
+        add("야장")
+
     if "조용" in c:
         add("조용한 분위기")
     elif "분위기" in c:
@@ -49,6 +57,10 @@ def extract_signals_from_text(text: str) -> list[str]:
         add("데이트")
     if "2차" in c:
         add("2차")
+    if "낮술" in c or "낮에술" in c:
+        add("낮술")
+    if "야장" in c:
+        add("야장")
     if "가성비" in c:
         add("가성비")
     if "화장실" in c:

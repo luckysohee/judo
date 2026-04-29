@@ -21,6 +21,7 @@ import {
   setCuratorLiveStatus,
   subscribeCuratorLiveStatus,
 } from "../utils/supabaseLive";
+import { fetchUserPickedPlaces } from "../api/placePicks";
 
 export default function CuratorPageScreen() {
   const { name } = useParams();
@@ -30,6 +31,7 @@ export default function CuratorPageScreen() {
   const [detailPlace, setDetailPlace] = useState(null);
   const [curator, setCurator] = useState(null);
   const [curatorPlaces, setCuratorPlaces] = useState([]);
+  const [curatorPickRows, setCuratorPickRows] = useState([]);
   const [followState, setFollowState] = useState(false);
   const [liveState, setLiveState] = useState(false);
   const [canEditLive, setCanEditLive] = useState(false);
@@ -42,6 +44,7 @@ export default function CuratorPageScreen() {
     if (!slug) {
       setCurator(null);
       setCuratorPlaces([]);
+      setCuratorPickRows([]);
       setFollowState(false);
       setLiveState(false);
       setCanEditLive(false);
@@ -72,6 +75,7 @@ export default function CuratorPageScreen() {
         if (!curatorRow) {
           setCurator(null);
           setCuratorPlaces([]);
+          setCuratorPickRows([]);
           setFollowState(false);
           setLiveState(false);
           setCanEditLive(false);
@@ -112,9 +116,20 @@ export default function CuratorPageScreen() {
           setLiveState(false);
         }
 
-        const placesRows = await fetchPlacesForCuratorPage(curatorRow);
+        const uid = curatorRow.user_id;
+        const [placesRows, pickRowsRaw] = await Promise.all([
+          fetchPlacesForCuratorPage(curatorRow),
+          uid
+            ? fetchUserPickedPlaces(uid, { limit: 200 }).catch((err) => {
+                console.error("curator place_picks fetch:", err);
+                return [];
+              })
+            : Promise.resolve([]),
+        ]);
 
         if (!mounted) return;
+
+        setCuratorPickRows(Array.isArray(pickRowsRaw) ? pickRowsRaw : []);
 
         const mappedPlaces = placesRows.map((row) => ({
           id: row.id,
@@ -145,6 +160,7 @@ export default function CuratorPageScreen() {
         if (!mounted) return;
         setCurator(null);
         setCuratorPlaces([]);
+        setCuratorPickRows([]);
         setFollowState(false);
         setLiveState(false);
         setCanEditLive(false);
@@ -207,6 +223,8 @@ export default function CuratorPageScreen() {
         open={true}
         curator={curator}
         places={curatorPlaces}
+        pickedPlacesRows={curatorPickRows}
+        pickedPlacesLoading={false}
         curatorColorMap={curatorColorMap}
         savedColorMap={savedColorMap}
         onClose={() => navigate(-1)}

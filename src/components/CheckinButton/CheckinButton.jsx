@@ -159,6 +159,8 @@ export default function CheckinButton({
   hanjanStats: hanjanStatsProp = null,
   /** 기록 성공 후 부모가 통계 다시 불러오기 */
   onHanjanRecorded = null,
+  /** `compact` 일 때 한 줄 힌트(불꽃 수 등) 숨김 — 액션 줄 전용 */
+  hideHint = false,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
@@ -440,27 +442,28 @@ export default function CheckinButton({
   const buttonStyles = compact
     ? {
         hanjanButton: {
-          padding: "5px 10px",
-          border: "1px solid #FF6B6B",
-          borderRadius: "999px",
-          backgroundColor: "rgba(255,255,255,0.96)",
-          color: "#FF6B6B",
+          padding: "0 10px",
+          border: "1px solid rgba(217, 119, 6, 0.65)",
+          borderRadius: "12px",
+          background: "linear-gradient(180deg, #fde68a 0%, #f59e0b 48%, #d97706 100%)",
+          color: "#422006",
           fontSize: "12px",
-          fontWeight: "700",
+          fontWeight: "800",
           cursor: loading ? "not-allowed" : "pointer",
           transition: "all 0.2s ease",
           display: "flex",
           alignItems: "center",
           gap: "4px",
           minWidth: "0",
-          minHeight: "40px",
+          minHeight: "42px",
           width: "100%",
           boxSizing: "border-box",
           justifyContent: "center",
           whiteSpace: "nowrap",
+          boxShadow: "0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(180, 83, 9, 0.35)",
         },
         hanjanButtonHover: {
-          backgroundColor: "#FFF5F5",
+          filter: "brightness(1.06)",
           transform: "scale(1.02)",
         },
         hint: {
@@ -529,14 +532,15 @@ export default function CheckinButton({
         }}
         onMouseLeave={(e) => {
           if (!loading) {
+            e.target.style.filter = "";
             Object.assign(e.target.style, buttonStyles.hanjanButton);
           }
         }}
       >
-        {loading ? "처리 중…" : "🍶 한잔함"}
+        {loading ? "처리 중…" : "🍺 한잔함"}
       </button>
 
-      {fireHint ? (
+      {compact && hideHint ? null : fireHint ? (
         <div style={buttonStyles.hint}>{fireHint}</div>
       ) : (
         <div style={buttonStyles.hint}>

@@ -30,6 +30,71 @@ export const STUDIO_ATMOSPHERE_OPTIONS = [
   "전통적인",
 ];
 
+/** Studio 잔 올리기 「업종」— 아카이브·집계와 동일 순서 (지도 원문 → `normalizeStudioPlaceCategory`) */
+export const STUDIO_PLACE_CATEGORY_OPTIONS = [
+  "한식",
+  "중식",
+  "일식",
+  "양식",
+  "육류",
+  "해산물",
+  "디저트",
+  "술집·바",
+  "미분류",
+];
+
+/**
+ * 카카오 `category_name` 등 임의 문자열 → 잔 올리기 표준 업종.
+ * DB `places.category`·아카이브 RPC와 규칙을 맞출 것 (SQL `studio_normalize_place_category`).
+ */
+export function normalizeStudioPlaceCategory(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "미분류";
+  if (STUDIO_PLACE_CATEGORY_OPTIONS.includes(s)) return s;
+
+  const u = s.toLowerCase();
+
+  if (/(중식|짜장|짬뽕)/i.test(u)) return "중식";
+  if (/(일식|돈까스|돈가스|라멘|라면|우동|일본|오마카세|스시|초밥)/i.test(u))
+    return "일식";
+  if (
+    /(양식|파스타|피자|스테이크|프렌치|이탈리아|브런치|버거)/i.test(u)
+  )
+    return "양식";
+  if (
+    /(해산물|횟집|회집|생선회|생선|조개|새우|사시미|참치|해물|오징어|게장|물회|수산|회전)/i.test(
+      u
+    )
+  )
+    return "해산물";
+  if (
+    /(디저트|카페|베이커리|케이크|빵|커피|아이스크림|도넛)/i.test(u)
+  )
+    return "디저트";
+  if (
+    /(술집|와인바|와인|이자카야|호프|주점|펍|포장마차|포차|루프탑|야장|칵테일|클럽|라운지|노포|실내포장|야외포장|테라스|요리주점|맥주|소주)/i.test(
+      u
+    )
+  )
+    return "술집·바";
+  if (
+    /(돼지|소고기|고기|구이|삼겹|갈비|육류|닭|치킨|족발|보쌈|곱창|막창|스테이크)/i.test(
+      u
+    )
+  )
+    return "육류";
+  if (
+    /(한식|국밥|탕|찌개|순대|감자탕|설렁탕|해장|국수|냉면|비빔밥|순두부|곰탕|백반|죽|한우|밥집)/i.test(
+      u
+    )
+  )
+    return "한식";
+  if (/(슈퍼|마트|편의점|이마트)/i.test(u)) return "미분류";
+  if (/순대|순댓/i.test(s)) return "한식";
+
+  return "미분류";
+}
+
 /** 2차 찾기 안주 칩 (국물은 해장·국물류와 연결) */
 export const COURSE_SECOND_SNACK_OPTIONS = [
   "국물",
@@ -193,6 +258,7 @@ export function taxonomyContextBlockForMl() {
     "JUDO_TAX",
     "liquor:" + STUDIO_LIQUOR_TYPE_OPTIONS.join("|"),
     "vibe:" + STUDIO_ATMOSPHERE_OPTIONS.join("|"),
+    "food_cat:" + STUDIO_PLACE_CATEGORY_OPTIONS.join("|"),
     "snack:" + COURSE_SECOND_SNACK_OPTIONS.join("|"),
     "situation:" + STUDIO_CURATOR_SITUATION_TAGS.join("|"),
   ].join(" ");

@@ -19,6 +19,7 @@ import { RecommendedPlacesList } from "../../components/Recommendation/Recommend
 import { SelectedRecommendedPlaceDetailCard } from "../../components/Recommendation/SelectedRecommendedPlaceDetailCard";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
+import { PlacePickButton } from "../../components/PlacePick/PlacePickButton";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
 import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
@@ -64,13 +65,13 @@ import {
   extractHomeMapLocationName,
   normalizeHangulSearchCompounds,
   shouldKeepExtractedLocationForMapSearch,
-  isSimpleLocationMenuMapQuery,
   isLikelyNaturalLanguageSearchQuery,
   HOME_SEARCH_KIND,
   detectHomeSearchExecutionKind,
   isMapGeographicPanOnlyQuery,
   getKakaoKeywordSuffix,
   stripPartyAndChatterForKeywordSearch,
+  homeSearchQueryHasMoodIntentHint,
   lockKeywordToClientForKakaoHint,
   filterPlacesByParsedIntent,
   buildRecommendationWhyLine,
@@ -93,15 +94,31 @@ import { getSearchLoadingMessage } from "../../utils/searchLoadingMessage";
 import { fetchSearchIntentAssist } from "../../utils/searchAIAssistant";
 import { buildExpansionSuggestions } from "../../utils/searchExpansionSuggestions";
 import { insertSearchLog, insertPlaceClickLog } from "../../utils/searchAnalytics";
+import {
+  normalizeQueryForFeedback,
+  fetchSearchFeedbackBoostMap,
+  placeKeyFromSearchLogResultId,
+  intentTagsFromFacets,
+  placeKeyForFeedback,
+  computeSearchFeedbackBoost,
+  rpcIncrementSearchPlaceFeedbackImpressions,
+} from "../../utils/searchPlaceFeedback";
 import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
-import { mergeMapSearchPlacesDedupe } from "../../utils/mergeMapSearchPlacesDedupe";
+import {
+  mergeMapSearchPlacesDedupe,
+  mapPlaceStableDedupeKey,
+} from "../../utils/mergeMapSearchPlacesDedupe";
+import {
+  dampedSearchSocialScoreDelta,
+  fetchSearchSocialBoostByPlaces,
+} from "../../utils/searchSocialBoost";
+import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
+import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName";
 import {
   emitSearchTelemetry,
   KEYWORD_SEARCH_FALLBACK_MIN_RESULTS,
-  KEYWORD_FALLBACK_UI_MAX_ROWS,
-  AI_PARSE_SEARCH_UI_MAX_ROWS,
   summarizeSearchResultQualityForTelemetry,
   deriveSearchClickPath,
   shouldPreferFallbackSearchResults,
@@ -123,28 +140,27 @@ import {
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
-import {
-  fetchCuratorPlaceRowsInBounds,
-  padLatLngBounds,
-  filterJoinRowsToBounds,
-} from "../../utils/fetchCuratorPlacesInBounds";
+import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
+import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
 import { debounce } from "../../utils/debounce";
 import {
   fetchPlaceDetail,
   fetchPlaceUuidByKakaoPlaceId,
-  fetchPlacesByBounds,
   getLimitByZoom,
 } from "../../api/places";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   isWalkingRouteReasonable,
   walkingRouteDisplayMinutes,
+  getCourseLongWalkStrollHint,
 } from "../../utils/courseWalkingRouteQuality.js";
 import {
   getKakaoPlaceDetailsViaProxy,
+  getKakaoPlaceBasicInfoViaProxy,
   searchKakaoKeywordViaProxy,
   searchKakaoAddressViaProxy,
 } from "../../utils/kakaoAPIProxy";
+import { verifyTopKakaoSearchCandidates } from "../../utils/verifyTopKakaoSearchCandidates";
 import {
   mergePickedPlaceWithCuratorCatalog,
   findCuratorCatalogMatch,
@@ -174,15 +190,17 @@ import {
   formatCourseStayMinutes,
   formatCourseWalkApprox,
   getCourseOpenStatusText,
-  getCourseWalkComfortHint,
   getCourseLegMeters,
-  getCourseMaxLegMeters,
   formatCourseLegDistanceSummary,
+  formatCourseThreeStepWalkingSummary,
+  formatCourseProfileOneLine,
 } from "../../utils/formatCourseUi";
-import { fetchCourseWalkingRoute } from "../../utils/fetchCourseWalkingRoute.js";
+import {
+  fetchCourseWalkingRoute,
+  fetchChainedCourseWalkingRoutes,
+} from "../../utils/fetchCourseWalkingRoute.js";
 import { fetchRegionOutline } from "../../utils/fetchRegionOutline.js";
 import { getRegenerateSecondLabel } from "../../utils/regenerateSecondStep.js";
-import { buildCourseSummary } from "../../utils/buildCourseSummary";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
 import {
   courseOptionsToMapPlaces,
@@ -202,7 +220,59 @@ import {
 /** `unified-map-search` 병렬 네이버 지역 phrase 상한 — `mergeIntentAssistIntoSearchPhrases` JSDoc 참고 */
 const UNIFIED_MAP_MERGE_MAX_PHRASES = 6;
 
-/** MapView `DEFAULT_MAP_CENTER` 와 동일 — 성수 첫 진입·칩 포커스 */
+function sanitizeSheetStoryLine(v) {
+  let s = String(v || "")
+    .replace(/\*{1,3}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "";
+  // 문장 앞의 연결어/잔여 형태소 제거 (예: "으로, ...", "적인 인테리어...")
+  s = s
+    .replace(
+      /^(?:으로|에서|와|과|및|그리고|또|또한|혹은|또는|한편|그리고는)\s*[,.:，]?\s*/i,
+      ""
+    )
+    .replace(/^적인\s+/, "")
+    .replace(/^이\s*세\s*곳(?:은|으로|에서는)?\s*[,.:，]?\s*/i, "")
+    .trim();
+  // 여러 장소를 순번으로 설명하는 꼬리 문장(두 번째는…, 다음은…) 제거
+  s = s
+    .replace(/\s*(?:첫|두|세|네)\s*번째(?:는|로|로는)?[\s,:，].*$/i, "")
+    .replace(/\s*(?:다음(?:은|으로)?|마지막(?:으로|은)?|또\s*다른)[\s,:，].*$/i, "")
+    .replace(/\s*이\s*세\s*곳(?:은|으로|에서는)?[\s,:，].*$/i, "")
+    .trim();
+  s = s.replace(/[,\s]+$/, "").trim();
+  return s;
+}
+
+function sanitizeBusinessName(v) {
+  let s = String(v || "")
+    .replace(/\*{1,3}/g, "")
+    .replace(/\.\.\.$/, "")
+    .replace(/…$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "";
+  s = s
+    .replace(
+      /^(?:.*?(?:역맛집|맛집|추천|데이트|분위기|모임|검색결과|키워드)\s+)/i,
+      ""
+    )
+    .replace(/^[-:|/·\s]+/, "")
+    .trim();
+  const isKeywordLike = (x) =>
+    /(맛집|추천|데이트|분위기|모임|검색결과|키워드)/i.test(x);
+  if (isKeywordLike(s) && s.includes(" ")) {
+    const tokens = s.split(/\s+/).filter(Boolean);
+    const lastGood = [...tokens]
+      .reverse()
+      .find((t) => t.length >= 2 && !isKeywordLike(t));
+    if (lastGood) s = lastGood;
+  }
+  return s.trim();
+}
+
+/** MapView `DEFAULT_MAP_CENTER` 와 동일 — 첫 진입·정렬 기준점 등(술 상황 칩은 지도를 여기로 끌지 않음) */
 const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
 
 /** 검색 피크·하단 탭·safe area — 과하면 지도가 더 어긋나 보여서 보수적으로만 보정 */
@@ -266,6 +336,7 @@ const COURSE_SECOND_FIND_DISTANCE_OPTIONS = [
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import {
+  importReasonLineForPlace,
   recommendPlaceSubtitle,
   siblingPlaceNamesFromBatch,
 } from "../../utils/recommendationPlaceCopy";
@@ -484,19 +555,25 @@ function buildPlaceCuratorFilterKeySet(place, dbCurators) {
   if (Array.isArray(dbCurators) && dbCurators.length > 0) {
     for (const cp of place.curatorPlaces || []) {
       const cid = String(cp.curator_id ?? "").trim().toLowerCase();
-      if (!cid) continue;
+      const cpUser = String(cp.curators?.username ?? "").trim().toLowerCase();
+      if (!cid && !cpUser) continue;
       for (const c of dbCurators) {
         const rowUid = String(c.userId ?? "").trim().toLowerCase();
         const rowPk = String(c.id ?? "").trim().toLowerCase();
-        if ((rowUid && rowUid === cid) || (rowPk && rowPk === cid)) {
-          add(c.username);
-          add(c.displayName);
-          add(c.filterKey);
-          add(c.name);
-          add(c.slug);
-          add(c.id);
-          if (rowUid) add(rowUid);
-        }
+        const rowName = String(c.username ?? "").trim().toLowerCase();
+        const matchById =
+          Boolean(cid) &&
+          ((rowUid && rowUid === cid) || (rowPk && rowPk === cid));
+        const matchByHandle =
+          !cid && Boolean(cpUser) && Boolean(rowName) && rowName === cpUser;
+        if (!matchById && !matchByHandle) continue;
+        add(c.username);
+        add(c.displayName);
+        add(c.filterKey);
+        add(c.name);
+        add(c.slug);
+        add(c.id);
+        if (rowUid) add(rowUid);
       }
     }
   }
@@ -1073,18 +1150,7 @@ export default function Home() {
               } else if (queryWantsYajangFocus(kwIn, parseSearchQuery(kwIn))) {
                 const yStrict = nearbyPlaces.filter((place) => {
                   const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
-                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
-                  if (
-                    Array.isArray(curatorPlaceCatalogForMerge) &&
-                    curatorPlaceCatalogForMerge.length
-                  ) {
-                    const m = findCuratorCatalogMatch(
-                      place,
-                      curatorPlaceCatalogForMerge
-                    );
-                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
-                  }
-                  return false;
+                  return YAJANG_PLACE_HINT_RE.test(haystack);
                 });
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
@@ -1142,18 +1208,7 @@ export default function Home() {
               ) {
                 const yStrict = nearbyPlaces.filter((place) => {
                   const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
-                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
-                  if (
-                    Array.isArray(curatorPlaceCatalogForMerge) &&
-                    curatorPlaceCatalogForMerge.length
-                  ) {
-                    const m = findCuratorCatalogMatch(
-                      place,
-                      curatorPlaceCatalogForMerge
-                    );
-                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
-                  }
-                  return false;
+                  return YAJANG_PLACE_HINT_RE.test(haystack);
                 });
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
@@ -1480,7 +1535,10 @@ export default function Home() {
       return [];
     }
 
-    const kwMap = stripPartyAndChatterForKeywordSearch(keyword) || keyword;
+    const rawKw = String(keyword || "").trim();
+    const kwMap = homeSearchQueryHasMoodIntentHint(rawKw)
+      ? rawKw
+      : stripPartyAndChatterForKeywordSearch(keyword) || keyword;
     const mapBounds = mapRef.current.getBounds();
     if (!mapBounds) {
       console.error("❌ searchMapBars: 지도 영역 없음");
@@ -1550,7 +1608,13 @@ export default function Home() {
     return R * c * 1000; // 미터로 변환
   };
 
-  /** 카카오 후보 위 룰 기반 점수만. 한 줄 이유는 `enrichPlacesWithReason`에서 별도 부착. 정렬: 의미 점수와 거리를 함께 반영. */
+  /**
+   * 카카오·통합 검색 후보 위 룰 기반 `aiScore`.
+   * 기준: `scorePlace`(검색 파싱·facet) → 의도축(`applyIntentAxisScoresWithSignals`)·거리·피드백 등.
+   * 보조: `place_picks`(일반 1·큐레이터 4 가중 합) + `check_ins`(한잔, 건당 5 가중) — 로그·cap·패널티 게이트
+   * (`searchSocialBoost.js` + RPC `get_search_social_boost_batch`).
+   * 한 줄 이유는 `enrichPlacesWithReason`에서 별도 부착. 정렬: 의미 점수와 거리 페널티.
+   */
   const calculateLocalAIScores = (
     places,
     keyword,
@@ -1715,6 +1779,18 @@ export default function Home() {
       const catLower = cat.toLowerCase();
       const overlapBoost = queryKeywordOverlapBoost(catLower);
       score += overlapBoost;
+      const fbMap = _scoreOpts?.searchFeedbackByPlaceKey;
+      let searchFeedbackBoost = 0;
+      if (fbMap && typeof fbMap === "object") {
+        const pk = placeKeyForFeedback(evidencePlace);
+        const row = pk ? fbMap[pk] : null;
+        if (row) {
+          searchFeedbackBoost = computeSearchFeedbackBoost(row);
+          if (searchFeedbackBoost !== 0) {
+            score += searchFeedbackBoost;
+          }
+        }
+      }
       const intentRes = applyIntentAxisScoresWithSignals(
         intentAxisFlags,
         classifyCategory(place),
@@ -1724,6 +1800,30 @@ export default function Home() {
       const aiScoreSignals = { ...intentRes.signals };
       if (overlapBoost > 0) {
         aiScoreSignals.overlap_boost = overlapBoost;
+      }
+      if (searchFeedbackBoost !== 0) {
+        aiScoreSignals.search_feedback_boost = searchFeedbackBoost;
+      }
+
+      const kwRawForMood = String(keyword || "");
+      const moodTextBlob = [
+        cat,
+        String(place.place_name || ""),
+        String(place.place_name || place.title || ""),
+        reasonEvidence.summary,
+        ...(reasonEvidence.atmosphere || []),
+        ...(reasonEvidence.menu || []).slice(0, 4),
+        ...(reasonEvidence.curatorLines || []).slice(0, 4),
+        ...(reasonEvidence.tags || []).slice(0, 8),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (
+        (/조용/.test(kwRawForMood) || /대화/.test(kwRawForMood)) &&
+        /조용|차분|대화|아늑/.test(moodTextBlob)
+      ) {
+        score += 12;
+        aiScoreSignals.quiet_mood = 12;
       }
 
       if (
@@ -1796,6 +1896,31 @@ export default function Home() {
       }
 
       score += blogInsightBoost(place);
+
+      const socMap = _scoreOpts?.socialBoostByStableKey;
+      if (socMap && typeof socMap === "object") {
+        const sk = mapPlaceStableDedupeKey(place);
+        const soc = sk ? socMap[sk] : null;
+        if (
+          soc &&
+          (Number(soc.pickW) > 0 || Number(soc.hanjan) > 0)
+        ) {
+          const strongPenaltyGate =
+            score <= -52 ||
+            (typeof aiScoreSignals.date_second_meal_mismatch === "number" &&
+              aiScoreSignals.date_second_meal_mismatch <= -40);
+          if (!strongPenaltyGate) {
+            const add = dampedSearchSocialScoreDelta(
+              soc.pickW,
+              soc.hanjan
+            );
+            if (add > 0) {
+              score += add;
+              aiScoreSignals.social_boost = add;
+            }
+          }
+        }
+      }
 
       const atmosphere = getAtmosphereFromCategory(place.category_name);
       const sourceKakaoId = place.id;
@@ -1917,15 +2042,30 @@ export default function Home() {
   const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
   const [dbCurators, setDbCurators] = useState([]); // DB에서 가져온 큐레이터 목록
   const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
+  /** 탭 새로고침마다 바뀌는 값 — 큐레이터 스트립 첫 후보 로테이션·동순위 섞기 */
+  const curatorSpotlightSaltRef = useRef(
+    (typeof crypto !== "undefined" && crypto.getRandomValues
+      ? crypto.getRandomValues(new Uint32Array(1))[0]
+      : Math.floor(Math.random() * 0xffffffff)) >>> 0,
+  );
+  /** 큐레이터 스트립 수동 새로고침 — salt 갱신으로만 리렌더 유도 */
+  const [curatorSpotlightShuffleTick, setCuratorSpotlightShuffleTick] =
+    useState(0);
+  /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
+  const forceReopenAiSheetAfterSearchRef = useRef(false);
 
   /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 */
   const curatorAttachRowsRef = useRef([]);
   const mapViewportLoadSeqRef = useRef(0);
+  /** `/api/places-in-bounds` 동시 요청 수 — stale 완료만으로 로딩이 영구 true 되는 것 방지 */
+  const mapViewportFetchInFlightRef = useRef(0);
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
   const placeDetailRequestSeqRef = useRef(0);
+  /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
+  const situationFolderFilterRef = useRef(null);
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
@@ -1981,7 +2121,9 @@ export default function Home() {
       const seq = ++mapViewportLoadSeqRef.current;
       const snap = curatorAttachRowsRef.current || [];
 
-      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.12);
+      const widenForSituation = Boolean(situationFolderFilterRef.current);
+      const padRatio = widenForSituation ? 0.24 : 0.12;
+      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, padRatio);
       if (!padded) {
         setMapViewportDbLoading(false);
         return;
@@ -1999,10 +2141,15 @@ export default function Home() {
               Number.isFinite(lastMapLevelRef.current)
             ? lastMapLevelRef.current
             : 6;
-      const limit = getLimitByZoom(level);
+      const baseLimit = getLimitByZoom(level);
+      const limit = Math.min(
+        120,
+        Math.round(baseLimit * (widenForSituation ? 1.9 : 1))
+      );
 
-      const r6 = (n) => Number(n).toFixed(6);
-      const cacheKey = `${r6(south)}_${r6(west)}_${r6(north)}_${r6(east)}_${limit}`;
+      /** 뷰포트 캐시 버킷 — 6자리면 미세 팬마다 키가 갈라져 캐시가 거의 안 먹음, 4자리가 무난한 타협 */
+      const r4 = (n) => Number(n).toFixed(4);
+      const cacheKey = `${r4(south)}_${r4(west)}_${r4(north)}_${r4(east)}_${limit}_${widenForSituation ? "sit" : "all"}`;
 
       let plainRows;
       let joinResult;
@@ -2012,21 +2159,17 @@ export default function Home() {
         plainRows = cached.plainRows;
         joinResult = { rows: cached.joinRows, error: null };
       } else {
+        mapViewportFetchInFlightRef.current += 1;
         setMapViewportDbLoading(true);
         try {
-          plainRows = await fetchPlacesByBounds({
-            south,
-            west,
-            north,
-            east,
-            limit,
-          });
+          const bundle = await fetchMapPlacesInBounds(
+            { south, west, north, east, limit },
+            AI_API_BASE,
+          );
           if (seq !== mapViewportLoadSeqRef.current) return;
 
-          joinResult = await fetchCuratorPlaceRowsInBounds(supabase, padded, {
-            placesRows: plainRows,
-          });
-          if (seq !== mapViewportLoadSeqRef.current) return;
+          plainRows = bundle.places;
+          joinResult = { rows: bundle.joinRows, error: null };
 
           if (!joinResult.error) {
             mapViewportFetchCacheRef.current[cacheKey] = {
@@ -2038,7 +2181,11 @@ export default function Home() {
           console.error("❌ 뷰포트 추천 로드 실패:", e);
           return;
         } finally {
-          if (seq === mapViewportLoadSeqRef.current) {
+          mapViewportFetchInFlightRef.current = Math.max(
+            0,
+            mapViewportFetchInFlightRef.current - 1,
+          );
+          if (mapViewportFetchInFlightRef.current === 0) {
             setMapViewportDbLoading(false);
           }
         }
@@ -2055,6 +2202,9 @@ export default function Home() {
             (plainRows || []).length,
             "(join 오류·places만)"
           );
+        }
+        if (mapViewportFetchInFlightRef.current === 0) {
+          setMapViewportDbLoading(false);
         }
         return;
       }
@@ -2081,6 +2231,9 @@ export default function Home() {
           limit,
         });
       }
+      if (mapViewportFetchInFlightRef.current === 0) {
+        setMapViewportDbLoading(false);
+      }
     },
     [authLoading, query]
   );
@@ -2105,6 +2258,12 @@ export default function Home() {
   const searchSessionIdRef = useRef(null);
   /** 직전 검색 제출 스냅샷 — 장소 클릭 시 CTR 버킷(`searchClickPath`) 연결 */
   const lastSearchSubmitTelemetryRef = useRef(null);
+  /** 직전 `search_logs` 행 — `place_click_logs.search_log_id` */
+  const lastSearchLogIdRef = useRef(null);
+  /** 직전 검색 제출 쿼리 문자열(클릭 로그용) */
+  const lastSearchSubmitQueryRef = useRef("");
+  /** 직전 검색의 feedback RPC 컨텍스트(normalized_query, area, intent_tags) */
+  const searchFeedbackContextRef = useRef(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
@@ -2125,6 +2284,10 @@ export default function Home() {
   const [userSavedPlaces, setUserSavedPlaces] = useState({}); // 사용자 저장 장소 폴더 정보
 
   const [aiSummary, setAiSummary] = useState("");
+  const [aiSheetPhotoByKey, setAiSheetPhotoByKey] = useState({});
+  const [aiSheetExpandedReasonByKey, setAiSheetExpandedReasonByKey] = useState(
+    {}
+  );
   const [aiReasons, setAiReasons] = useState([]);
   const [aiRecommendedIds, setAiRecommendedIds] = useState([]);
   /** 비-basic AI 검색: 추천 id·리스트·지도를 DB/내부와 섞지 않고 상위만 */
@@ -2134,6 +2297,7 @@ export default function Home() {
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [aiSheetPage, setAiSheetPage] = useState(0);
   /** 단순 위치+메뉴 검색: 맞춤 피크바·자동 시트 없이 지도 마커만 */
   const [simpleMapSearchMarkersOnly, setSimpleMapSearchMarkersOnly] =
     useState(false);
@@ -2153,6 +2317,7 @@ export default function Home() {
   const [legendCategory, setLegendCategory] = useState(null);
   /** 홈 상단 술 상황 칩 — system_folders.key 와 연결 */
   const [situationFolderFilter, setSituationFolderFilter] = useState(null);
+  situationFolderFilterRef.current = situationFolderFilter;
 
   const [searchIdleHintVisible, setSearchIdleHintVisible] = useState(false);
   const [searchIdleHintText, setSearchIdleHintText] = useState("");
@@ -2346,12 +2511,47 @@ export default function Home() {
     fetchRecommend: fetchCuratorImportRecommend,
   } = useRecommendation();
 
+  /** `/recommend` — DB에 확정 저장된 `places`보다 `raw_data` 파싱 `import_pool`이 있으면 우선 */
+  const curatorImportPlacesOrPool = useMemo(() => {
+    const r = curatorImportRecommendation;
+    if (!r?.ok) return [];
+    if (Array.isArray(r.import_pool) && r.import_pool.length > 0) {
+      return r.import_pool;
+    }
+    return Array.isArray(r.places) ? r.places : [];
+  }, [curatorImportRecommendation]);
+
   const {
     selectedRecommendedPlace,
     matchedMapPlace,
     openRecommendedPlace,
     closeRecommendedPlaceDetail,
   } = useSelectedRecommendedPlace();
+
+  const mergedRecommendDetailPlace = useMemo(
+    () => ({
+      ...(matchedMapPlace && typeof matchedMapPlace === "object"
+        ? matchedMapPlace
+        : {}),
+      ...(selectedRecommendedPlace &&
+      typeof selectedRecommendedPlace === "object"
+        ? selectedRecommendedPlace
+        : {}),
+    }),
+    [matchedMapPlace, selectedRecommendedPlace]
+  );
+
+  const recommendDetailIsSaved = useMemo(() => {
+    if (!selectedRecommendedPlace && !matchedMapPlace) return false;
+    const savedKeySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
+    return placeMatchesSavedKeySet(mergedRecommendDetailPlace, savedKeySet);
+  }, [
+    selectedRecommendedPlace,
+    matchedMapPlace,
+    mergedRecommendDetailPlace,
+    savedMap,
+    userSavedPlaces,
+  ]);
 
   /** 코스 세션과 `/recommend`·import 오버레이가 겹치면 단일 가게·미리보기가 뜨는 문제 방지 */
   const clearImportRecommendationOverlay = useCallback(() => {
@@ -2360,6 +2560,8 @@ export default function Home() {
   }, [closeRecommendedPlaceDetail, setCuratorImportRecommendation]);
 
   const [courseMapOverlay, setCourseMapOverlay] = useState(null);
+  /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */
+  const [courseWalkStrollHint, setCourseWalkStrollHint] = useState("");
   /** 미리보기 「도착 길찾기」: 내 위치 → 선택 장소 (지도 주황 폴리라인) */
   const [arrivalWalkingOverlay, setArrivalWalkingOverlay] = useState(null);
   const arrivalWalkReqIdRef = useRef(0);
@@ -2399,6 +2601,9 @@ export default function Home() {
   /** 코스 카드에서 스텝 단위로 담는 조합 — 1차 칸 비면 거기, 차면 2차 칸(원래 코스의 몇 차인지 무관) */
   const [courseComposeSlotFirst, setCourseComposeSlotFirst] =
     useState(null);
+  /** 쩜오차(1차·2차 사이) — `courseIncludeHalfStep`일 때만 사용 */
+  const [courseComposeSlotBridge, setCourseComposeSlotBridge] =
+    useState(null);
   const [courseComposeSlotSecond, setCourseComposeSlotSecond] =
     useState(null);
   /** 내 위치 GPS로 연 코스 검색 시 좌표 보관(반경 5·8km 재검색) */
@@ -2419,17 +2624,25 @@ export default function Home() {
     setCourseSecondPulseMapPlaces([]);
   }, []);
 
-  /** 첫 칸 비면 1차, 차 있으면 2차로 자동 배정. 같은 가게 다시 누르면 해당 칸에서 뺌 */
+  /**
+   * 첫 칸 비면 1차, 다음은 쩜오 토글 시 쩜오차·2차 순. 같은 가게 다시 누르면 해당 칸에서 뺌.
+   * 세 칸 다 찼을 때 새 담기는 2차(마지막)만 갱신.
+   */
   const assignCourseStepToComposeAuto = useCallback(
     (step) => {
       if (!step?.place) return;
       const clone = { ...step, place: step.place };
       const pid = placeId(step.place);
       const fp = placeId(courseComposeSlotFirst?.place);
+      const bp = placeId(courseComposeSlotBridge?.place);
       const sp = placeId(courseComposeSlotSecond?.place);
 
       if (pid != null && pid === fp) {
         setCourseComposeSlotFirst(null);
+        return;
+      }
+      if (courseIncludeHalfStep && pid != null && pid === bp) {
+        setCourseComposeSlotBridge(null);
         return;
       }
       if (pid != null && pid === sp) {
@@ -2441,31 +2654,137 @@ export default function Home() {
         setCourseComposeSlotFirst(clone);
         return;
       }
+      if (courseIncludeHalfStep) {
+        if (!courseComposeSlotBridge?.place) {
+          setCourseComposeSlotBridge(clone);
+          return;
+        }
+        if (!courseComposeSlotSecond?.place) {
+          setCourseComposeSlotSecond(clone);
+          return;
+        }
+        setCourseComposeSlotSecond(clone);
+        return;
+      }
       if (!courseComposeSlotSecond?.place) {
         setCourseComposeSlotSecond(clone);
         return;
       }
       setCourseComposeSlotSecond(clone);
     },
-    [courseComposeSlotFirst, courseComposeSlotSecond]
+    [
+      courseIncludeHalfStep,
+      courseComposeSlotFirst,
+      courseComposeSlotBridge,
+      courseComposeSlotSecond,
+    ]
   );
 
   useEffect(() => {
     if (!isCourseMode) {
       setCourseComposeSlotFirst(null);
+      setCourseComposeSlotBridge(null);
       setCourseComposeSlotSecond(null);
       clearCourseSecondPickPulse();
       setCourseSecondFindModalOpen(false);
       setCourseIncludeHalfStep(false);
       courseLastLoadOptsRef.current = null;
+      setCourseWalkStrollHint("");
     }
   }, [isCourseMode, clearCourseSecondPickPulse]);
 
-  /** 조합 미리보기: 앞·뒤 칸에 스텝만 담아도 지도 마커·경로에 반영 */
+  /** 조합 미리보기: 쩜오 토글 시 1·쩜오·2 세 칸, 아니면 1·2만 지도에 반영 */
   const composePreviewCourse = useMemo(() => {
     const a = courseComposeSlotFirst;
     const b = courseComposeSlotSecond;
-    if (!a && !b) return null;
+    const mid = courseIncludeHalfStep ? courseComposeSlotBridge : null;
+    if (!a && !b && !mid) return null;
+
+    const legMeters = (p0, p1) => {
+      const w0 = resolvePlaceWgs84(p0);
+      const w1 = resolvePlaceWgs84(p1);
+      if (!w0 || !w1) return NaN;
+      return haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
+    };
+
+    if (a?.place && mid?.place && b?.place) {
+      const d01 = legMeters(a.place, mid.place);
+      const d12 = legMeters(mid.place, b.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          { ...a, step: 1, label: "1차", place: a.place },
+          {
+            ...mid,
+            step: 2,
+            label: "쩜오차",
+            place: mid.place,
+            stayMinutes: Number.isFinite(Number(mid.stayMinutes))
+              ? Number(mid.stayMinutes)
+              : 25,
+            walkDistanceMeters: Number.isFinite(d01)
+              ? Math.round(d01)
+              : mid.walkDistanceMeters,
+          },
+          {
+            ...b,
+            step: 3,
+            label: "2차",
+            place: b.place,
+            walkDistanceMeters: Number.isFinite(d12)
+              ? Math.round(d12)
+              : b.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
+    if (a?.place && mid?.place) {
+      const d01 = legMeters(a.place, mid.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          { ...a, step: 1, label: a.label ?? "1차", place: a.place },
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+            stayMinutes: Number.isFinite(Number(mid.stayMinutes))
+              ? Number(mid.stayMinutes)
+              : 25,
+            walkDistanceMeters: Number.isFinite(d01)
+              ? Math.round(d01)
+              : mid.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
+    if (mid?.place && b?.place) {
+      const d = legMeters(mid.place, b.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+          },
+          {
+            ...b,
+            step: 3,
+            label: b.label ?? "2차",
+            place: b.place,
+            walkDistanceMeters: Number.isFinite(d)
+              ? Math.round(d)
+              : b.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
     if (a?.place && b?.place) {
       const w0 = resolvePlaceWgs84(a.place);
       const w1 = resolvePlaceWgs84(b.place);
@@ -2501,8 +2820,26 @@ export default function Home() {
         steps: [{ ...b, step: 2, label: b.label ?? "2차", place: b.place }],
       };
     }
+    if (mid?.place) {
+      return {
+        key: "__compose_preview__",
+        steps: [
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+          },
+        ],
+      };
+    }
     return null;
-  }, [courseComposeSlotFirst, courseComposeSlotSecond]);
+  }, [
+    courseComposeSlotFirst,
+    courseComposeSlotBridge,
+    courseComposeSlotSecond,
+    courseIncludeHalfStep,
+  ]);
 
   const courseDrivingMap = composePreviewCourse ?? selectedCourse;
 
@@ -2517,6 +2854,21 @@ export default function Home() {
     return Math.min(Math.round(h * 0.17) + 56, 180);
   }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
 
+  /** 코스/도보 경로·2차 UI가 지도에 있을 때 — 술 상황 칩(z~88)이 폴리라인보다 위에 깔려 경로를 가리는 것 방지 */
+  const hideSituationFolderStripForMapCourseUi = useMemo(
+    () =>
+      Boolean(courseMapOverlay) ||
+      Boolean(arrivalWalkingOverlay) ||
+      courseSecondPickMode ||
+      courseSecondFindModalOpen,
+    [
+      courseMapOverlay,
+      arrivalWalkingOverlay,
+      courseSecondPickMode,
+      courseSecondFindModalOpen,
+    ]
+  );
+
   /** 일반 검색 마커 setBounds — 헤더·하단 검색바에 가리지 않게 */
   const mapSearchPlacesFitPadding = useMemo(() => {
     if (isCourseMode || !String(query || "").trim()) return null;
@@ -2530,6 +2882,8 @@ export default function Home() {
 
   /** 코스 카드 가로 스와이프 — 스크롤이 멈춘 뒤에만 선택·지도 반영 (스크롤 중 휙휙 변경 방지) */
   const courseSwipeRowRef = useRef(null);
+  /** 직행↔쩜오 등 재로딩 직전 `scrollLeft` — 갱신 후 자동 센터링 대신 복원 */
+  const courseSwipePreserveScrollLeftRef = useRef(null);
   const courseSwipeSettleTimerRef = useRef(null);
   const courseMergedHeaderRef = useRef(null);
   const coursePullStripRef = useRef(null);
@@ -2565,6 +2919,7 @@ export default function Home() {
     const k = String(courseDrivingMap?.key ?? "");
     if (k) coursePathDismissedForCourseKeyRef.current = k;
     setCourseMapOverlay(null);
+    setCourseWalkStrollHint("");
     /** 경로 × — 2차 후보 펄스·후보 마커도 같이 종료 */
     clearCourseSecondPickPulse();
   }, [courseDrivingMap?.key, clearCourseSecondPickPulse]);
@@ -2683,16 +3038,25 @@ export default function Home() {
   );
 
   useLayoutEffect(() => {
-    if (
-      !isCourseMode ||
-      !aiSheetOpen ||
-      !courseOptions?.length ||
-      !selectedCourse
-    ) {
+    if (!isCourseMode || !aiSheetOpen) {
       return;
     }
     const el = courseSwipeRowRef.current;
     if (!el) return;
+    const preserved = courseSwipePreserveScrollLeftRef.current;
+    if (preserved != null && Number.isFinite(preserved)) {
+      if (!courseOptions?.length || !selectedCourse) {
+        courseSwipePreserveScrollLeftRef.current = null;
+        return;
+      }
+      courseSwipePreserveScrollLeftRef.current = null;
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      el.scrollLeft = Math.max(0, Math.min(Math.round(preserved), maxScroll));
+      return;
+    }
+    if (!courseOptions?.length || !selectedCourse) {
+      return;
+    }
     const idx = courseOptions.findIndex((c) => c.key === selectedCourse.key);
     if (idx < 0) return;
     const child = el.children[idx];
@@ -2702,16 +3066,17 @@ export default function Home() {
     const pad = 12;
     const needs = cr.left < host.left + pad || cr.right > host.right - pad;
     if (needs) {
-      child.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      const targetLeft = Math.round(
+        child.offsetLeft - (el.clientWidth - child.offsetWidth) / 2
+      );
+      el.scrollLeft = Math.max(0, Math.min(targetLeft, maxScroll));
     }
   }, [isCourseMode, aiSheetOpen, selectedCourse?.key, courseOptions]);
 
   useEffect(() => {
     let cancelled = false;
+    setCourseWalkStrollHint("");
     const myKey = String(courseDrivingMap?.key ?? "");
     const dismissed = coursePathDismissedForCourseKeyRef.current;
     if (dismissed != null && dismissed !== myKey) {
@@ -2732,6 +3097,20 @@ export default function Home() {
       setCourseMapOverlay(null);
       return undefined;
     }
+
+    const steps = courseDrivingMap?.steps || [];
+    const wgsThree =
+      Array.isArray(steps) && steps.length >= 3
+        ? [
+            resolvePlaceWgs84(steps[0]?.place),
+            resolvePlaceWgs84(steps[1]?.place),
+            resolvePlaceWgs84(steps[2]?.place),
+          ]
+        : null;
+    const useChainedRoute = Boolean(
+      wgsThree?.[0] && wgsThree[1] && wgsThree[2]
+    );
+
     const a = base.polylinePath[0];
     const b = base.polylinePath[base.polylinePath.length - 1];
 
@@ -2744,46 +3123,62 @@ export default function Home() {
       });
     }
 
-    fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
-      if (cancelled) return;
+    const straightM = getCourseLegMeters(courseDrivingMap);
+    const fallbackStraight = () => {
       if (skipDismissed()) return;
-      const straightM = getCourseLegMeters(courseDrivingMap);
-      const fallbackStraight = () => {
-        if (skipDismissed()) return;
-        setCourseMapOverlay({
-          polylinePath: base.polylinePath,
-          legLabel: base.legLabel,
-          labelPosition: base.labelPosition,
-          key: `${myKey}-straight`,
-        });
-      };
+      setCourseWalkStrollHint("");
+      setCourseMapOverlay({
+        polylinePath: base.polylinePath,
+        legLabel: base.legLabel,
+        labelPosition: base.labelPosition,
+        key: `${myKey}-straight`,
+      });
+    };
 
+    const applyWalkingRouteToOverlay = (route, labelPosition) => {
+      if (cancelled || skipDismissed()) return;
       if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
-        const mid = route.path[Math.floor(route.path.length / 2)];
-        const lp = {
-          lat: Number(mid.lat),
-          lng: Number(mid.lng),
-        };
         const reasonable = isWalkingRouteReasonable({
           routedMeters: dm,
           straightMeters: straightM,
           durationSeconds: ds,
         });
         let legLabel;
+        let strollHint = "";
         if (reasonable && dm > 0) {
           const walkMin = walkingRouteDisplayMinutes(dm, ds);
           const distStr =
             dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
           legLabel = `길 따라 ${distStr} · 도보 약 ${walkMin}분`;
+          strollHint = getCourseLongWalkStrollHint({
+            routedMeters: dm,
+            straightMeters: straightM,
+            walkDisplayMinutes: walkMin,
+          });
         } else if (dm > 0) {
           const walkMin = walkingRouteDisplayMinutes(dm, ds);
           const distStr =
             dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
           legLabel = `보행 경로 ${distStr} · 도보 약 ${walkMin}분`;
+          strollHint = getCourseLongWalkStrollHint({
+            routedMeters: dm,
+            straightMeters: straightM,
+            walkDisplayMinutes: walkMin,
+          });
         } else {
           legLabel = base.legLabel;
+        }
+        setCourseWalkStrollHint(strollHint || "");
+        let lp = labelPosition;
+        if (
+          !lp ||
+          !Number.isFinite(Number(lp.lat)) ||
+          !Number.isFinite(Number(lp.lng))
+        ) {
+          const mid = route.path[Math.floor(route.path.length / 2)];
+          lp = { lat: Number(mid.lat), lng: Number(mid.lng) };
         }
         if (skipDismissed()) return;
         setCourseMapOverlay({
@@ -2795,7 +3190,27 @@ export default function Home() {
       } else {
         fallbackStraight();
       }
-    });
+    };
+
+    if (useChainedRoute) {
+      fetchChainedCourseWalkingRoutes(wgsThree).then((route) => {
+        if (cancelled || skipDismissed()) return;
+        const cafeMid = {
+          lat: Number(wgsThree[1].lat),
+          lng: Number(wgsThree[1].lng),
+        };
+        applyWalkingRouteToOverlay(route, cafeMid);
+      });
+    } else {
+      fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
+        if (cancelled || skipDismissed()) return;
+        const mid = route?.path?.[Math.floor((route.path?.length ?? 0) / 2)];
+        const lp = mid
+          ? { lat: Number(mid.lat), lng: Number(mid.lng) }
+          : null;
+        applyWalkingRouteToOverlay(route, lp);
+      });
+    }
 
     return () => {
       cancelled = true;
@@ -2953,6 +3368,45 @@ export default function Home() {
   const [mapViewportCenterFromUser, setMapViewportCenterFromUser] =
     useState(null);
 
+  /**
+   * 로그인 전에도 첫 입장 시 1회 브라우저 위치 권한·좌표 확보(주변 검색·코스 기준점 보조).
+   * 같은 탭에서 중복 프롬프트 방지 — React Strict 이중 effect 겸용.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined" || !navigator.geolocation) return;
+    try {
+      if (window.sessionStorage.getItem("judo_entry_geo_attempted") === "1") {
+        return;
+      }
+      window.sessionStorage.setItem("judo_entry_geo_attempted", "1");
+    } catch {
+      /* 비저장 모드 등 — 아래에서 그대로 1회 시도 */
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        setCurrentLocation((prev) =>
+          prev &&
+          Number.isFinite(prev.lat) &&
+          Number.isFinite(prev.lng)
+            ? prev
+            : { lat, lng }
+        );
+      },
+      () => {
+        /* 거부·타임아웃 — 알림 없이 (로그인 전 입장 플로우) */
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 15000,
+        maximumAge: 120000,
+      }
+    );
+  }, []);
+
   const handleCourseGpsRadiusChange = useCallback(
     async (meters) => {
       const q = String(query || "").trim();
@@ -2967,8 +3421,13 @@ export default function Home() {
         return;
       }
       setCourseGpsRadiusM(meters);
-      setIsAiSearching(true);
-      setSearchLoadingLabel("반경 넓혀 코스 다시 짜는 중…");
+      const sheetOpenBefore = aiSheetOpen;
+      const swipeRow = courseSwipeRowRef.current;
+      courseSwipePreserveScrollLeftRef.current =
+        swipeRow && Number.isFinite(swipeRow.scrollLeft)
+          ? swipeRow.scrollLeft
+          : null;
+      /** `isAiSearching` 켜면 코스 시트가 통째로 사라져 레이아웃이 밀림 — `useCourseSearch`의 `isLoadingCourse`만 사용 */
       try {
         clearImportRecommendationOverlay();
         const res = await runCourseSearch(q, {
@@ -2976,8 +3435,14 @@ export default function Home() {
           maxDistanceMeters: meters,
           strictNearbyOnly: true,
           includeHalfStep: courseIncludeHalfStep,
+          preserveSelectionFromCourse: selectedCourse,
+          keepExistingOptionsUntilLoaded: true,
         });
+        if (!res.handled) {
+          courseSwipePreserveScrollLeftRef.current = null;
+        }
         if (res.handled) {
+          if (sheetOpenBefore) setAiSheetOpen(true);
           const n = res.options?.[0]?.steps?.length ?? 0;
           setAiSummary(
             res.options?.length
@@ -2988,22 +3453,29 @@ export default function Home() {
           );
         }
       } catch (e) {
+        courseSwipePreserveScrollLeftRef.current = null;
         console.warn("course radius change:", e);
-      } finally {
-        setIsAiSearching(false);
-        setSearchLoadingLabel(
-          q ? getSearchLoadingMessage(q) : "검색하는 중"
-        );
       }
     },
-    [query, runCourseSearch, showToast, courseIncludeHalfStep, clearImportRecommendationOverlay]
+    [
+      query,
+      runCourseSearch,
+      showToast,
+      courseIncludeHalfStep,
+      clearImportRecommendationOverlay,
+      selectedCourse,
+      aiSheetOpen,
+    ]
   );
 
   const handleCourseIncludeHalfStepChange = useCallback(
     async (next) => {
       if (courseIncludeHalfStep === next) return;
+      const previousSelection = selectedCourse;
+      const sheetOpenBefore = aiSheetOpen;
       setCourseIncludeHalfStep(next);
       setCourseComposeSlotFirst(null);
+      setCourseComposeSlotBridge(null);
       setCourseComposeSlotSecond(null);
       const q = String(query || "").trim();
       if (!isCourseQuery(q)) {
@@ -3016,13 +3488,26 @@ export default function Home() {
         );
         return;
       }
-      setIsAiSearching(true);
-      setSearchLoadingLabel("코스 다시 짜는 중…");
+      /** `isAiSearching` 켜면 코스 카드·시트가 언마운트되어 화면이 밀림 — 훅의 `isLoadingCourse`로만 대기 표시 */
       try {
         clearImportRecommendationOverlay();
+        const swipeRow = courseSwipeRowRef.current;
+        courseSwipePreserveScrollLeftRef.current =
+          swipeRow && Number.isFinite(swipeRow.scrollLeft)
+            ? swipeRow.scrollLeft
+            : null;
         const base = courseLastLoadOptsRef.current || {};
-        const res = await runCourseSearch(q, { ...base, includeHalfStep: next });
+        const res = await runCourseSearch(q, {
+          ...base,
+          includeHalfStep: next,
+          preserveSelectionFromCourse: previousSelection,
+          keepExistingOptionsUntilLoaded: true,
+        });
+        if (!res.handled) {
+          courseSwipePreserveScrollLeftRef.current = null;
+        }
         if (res.handled) {
+          if (sheetOpenBefore) setAiSheetOpen(true);
           if (res.parsed) {
             setCourseIncludeHalfStep(Boolean(res.parsed.includeHalfStep));
           }
@@ -3037,12 +3522,10 @@ export default function Home() {
           }
         }
       } catch (e) {
+        courseSwipePreserveScrollLeftRef.current = null;
         console.warn("course half-step toggle:", e);
         setCourseIncludeHalfStep((prev) => !next);
         showToast("코스를 다시 짜는 데 실패했어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
-      } finally {
-        setIsAiSearching(false);
-        setSearchLoadingLabel(q ? getSearchLoadingMessage(q) : "검색하는 중");
       }
     },
     [
@@ -3051,6 +3534,8 @@ export default function Home() {
       showToast,
       courseIncludeHalfStep,
       clearImportRecommendationOverlay,
+      selectedCourse,
+      aiSheetOpen,
     ]
   );
 
@@ -3083,13 +3568,14 @@ export default function Home() {
     }
   }, [query]);
 
+  /** 검색어 없을 때: 뷰포트·술 상황 칩 변경 시 DB 후보 재조회(칩 ON이면 bbox 패딩·limit 확대) */
   useEffect(() => {
     if (String(query || "").trim()) return;
     const b = lastMapBoundsRef.current;
     if (b?.sw && b?.ne) {
       scheduleDbPlacesForBounds(b, lastMapLevelRef.current);
     }
-  }, [query, scheduleDbPlacesForBounds]);
+  }, [query, situationFolderFilter, scheduleDbPlacesForBounds]);
 
   useEffect(() => {
     if (!dbCurators.length) return;
@@ -3126,7 +3612,10 @@ export default function Home() {
       if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
 
       try {
-        const { place: detail, curatorPlaceRows } = await fetchPlaceDetail(uuid);
+        const { place: detail, curatorPlaceRows } = await fetchPlaceDetail(
+          uuid,
+          AI_API_BASE,
+        );
         if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
 
         const joinRows = (curatorPlaceRows || []).map((cp) => ({
@@ -3180,6 +3669,7 @@ export default function Home() {
   );
 
   const [risingCurators, setRisingCurators] = useState([]);
+
   const loadRisingCurators = useCallback(async () => {
     const { data, error } = await supabase.rpc("home_rising_curators", {
       p_limit: 8,
@@ -3196,14 +3686,17 @@ export default function Home() {
     void loadRisingCurators();
   }, [loadRisingCurators, checkinRanking]);
 
-  const handleRisingCuratorPick = useCallback((row) => {
-    const u = String(row?.username ?? "").trim();
-    if (!u) return;
-    setShowSavedOnly(false);
-    setLegendCategory(null);
-    setShowAll(false);
-    setSelectedCurators([canonicalCuratorChipToken(u, dbCurators)]);
-  }, [dbCurators]);
+  const handleRisingCuratorPick = useCallback(
+    (row) => {
+      const u = String(row?.username ?? "").trim();
+      if (!u) return;
+      setShowSavedOnly(false);
+      setLegendCategory(null);
+      setShowAll(false);
+      setSelectedCurators([canonicalCuratorChipToken(u, dbCurators)]);
+    },
+    [dbCurators]
+  );
 
   const hotRankTopPlaceIds = useMemo(
     () => new Set(rankingTop5.map((r) => String(r.place_id))),
@@ -3323,6 +3816,16 @@ export default function Home() {
               lastSearchSubmitTelemetryRef.current.pipelineScreenRowCount;
             if (typeof u === "number" && u >= 0) visible = u;
           }
+          const clickPath = deriveSearchClickPath(
+            clickSource,
+            sid,
+            lastSearchSubmitTelemetryRef.current
+          );
+          const fbCtx = searchFeedbackContextRef.current;
+          const normalizedForClickLog =
+            (fbCtx?.normalizedQuery && String(fbCtx.normalizedQuery).trim()) ||
+            normalizeQueryForFeedback(lastSearchSubmitQueryRef.current || "") ||
+            null;
           insertPlaceClickLog({
             sessionId: sid,
             clickedPlaceId: placeId,
@@ -3330,11 +3833,12 @@ export default function Home() {
             placeName,
             source: clickSource,
             user,
-            searchClickPath: deriveSearchClickPath(
-              clickSource,
-              sid,
-              lastSearchSubmitTelemetryRef.current
-            ),
+            searchLogId: lastSearchLogIdRef.current,
+            userQueryForLog: lastSearchSubmitQueryRef.current || null,
+            normalizedQueryForLog: normalizedForClickLog,
+            searchFeedbackRpcArea: fbCtx?.area ?? null,
+            searchFeedbackRpcIntentTags: fbCtx?.intentTags ?? null,
+            searchClickPath: clickPath,
             ...(Number.isFinite(cr) && cr > 0 ? { clickedRank: Math.round(cr) } : {}),
             ...(Number.isFinite(visible) && visible >= 0
               ? { userVisibleCandidateCount: Math.round(visible) }
@@ -4239,9 +4743,13 @@ export default function Home() {
           const ids = collectCuratorIdsForRescueMatch(row);
           return (place.curatorPlaces || []).some((cp) => {
             const cid = String(cp.curator_id ?? "").trim().toLowerCase();
-            if (!cid) return false;
-            const cCompact = cid.replace(/-/g, "");
-            return ids.has(cid) || ids.has(cCompact);
+            if (cid) {
+              const cCompact = cid.replace(/-/g, "");
+              return ids.has(cid) || ids.has(cCompact);
+            }
+            const cpUser = String(cp.curators?.username ?? "").trim().toLowerCase();
+            const rowUser = String(row.username ?? "").trim().toLowerCase();
+            return Boolean(cpUser && rowUser && cpUser === rowUser);
           });
         })
       );
@@ -4264,14 +4772,38 @@ export default function Home() {
   ]);
 
   const curatorSpotlightPlaces = useMemo(() => {
-    return [...dbPlaces]
+    const salt = curatorSpotlightSaltRef.current >>> 0;
+    const fnvId = (place) => {
+      const s = String(place?.id ?? place?.place_id ?? "");
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+      }
+      return h >>> 0;
+    };
+    const ranked = [...dbPlaces]
       .filter((p) => (p.curatorCount || 0) >= 1)
-      .sort((a, b) => (b.curatorCount || 0) - (a.curatorCount || 0))
-      .slice(0, 12);
-  }, [dbPlaces]);
+      .sort((a, b) => {
+        const dc = (b.curatorCount || 0) - (a.curatorCount || 0);
+        if (dc !== 0) return dc;
+        const ta = (fnvId(a) ^ salt) >>> 0;
+        const tb = (fnvId(b) ^ salt) >>> 0;
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+    const pool = ranked.slice(0, 56);
+    const win = 12;
+    const n = pool.length;
+    if (n <= win) return pool;
+    const maxOff = n - win;
+    const off = (salt % (maxOff + 1)) | 0;
+    return pool.slice(off, off + win);
+  }, [dbPlaces, curatorSpotlightShuffleTick]);
 
   // 외부 데이터를 저장할 상태 추가
   const [externalPlaces, setExternalPlaces] = useState([]);
+  const [externalPlacesPool, setExternalPlacesPool] = useState([]);
 
   const displayedPlaces = useMemo(() => {
     if (!query.trim()) return filteredByCuratorPlaces;
@@ -4282,8 +4814,14 @@ export default function Home() {
       aiRecommendedIds.map((id, index) => [String(id), index])
     );
 
+    // 외부 풀(엔진 전체 후보) → 화면용 `externalPlaces`는 동일 id가 없을 수 있어 풀 우선
+    const kakaoExternalSource =
+      Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0
+        ? externalPlacesPool
+        : externalPlaces;
+
     // 외부 데이터에서 AI 추천 장소 찾기
-    const externalRecommendedPlaces = externalPlaces
+    const externalRecommendedPlaces = kakaoExternalSource
       .filter((place) => idSet.has(String(place.id)))
       .sort(
         (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
@@ -4306,11 +4844,7 @@ export default function Home() {
           aiIdCount: aiRecommendedIds.length,
         });
       }
-      const exclusiveUiCap =
-        lastSearchSubmitTelemetryRef.current?.fallbackTriggered === true
-          ? KEYWORD_FALLBACK_UI_MAX_ROWS
-          : AI_PARSE_SEARCH_UI_MAX_ROWS;
-      return deduped.slice(0, exclusiveUiCap);
+      return deduped;
     }
 
     // 내부 데이터에서 AI 추천 장소 찾기
@@ -4360,31 +4894,270 @@ export default function Home() {
 
   const useImportRecPlacesForAiSheet =
     Boolean(curatorImportRecommendation?.ok) &&
-    Array.isArray(curatorImportRecommendation?.places) &&
-    curatorImportRecommendation.places.length > 0 &&
+    curatorImportPlacesOrPool.length > 0 &&
     !aiSheetUsesDisplayedPlaces;
 
   const aiBottomSheetPlaces = useMemo(() => {
+    const importPlaces = curatorImportPlacesOrPool;
+    const looksKeywordLikeTitle = (name) => {
+      const s = String(name || "").trim().toLowerCase();
+      if (!s) return true;
+      if (s.length < 2) return true;
+      if (
+        /(맛집|추천|데이트|분위기|핫플|가볼만|소개팅|모임|검색결과|키워드)/i.test(
+          s
+        )
+      ) {
+        return true;
+      }
+      if (/역맛집/.test(s)) return true;
+      return false;
+    };
+    const hasAddressInfo = (p) =>
+      Boolean(
+        String(p?.address || p?.address_name || p?.road_address_name || "").trim()
+      );
+    const sanitizedImportName = (v) =>
+      String(v || "")
+        .replace(
+          /^(?:.*?(?:역맛집|맛집|추천|데이트|분위기)\s+)+/i,
+          ""
+        )
+        .replace(/^[-:|/·\s]+/, "")
+        .trim();
+    const pinTop3FromImport = (rows) => {
+      const base = Array.isArray(rows) ? rows : [];
+      if (!base.length || importPlaces.length === 0) return base;
+      const extraPool = Array.isArray(externalPlacesPool)
+        ? externalPlacesPool
+        : [];
+      const pool = [...base, ...extraPool];
+      const pinned = [];
+      const usedBaseIdx = new Set();
+      const usedPoolKey = new Set();
+      const placePoolKey = (p) =>
+        String(
+          p?.id ||
+            `${String(p?.name || p?.place_name || "").trim().toLowerCase()}__${String(
+              p?.address || p?.address_name || p?.road_address_name || ""
+            )
+              .trim()
+              .toLowerCase()}`
+        );
+      const orderedNames = Array.isArray(curatorImportRecommendation?.content_order_names)
+        ? curatorImportRecommendation.content_order_names
+        : [];
+      const top3 = importPlaces.slice(0, 3);
+      const top3Wanted = orderedNames.length > 0
+        ? orderedNames.slice(0, 3).map((n, i) => ({
+            id: String(top3[i]?.id || "").trim(),
+            name: String(n || "").trim(),
+            raw: top3[i] || null,
+          }))
+        : top3.map((ip) => ({
+            id: String(ip?.id || "").trim(),
+            name: String(ip?.name || ip?.place_name || "").trim(),
+            raw: ip,
+          }));
+      if (import.meta.env.DEV) {
+        console.log(
+          "[aiSheet pinTop3FromImport/wanted]",
+          top3Wanted.map((w) => ({ id: w.id, name: w.name }))
+        );
+      }
+      for (const w of top3Wanted) {
+        const iid = String(w?.id || "").trim();
+        const inameRaw = String(w?.name || "")
+          .trim()
+          .toLowerCase();
+        const iname = sanitizedImportName(inameRaw).toLowerCase();
+        if (!iname || looksKeywordLikeTitle(iname)) continue;
+        const foundIdx = pool.findIndex((p) => {
+          const pid = String(p?.id || "").trim();
+          if (iid && pid && iid === pid) return true;
+          const pname = String(p?.name || p?.place_name || "")
+            .trim()
+            .toLowerCase();
+          return (
+            Boolean(iname) &&
+            Boolean(pname) &&
+            (pname.includes(iname) || iname.includes(pname))
+          );
+        });
+        if (foundIdx >= 0) {
+          const found = pool[foundIdx];
+          const k = placePoolKey(found);
+          if (!k || usedPoolKey.has(k)) continue;
+          usedPoolKey.add(k);
+          pinned.push(found);
+          const baseIdx = base.findIndex((x) => placePoolKey(x) === k);
+          if (baseIdx >= 0) usedBaseIdx.add(baseIdx);
+        } else if (w?.raw && typeof w.raw === "object") {
+          // 미매칭 import row는 상호·주소 신뢰성이 있을 때만 상단 고정 허용
+          if (!hasAddressInfo(w.raw)) continue;
+          if (looksKeywordLikeTitle(iname)) continue;
+          const fallback = {
+            ...w.raw,
+            name: sanitizedImportName(w.name || w.raw?.name || w.raw?.place_name),
+            place_name: sanitizedImportName(
+              w.name || w.raw?.place_name || w.raw?.name
+            ),
+          };
+          const k = placePoolKey(fallback);
+          if (!k || usedPoolKey.has(k)) continue;
+          usedPoolKey.add(k);
+          pinned.push(fallback);
+        }
+      }
+      if (import.meta.env.DEV) {
+        console.log("[aiSheet pinTop3FromImport]", {
+          orderedNames: orderedNames.slice(0, 3),
+          pinnedCount: pinned.length,
+          baseCount: base.length,
+          poolCount: pool.length,
+        });
+      }
+      const rest = base.filter((_, idx) => !usedBaseIdx.has(idx));
+      const out = [];
+      const seen = new Set();
+      for (const p of [...pinned, ...rest]) {
+        const key = String(
+          p?.id ||
+            `${String(p?.name || p?.place_name || "").trim().toLowerCase()}__${String(
+              p?.address || p?.address_name || ""
+            )
+              .trim()
+              .toLowerCase()}`
+        );
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(p);
+      }
+      if (import.meta.env.DEV) {
+        console.log(
+          "[aiSheet pinTop3FromImport/pinned]",
+          pinned.map((p) => String(p?.name || p?.place_name || "").trim())
+        );
+        console.log(
+          "[aiSheet pinTop3FromImport/finalTop3]",
+          out.slice(0, 3).map((p) => String(p?.name || p?.place_name || "").trim())
+        );
+      }
+      return out;
+    };
+
     if (
       aiSheetUsesDisplayedPlaces &&
-      Array.isArray(displayedPlaces) &&
-      displayedPlaces.length > 0
+      ((Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0) ||
+        (Array.isArray(displayedPlaces) && displayedPlaces.length > 0))
     ) {
-      return displayedPlaces;
+      const sourceRows =
+        Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0
+          ? externalPlacesPool
+          : displayedPlaces;
+      return pinTop3FromImport(sourceRows);
     }
-    if (
-      curatorImportRecommendation?.ok &&
-      Array.isArray(curatorImportRecommendation.places) &&
-      curatorImportRecommendation.places.length > 0
-    ) {
-      return curatorImportRecommendation.places;
+    if (importPlaces.length > 0) {
+      return importPlaces;
     }
     return displayedPlaces;
   }, [
     aiSheetUsesDisplayedPlaces,
     displayedPlaces,
     curatorImportRecommendation,
+    curatorImportPlacesOrPool,
+    externalPlacesPool,
   ]);
+
+  /** 바텀시트 한 페이지 행 수 — 엔진 후보 풀은 `externalPlacesPool`·`aiRecommendedIds`에 전부 실음 */
+  const AI_SHEET_PAGE_SIZE = 5;
+  const aiSheetTotalPages = Math.max(
+    1,
+    Math.ceil((aiBottomSheetPlaces?.length || 0) / AI_SHEET_PAGE_SIZE)
+  );
+  const aiBottomSheetPagedPlaces = useMemo(() => {
+    const start = aiSheetPage * AI_SHEET_PAGE_SIZE;
+    return (aiBottomSheetPlaces || []).slice(start, start + AI_SHEET_PAGE_SIZE);
+  }, [aiBottomSheetPlaces, aiSheetPage]);
+
+  useEffect(() => {
+    if (aiSheetPage >= aiSheetTotalPages) {
+      setAiSheetPage(Math.max(0, aiSheetTotalPages - 1));
+    }
+  }, [aiSheetPage, aiSheetTotalPages]);
+
+  const aiSheetPlacePreviewKey = useCallback((place) => {
+    const id = String(place?.id || "").trim();
+    if (id) return id;
+    const nm = String(place?.name || place?.place_name || "").trim();
+    const ad = String(place?.address || place?.address_name || "").trim();
+    return `${nm}__${ad}`;
+  }, []);
+
+  useEffect(() => {
+    if (!aiSheetOpen || !Array.isArray(aiBottomSheetPlaces) || aiBottomSheetPlaces.length === 0) {
+      return;
+    }
+    const ac = new AbortController();
+
+    const run = async () => {
+      for (const p of aiBottomSheetPlaces.slice(0, 8)) {
+        if (ac.signal.aborted) break;
+        const key = aiSheetPlacePreviewKey(p);
+        if (!key || aiSheetPhotoByKey[key]) continue;
+        const name = String(p?.name || p?.place_name || "").trim();
+        if (!name) continue;
+        const address = String(p?.address || p?.address_name || "").trim();
+        const wgs = resolvePlaceWgs84(p);
+        const lat = Number(wgs?.lat);
+        const lng = Number(wgs?.lng);
+        const kakaoId = normalizeKakaoPlaceId(p);
+        // 1) 카카오 상세 썸네일 우선 시도 (가게 사진 체감이 가장 자연스러움)
+        if (kakaoId) {
+          try {
+            const kakaoInfo = await getKakaoPlaceBasicInfoViaProxy(kakaoId, {
+              query: name,
+              ...(Number.isFinite(lng) ? { x: lng } : {}),
+              ...(Number.isFinite(lat) ? { y: lat } : {}),
+            });
+            const kakaoThumb = String(kakaoInfo?.thumbnail_url || "").trim();
+            if (kakaoThumb) {
+              setAiSheetPhotoByKey((prev) =>
+                prev[key] ? prev : { ...prev, [key]: kakaoThumb }
+              );
+              continue;
+            }
+          } catch {
+            /* no-op */
+          }
+        }
+        const qs = new URLSearchParams({ name });
+        if (address) qs.set("address", address);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          qs.set("lat", String(lat));
+          qs.set("lng", String(lng));
+        }
+        try {
+          const res = await fetch(`/api/google-place-photos?${qs.toString()}`, {
+            signal: ac.signal,
+          });
+          const data = await res.json().catch(() => null);
+          const first = Array.isArray(data?.imageUrls)
+            ? String(data.imageUrls[0] || "").trim()
+            : "";
+          if (first) {
+            setAiSheetPhotoByKey((prev) =>
+              prev[key] ? prev : { ...prev, [key]: first }
+            );
+          }
+        } catch {
+          /* no-op */
+        }
+      }
+    };
+    void run();
+    return () => ac.abort();
+  }, [aiSheetOpen, aiBottomSheetPlaces, aiSheetPlacePreviewKey, aiSheetPhotoByKey]);
 
   /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
   const courseSecondPulsePlacesForMap = useMemo(() => {
@@ -4404,7 +5177,8 @@ export default function Home() {
         ? filterPlacesBySituationFolder(
             rows,
             situationFolderFilter,
-            userSavedPlaces
+            userSavedPlaces,
+            { varietySeed: situationFolderFilter }
           )
         : rows;
 
@@ -4675,9 +5449,16 @@ export default function Home() {
     const q = String(query || "").trim();
     if (!q) return { parsed: null, byId: new Map() };
     const parsed = parseSearchQuery(q);
+    const importPlaces =
+      curatorImportRecommendation?.ok && curatorImportPlacesOrPool.length > 0
+        ? curatorImportPlacesOrPool
+        : null;
     const byId = new Map();
     for (const p of displayedPlaces) {
       const id = String(p.id);
+      const fromImport = importPlaces
+        ? importReasonLineForPlace(p, importPlaces)
+        : "";
       byId.set(id, {
         matched:
           Array.isArray(p.matchedFacetLabels) && p.matchedFacetLabels.length > 0
@@ -4691,13 +5472,14 @@ export default function Home() {
               p.atmosphere || getAtmosphereFromCategory(p.category_name),
           }),
         why:
+          fromImport ||
           p.reasonShort ||
           p.whyRecommended ||
           buildRecommendationWhyLine(p, parsed),
       });
     }
     return { parsed, byId };
-  }, [displayedPlaces, query]);
+  }, [displayedPlaces, query, curatorImportRecommendation, curatorImportPlacesOrPool]);
 
   const curatorSearchHighlightList = useMemo(
     () => buildCuratorSearchHighlights(query, dbPlaces, dbCurators),
@@ -4965,13 +5747,16 @@ const handleClearSearch = () => {
     const userPinnedLocationSearchMode = isLocationBasedSearch;
 
     setQuery(nextQuery);
-    
+    lastSearchSubmitQueryRef.current = nextQuery;
+
     // 검색 시작 시 모든 상태 초기화
     setSelectedPlace(null);
     setAiError("");
     setAiSummary("");
     setAiReasons([]);
+    setAiSheetExpandedReasonByKey({});
     setAiRecommendedIds([]);
+    setAiSheetPage(0);
     lastAiScoredPlacesForImportReorderRef.current = null;
     setAiSheetOpen(false);
     setSimpleMapSearchMarkersOnly(false);
@@ -4979,6 +5764,7 @@ const handleClearSearch = () => {
 
     // 이전 검색 결과 강제 초기화
     setExternalPlaces([]);
+    setExternalPlacesPool([]);
     setKakaoPlaces([]);
     setKakaoTypingPreviewPlaces([]);
     setBlogReviews([]);
@@ -4994,12 +5780,15 @@ const handleClearSearch = () => {
 
     if (!nextQuery) {
       aiRecommendExclusiveRef.current = false;
+      forceReopenAiSheetAfterSearchRef.current = false;
       return;
     }
 
     const searchSessionId = crypto.randomUUID();
     searchSessionIdRef.current = searchSessionId;
     lastSearchSubmitTelemetryRef.current = null;
+    lastSearchLogIdRef.current = null;
+    searchFeedbackContextRef.current = null;
 
     const searchUiStartedAt = Date.now();
     const MIN_SEARCH_LOADING_MS = 1800;
@@ -5027,6 +5816,9 @@ const handleClearSearch = () => {
     aiRecommendExclusiveRef.current = !useBasicSearchPipeline;
     let skipMinSearchLoading = useBasicSearchPipeline;
 
+    const normalizedQueryForFeedback = normalizeQueryForFeedback(nextQuery);
+    let searchScoreOptsBase = { searchFeedbackByPlaceKey: {} };
+
     try {
       setIsAiSearching(true);
       setSearchLoadingLabel(
@@ -5038,6 +5830,40 @@ const handleClearSearch = () => {
               ? "위치 확인 중… (브라우저 창에서 허용 여부를 선택해 주세요)"
               : getSearchLoadingMessage(nextQuery)
       );
+
+      try {
+        searchScoreOptsBase = {
+          searchFeedbackByPlaceKey: await fetchSearchFeedbackBoostMap(
+            normalizedQueryForFeedback
+          ),
+        };
+      } catch (fbPreErr) {
+        if (import.meta.env.DEV) {
+          console.warn("[search-feedback] prefetch:", fbPreErr);
+        }
+      }
+
+      const withSearchSocialBoost = async (places, extra = {}) => {
+        const base = { ...searchScoreOptsBase, ...extra };
+        try {
+          const social = await fetchSearchSocialBoostByPlaces(
+            supabase,
+            places
+          );
+          if (
+            social &&
+            typeof social === "object" &&
+            Object.keys(social).length > 0
+          ) {
+            return { ...base, socialBoostByStableKey: social };
+          }
+        } catch (socErr) {
+          if (import.meta.env.DEV) {
+            console.warn("[search] social boost prefetch:", socErr);
+          }
+        }
+        return base;
+      };
 
       if (isCourseQuery(nextQuery)) {
         clearImportRecommendationOverlay();
@@ -5147,6 +5973,7 @@ const handleClearSearch = () => {
         const res = await runCourseSearch(nextQuery, mergedCourseLoadOpts);
         if (res.handled) {
           setExternalPlaces([]);
+          setExternalPlacesPool([]);
           setAiRecommendedIds([]);
           aiRecommendExclusiveRef.current = false;
           if (res.parsed) {
@@ -5324,19 +6151,24 @@ const handleClearSearch = () => {
             userLocation
           );
         }
-        nearbyPlaces = filterPlacesByParsedIntent(
-          nearbyPlaces,
-          naturalQ.facets || parseSearchQuery(nextQuery),
-          nextQuery,
-          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
-        );
+            nearbyPlaces = filterPlacesByParsedIntent(
+              nearbyPlaces,
+              naturalQ.facets || parseSearchQuery(nextQuery),
+              nextQuery
+            );
         console.log('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
           keyword: nearbyKeyword,
           intentAssist: !!intentAssist,
         });
 
         // 3. AI 스코어링 + 결과 없으면 확장 쿼리로 자동 1~2회 재시도
-        let scoredPlaces = calculateLocalAIScores(nearbyPlaces, nextQuery, userLocation);
+        let scoredPlaces = calculateLocalAIScores(
+          nearbyPlaces,
+          nextQuery,
+          userLocation,
+          null,
+          await withSearchSocialBoost(nearbyPlaces)
+        );
         let relaxationUsed = null;
         if (scoredPlaces.length === 0) {
           const parsedEmpty = naturalQ.facets;
@@ -5353,9 +6185,14 @@ const handleClearSearch = () => {
               np,
               naturalQ.facets || parseSearchQuery(nextQuery),
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
-            const sp = calculateLocalAIScores(npFiltered, nextQuery, userLocation);
+            const sp = calculateLocalAIScores(
+              npFiltered,
+              nextQuery,
+              userLocation,
+              null,
+              await withSearchSocialBoost(npFiltered)
+            );
             if (sp.length > 0) {
               scoredPlaces = sp;
               relaxationUsed = r;
@@ -5458,11 +6295,14 @@ const handleClearSearch = () => {
               np,
               naturalQ.facets || parseSearchQuery(nextQuery),
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
-            const spFb = calculateLocalAIScores(np, nextQuery, userLocation, null, {
-              keywordAiFallback: true,
-            });
+            const spFb = calculateLocalAIScores(
+              np,
+              nextQuery,
+              userLocation,
+              null,
+              await withSearchSocialBoost(np, { keywordAiFallback: true })
+            );
             if (shouldPreferFallbackSearchResults(scoredPlaces, spFb)) {
               scoredPlaces = spFb;
               pipelineIsBasic = false;
@@ -5476,6 +6316,8 @@ const handleClearSearch = () => {
           }
         }
 
+        scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+
         telemetryQualitySummary =
           summarizeSearchResultQualityForTelemetry(scoredPlaces);
 
@@ -5484,21 +6326,16 @@ const handleClearSearch = () => {
         });
         logSignalsCheckDev(scoredPlaces);
 
-        const nonBasicUiCapNear = telemetryKeywordAiFallback
-          ? KEYWORD_FALLBACK_UI_MAX_ROWS
-          : AI_PARSE_SEARCH_UI_MAX_ROWS;
-        /** keyword_search(기본)도 미슬라이스면 카카오 풀 그대로 10건 넘게 노출됨 */
-        const scoredForUi = scoredPlaces.slice(0, nonBasicUiCapNear);
         telemetryEngineScoredPoolSize = scoredPlaces.length;
-        telemetryPipelineScreenRowCount = scoredForUi.length;
+        telemetryPipelineScreenRowCount = scoredPlaces.length;
 
         if (!pipelineIsBasic) {
-          lastAiScoredPlacesForImportReorderRef.current = scoredForUi;
+          lastAiScoredPlacesForImportReorderRef.current = scoredPlaces;
         }
-        // 결과 설정 (리스트·병합 시에도 빨간 핀 플래그 유지)
-        setExternalPlaces(
-          scoredForUi.map((p) => ({ ...p, isKakaoPlace: true }))
-        );
+        // 결과 설정 — 엔진 풀 전부(바텀시트는 페이지당 5개, 이전 상위 5행 제한 제거)
+        const kakaoRowFlag = (p) => ({ ...p, isKakaoPlace: true });
+        setExternalPlaces(scoredPlaces.map(kakaoRowFlag));
+        setExternalPlacesPool(scoredPlaces.map(kakaoRowFlag));
         const intentLineNear = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
           if (!s) return "";
@@ -5519,7 +6356,7 @@ const handleClearSearch = () => {
         const kakaoIdsAll = scoredPlaces.map((p) => p.id);
         let mergedNear = kakaoIdsAll;
         if (!pipelineIsBasic) {
-          setAiRecommendedIds(scoredForUi.map((p) => p.id));
+          setAiRecommendedIds(scoredPlaces.map((p) => p.id));
         } else {
           const dbSearchNear = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
@@ -5536,20 +6373,11 @@ const handleClearSearch = () => {
         }
         setBlogReviews([]);
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
-        {
-          const markersOnlySimpleSearch =
-            isSimpleLocationMenuMapQuery(nextQuery) &&
-            !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ);
-          if (markersOnlySimpleSearch) {
-            shouldOpenAiSheetAfterLoad = false;
-            setSimpleMapSearchMarkersOnly(true);
-          } else {
-            setSimpleMapSearchMarkersOnly(false);
-          }
-        }
+        /** 단순 지명+메뉴 검색이어도 맞춤 피크·바텀시트는 연다(마커만 UX는 이제 쓰지 않음). */
+        setSimpleMapSearchMarkersOnly(false);
 
         // 지도에 바로 마커 표시
-        const kakaoFormattedPlaces = scoredForUi.map((place) => ({
+        const kakaoFormattedPlaces = scoredPlaces.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -5580,7 +6408,7 @@ const handleClearSearch = () => {
           );
         }
         searchResultIdsForLog = (!pipelineIsBasic
-          ? scoredForUi.map((p) => String(p.id))
+          ? scoredPlaces.map((p) => String(p.id))
           : mergedNear.map((id) => String(id)));
 
       } else {
@@ -5674,6 +6502,10 @@ const handleClearSearch = () => {
               .trim()
           : kwForMap.trim();
 
+        const moodPreserveMap =
+          homeSearchQueryHasMoodIntentHint(nextQuery) ||
+          homeSearchQueryHasMoodIntentHint(kwForMap);
+
         const geoOnlyMapPan = isMapGeographicPanOnlyQuery({
           locationName,
           intentPhraseMap,
@@ -5734,6 +6566,7 @@ const handleClearSearch = () => {
           setShowMapSearchHereButton(true);
           setMapViewportSearchLock(false);
           setExternalPlaces([]);
+          setExternalPlacesPool([]);
           setAiRecommendedIds([]);
           aiRecommendExclusiveRef.current = false;
           setAiSummary("");
@@ -5753,11 +6586,15 @@ const handleClearSearch = () => {
 
         let searchKeyword;
         if (locationName) {
-          searchKeyword = intentPhraseMap
-            ? `${locationName} ${intentPhraseMap}`
-            : tailAfterLocationMap
-              ? `${locationName} ${tailAfterLocationMap}`
-              : locationName;
+          if (moodPreserveMap && tailAfterLocationMap) {
+            searchKeyword = `${locationName} ${tailAfterLocationMap}`.trim();
+          } else {
+            searchKeyword = intentPhraseMap
+              ? `${locationName} ${intentPhraseMap}`
+              : tailAfterLocationMap
+                ? `${locationName} ${tailAfterLocationMap}`
+                : locationName;
+          }
         } else if (intentPhraseMap) {
           searchKeyword = intentPhraseMap;
         } else {
@@ -5771,8 +6608,10 @@ const handleClearSearch = () => {
                   kwForMap.includes("바") ||
                   kwForMap.includes("포차")
                 ? "술집"
-                : "음식점";
-          searchKeyword = businessKeyword || nextQuery;
+                : null;
+          /** 업종·패턴에 안 걸리면 원문 그대로 검색(가게명·지역+상호 등). 예전 기본값 `음식점`은 상위 5개가 엉뚱해짐 */
+          const trimmedKw = String(kwForMap || nextQuery || "").trim();
+          searchKeyword = businessKeyword || trimmedKw || "음식점";
         }
 
         const mapPlaceSuffix = getKakaoKeywordSuffix(nextQuery);
@@ -5877,8 +6716,9 @@ const handleClearSearch = () => {
           return acc;
         };
 
-        const kwUnified =
-          stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
+        const kwUnified = moodPreserveMap
+          ? (stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery).trim()
+          : stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
         const phrasesForUnified = mergeIntentAssistIntoSearchPhrases(
           kwUnified,
           intentAssist,
@@ -6038,7 +6878,6 @@ const handleClearSearch = () => {
           mapPlaces,
           facetsForFilter,
           nextQuery,
-          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
         );
         /** 통합 후보는 있는데 뷰포트만 비운 경우: 의도 필터만 다시 적용해 스코어링에 넘김 */
         if (mapPlaces.length === 0 && unifiedMapPlacesBackup.length > 0) {
@@ -6059,7 +6898,6 @@ const handleClearSearch = () => {
             gated.kept,
             facetsForFilter,
             nextQuery,
-            { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
           );
           if (import.meta.env.DEV) {
             console.log(
@@ -6085,7 +6923,8 @@ const handleClearSearch = () => {
           mapPlaces,
           nextQuery,
           null,
-          sortOrigin
+          sortOrigin,
+          await withSearchSocialBoost(mapPlaces)
         );
         let relaxationUsedMap = null;
         if (scoredPlaces.length === 0) {
@@ -6125,13 +6964,13 @@ const handleClearSearch = () => {
               mpViewport,
               facetsForFilter,
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
             const sp = calculateLocalAIScores(
               mpFiltered,
               nextQuery,
               null,
-              sortOrigin
+              sortOrigin,
+              await withSearchSocialBoost(mpFiltered)
             );
             if (sp.length > 0) {
               scoredPlaces = sp;
@@ -6192,8 +7031,9 @@ const handleClearSearch = () => {
                 setTimeout(() => resolve(null), SEARCH_INTENT_ASSIST_MS)
               ),
             ]);
-            const kwUnifiedFb =
-              stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
+            const kwUnifiedFb = moodPreserveMap
+              ? (stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery).trim()
+              : stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
             const phrasesFb = mergeIntentAssistIntoSearchPhrases(
               kwUnifiedFb,
               intentAssistFb,
@@ -6223,14 +7063,13 @@ const handleClearSearch = () => {
               mergedFb,
               facetsForFilter,
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
             const rescored = calculateLocalAIScores(
               mergedFb,
               nextQuery,
               null,
               sortOrigin,
-              { keywordAiFallback: true }
+              await withSearchSocialBoost(mergedFb, { keywordAiFallback: true })
             );
             if (shouldPreferFallbackSearchResults(scoredPlaces, rescored)) {
               scoredPlaces = rescored;
@@ -6261,6 +7100,8 @@ const handleClearSearch = () => {
           }
         }
 
+        scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+
         telemetryQualitySummary =
           summarizeSearchResultQualityForTelemetry(scoredPlaces);
 
@@ -6271,25 +7112,21 @@ const handleClearSearch = () => {
         });
         logSignalsCheckDev(scoredPlaces);
 
-        const nonBasicUiCapMap = telemetryKeywordAiFallback
-          ? KEYWORD_FALLBACK_UI_MAX_ROWS
-          : AI_PARSE_SEARCH_UI_MAX_ROWS;
-        const scoredForUiMap = scoredPlaces.slice(0, nonBasicUiCapMap);
         telemetryEngineScoredPoolSize = scoredPlaces.length;
-        telemetryPipelineScreenRowCount = scoredForUiMap.length;
+        telemetryPipelineScreenRowCount = scoredPlaces.length;
 
         if (!pipelineIsBasic) {
-          lastAiScoredPlacesForImportReorderRef.current = scoredForUiMap;
+          lastAiScoredPlacesForImportReorderRef.current = scoredPlaces;
         }
         setSearchDistanceOrigin({
           lat: sortOrigin.lat,
           lng: sortOrigin.lng,
         });
 
-        // 결과 설정 (미리보기 리스트 + 실시간 마커)
-        setExternalPlaces(
-          scoredForUiMap.map((p) => ({ ...p, isKakaoPlace: true }))
-        );
+        // 결과 설정 — 엔진 풀 전부(바텀시트는 AI_SHEET_PAGE_SIZE로 페이징)
+        const kakaoRowMap = (p) => ({ ...p, isKakaoPlace: true });
+        setExternalPlaces(scoredPlaces.map(kakaoRowMap));
+        setExternalPlacesPool(scoredPlaces.map(kakaoRowMap));
         const intentLineMap = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
           if (!s) return "";
@@ -6306,7 +7143,7 @@ const handleClearSearch = () => {
         const kakaoIdsAllMap = scoredPlaces.map((p) => p.id);
         let mergedMap = kakaoIdsAllMap;
         if (!pipelineIsBasic) {
-          setAiRecommendedIds(scoredForUiMap.map((p) => p.id));
+          setAiRecommendedIds(scoredPlaces.map((p) => p.id));
         } else {
           const dbSearchMap = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
@@ -6322,20 +7159,10 @@ const handleClearSearch = () => {
           setAiRecommendedIds(mergedMap);
         }
         shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
-        {
-          const markersOnlySimpleSearch =
-            isSimpleLocationMenuMapQuery(nextQuery) &&
-            !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ);
-          if (markersOnlySimpleSearch) {
-            shouldOpenAiSheetAfterLoad = false;
-            setSimpleMapSearchMarkersOnly(true);
-          } else {
-            setSimpleMapSearchMarkersOnly(false);
-          }
-        }
+        setSimpleMapSearchMarkersOnly(false);
 
         // 지도에도 실시간 마커 표시 + 지도 이동 (블로그 크롤 전에 먼저 반영 — 로딩 무한 방지)
-        const kakaoFormattedPlaces = scoredForUiMap.map((place) => ({
+        const kakaoFormattedPlaces = scoredPlaces.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -6369,7 +7196,7 @@ const handleClearSearch = () => {
           );
         }
         searchResultIdsForLog = (!pipelineIsBasic
-          ? scoredForUiMap.map((p) => String(p.id))
+          ? scoredPlaces.map((p) => String(p.id))
           : mergedMap.map((id) => String(id)));
 
         if (searchHereArmedAtMapStart) {
@@ -6387,7 +7214,8 @@ const handleClearSearch = () => {
 
         if (unifiedBlogFromServer.length > 0) {
           setBlogReviews(unifiedBlogFromServer);
-        } else if (!unifiedApiRespondedOk) {
+        } else if (!unifiedApiRespondedOk && !pipelineIsBasic) {
+          /** 키워드 전용(`pipelineIsBasic`)일 땐 Node 네이버 크롤(`/api/blog-reviews`) 생략 */
           void searchBlogReviews(nextQuery)
             .then((reviews) =>
               setBlogReviews(Array.isArray(reviews) ? reviews : [])
@@ -6444,10 +7272,15 @@ const handleClearSearch = () => {
         engineScoredPoolSize: telemetryEngineScoredPoolSize,
         ...(telemetryQualitySummary || {}),
       };
-      insertSearchLog({
+      const facetsForFeedback =
+        naturalQ.facets || parseSearchQuery(nextQuery);
+      const intentTagsForFeedback = intentTagsFromFacets(facetsForFeedback);
+      const areaForFeedback =
+        naturalQ.region ?? facetsForFeedback?.region ?? null;
+      const searchLogId = await insertSearchLog({
         sessionId: searchSessionId,
         userQuery: nextQuery,
-        parsed: naturalQ.facets || parseSearchQuery(nextQuery),
+        parsed: facetsForFeedback,
         searchResultsIds: searchResultIdsForLog,
         hasResults: searchResultIdsForLog.length > 0,
         user,
@@ -6457,6 +7290,33 @@ const handleClearSearch = () => {
         submitInitialSearchKind: searchExecutionKind,
         submitKeywordAiFallback: telemetryKeywordAiFallback,
       });
+      lastSearchLogIdRef.current = searchLogId;
+      searchFeedbackContextRef.current = {
+        normalizedQuery: normalizedQueryForFeedback,
+        area: areaForFeedback,
+        intentTags: intentTagsForFeedback,
+      };
+      if (
+        searchLogId &&
+        Array.isArray(searchResultIdsForLog) &&
+        searchResultIdsForLog.length > 0
+      ) {
+        const impressionKeys = [
+          ...new Set(
+            searchResultIdsForLog
+              .map(placeKeyFromSearchLogResultId)
+              .filter(Boolean)
+          ),
+        ];
+        if (impressionKeys.length > 0) {
+          void rpcIncrementSearchPlaceFeedbackImpressions({
+            normalizedQuery: normalizedQueryForFeedback,
+            area: areaForFeedback,
+            intentTags: intentTagsForFeedback,
+            placeKeys: impressionKeys,
+          });
+        }
+      }
       const elapsed = Date.now() - searchUiStartedAt;
       if (elapsed < MIN_SEARCH_LOADING_MS && !skipMinSearchLoading) {
         await new Promise((r) =>
@@ -6465,32 +7325,50 @@ const handleClearSearch = () => {
       }
       setIsAiSearching(false);
       setSearchLoadingLabel("");
-      if (shouldOpenAiSheetAfterLoad) {
+
+      /** 키워드·AI 공통 — place_import_tmp 기반 `/recommend` 로 카드 한 줄(content reason) 확보 */
+      let importRec = null;
+      if (searchModeForLog !== "course" && String(nextQuery || "").trim()) {
+        try {
+          importRec = await fetchCuratorImportRecommend(nextQuery);
+        } catch {
+          /* /recommend 실패 시 extras.why 는 스코어·태그 템플릿 */
+        }
+      }
+
+      const reopenSheetFromResultRefresh =
+        forceReopenAiSheetAfterSearchRef.current &&
+        searchResultIdsForLog.length > 0;
+      const openAiSheetAfterThisSearch =
+        shouldOpenAiSheetAfterLoad || reopenSheetFromResultRefresh;
+      forceReopenAiSheetAfterSearchRef.current = false;
+
+      if (openAiSheetAfterThisSearch) {
         if (
           searchModeForLog !== "course" &&
           !pipelineIsBasic &&
           String(nextQuery || "").trim()
         ) {
-          let rec = null;
-          try {
-            rec = await fetchCuratorImportRecommend(nextQuery);
-          } catch {
-            /* /recommend 실패 시 시트는 열고 extras.why 등으로 표시 */
-          }
           const base = lastAiScoredPlacesForImportReorderRef.current;
-          if (
-            rec?.ok &&
-            Array.isArray(rec.places) &&
-            rec.places.length > 0 &&
-            Array.isArray(base) &&
-            base.length > 0
-          ) {
-            const ordered = orderPlacesByImportFirst(base, rec.places);
-            if (ordered.length > 0) {
-              setExternalPlaces(
-                ordered.map((p) => ({ ...p, isKakaoPlace: true })),
-              );
-              setAiRecommendedIds(ordered.map((p) => p.id));
+          if (importRec?.ok && Array.isArray(base) && base.length > 0) {
+            const importList =
+              Array.isArray(importRec.import_pool) &&
+              importRec.import_pool.length > 0
+                ? importRec.import_pool
+                : importRec.places;
+            if (!Array.isArray(importList) || importList.length === 0) {
+              /* skip reorder */
+            } else {
+              const ordered = orderPlacesByImportFirst(base, importList);
+              if (ordered.length > 0) {
+                setExternalPlaces(
+                  ordered.map((p) => ({ ...p, isKakaoPlace: true })),
+                );
+                setExternalPlacesPool(
+                  ordered.map((p) => ({ ...p, isKakaoPlace: true })),
+                );
+                setAiRecommendedIds(ordered.map((p) => p.id));
+              }
             }
           }
         }
@@ -6923,7 +7801,10 @@ const handleClearSearch = () => {
           risingCurators={risingCurators}
           placesOnMap={mapDisplayedPlacesWithLegend}
           mapRef={mapRef}
-          hideWhenPreviewOpen={Boolean(selectedPlace)}
+          hideWhenPreviewOpen={Boolean(selectedPlace) || aiSheetOpen}
+          hideWhenSearchActive={
+            Boolean(String(query || "").trim()) || isAiSearching
+          }
           onPickPlace={(place) =>
             setSelectedPlaceWithAnalytics(place, "hot_strip")
           }
@@ -6940,12 +7821,13 @@ const handleClearSearch = () => {
         >
           {!selectedPlace &&
           !String(query || "").trim() &&
-          !isAiSearching ? (
+          !isAiSearching &&
+          !hideSituationFolderStripForMapCourseUi ? (
             <>
               <div
                 style={styles.drinksSituationStrip}
                 role="group"
-                aria-label="술 상황 빠른 안내"
+                aria-label="술 상황 필터 — 지도에 이미 있는 장소만 골라 표시"
               >
                 <button
                   type="button"
@@ -6963,12 +7845,8 @@ const handleClearSearch = () => {
                         : SITUATION_FOLDER.secondRound;
                     setSituationFolderFilter(next);
                     if (next === SITUATION_FOLDER.secondRound) {
-                      mapRef.current?.moveToLocation?.(
-                        SEONGSU_MAP_CENTER.lat,
-                        SEONGSU_MAP_CENTER.lng
-                      );
                       showToast(
-                        "저장 폴더「2차」·태그에 맞는 장소만 지도에 표시해요.",
+                        "지금 보이는 지도 범위에서, 「2차」·태그에 맞는 장소만 표시해요.",
                         "info",
                         2800
                       );
@@ -6997,7 +7875,7 @@ const handleClearSearch = () => {
                     setSituationFolderFilter(next);
                     if (next === SITUATION_FOLDER.firstMeal) {
                       showToast(
-                        "저장「회식」·배 채우기 태그에 맞는 장소만 보여요.",
+                        "지금 보이는 지도 범위에서, 「회식」·배 채우기에 맞는 장소만 표시해요.",
                         "info",
                         2800
                       );
@@ -7026,7 +7904,7 @@ const handleClearSearch = () => {
                     setSituationFolderFilter(next);
                     if (next === SITUATION_FOLDER.vibe) {
                       showToast(
-                        "저장「데이트」·분위기 태그에 맞는 장소만 보여요.",
+                        "지금 보이는 지도 범위에서, 「데이트」·분위기에 맞는 장소만 표시해요.",
                         "info",
                         2800
                       );
@@ -7099,9 +7977,8 @@ const handleClearSearch = () => {
             }
             skipKoreaBBoxForCuratorPins={
               !isCourseMode &&
-              Array.isArray(selectedCurators) &&
-              selectedCurators.length > 0 &&
-              !showSavedOnly
+              !showSavedOnly &&
+              (selectedCurators.length > 0 || showAll)
             }
             situationFolderFilter={situationFolderFilter}
             courseOverlay={courseMapOverlay}
@@ -7152,9 +8029,12 @@ const handleClearSearch = () => {
           <SelectedRecommendedPlaceDetailCard
             selectedRecommendedPlace={selectedRecommendedPlace}
             matchedMapPlace={matchedMapPlace}
+            mergedPlace={mergedRecommendDetailPlace}
+            isSaved={recommendDetailIsSaved}
+            onRequestSave={(p) => setSaveTargetPlace(p)}
             recommendationBatchPlaces={
               curatorImportRecommendation?.ok
-                ? curatorImportRecommendation.places
+                ? curatorImportPlacesOrPool
                 : null
             }
             searchQuery={
@@ -7783,20 +8663,89 @@ const handleClearSearch = () => {
                   {searchIdleHintText}
                 </div>
               ) : null}
-              <CuratorPicksStrip
-                places={curatorSpotlightPlaces}
-                visible={!query.trim() && !isAiSearching}
-                onPick={(place) => {
-                  setSelectedPlaceWithAnalytics(place, "curator_spotlight");
-                  if (
-                    mapRef?.current?.moveToLocation &&
-                    place?.lat != null &&
-                    place?.lng != null
-                  ) {
-                    mapRef.current.moveToLocation(place.lat, place.lng);
-                  }
-                }}
-              />
+              {!query.trim() &&
+              !isAiSearching &&
+              curatorSpotlightPlaces.length > 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 6,
+                    width: "100%",
+                    marginBottom: 4,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <CuratorPicksStrip
+                      places={curatorSpotlightPlaces}
+                      visible
+                      onPick={(place) => {
+                        setSelectedPlaceWithAnalytics(
+                          place,
+                          "curator_spotlight",
+                        );
+                        if (
+                          mapRef?.current?.moveToLocation &&
+                          place?.lat != null &&
+                          place?.lng != null
+                        ) {
+                          mapRef.current.moveToLocation(place.lat, place.lng);
+                        }
+                      }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    title="다른 큐레이터 추천 후보"
+                    aria-label="큐레이터 추천 후보 새로고침"
+                    onClick={() => {
+                      try {
+                        curatorSpotlightSaltRef.current =
+                          typeof crypto !== "undefined" &&
+                          crypto.getRandomValues
+                            ? crypto.getRandomValues(new Uint32Array(1))[0] >>>
+                              0
+                            : (Math.floor(Math.random() * 0xffffffff) >>> 0);
+                      } catch {
+                        curatorSpotlightSaltRef.current =
+                          Math.floor(Math.random() * 0xffffffff) >>> 0;
+                      }
+                      setCuratorSpotlightShuffleTick((t) => t + 1);
+                    }}
+                    style={{
+                      flex: "0 0 auto",
+                      marginTop: 2,
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      background: "rgba(255,255,255,0.92)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#374151",
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      aria-hidden
+                    >
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                      <path d="M16 21h5v-5" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
               <SearchBar
                 query={query}
                 setQuery={setQuery}
@@ -7996,15 +8945,15 @@ const handleClearSearch = () => {
             ...styles.mapCardOverlay,
             ...(isCourseMode && String(query).trim() && !isAiSearching
               ? {
-                  /** 검색바 위로 겹쳐도 됨 — 코스 UI를 화면 맨 아래에 붙여 지도 영역 최대화 */
-                  zIndex: 170,
+                  /** 접힘: 지도 넓게(170). 펼침: 핫스트립(360)보다 위 — 떠오르는 큐레이터가 코스 시트를 가리지 않게 */
+                  zIndex: aiSheetOpen ? 380 : 170,
                 }
               : aiSheetOpen ||
                   (aiRecommendedIds.length > 0 &&
                     String(query || "").trim() &&
                     !simpleMapSearchMarkersOnly)
                 ? {
-                    /** 핫스트립(85)·검색바 래퍼(160)보다 위 — 맞춤 바텀시트·피크가 가리지 않게 */
+                    /** 핫스트립(360)·검색바 래퍼(160)보다 위 — 맞춤 바텀시트·피크가 가리지 않게 */
                     zIndex: 320,
                   }
                 : {}),
@@ -8029,6 +8978,7 @@ const handleClearSearch = () => {
                 onClose={() => setSelectedPlace(null)}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
+                searchFeedbackContextRef={searchFeedbackContextRef}
                 onCourseMapFindSecond={openCourseSecondFindModal}
                 courseMapFindSecondEnabled={Boolean(
                   resolvePlaceWgs84(selectedPlace) && !isAiSearching
@@ -8258,67 +9208,181 @@ const handleClearSearch = () => {
                       <div
                         style={{
                           margin: "8px 12px 0",
-                          padding: "6px 8px 8px",
+                          padding: "8px 10px 10px",
                           borderRadius: 10,
                           background: "#faf8ff",
                           border: "1px solid rgba(91, 33, 182, 0.18)",
                           boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                         }}
                       >
-                        <label
+                        <div
+                          role="radiogroup"
+                          aria-label="1차와 2차 사이 동선"
                           style={{
                             display: "flex",
+                            flexWrap: "wrap",
                             alignItems: "center",
-                            gap: 8,
-                            padding: "6px 10px",
-                            borderRadius: 8,
-                            border: courseIncludeHalfStep
-                              ? "1px solid #6d28d9"
-                              : "1px solid rgba(15, 23, 42, 0.1)",
-                            background: courseIncludeHalfStep
-                              ? "rgba(109, 40, 217, 0.06)"
-                              : "#ffffff",
-                            cursor:
-                              isLoadingCourse || isAiSearching
-                                ? "wait"
-                                : "pointer",
-                            opacity:
-                              isLoadingCourse || isAiSearching ? 0.55 : 1,
+                            gap: 6,
+                            rowGap: 8,
                           }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={courseIncludeHalfStep}
-                            disabled={isLoadingCourse || isAiSearching}
-                            onChange={(e) => {
-                              void handleCourseIncludeHalfStepChange(
-                                e.target.checked
-                              );
-                            }}
-                            aria-label="1·2차 사이 쩜오차(소프트아이스크림) 구간 넣기"
+                          <span
                             style={{
-                              width: 14,
-                              height: 14,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              color: "#5c4033",
                               flexShrink: 0,
-                              accentColor: "#6d28d9",
+                            }}
+                          >
+                            1차
+                          </span>
+                          <span
+                            style={{
+                              color: "#cbd5e1",
+                              fontSize: 10,
+                              userSelect: "none",
+                            }}
+                            aria-hidden
+                          >
+                            —
+                          </span>
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "4px 8px",
+                              borderRadius: 8,
+                              border: !courseIncludeHalfStep
+                                ? "1px solid rgba(91, 33, 182, 0.55)"
+                                : "1px solid rgba(15, 23, 42, 0.1)",
+                              background: !courseIncludeHalfStep
+                                ? "rgba(91, 33, 182, 0.08)"
+                                : "#ffffff",
                               cursor:
                                 isLoadingCourse || isAiSearching
                                   ? "wait"
                                   : "pointer",
+                              opacity:
+                                isLoadingCourse || isAiSearching ? 0.55 : 1,
                             }}
-                          />
+                          >
+                            <input
+                              type="radio"
+                              name="course-half-step-mode"
+                              checked={!courseIncludeHalfStep}
+                              disabled={isLoadingCourse || isAiSearching}
+                              onChange={() => {
+                                if (!courseIncludeHalfStep) return;
+                                void handleCourseIncludeHalfStepChange(false);
+                              }}
+                              style={{
+                                width: 14,
+                                height: 14,
+                                flexShrink: 0,
+                                accentColor: "#6d28d9",
+                                cursor:
+                                  isLoadingCourse || isAiSearching
+                                    ? "wait"
+                                    : "pointer",
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "#1c1917",
+                                letterSpacing: "-0.02em",
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              직행
+                            </span>
+                          </label>
+                          <span
+                            style={{
+                              color: "#cbd5e1",
+                              fontSize: 10,
+                              userSelect: "none",
+                            }}
+                            aria-hidden
+                          >
+                            —
+                          </span>
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "4px 8px",
+                              borderRadius: 8,
+                              border: courseIncludeHalfStep
+                                ? "1px solid #6d28d9"
+                                : "1px solid rgba(15, 23, 42, 0.1)",
+                              background: courseIncludeHalfStep
+                                ? "rgba(109, 40, 217, 0.06)"
+                                : "#ffffff",
+                              cursor:
+                                isLoadingCourse || isAiSearching
+                                  ? "wait"
+                                  : "pointer",
+                              opacity:
+                                isLoadingCourse || isAiSearching ? 0.55 : 1,
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="course-half-step-mode"
+                              checked={courseIncludeHalfStep}
+                              disabled={isLoadingCourse || isAiSearching}
+                              onChange={() => {
+                                if (courseIncludeHalfStep) return;
+                                void handleCourseIncludeHalfStepChange(true);
+                              }}
+                              style={{
+                                width: 14,
+                                height: 14,
+                                flexShrink: 0,
+                                accentColor: "#6d28d9",
+                                cursor:
+                                  isLoadingCourse || isAiSearching
+                                    ? "wait"
+                                    : "pointer",
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "#1c1917",
+                                letterSpacing: "-0.02em",
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              쩜오(카페·디저트)
+                            </span>
+                          </label>
+                          <span
+                            style={{
+                              color: "#cbd5e1",
+                              fontSize: 10,
+                              userSelect: "none",
+                            }}
+                            aria-hidden
+                          >
+                            —
+                          </span>
                           <span
                             style={{
                               fontSize: 11,
-                              fontWeight: 700,
-                              color: "#1c1917",
-                              letterSpacing: "-0.02em",
-                              lineHeight: 1.2,
+                              fontWeight: 800,
+                              color: "#5c4033",
+                              flexShrink: 0,
                             }}
                           >
-                            쩜오(소프트아이스크림🍦)
+                            2차
                           </span>
-                        </label>
+                        </div>
                       </div>
                     ) : null}
 
@@ -8330,23 +9394,22 @@ const handleClearSearch = () => {
                     >
                     {courseOptions.map((course, index) => {
                       const isSel = selectedCourse?.key === course.key;
-                      const legM = getCourseLegMeters(course);
-                      const multiLeg = (course?.steps?.length ?? 0) >= 3;
-                      const legComfortM = getCourseMaxLegMeters(course) ?? legM;
-                      const courseWalkHint =
-                        legComfortM != null
-                          ? getCourseWalkComfortHint(legComfortM, {
-                              multiLeg,
-                            })
-                          : "";
                       const legSummary = formatCourseLegDistanceSummary(course);
+                      const threeLegWalk = formatCourseThreeStepWalkingSummary(
+                        course
+                      );
                       const slot1Pid = placeId(courseComposeSlotFirst?.place);
+                      const slotBridgePid = placeId(
+                        courseComposeSlotBridge?.place
+                      );
                       const slot2Pid = placeId(courseComposeSlotSecond?.place);
                       const stepComposePicked = (step) => {
                         const p = placeId(step?.place);
-                        return Boolean(
-                          p && (p === slot1Pid || p === slot2Pid)
-                        );
+                        if (!p) return false;
+                        if (p === slot1Pid || p === slot2Pid) return true;
+                        if (courseIncludeHalfStep && p === slotBridgePid)
+                          return true;
+                        return false;
                       };
                       const s0Picked = stepComposePicked(course.steps[0]);
                       const s1Picked = stepComposePicked(course.steps[1]);
@@ -8371,6 +9434,7 @@ const handleClearSearch = () => {
                         onClick={() => {
                           if (course.key !== selectedCourse?.key) {
                             setCourseComposeSlotFirst(null);
+                            setCourseComposeSlotBridge(null);
                             setCourseComposeSlotSecond(null);
                           }
                           chooseCourse(course);
@@ -8380,6 +9444,7 @@ const handleClearSearch = () => {
                             e.preventDefault();
                             if (course.key !== selectedCourse?.key) {
                               setCourseComposeSlotFirst(null);
+                              setCourseComposeSlotBridge(null);
                               setCourseComposeSlotSecond(null);
                             }
                             chooseCourse(course);
@@ -8404,26 +9469,56 @@ const handleClearSearch = () => {
                         <div
                           style={{
                             fontWeight: 700,
-                            fontSize: 15,
-                            marginBottom: 6,
+                            fontSize: 11,
+                            marginBottom: 8,
                             color: "#3d2914",
+                            lineHeight: 1.3,
+                            wordBreak: "keep-all",
+                            overflowWrap: "anywhere",
                           }}
+                          title={formatCourseProfileOneLine(course, index)}
                         >
-                          {course.profileTitle || `코스 ${index + 1}`}
+                          {formatCourseProfileOneLine(course, index)}
                         </div>
-                        {course.profileDescription ? (
+                        {threeLegWalk?.lines?.length ? (
                           <div
                             style={{
                               fontSize: 12,
-                              color: "#666",
-                              marginBottom: 10,
-                              lineHeight: 1.4,
+                              fontWeight: 700,
+                              color: "#5b21b6",
+                              marginBottom: 8,
+                              lineHeight: 1.5,
                             }}
                           >
-                            {course.profileDescription}
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                color: "#5c4033",
+                                marginBottom: 5,
+                                letterSpacing: "-0.02em",
+                              }}
+                            >
+                              걷는 동선(대략)
+                            </div>
+                            {threeLegWalk.lines.map((ln, li) => (
+                              <div key={li}>{ln}</div>
+                            ))}
+                            {threeLegWalk.totalLine ? (
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  paddingTop: 6,
+                                  borderTop:
+                                    "1px solid rgba(124, 58, 237, 0.22)",
+                                  fontWeight: 800,
+                                }}
+                              >
+                                {threeLegWalk.totalLine}
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                        {legSummary ? (
+                        ) : legSummary ? (
                           <div
                             style={{
                               fontSize: 12,
@@ -8436,16 +9531,26 @@ const handleClearSearch = () => {
                             1차→2차 {legSummary}
                           </div>
                         ) : null}
-                        <p
-                          style={{
-                            margin: "0 0 12px",
-                            fontSize: 12,
-                            color: "#444",
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          {buildCourseSummary(course)}
-                        </p>
+                        {courseWalkStrollHint &&
+                        course.key === courseDrivingMap?.key ? (
+                          <div
+                            style={{
+                              marginBottom: 6,
+                              padding: "5px 8px",
+                              borderRadius: 7,
+                              background: "rgba(250, 245, 255, 0.98)",
+                              border: "1px solid rgba(124, 58, 237, 0.32)",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: "#5b21b6",
+                              lineHeight: 1.35,
+                              letterSpacing: "-0.01em",
+                              wordBreak: "keep-all",
+                            }}
+                          >
+                            {courseWalkStrollHint}
+                          </div>
+                        ) : null}
                         <div style={{ fontSize: 13, lineHeight: 1.55, color: "#333" }}>
                           <div style={{ marginBottom: 8 }}>
                             <strong>{course.steps[0]?.label}</strong>
@@ -8518,23 +9623,6 @@ const handleClearSearch = () => {
                               <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
                                 {getCourseOpenStatusText(course.steps[0]?.place)}
                               </div>
-                            ) : null}
-                          </div>
-                          <div
-                            style={{
-                              margin: "10px 0",
-                              fontSize: 12,
-                              color: "#666",
-                            }}
-                          >
-                            1차 → 2차{" "}
-                            {formatCourseWalkApprox(
-                              legM ?? course.steps[1]?.walkDistanceMeters
-                            )}
-                            {courseWalkHint ? (
-                              <span style={{ display: "block", marginTop: 4 }}>
-                                {courseWalkHint}
-                              </span>
                             ) : null}
                           </div>
                           <div>
@@ -8758,10 +9846,25 @@ const handleClearSearch = () => {
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                             }}
-                            title={`1차 ${courseComposeSlotFirst?.place?.name ?? "—"} · 2차 ${courseComposeSlotSecond?.place?.name ?? "—"}`}
+                            title={
+                              courseIncludeHalfStep
+                                ? `1차 ${courseComposeSlotFirst?.place?.name ?? "—"} · 쩜오 ${courseComposeSlotBridge?.place?.name ?? "—"} · 2차 ${courseComposeSlotSecond?.place?.name ?? "—"}`
+                                : `1차 ${courseComposeSlotFirst?.place?.name ?? "—"} · 2차 ${courseComposeSlotSecond?.place?.name ?? "—"}`
+                            }
                           >
                             <span style={{ color: "#888" }}>1</span>{" "}
                             {courseComposeSlotFirst?.place?.name ?? "—"}
+                            {courseIncludeHalfStep ? (
+                              <>
+                                <span
+                                  style={{ margin: "0 4px", color: "#d4c4f0" }}
+                                >
+                                  |
+                                </span>
+                                <span style={{ color: "#888" }}>쩜오</span>{" "}
+                                {courseComposeSlotBridge?.place?.name ?? "—"}
+                              </>
+                            ) : null}
                             <span style={{ margin: "0 4px", color: "#d4c4f0" }}>
                               |
                             </span>
@@ -8771,7 +9874,9 @@ const handleClearSearch = () => {
                           <button
                             type="button"
                             disabled={
-                              !courseComposeSlotFirst && !courseComposeSlotSecond
+                              !courseComposeSlotFirst &&
+                              !courseComposeSlotBridge &&
+                              !courseComposeSlotSecond
                             }
                             style={{
                               flexShrink: 0,
@@ -8783,16 +9888,21 @@ const handleClearSearch = () => {
                               fontWeight: 700,
                               color: "#5c4033",
                               cursor:
-                                courseComposeSlotFirst || courseComposeSlotSecond
+                                courseComposeSlotFirst ||
+                                courseComposeSlotBridge ||
+                                courseComposeSlotSecond
                                   ? "pointer"
                                   : "default",
                               opacity:
-                                courseComposeSlotFirst || courseComposeSlotSecond
+                                courseComposeSlotFirst ||
+                                courseComposeSlotBridge ||
+                                courseComposeSlotSecond
                                   ? 1
                                   : 0.45,
                             }}
                             onClick={() => {
                               setCourseComposeSlotFirst(null);
+                              setCourseComposeSlotBridge(null);
                               setCourseComposeSlotSecond(null);
                             }}
                           >
@@ -8801,7 +9911,16 @@ const handleClearSearch = () => {
                           <button
                             type="button"
                             disabled={
-                              !courseComposeSlotFirst || !courseComposeSlotSecond
+                              courseIncludeHalfStep
+                                ? !(
+                                    courseComposeSlotFirst &&
+                                    courseComposeSlotBridge &&
+                                    courseComposeSlotSecond
+                                  )
+                                : !(
+                                    courseComposeSlotFirst &&
+                                    courseComposeSlotSecond
+                                  )
                             }
                             style={{
                               flexShrink: 0,
@@ -8809,34 +9928,71 @@ const handleClearSearch = () => {
                               borderRadius: 8,
                               border: "none",
                               background:
-                                courseComposeSlotFirst && courseComposeSlotSecond
+                                courseIncludeHalfStep &&
+                                courseComposeSlotFirst &&
+                                courseComposeSlotBridge &&
+                                courseComposeSlotSecond
                                   ? "rgba(124, 58, 237, 0.95)"
-                                  : "rgba(0,0,0,0.08)",
+                                  : !courseIncludeHalfStep &&
+                                      courseComposeSlotFirst &&
+                                      courseComposeSlotSecond
+                                    ? "rgba(124, 58, 237, 0.95)"
+                                    : "rgba(0,0,0,0.08)",
                               fontSize: 10,
                               fontWeight: 800,
                               color: "#fff",
                               cursor:
-                                courseComposeSlotFirst && courseComposeSlotSecond
+                                courseIncludeHalfStep &&
+                                courseComposeSlotFirst &&
+                                courseComposeSlotBridge &&
+                                courseComposeSlotSecond
                                   ? "pointer"
-                                  : "not-allowed",
+                                  : !courseIncludeHalfStep &&
+                                      courseComposeSlotFirst &&
+                                      courseComposeSlotSecond
+                                    ? "pointer"
+                                    : "not-allowed",
                               opacity:
-                                courseComposeSlotFirst && courseComposeSlotSecond
+                                courseIncludeHalfStep &&
+                                courseComposeSlotFirst &&
+                                courseComposeSlotBridge &&
+                                courseComposeSlotSecond
                                   ? 1
-                                  : 0.55,
+                                  : !courseIncludeHalfStep &&
+                                      courseComposeSlotFirst &&
+                                      courseComposeSlotSecond
+                                    ? 1
+                                    : 0.55,
                             }}
                             title="이 조합으로 코스 적용"
                             onClick={() => {
-                              if (
-                                !courseComposeSlotFirst ||
-                                !courseComposeSlotSecond ||
-                                !applyComposedCourseFromSteps(
-                                  courseComposeSlotFirst,
-                                  courseComposeSlotSecond
-                                )
-                              ) {
-                                return;
+                              if (courseIncludeHalfStep) {
+                                if (
+                                  !courseComposeSlotFirst ||
+                                  !courseComposeSlotBridge ||
+                                  !courseComposeSlotSecond ||
+                                  !applyComposedCourseFromSteps(
+                                    courseComposeSlotFirst,
+                                    courseComposeSlotBridge,
+                                    courseComposeSlotSecond
+                                  )
+                                ) {
+                                  return;
+                                }
+                              } else {
+                                if (
+                                  !courseComposeSlotFirst ||
+                                  !courseComposeSlotSecond ||
+                                  !applyComposedCourseFromSteps(
+                                    courseComposeSlotFirst,
+                                    courseComposeSlotSecond
+                                  )
+                                ) {
+                                  return;
+                                }
                               }
                               setCourseComposeSlotFirst(null);
+                              setCourseComposeSlotBridge(null);
                               setCourseComposeSlotSecond(null);
                             }}
                           >
@@ -9077,71 +10233,85 @@ const handleClearSearch = () => {
                 </div>
               ) : null}
             </div>
-          ) : aiRecommendedIds.length > 0 && !simpleMapSearchMarkersOnly ? (
+          ) : (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
+            !simpleMapSearchMarkersOnly ? (
             <>
-              <button
-                type="button"
+              <div
                 style={{
-                  ...styles.aiPeekBar,
-                  opacity: isAiSearching ? 0.92 : 1,
-                }}
-                onClick={() => {
-                  setAiSheetOpen((open) => !open);
-                  if (displayedPlaces.length > 0) {
-                    const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
-                      ...place,
-                      lat: parseFloat(place.y ?? place.lat),
-                      lng: parseFloat(place.x ?? place.lng),
-                      name: place.name || place.place_name,
-                      place_name: place.place_name,
-                      address_name: place.address_name || place.road_address_name,
-                      category_name: place.category_name,
-                      phone: place.phone || "",
-                      id: place.id,
-                      isExternal: true,
-                      isLive: true,
-                      kakao_place_id: place.id,
-                      isKakaoPlace:
-                        place.isKakaoPlace ||
-                        (!place.primaryCurator &&
-                          (Boolean(place.kakao_place_id) ||
-                            place.isExternal === true)),
-                    }));
-                    console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
-                    setKakaoPlaces(kakaoFormattedPlaces);
-                    setMapSearchMarkerFitTick((x) => x + 1);
-                  }
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "stretch",
+                  width: "100%",
+                  pointerEvents: "auto",
                 }}
               >
-                <div style={styles.aiPeekLeft}>
-                  <span style={styles.aiPeekBadge}>맞춤</span>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.aiPeekBar,
+                    flex: 1,
+                    minWidth: 0,
+                    width: "auto",
+                    opacity: isAiSearching ? 0.92 : 1,
+                  }}
+                  onClick={() => {
+                    setAiSheetOpen((open) => !open);
+                    if (displayedPlaces.length > 0) {
+                      const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
+                        ...place,
+                        lat: parseFloat(place.y ?? place.lat),
+                        lng: parseFloat(place.x ?? place.lng),
+                        name: place.name || place.place_name,
+                        place_name: place.place_name,
+                        address_name: place.address_name || place.road_address_name,
+                        category_name: place.category_name,
+                        phone: place.phone || "",
+                        id: place.id,
+                        isExternal: true,
+                        isLive: true,
+                        kakao_place_id: place.id,
+                        isKakaoPlace:
+                          place.isKakaoPlace ||
+                          (!place.primaryCurator &&
+                            (Boolean(place.kakao_place_id) ||
+                              place.isExternal === true)),
+                      }));
+                      console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
+                      setKakaoPlaces(kakaoFormattedPlaces);
+                      setMapSearchMarkerFitTick((x) => x + 1);
+                    }
+                  }}
+                >
+                  <div style={styles.aiPeekLeft}>
+                    <span style={styles.aiPeekBadge}>맞춤</span>
 
-                  <div style={styles.aiPeekTextWrap}>
-                    <div style={styles.aiPeekTitle}>
-                      {isAiSearching
-                        ? "추천 리스트 준비 중"
-                        : aiError
-                        ? "추천 결과를 불러오지 못했어요"
-                        : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
-                    </div>
+                    <div style={styles.aiPeekTextWrap}>
+                      <div style={styles.aiPeekTitle}>
+                        {isAiSearching
+                          ? "추천 리스트 준비 중"
+                          : aiError
+                          ? "추천 결과를 불러오지 못했어요"
+                          : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
+                      </div>
 
-                    <div
-                      style={{
-                        ...styles.aiPeekSubtitle,
-                        ...(aiError ? styles.aiPeekSubtitleError : {}),
-                      }}
-                    >
-                      {isAiSearching
-                        ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
-                        : aiError
-                        ? "잠시 후 다시 시도해 주세요"
-                        : aiSummary || "눌러서 리스트 보기"}
+                      <div
+                        style={{
+                          ...styles.aiPeekSubtitle,
+                          ...(aiError ? styles.aiPeekSubtitleError : {}),
+                        }}
+                      >
+                        {isAiSearching
+                          ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
+                          : aiError
+                          ? "잠시 후 다시 시도해 주세요"
+                          : aiSummary || "눌러서 리스트 보기"}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
-              </button>
+                  <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
+                </button>
+              </div>
 
               {aiSheetOpen ? (
                 <div style={styles.aiBottomSheet}>
@@ -9171,10 +10341,63 @@ const handleClearSearch = () => {
                   ) : null}
 
                   <div style={styles.aiSheetList}>
-                    {aiBottomSheetPlaces.length > 0 ? (
-                      <div style={styles.aiSheetSectionLabel}>추천 순서 · 장소</div>
-                    ) : null}
-                    {aiBottomSheetPlaces.map((place, index) => {
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {aiBottomSheetPlaces.length > 0 ? (
+                        <div
+                          style={{
+                            ...styles.aiSheetSectionLabel,
+                            marginBottom: 0,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          추천 순서 · 장소
+                        </div>
+                      ) : (
+                        <div style={{ flex: 1, minWidth: 0 }} />
+                      )}
+                      {aiBottomSheetPlaces.length > AI_SHEET_PAGE_SIZE ? (
+                        <div style={styles.aiSheetPager}>
+                          <button
+                            type="button"
+                            style={styles.aiSheetPagerBtn}
+                            disabled={aiSheetPage <= 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAiSheetPage((p) => Math.max(0, p - 1));
+                            }}
+                          >
+                            이전
+                          </button>
+                          <span style={styles.aiSheetPagerLabel}>
+                            {aiSheetPage + 1} / {aiSheetTotalPages}
+                          </span>
+                          <button
+                            type="button"
+                            style={styles.aiSheetPagerBtn}
+                            disabled={aiSheetPage >= aiSheetTotalPages - 1}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAiSheetPage((p) =>
+                                Math.min(aiSheetTotalPages - 1, p + 1)
+                              );
+                            }}
+                          >
+                            다음
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    {aiBottomSheetPagedPlaces.map((place, index) => {
+                      const globalIndex = aiSheetPage * AI_SHEET_PAGE_SIZE + index;
                       const distanceLabel = getRecommendationListDistanceLabel(place);
                       const extras = searchResultSheetExtras.byId.get(String(place.id)) || {
                         matched: [],
@@ -9186,7 +10409,9 @@ const handleClearSearch = () => {
                         String(
                           curatorImportRecommendation?.summary || "",
                         ).trim().length > 0;
-                      const recPlaces = curatorImportRecommendation?.places;
+                      const recPlaces = curatorImportRecommendation?.ok
+                        ? curatorImportPlacesOrPool
+                        : null;
                       const matchedImportPlace =
                         hasRecSummary && Array.isArray(recPlaces)
                           ? recPlaces.find((r) => {
@@ -9215,8 +10440,9 @@ const handleClearSearch = () => {
                               ...matchedImportPlace,
                               reason: matchedImportPlace.reason,
                               reasonShort:
-                                place.reasonShort ||
-                                matchedImportPlace.reasonShort,
+                                matchedImportPlace.reasonShort ||
+                                matchedImportPlace.reason ||
+                                place.reasonShort,
                             }
                           : place;
                       const siblingNames = Array.isArray(recPlaces)
@@ -9236,12 +10462,11 @@ const handleClearSearch = () => {
                       const storyLine = useImportRecPlacesForAiSheet
                         ? subtitleFromPlace || null
                         : subtitleFromPlace ||
-                          (!hasRecSummary
-                            ? extras.why ||
-                              topReasonMap[place.id] ||
-                              place.recommendation
-                            : null) ||
+                          extras.why ||
+                          topReasonMap[place.id] ||
+                          place.recommendation ||
                           null;
+                      const cleanedStoryLine = sanitizeSheetStoryLine(storyLine);
                       const cc =
                         typeof place.curatorCount === "number" &&
                         place.curatorCount > 0
@@ -9250,46 +10475,110 @@ const handleClearSearch = () => {
                       const sheetTags = filterPlaceTagsForDisplay(
                         place.tags || []
                       );
+                      const sheetPhotoKey = aiSheetPlacePreviewKey(place);
+                      const enrichedPhoto = sheetPhotoKey
+                        ? String(aiSheetPhotoByKey[sheetPhotoKey] || "").trim()
+                        : "";
+                      const storyKey = String(
+                        place?.id || place?.name || place?.place_name || index
+                      );
+                      const storySentenceCount = String(cleanedStoryLine || "")
+                        .split(/[\n]+|[.!?]+(?=\s|$)/)
+                        .map((s) => s.trim())
+                        .filter(Boolean).length;
+                      const canExpandStory = storySentenceCount >= 2;
+                      const isStoryExpanded = Boolean(
+                        aiSheetExpandedReasonByKey[storyKey]
+                      );
+                      const previewImageUrl = [
+                        enrichedPhoto,
+                        place.thumbnail,
+                        place.thumbnail_url,
+                        place.image,
+                        place.image_url,
+                        place.photo,
+                        place.photo_url,
+                        place.picture,
+                      ]
+                        .map((v) => String(v || "").trim())
+                        .find(
+                          (v) => /^https?:\/\//i.test(v) || v.startsWith("/api/")
+                        );
+                      const wgs = resolvePlaceWgs84(place);
+                      const lat = Number(wgs?.lat);
+                      const lng = Number(wgs?.lng);
+                      const fallbackStaticMapUrl =
+                        Number.isFinite(lat) && Number.isFinite(lng)
+                          ? buildKakaoStaticMapUrl(lat, lng, {
+                              w: 160,
+                              h: 120,
+                              level: 4,
+                            })
+                          : null;
+                      const sheetPreviewUrl = previewImageUrl || fallbackStaticMapUrl || "";
+                      const displayBusinessName = pickAiSheetPlaceDisplayName(place);
 
                       return (
-                      <button
-                        key={`${place?.id ?? place?.name ?? "p"}-${index}`}
-                        type="button"
-                        style={styles.aiSheetItem}
-                        onClick={() => {
-                          if (useImportRecPlacesForAiSheet) {
-                            handleRecommendPlaceFromList(place);
-                            setAiSheetOpen(false);
-                            return;
-                          }
-                          setSelectedPlaceWithAnalytics(place, "search_result", {
-                            clickedRank: index + 1,
-                            userVisibleCandidateCount:
-                              aiBottomSheetPlaces.length,
-                          });
-                          setAiSheetOpen(false);
-                          const lat = parseFloat(place.y ?? place.lat);
-                          const lng = parseFloat(place.x ?? place.lng);
-                          if (
-                            Number.isFinite(lat) &&
-                            Number.isFinite(lng) &&
-                            mapRef?.current?.moveToLocation
-                          ) {
-                            mapRef.current.moveToLocation(lat, lng);
-                          }
-                          const doRelayout = () =>
-                            mapRef.current?.relayout?.();
-                          requestAnimationFrame(doRelayout);
-                          setTimeout(doRelayout, 100);
-                          setTimeout(doRelayout, 320);
+                      <div
+                        key={`${place?.id ?? place?.name ?? "p"}-${globalIndex}`}
+                        style={{
+                          ...styles.aiSheetItem,
+                          display: "flex",
+                          flexDirection: "row",
+                          alignItems: "stretch",
+                          gap: 8,
+                          cursor: "default",
                         }}
                       >
+                        <button
+                          type="button"
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            font: "inherit",
+                            color: "inherit",
+                            borderRadius: "inherit",
+                          }}
+                          onClick={() => {
+                            if (useImportRecPlacesForAiSheet) {
+                              handleRecommendPlaceFromList(place);
+                              setAiSheetOpen(false);
+                              return;
+                            }
+                            setSelectedPlaceWithAnalytics(place, "search_result", {
+                              clickedRank: globalIndex + 1,
+                              userVisibleCandidateCount:
+                                aiBottomSheetPlaces.length,
+                            });
+                            setAiSheetOpen(false);
+                            const lat = parseFloat(place.y ?? place.lat);
+                            const lng = parseFloat(place.x ?? place.lng);
+                            if (
+                              Number.isFinite(lat) &&
+                              Number.isFinite(lng) &&
+                              mapRef?.current?.moveToLocation
+                            ) {
+                              mapRef.current.moveToLocation(lat, lng);
+                            }
+                            const doRelayout = () =>
+                              mapRef.current?.relayout?.();
+                            requestAnimationFrame(doRelayout);
+                            setTimeout(doRelayout, 100);
+                            setTimeout(doRelayout, 320);
+                          }}
+                        >
                         <div style={styles.aiSheetItemTop}>
-                          <div style={styles.aiSheetRank}>{index + 1}</div>
+                          <div style={styles.aiSheetRank}>{globalIndex + 1}</div>
 
                           <div style={styles.aiSheetMain}>
                             <div style={styles.aiSheetNameRow}>
-                              <span style={styles.aiSheetName}>{place.name || place.place_name || '알 수 없는 장소'}</span>
+                              <span style={styles.aiSheetName}>{displayBusinessName}</span>
                             </div>
 
                             <div style={styles.aiSheetMeta}>
@@ -9302,10 +10591,44 @@ const handleClearSearch = () => {
                               </div>
                             ) : null}
 
-                            {storyLine ? (
-                              <div style={styles.aiSheetWhyRecommended}>
-                                {storyLine}
-                              </div>
+                            {cleanedStoryLine ? (
+                              <>
+                                <div
+                                  style={{
+                                    ...styles.aiSheetWhyRecommended,
+                                    ...(isStoryExpanded
+                                      ? styles.aiSheetWhyRecommendedExpanded
+                                      : {}),
+                                  }}
+                                >
+                                  {cleanedStoryLine}
+                                </div>
+                                {canExpandStory ? (
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    style={styles.aiSheetWhyExpandButton}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAiSheetExpandedReasonByKey((prev) => ({
+                                        ...prev,
+                                        [storyKey]: !prev[storyKey],
+                                      }));
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter" && e.key !== " ") return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setAiSheetExpandedReasonByKey((prev) => ({
+                                        ...prev,
+                                        [storyKey]: !prev[storyKey],
+                                      }));
+                                    }}
+                                  >
+                                    {isStoryExpanded ? "접기" : "펼치기"}
+                                  </span>
+                                ) : null}
+                              </>
                             ) : null}
 
                             {extras.rep ? (
@@ -9343,8 +10666,33 @@ const handleClearSearch = () => {
                               </div>
                             ) : null}
                           </div>
+                          <div style={styles.aiSheetPreviewWrap} aria-hidden>
+                            {sheetPreviewUrl ? (
+                              <img
+                                src={sheetPreviewUrl}
+                                alt=""
+                                loading="lazy"
+                                style={styles.aiSheetPreviewImage}
+                                onError={(e) => {
+                                  const next = fallbackStaticMapUrl || "";
+                                  if (
+                                    next &&
+                                    e.currentTarget.getAttribute("src") !== next
+                                  ) {
+                                    e.currentTarget.src = next;
+                                    return;
+                                  }
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <div style={styles.aiSheetPreviewFallback}>사진 없음</div>
+                            )}
+                          </div>
                         </div>
-                      </button>
+                        </button>
+                        <PlacePickButton place={place} variant="sheet" />
+                      </div>
                       );
                     })}
 
@@ -9579,7 +10927,8 @@ const styles = {
     position: "absolute",
     left: "50%",
     transform: "translateX(-50%)",
-    bottom: "calc(198px + env(safe-area-inset-bottom, 0px))",
+    /** 핫스트립이 얇아진 만큼만 살짝 아래(198→188) — 스트립과 자리 바꿈 아님 */
+    bottom: "calc(188px + env(safe-area-inset-bottom, 0px))",
     width: "min(720px, calc(100% - 24px))",
     zIndex: 88,
     display: "flex",
@@ -10452,8 +11801,9 @@ const styles = {
   aiBottomSheet: {
     marginTop: 0,
     width: "100%",
-    /** 리스트+핸들이 한 덩어리로 잘리지 않게: 예전 24vh는 리스트(38vh)보다 작아 5번째까지 스크롤이 막힘 */
-    maxHeight: "min(52vh, 560px)",
+    /** 카테고리 버튼 탭 시 바로 펼치는 메인 시트 — 화면의 약 2/3 높이 */
+    height: "min(66vh, 720px)",
+    maxHeight: "min(66vh, 720px)",
     borderRadius: "24px 24px 0 0",
     background: "rgba(255,255,255,0.85)",
     boxShadow: "0 -4px 20px rgba(0,0,0,0.12)",
@@ -10602,6 +11952,33 @@ const styles = {
     marginBottom: "2px",
   },
 
+  aiSheetPager: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+
+  aiSheetPagerBtn: {
+    height: 24,
+    padding: "0 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(17,17,17,0.14)",
+    background: "rgba(255,255,255,0.95)",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#374151",
+    cursor: "pointer",
+  },
+
+  aiSheetPagerLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "rgba(17,17,17,0.58)",
+    minWidth: 44,
+    textAlign: "center",
+  },
+
   aiSheetRepTagRow: {
     marginTop: "8px",
   },
@@ -10715,6 +12092,37 @@ const styles = {
     flex: 1,
   },
 
+  aiSheetPreviewWrap: {
+    width: 82,
+    height: 82,
+    borderRadius: 12,
+    overflow: "hidden",
+    border: "1px solid rgba(17,17,17,0.08)",
+    background: "rgba(17,17,17,0.04)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+    flexShrink: 0,
+  },
+
+  aiSheetPreviewImage: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+
+  aiSheetPreviewFallback: {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "rgba(17,17,17,0.45)",
+    background:
+      "linear-gradient(135deg, rgba(255,255,255,0.75) 0%, rgba(245,245,245,0.9) 100%)",
+  },
+
   aiSheetNameRow: {
     display: "flex",
     alignItems: "center",
@@ -10766,6 +12174,24 @@ const styles = {
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
     wordBreak: "break-word",
+  },
+
+  aiSheetWhyRecommendedExpanded: {
+    WebkitLineClamp: "unset",
+    display: "block",
+    overflow: "visible",
+  },
+
+  aiSheetWhyExpandButton: {
+    marginTop: 4,
+    padding: 0,
+    border: 0,
+    background: "transparent",
+    color: "#7c3aed",
+    fontSize: "11px",
+    fontWeight: 800,
+    cursor: "pointer",
+    lineHeight: 1.3,
   },
 
   aiSheetTags: {

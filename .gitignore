@@ -34,3 +34,6 @@ dist-ssr
 .env.*
 !.env.example
 server/.env*
+
+# 로컬 test(resaon 폴백 검증)
+.venv/

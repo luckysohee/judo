@@ -38,8 +38,16 @@ import {
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
+  STUDIO_PLACE_CATEGORY_OPTIONS,
+  normalizeStudioPlaceCategory,
 } from "../../utils/placeTaxonomy.js";
 import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
+import { fetchUserPickedPlaces } from "../../api/placePicks";
+import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
+import PlacePicksPublicList from "../../components/PlacePick/PlacePicksPublicList";
+import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
+import { isPlaceSaved } from "../../utils/storage";
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -321,27 +329,6 @@ function normalizeStudioArchiveExtendedInsights(raw) {
   };
 }
 
-/** 잔 올리기 카테고리 셀렉트 고정 목록 — 그 외 저장값은 동적 option 으로 표시 */
-const STUDIO_PLACE_CATEGORY_OPTIONS = [
-  "한식",
-  "중식",
-  "일식",
-  "양식",
-  "육류",
-  "해산물",
-  "디저트",
-  "미분류",
-];
-
-/** 잔 올리기 셀렉트에 넣지 않을 레거시·가져오기용 카테고리 문자열 → 표준값 */
-function normalizeStudioPlaceCategory(raw) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-  if (STUDIO_PLACE_CATEGORY_OPTIONS.includes(s)) return s;
-  if (/순대|순댓/i.test(s)) return "한식";
-  return s;
-}
-
 function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
   return (curatorPlacesData || []).map((curatorPlace) => {
     const place = curatorPlace.places;
@@ -493,7 +480,8 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         name: basicInfo.name_address,
         address: basicInfo.name_address,
         phone: basicInfo.phone || null,
-        category: basicInfo.category || null,
+        category:
+          normalizeStudioPlaceCategory(basicInfo.category || "") || "미분류",
         atmosphere: basicInfo.atmosphere || null,
         recommended_menu: basicInfo.recommended_menu || null,
         menu_reason: basicInfo.menu_reason || null,
@@ -1578,12 +1566,17 @@ export default function StudioHome() {
   const profileEditAvatarFileRef = useRef(null);
 
   // 상태 관리
-  const [activeSection, setActiveSection] = useState("archive"); // archive, add, list, drafts
+  const [activeSection, setActiveSection] = useState("archive"); // archive, add, list, drafts, picks
   const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
   const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
+
+  /** 스튜디오「픽한 가게」— `place_picks` 만 (curator_places 와 무관) */
+  const [studioPlacePicks, setStudioPlacePicks] = useState([]);
+  const [studioPlacePicksLoading, setStudioPlacePicksLoading] = useState(false);
+  const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
   /** 잔 리스트 상단 — 카카오 「저장」 폴더 (system_folders + user_saved_places) */
   const [savedFolderDefs, setSavedFolderDefs] = useState(FALLBACK_SAVED_FOLDER_DEFS);
@@ -2021,12 +2014,15 @@ export default function StudioHome() {
       typeof lng === "number" &&
       Number.isFinite(lng);
 
-    setFormData(prev => ({ 
-      ...prev, 
+    setFormData((prev) => ({
+      ...prev,
       name_address: suggestion.place_name || suggestion,
       latitude: latOk ? lat : null,
       longitude: latOk ? lng : null,
       kakao_place_id: kid,
+      category: normalizeStudioPlaceCategory(
+        suggestion.category_name || ""
+      ),
     }));
     setSearchSuggestions([]);
     setShowSuggestions(false);
@@ -2635,9 +2631,7 @@ export default function StudioHome() {
 
       if (!user?.id) {
         setMyPlaces([]);
-        const savedDraftsGuest = JSON.parse(
-          localStorage.getItem("studio_drafts") || "[]"
-        );
+        const savedDraftsGuest = readStudioDrafts(null);
         setDrafts(savedDraftsGuest);
         setLoading(false);
         return;
@@ -2680,13 +2674,14 @@ export default function StudioHome() {
           console.log("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
           
           // 기존 방식으로 데이터 변환
-          const formattedPlaces = oldWayData.map(place => ({
+          const formattedPlaces = oldWayData.map((place) => ({
             id: place.id,
             name: place.name,
             address: place.address || place.name,
             latitude: place.lat,
             longitude: place.lng,
-            category: place.category || "미분류",
+            category:
+              normalizeStudioPlaceCategory(place.category || "") || "미분류",
             alcohol_type: place.alcohol_type || "",
             atmosphere: place.atmosphere || "",
             recommended_menu: place.recommended_menu || "",
@@ -2729,7 +2724,7 @@ export default function StudioHome() {
         // 임시저장된 데이터만 drafts에 표시됨
         
         // localStorage에서 임시저장된 데이터 불러오기
-        const savedDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const savedDrafts = readStudioDrafts(user.id);
         setDrafts(savedDrafts);
         console.log("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
       }
@@ -2823,6 +2818,26 @@ export default function StudioHome() {
     }
     prevActiveSectionForListFolderRef.current = activeSection;
   }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== "picks" || !user?.id) return undefined;
+    let cancelled = false;
+    setStudioPlacePicksLoading(true);
+    fetchUserPickedPlaces(user.id, { limit: 200 })
+      .then((rows) => {
+        if (!cancelled) setStudioPlacePicks(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("StudioHome place_picks:", e);
+        if (!cancelled) setStudioPlacePicks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStudioPlacePicksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, user?.id]);
 
   const sortedSavedFolders = useMemo(() => {
     return [...savedFolderDefs].sort(
@@ -3095,13 +3110,12 @@ export default function StudioHome() {
       const removePublishedDraft = () => {
         if (!draftIdPublishedFrom) return;
         try {
-          const existingDrafts = JSON.parse(
-            localStorage.getItem("studio_drafts") || "[]"
-          );
+          const draftOwnerId = user?.id ?? null;
+          const existingDrafts = readStudioDrafts(draftOwnerId);
           const nextDrafts = existingDrafts.filter(
             (d) => String(d.id) !== String(draftIdPublishedFrom)
           );
-          localStorage.setItem("studio_drafts", JSON.stringify(nextDrafts));
+          writeStudioDrafts(draftOwnerId, nextDrafts);
           setDrafts(nextDrafts);
         } catch (e) {
           console.warn("studio_drafts 정리(잔 올리기 저장 후):", e);
@@ -3133,16 +3147,17 @@ export default function StudioHome() {
           return;
         }
 
-        if (addPlaceSelectedFolders.length === 0) {
-          alert("내 저장 폴더를 1개 이상 선택해주세요.");
-          return;
-        }
-
         const effectiveEditPlaceId =
           editingPlaceId ||
           (typeof localStorage !== "undefined"
             ? localStorage.getItem("editing_place_id")
             : null);
+
+        /** 신규 잔 올리기만 폴더 필수 — 수정은 폴더 로딩 실패·비워도 본문 저장 가능 */
+        if (!effectiveEditPlaceId && addPlaceSelectedFolders.length === 0) {
+          alert("내 저장 폴더를 1개 이상 선택해주세요.");
+          return;
+        }
 
         if (effectiveEditPlaceId) {
           // 수정 모드: UPDATE 사용
@@ -3151,17 +3166,68 @@ export default function StudioHome() {
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
+            category:
+              normalizeStudioPlaceCategory(formData.category || "") ||
+              "미분류",
             // 추천 한 줄은 curator_places.one_line_reason (upsertCuratorPlaceForStudio)
             kakao_place_id: formData.kakao_place_id || null,
           };
-          
-          console.log("📝 수정할 데이터:", updateData);
-          
-          const { data, error } = await supabase
+
+          const updatePayload = { ...updateData };
+          const editKakaoId = formData.kakao_place_id
+            ? String(formData.kakao_place_id).trim()
+            : "";
+          if (editKakaoId) {
+            const { data: kakaoConflict, error: kakaoConflictErr } =
+              await supabase
+                .from("places")
+                .select("id, name")
+                .eq("kakao_place_id", editKakaoId)
+                .neq("id", effectiveEditPlaceId)
+                .limit(1);
+            if (kakaoConflictErr) {
+              console.warn("kakao_place_id 충돌 조회:", kakaoConflictErr);
+            } else if (kakaoConflict?.length) {
+              const other = kakaoConflict[0];
+              delete updatePayload.kakao_place_id;
+              showToast(
+                `카카오 ID(${editKakaoId})는 다른 장소「${other.name || "이름 없음"}」에서 쓰는 값이라, 이번 저장에서는 카카오 필드만 빼고 나머지를 반영할게요.`,
+                "info",
+                6200
+              );
+            }
+          }
+
+          console.log("📝 수정할 데이터:", updatePayload);
+
+          let { data, error } = await supabase
             .from("places")
-            .update(updateData)
+            .update(updatePayload)
             .eq("id", effectiveEditPlaceId)
             .select();
+
+          const dupKakao =
+            error &&
+            (error.code === "23505" ||
+              String(error.message || "").includes("unique_kakao_place_id"));
+          if (error && dupKakao && "kakao_place_id" in updatePayload) {
+            const retryPayload = { ...updatePayload };
+            delete retryPayload.kakao_place_id;
+            const second = await supabase
+              .from("places")
+              .update(retryPayload)
+              .eq("id", effectiveEditPlaceId)
+              .select();
+            data = second.data;
+            error = second.error;
+            if (!error) {
+              showToast(
+                "카카오 장소 ID는 DB에서 겹쳐 저장하지 못했어요. 이름·위치·분류 등 나머지는 저장했어요.",
+                "info",
+                5500
+              );
+            }
+          }
 
           if (error) {
             console.error("❌ 장소 수정 오류:", error);
@@ -3171,6 +3237,25 @@ export default function StudioHome() {
           }
 
           console.log("✅ 장소 수정 성공:", data);
+
+          const savedRow = Array.isArray(data) && data[0] ? data[0] : null;
+          const basisForList = savedRow
+            ? {
+                name: savedRow.name,
+                address: savedRow.address,
+                lat: savedRow.lat,
+                lng: savedRow.lng,
+                latitude: savedRow.lat,
+                longitude: savedRow.lng,
+                category: savedRow.category,
+                kakao_place_id: savedRow.kakao_place_id ?? null,
+              }
+            : {
+                ...updatePayload,
+                latitude: updatePayload.lat,
+                longitude: updatePayload.lng,
+                kakao_place_id: updatePayload.kakao_place_id ?? null,
+              };
 
           const { error: cpMergeErr } = await upsertCuratorPlaceForStudio(
             supabase,
@@ -3203,21 +3288,21 @@ export default function StudioHome() {
             );
           }
           
-          // 로컬 상태 업데이트
-          setMyPlaces(prev => prev.map(place => 
-            String(place.id) === String(effectiveEditPlaceId)
-              ? {
-                  ...place,
-                  ...updateData,
-                  latitude: updateData.lat,
-                  longitude: updateData.lng,
-                  tags: formData.tags || [],
-                  alcohol_type: formData.alcohol_type || "",
-                  atmosphere: formData.atmosphere || "",
-                  menu_reason: formData.menu_reason || "",
-                }
-              : place
-          ));
+          // 로컬 상태 업데이트 (DB 반환값 우선 — 카카오 생략 저장 시 폼과 불일치 방지)
+          setMyPlaces((prev) =>
+            prev.map((place) =>
+              String(place.id) === String(effectiveEditPlaceId)
+                ? {
+                    ...place,
+                    ...basisForList,
+                    tags: formData.tags || [],
+                    alcohol_type: formData.alcohol_type || "",
+                    atmosphere: formData.atmosphere || "",
+                    menu_reason: formData.menu_reason || "",
+                  }
+                : place
+            )
+          );
 
           removePublishedDraft();
 
@@ -3265,9 +3350,9 @@ export default function StudioHome() {
                   lat: formData.latitude,
                   lng: formData.longitude,
                   category:
-                    formData.category ||
-                    existingPlace.category ||
-                    "미분류",
+                    normalizeStudioPlaceCategory(
+                      formData.category || existingPlace.category || ""
+                    ) || "미분류",
                   kakao_place_id: kid,
                 })
                 .eq("id", existingPlace.id)
@@ -3285,7 +3370,9 @@ export default function StudioHome() {
               address: formData.name_address,
               lat: formData.latitude,
               lng: formData.longitude,
-              category: formData.category || "미분류",
+              category:
+                normalizeStudioPlaceCategory(formData.category || "") ||
+                "미분류",
               kakao_place_id: kid || null,
             };
 
@@ -3420,7 +3507,9 @@ export default function StudioHome() {
               address: formData.name_address,
               latitude: formData.latitude,
               longitude: formData.longitude,
-              category: formData.category || "미분류",
+              category:
+                normalizeStudioPlaceCategory(formData.category || "") ||
+                "미분류",
               alcohol_type: formData.alcohol_type || "",
               atmosphere: formData.atmosphere || "",
               recommended_menu: formData.recommended_menu || "",
@@ -3496,8 +3585,9 @@ export default function StudioHome() {
           createdAt: new Date().toISOString().split('T')[0]
         };
         
-        // localStorage에 저장
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        // localStorage에 저장 (계정별 키)
+        const draftOwnerId = user?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         let updatedDrafts;
         
         if (editingDraftId) {
@@ -3513,7 +3603,7 @@ export default function StudioHome() {
           console.log("📝 새 임시저장 추가:", draftData.id);
         }
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
 
         // React 상태는 localStorage와 동일하게 유지 (기존: 항상 append 해서 수정 시 초안이 2개로 보임)
         setDrafts(updatedDrafts);
@@ -3951,9 +4041,10 @@ export default function StudioHome() {
     console.log("Delete draft:", draftId);
     
     // localStorage에서 삭제
-    const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+    const draftOwnerId = user?.id ?? null;
+    const existingDrafts = readStudioDrafts(draftOwnerId);
     const updatedDrafts = existingDrafts.filter(draft => draft.id !== draftId);
-    localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+    writeStudioDrafts(draftOwnerId, updatedDrafts);
     
     // state에서도 삭제
     setDrafts(prev => prev.filter(draft => draft.id !== draftId));
@@ -4341,6 +4432,20 @@ export default function StudioHome() {
           }}
         >
           잔 아카이브
+        </button>
+        <button
+          type="button"
+          title="픽한 가게 (place_picks)"
+          onClick={() => {
+            setStudioPickDetailPlace(null);
+            setActiveSection("picks");
+          }}
+          style={{
+            ...styles.topBarButton,
+            ...(activeSection === "picks" ? styles.topBarButtonActive : {}),
+          }}
+        >
+          픽한 가게
         </button>
       </div>
 
@@ -7091,6 +7196,51 @@ export default function StudioHome() {
           </div>
           </div>
       )}
+
+      {activeSection === "picks" && (
+        <div style={styles.studioSectionInner}>
+          <div
+            style={{
+              fontSize: "13px",
+              fontWeight: 700,
+              color: "#fff",
+              marginBottom: "8px",
+            }}
+          >
+            픽한 가게
+          </div>
+          <p
+            style={{
+              fontSize: "12px",
+              color: "#999",
+              margin: "0 0 14px",
+              lineHeight: 1.45,
+            }}
+          >
+            공개 픽은 <strong style={{ color: "#fda4af" }}>place_picks</strong>에만
+            기록됩니다. 잔 올리기·<strong style={{ color: "#bdc3c7" }}>curator_places</strong>와
+            섞이지 않습니다.
+          </p>
+          <PlacePicksPublicList
+            rows={studioPlacePicks}
+            loading={studioPlacePicksLoading}
+            showCuratorPickBadge
+            onRowClick={(row) => {
+              const p = placePickJoinRowToDetailPlace(row);
+              if (p) setStudioPickDetailPlace(p);
+            }}
+          />
+        </div>
+      )}
+
+      {studioPickDetailPlace ? (
+        <PlaceDetail
+          place={studioPickDetailPlace}
+          isSaved={isPlaceSaved(studioPickDetailPlace.id)}
+          onClose={() => setStudioPickDetailPlace(null)}
+          onSave={() => {}}
+        />
+      ) : null}
 
       {liveStartConfirmOpen && (
         <div

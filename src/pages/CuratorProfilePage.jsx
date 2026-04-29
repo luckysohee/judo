@@ -3,6 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { useAuth } from "../context/AuthContext";
+import { fetchUserPickedPlaces } from "../api/placePicks";
+import PlacePicksPublicList from "../components/PlacePick/PlacePicksPublicList";
+import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
+import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
+import { isPlaceSaved } from "../utils/storage";
 
 export default function CuratorProfilePage() {
   const { slug } = useParams();
@@ -16,11 +21,38 @@ export default function CuratorProfilePage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [profilePickRows, setProfilePickRows] = useState([]);
+  const [profilePicksLoading, setProfilePicksLoading] = useState(false);
+  const [pickDetailPlace, setPickDetailPlace] = useState(null);
 
   useEffect(() => {
     if (!decodedSlug) return;
     fetchCurator();
   }, [decodedSlug]);
+
+  useEffect(() => {
+    const uid = curator?.user_id;
+    if (!uid) {
+      setProfilePickRows([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setProfilePicksLoading(true);
+    fetchUserPickedPlaces(uid, { limit: 200 })
+      .then((rows) => {
+        if (!cancelled) setProfilePickRows(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("CuratorProfilePage place_picks:", e);
+        if (!cancelled) setProfilePickRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProfilePicksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
 
   const fetchCurator = async () => {
     try {
@@ -138,7 +170,32 @@ export default function CuratorProfilePage() {
             </div>
           )}
         </div>
+
+        <div style={styles.picksSection}>
+          <div style={styles.picksTitle}>픽한 가게</div>
+          <p style={styles.picksHint}>
+            공개 추천(place_picks). 개인 저장 폴더와 별도입니다.
+          </p>
+          <PlacePicksPublicList
+            rows={profilePickRows}
+            loading={profilePicksLoading}
+            showCuratorPickBadge
+            onRowClick={(row) => {
+              const p = placePickJoinRowToDetailPlace(row);
+              if (p) setPickDetailPlace(p);
+            }}
+          />
+        </div>
       </div>
+
+      {pickDetailPlace ? (
+        <PlaceDetail
+          place={pickDetailPlace}
+          isSaved={isPlaceSaved(pickDetailPlace.id)}
+          onClose={() => setPickDetailPlace(null)}
+          onSave={() => {}}
+        />
+      ) : null}
     </div>
   );
 }
@@ -205,5 +262,24 @@ const styles = {
     padding: "12px",
     backgroundColor: "#1a1a1a",
     borderRadius: "12px",
+  },
+  picksSection: {
+    marginTop: "28px",
+    textAlign: "left",
+    maxWidth: "480px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    padding: "0 4px",
+  },
+  picksTitle: {
+    fontSize: "18px",
+    fontWeight: 800,
+    marginBottom: "6px",
+  },
+  picksHint: {
+    fontSize: "13px",
+    color: "#9a9a9a",
+    margin: "0 0 12px",
+    lineHeight: 1.45,
   },
 };

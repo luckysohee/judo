@@ -23,7 +23,11 @@ export function RecommendationMapOverlay({
       <p className="text-sm text-neutral-600">추천 불러오는 중...</p>
     );
   } else {
-    const batch = recommendation.places ?? [];
+    const batch =
+      Array.isArray(recommendation.import_pool) &&
+      recommendation.import_pool.length > 0
+        ? recommendation.import_pool
+        : recommendation.places ?? [];
     const topPlaces = batch.slice(0, 3);
     body = (
       <>

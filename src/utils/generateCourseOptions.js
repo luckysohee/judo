@@ -92,11 +92,26 @@ function placeMatchesArea(place, areaKey) {
   if (!areaKey) return true;
   const blob = placeAreaHaystack(place);
   const synonyms = REGION_KEYWORDS[areaKey];
-  const matched = synonyms?.length
-    ? synonyms.some((s) => blob.includes(String(s).toLowerCase()))
-    : blob.includes(String(areaKey).toLowerCase());
+  let matched = false;
+  if (synonyms?.length) {
+    const b = blob.toLowerCase();
+    matched = synonyms.some((s) => {
+      const sl = String(s).toLowerCase();
+      if (!sl) return false;
+      /** 「을지로」에 「종로」가 부분 문자열로 들어가 오매칭 — 종로구·종로N가·동명만 허용 */
+      if (areaKey === "종로" && sl === "종로") {
+        return (
+          b.includes("종로구") ||
+          /종로[1-6]가|삼청|안국|청운|광화문|세종대로|경복궁|신문로/.test(b)
+        );
+      }
+      return b.includes(sl);
+    });
+  } else {
+    matched = blob.includes(String(areaKey).toLowerCase());
+  }
   if (!matched) return false;
-  if (areaKey === "을지로") {
+  if (areaKey === "을지로" || areaKey === "동대문" || areaKey === "혜화") {
     const b = blob.toLowerCase();
     if (
       EULJIRO_EXCLUDED_GU_MARKERS.some((g) =>
@@ -153,21 +168,65 @@ const RULE_CATEGORY_NEEDLES = {
   고기: ["고기", "고깃집", "삼겹살", "갈비", "육류"],
   양식: ["양식", "이탈리", "프렌치", "파스타", "스테이크"],
   다이닝: ["다이닝", "파인", "코스"],
-  카페: ["카페", "커피"],
+  카페: [
+    "카페",
+    "커피",
+    "coffee",
+    "café",
+    "cafe",
+    "라떼",
+    "에스프레소",
+    "로스터",
+    "브루잉",
+    "티룸",
+    "tea",
+    "디저트카페",
+    "베이커리카페",
+  ],
   디저트: [
     "디저트",
     "아이스크림",
+    "소프트",
     "젤라또",
     "gelato",
     "빙수",
     "팥빙수",
+    "설빙",
     "케이크",
+    "타르트",
     "도넛",
     "도너츠",
     "베이커리",
-    "초콜릿",
     "브레드",
     "빵",
+    "와플",
+    "크로플",
+    "크로와상",
+    "마카롱",
+    "초콜릿",
+    "chocolate",
+    "dessert",
+    "프라페",
+    "스무디",
+    "밀크티",
+    "버블티",
+    "요거트",
+    "froyo",
+    "frozen",
+    "파르페",
+    "parfait",
+    "티라미수",
+    "빙과",
+    "스콘",
+    "macaron",
+    "녹차",
+    "말차",
+    "matcha",
+    "팥죽",
+    "호떡",
+    "붕어빵",
+    "츄러스",
+    "츄로",
   ],
   칵테일: ["칵테일", "칵테일바"],
 };
@@ -208,6 +267,61 @@ function coursePlaceMatchesRuleCategories(place, ruleCategories) {
       } else if (fullHay.includes(nl)) return true;
     }
   }
+  return false;
+}
+
+function isBridgeCourseRule(rule) {
+  return String(rule?.label || "") === "쩜오차";
+}
+
+/**
+ * `categories` 배열이 비어 있어도 상호·카카오 카테고리·태그에 카페/디저트 토큰이 있으면 쩜오차 후보.
+ * (규칙 `coursePlaceMatchesRuleCategories` 와 동일한 바늘 목록을 문자열 전체에 적용)
+ */
+function placeLooksLikeBridgeSweetStop(place) {
+  const parts = [
+    place?.name,
+    place?.place_name,
+    place?.category_name,
+    ...(Array.isArray(place?.tags) ? place.tags : []),
+    ...(Array.isArray(place?.categories) ? place.categories : []),
+  ]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  if (!parts.length) return false;
+  const blob = parts.join(" ").toLowerCase();
+  if (!blob) return false;
+  for (const rc of ["카페", "디저트"]) {
+    const needles = RULE_CATEGORY_NEEDLES[rc] || [rc];
+    for (const n of needles) {
+      const nl = String(n).toLowerCase();
+      if (nl.length >= 2 && blob.includes(nl)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 쩜오차(달달 구간) 후보에서 제외: 저가 대형 커피 체인. 상호·카테고리 문자열 기준.
+ */
+export function isBudgetChainBridgeCoffeePlace(place) {
+  const raw = String(place?.name || place?.place_name || "").toLowerCase();
+  const cat = String(place?.category_name || "").toLowerCase();
+  const blob = `${raw} ${cat}`.replace(/\s+/g, " ").trim();
+  if (!blob) return false;
+  if (/메가\s*mgc|메가mgc|mgc\s*커피|메가\s*커피|메가커피/.test(blob)) return true;
+  if (/이디야|이디아/.test(blob)) return true;
+  if (/매머드|메머드/.test(blob)) return true;
+  if (/컴포즈/.test(blob)) return true;
+  if (/빽다방/.test(blob)) return true;
+  if (/요거프레소/.test(blob)) return true;
+  if (/토프레소/.test(blob)) return true;
+  if (/카페봄봄/.test(blob)) return true;
+  if (/달콤\s*커피|달콤커피/.test(blob)) return true;
+  if (/바나프레소/.test(blob)) return true;
+  if (/커피에\s*반하다|커피에반하다/.test(blob)) return true;
+  if (/더벤티/.test(blob)) return true;
+  if (/커피\s*마마|커피마마/.test(blob)) return true;
   return false;
 }
 
@@ -318,6 +432,19 @@ function venueKeysForCourse(course) {
   return keys;
 }
 
+/** 쩜오차용 카카오 보강만 합칠 때 — 1·2차 풀과 venue 키 기준 중복 제거 */
+function mergePlaceListsDedupingVenues(primary, extra) {
+  const map = new Map();
+  const push = (p) => {
+    const k = courseVenueDedupeKey(p);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, p);
+  };
+  for (const p of primary || []) push(p);
+  for (const p of extra || []) push(p);
+  return [...map.values()];
+}
+
 const DEFAULT_PROFILE = COURSE_PROFILES.normal;
 
 /**
@@ -365,6 +492,15 @@ export function calculateCoursePlaceScore(
     else if (minutesUntilClose >= (rule.stayMinutes ?? 60)) score += 8;
   }
 
+  /** 쩜오차: DB 카테고리 배열이 빈 카페·디저트가 많아 규칙 매칭만으론 0점으로 빠지는 경우 보강 */
+  if (
+    isBridgeCourseRule(rule) &&
+    score < 12 &&
+    placeLooksLikeBridgeSweetStop(place)
+  ) {
+    score += 28 * w.category;
+  }
+
   return score;
 }
 
@@ -385,6 +521,54 @@ export function filterByArea(places, area) {
  * 짧은 단어만 쓰지 않음(부산 중구 등 오탐 방지).
  */
 const COURSE_AREA_FALLBACK_PHRASES = {
+  문래: [
+    "서울특별시 영등포구",
+    "서울 영등포구",
+    "영등포구",
+    "문래동",
+    "문래동3가",
+    "문래동4가",
+    "문래동5가",
+    "문래동6가",
+    "문화촌",
+    "문래창작촌",
+  ],
+  동대문: [
+    "창신동",
+    "숭인동",
+    "동묘동",
+    "동대문역",
+    "동대문시장",
+    "동대문디자인플라자",
+    "ddp",
+    "장충동",
+    "광희동",
+    "신당동",
+    "서울특별시 중구 장충",
+    "서울 중구 장충",
+  ],
+  혜화: [
+    "혜화동",
+    "혜화로",
+    "대학로",
+    "이화동",
+    "명륜1가",
+    "명륜2가",
+    "명륜3가",
+    "서울 종로구 혜화",
+    "서울특별시 종로구 혜화",
+    "마로니에",
+  ],
+  종로: [
+    "서울특별시 종로구",
+    "서울 종로구",
+    "종로구",
+    "안국동",
+    "삼청동",
+    "청운동",
+    "신문로",
+    "경복궁",
+  ],
   을지로: [
     "서울특별시 중구",
     "서울 중구",
@@ -422,7 +606,7 @@ function filterPlacesByCourseAreaFallback(places, areaKey) {
   if (!phrases?.length || !Array.isArray(places)) return [];
   return places.filter((p) => {
     const blob = placeAreaHaystack(p);
-    if (areaKey === "을지로") {
+    if (areaKey === "을지로" || areaKey === "동대문" || areaKey === "혜화") {
       if (
         EULJIRO_EXCLUDED_GU_MARKERS.some((g) =>
           blob.includes(String(g).toLowerCase())
@@ -729,6 +913,7 @@ function tryBuildCoursesForProfileThree({
 function buildCoursesWithProfile({
   parsedQuery,
   places,
+  bridgeAugment = [],
   pattern,
   profile,
   rng,
@@ -740,7 +925,34 @@ function buildCoursesWithProfile({
       20
     );
     const firstCandidates = shuffleHeadInCopy(rankedFirst, 12, rng);
-    const bridgePool = rankByRule(places, ruleBridge, parsedQuery, profile);
+    /** 카페·디저트 카카오 보강은 쩜오차 풀에만 — 2차(rule2) 풀은 DB(및 기존 2차 로직)만 */
+    const bridgeSource = mergePlaceListsDedupingVenues(
+      places,
+      bridgeAugment
+    ).filter((p) => !isBudgetChainBridgeCoffeePlace(p));
+    let bridgePool = rankByRule(
+      bridgeSource,
+      ruleBridge,
+      parsedQuery,
+      profile
+    );
+    if (!bridgePool.length) {
+      bridgePool = bridgeSource
+        .map(withResolvedCoords)
+        .filter(Boolean)
+        .filter((p) => placeLooksLikeBridgeSweetStop(p))
+        .map((p) => {
+          const s = calculateCoursePlaceScore(
+            p,
+            ruleBridge,
+            parsedQuery,
+            profile
+          );
+          return { ...p, matchScore: Math.max(14, s) };
+        })
+        .filter((p) => p.matchScore > 0)
+        .sort((a, b) => b.matchScore - a.matchScore);
+    }
     const secondPool = rankByRule(places, rule2, parsedQuery, profile);
 
     if (!firstCandidates.length || !bridgePool.length || !secondPool.length) {
@@ -748,9 +960,14 @@ function buildCoursesWithProfile({
     }
 
     const walkable = Boolean(parsedQuery.walkable);
-    const distanceTiers = walkable
-      ? [500, 900, 1400, 2800, Number.POSITIVE_INFINITY]
-      : [2000, 8000, Number.POSITIVE_INFINITY];
+    const namedArea = Boolean(parsedQuery?.area);
+    const distanceTiers = namedArea
+      ? walkable
+        ? [450, 800, 1300, 2200, Number.POSITIVE_INFINITY]
+        : [1400, 2600, 4000, Number.POSITIVE_INFINITY]
+      : walkable
+        ? [500, 900, 1400, 2800, Number.POSITIVE_INFINITY]
+        : [2000, 8000, Number.POSITIVE_INFINITY];
 
     for (const limit of distanceTiers) {
       const batch = tryBuildCoursesForProfileThree({
@@ -778,9 +995,15 @@ function buildCoursesWithProfile({
   if (!firstCandidates.length || !secondPool.length) return [];
 
   const walkable = Boolean(parsedQuery.walkable);
-  const distanceTiers = walkable
-    ? [500, 700, 1000, 3000, Number.POSITIVE_INFINITY]
-    : [2000, 8000, Number.POSITIVE_INFINITY];
+  const namedArea = Boolean(parsedQuery?.area);
+  /** 지명 코스: 1·2차가 홍대·상수까지 퍼지지 않게 상한을 낮춤 */
+  const distanceTiers = namedArea
+    ? walkable
+      ? [480, 750, 1200, 2000, Number.POSITIVE_INFINITY]
+      : [1500, 2800, 4200, Number.POSITIVE_INFINITY]
+    : walkable
+      ? [500, 700, 1000, 3000, Number.POSITIVE_INFINITY]
+      : [2000, 8000, Number.POSITIVE_INFINITY];
 
   for (const limit of distanceTiers) {
     const batch = tryBuildCoursesForProfile({
@@ -843,6 +1066,8 @@ function pickBestDistinctCourse(
 export function generateCourseOptions({
   parsedQuery,
   places = [],
+  /** 쩜오차 전용(카카오 등) — `places`에 섞지 말 것. 2차 후보 오염 방지 */
+  bridgeAugment = [],
   maxOptions = 3,
   excludeCourseKeys = [],
   excludeVenuePairKeys = [],
@@ -856,6 +1081,11 @@ export function generateCourseOptions({
   );
 
   if (!areaPlaces.length) return [];
+
+  const areaKey = effectiveParsed?.area;
+  const areaBridgeAugment = areaKey
+    ? (bridgeAugment || []).filter((p) => placeMatchesArea(p, areaKey))
+    : bridgeAugment || [];
 
   const profiles =
     maxOptions === 1 ? [COURSE_PROFILES.normal] : COURSE_PROFILE_ORDER;
@@ -884,6 +1114,7 @@ export function generateCourseOptions({
     const candidates = buildCoursesWithProfile({
       parsedQuery: effectiveParsed,
       places: areaPlaces,
+      bridgeAugment: areaBridgeAugment,
       pattern,
       profile,
       rng,

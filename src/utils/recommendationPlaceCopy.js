@@ -176,6 +176,42 @@ export function siblingPlaceNamesFromBatch(places, currentPlace) {
   return uniq;
 }
 
+/**
+ * `place_import_tmp` → `/recommend` 의 `places[]`(content 기반 reason)과
+ * 카카오·스코어 장소 행을 상호로 매칭.
+ */
+export function importReasonLineForPlace(displayPlace, importPlaces) {
+  if (
+    !displayPlace ||
+    typeof displayPlace !== "object" ||
+    !Array.isArray(importPlaces)
+  ) {
+    return "";
+  }
+  const na = String(displayPlace?.name ?? displayPlace?.place_name ?? "")
+    .trim()
+    .toLowerCase();
+  if (!na) return "";
+  const naCompact = na.replace(/\s+/g, "");
+  for (const r of importPlaces) {
+    if (!r || typeof r !== "object") continue;
+    const nb = String(r?.name ?? r?.place_name ?? "")
+      .trim()
+      .toLowerCase();
+    if (!nb) continue;
+    const nbCompact = nb.replace(/\s+/g, "");
+    const nameMatch =
+      (na.includes(nb) || nb.includes(na)) ||
+      (naCompact.length >= 2 &&
+        nbCompact.length >= 2 &&
+        (naCompact.includes(nbCompact) || nbCompact.includes(naCompact)));
+    if (!nameMatch) continue;
+    const line = String(r?.reason ?? "").trim();
+    if (line) return line;
+  }
+  return "";
+}
+
 /** 한 줄 안에 상호가 두 번 이상 나오면 첫 번만 남김 */
 function stripRepeatedPlaceName(text, place) {
   const name = String(place?.name || place?.place_name || "").trim();
@@ -241,9 +277,14 @@ function compactSingleLine(text, maxLen) {
 
 function coreReasonAndSignals(place) {
   if (!place || typeof place !== "object") return "";
-  const rs = String(place.reasonShort ?? "").trim();
-  if (rs) return rs;
   const r = String(place.reason ?? "").trim();
+  const rs = String(place.reasonShort ?? "").trim();
+  /**
+   * `place_import_tmp.content`에서 추출된 `reason`이 더 구체적인 경우가 많다.
+   * 짧은 템플릿성 `reasonShort`보다 상세 문장을 우선 노출해 중복 체감 완화.
+   */
+  if (r && (!rs || r.length >= rs.length + 6)) return r;
+  if (rs) return rs;
   if (r) return r;
   const raw = place.signals;
   const sigs = Array.isArray(raw)
@@ -296,19 +337,27 @@ export function recommendPlaceSubtitle(place, opts) {
     opts && typeof opts.query === "string" ? opts.query.trim() : "";
   const siblingNames =
     opts && Array.isArray(opts.siblingNames) ? opts.siblingNames : null;
+  const summary =
+    opts && typeof opts.summary === "string" ? opts.summary.trim() : "";
+  /** `/recommend` 의 summary = place_import_tmp.content 전문 — 상호별로 여기서 먼저 뽑는다 */
+  const fromSummary = summary
+    ? lineFromSummaryForPlace(place, summary)
+    : "";
   const core = coreReasonAndSignals(place);
+  const primary = fromSummary || core;
   const fromReasonShort =
     String(place?.reasonShort ?? "").trim() &&
-    String(core || "").trim() === String(place.reasonShort ?? "").trim();
+    String(primary || "").trim() === String(place.reasonShort ?? "").trim();
   const maxLen =
     opts && typeof opts.maxLength === "number" && opts.maxLength > 12
       ? opts.maxLength
-      : fromReasonShort
-        ? 56
-        : DEFAULT_MAX_SUBTITLE;
-  let raw = core;
-  if (!raw) {
-    const summary = opts && typeof opts.summary === "string" ? opts.summary : "";
+      : fromSummary
+        ? 120
+        : fromReasonShort
+          ? 56
+          : DEFAULT_MAX_SUBTITLE;
+  let raw = primary;
+  if (!raw && summary) {
     raw = lineFromSummaryForPlace(place, summary);
   }
   raw = stripMarkdownAsterisks(raw);

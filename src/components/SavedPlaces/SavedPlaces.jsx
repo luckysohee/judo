@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { createFolder, deleteFolder, updateFolder } from "../../utils/storage";
+import { PlacePickButton } from "../PlacePick/PlacePickButton";
 
 export default function SavedPlaces({
   open,
@@ -209,26 +210,41 @@ export default function SavedPlaces({
                   ) : (
                     <div style={styles.placeList}>
                       {items.map((place) => (
-                        <button
-                          key={place.id}
-                          type="button"
-                          onClick={() => onOpenPlaceDetail?.(place)}
-                          style={styles.placeCard}
-                        >
-                          <img
-                            src={place.image}
-                            alt={place.name}
-                            style={styles.placeImage}
-                          />
+                        <div key={place.id} style={styles.placeRow}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenPlaceDetail?.(place)}
+                            style={styles.placeCardMain}
+                          >
+                            <img
+                              src={place.image}
+                              alt={place.name}
+                              style={styles.placeImage}
+                            />
 
-                          <div style={styles.placeBody}>
-                            <div style={styles.placeName}>{place.name}</div>
-                            <div style={styles.placeMeta}>
-                              {place.region} · 저장 {place.savedCount}
+                            <div style={styles.placeBody}>
+                              <div style={styles.placeName}>{place.name}</div>
+                              <div style={styles.folderTagLine}>
+                                <span aria-hidden>📁</span>
+                                <span style={styles.folderTagName}>
+                                  {folder.name}
+                                </span>
+                              </div>
+                              <div style={styles.placeMeta}>
+                                {place.region} · 저장 {place.savedCount}
+                              </div>
+                              <div style={styles.placeComment}>
+                                {place.comment}
+                              </div>
                             </div>
-                            <div style={styles.placeComment}>{place.comment}</div>
+                          </button>
+                          <div style={styles.placePickAside}>
+                            <PlacePickButton
+                              place={place}
+                              variant="folderChip"
+                            />
                           </div>
-                        </button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -441,7 +457,16 @@ const styles = {
     flexDirection: "column",
     gap: "10px",
   },
-  placeCard: {
+  placeRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: "8px",
+    width: "100%",
+  },
+  placeCardMain: {
+    flex: 1,
+    minWidth: 0,
     width: "100%",
     border: "1px solid rgba(255,255,255,0.06)",
     backgroundColor: "#151515",
@@ -450,6 +475,30 @@ const styles = {
     display: "flex",
     gap: "10px",
     textAlign: "left",
+    cursor: "pointer",
+    color: "inherit",
+    font: "inherit",
+  },
+  placePickAside: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-start",
+    paddingTop: "10px",
+    flexShrink: 0,
+  },
+  folderTagLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+    marginBottom: "6px",
+    fontSize: "12px",
+    color: "#c8c8c8",
+    fontWeight: 600,
+  },
+  folderTagName: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   placeImage: {
     width: "76px",

@@ -29,7 +29,8 @@ export const SEARCH_KIND_EDGE_FIXTURES = [
     id: "gangnam-sogaeting",
     query: "강남 소개팅",
     bucket: "keyword_tension",
-    expectedKind: "keyword_search",
+    note: "소개팅 등 무드 힌트 → ai_parse (지도 쿼리 원문 유지)",
+    expectedKind: "ai_parse_search",
   },
   {
     id: "apgujeong-quiet",

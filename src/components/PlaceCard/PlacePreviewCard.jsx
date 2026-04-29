@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useDragControls } from "framer-motion";
-import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
+import {
+  FaBookmark,
+  FaRegBookmark,
+  FaGlassWhiskey,
+  FaShareAlt,
+  FaTimes,
+} from "react-icons/fa";
 
 const MotionCard = motion.div;
 import { supabase } from "../../lib/supabase";
 import CheckinButton from "../CheckinButton/CheckinButton";
+import { PlacePickButton } from "../PlacePick/PlacePickButton";
+import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
@@ -27,6 +35,7 @@ import {
   normalizeHanjanStats,
   pickHanjanSocialLines,
 } from "../../utils/hanjanSocialCopy";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -39,6 +48,8 @@ export default function PlacePreviewCard({
   onClose,
   getUserRole,
   searchSessionIdRef,
+  /** 직전 검색 feedback 컨텍스트 — 저장 시 `search_place_feedback.save_count` */
+  searchFeedbackContextRef = null,
   /** 지도 카드: 1차 반영 후 2차 후보 펄스까지 한 번에 (폴더 저장과 무관) */
   onCourseMapFindSecond,
   courseMapFindSecondEnabled = false,
@@ -155,6 +166,8 @@ export default function PlacePreviewCard({
       }),
     [place?.savedCount, hanjanStatsNorm]
   );
+  const primaryHanjanLine = hanjanSocialLines[0] || "";
+  const secondaryHanjanLines = hanjanSocialLines.slice(1);
 
   const internalPlaceIdForPhotos =
     typeof place?.id === "string" &&
@@ -915,8 +928,8 @@ export default function PlacePreviewCard({
       console.log('📍 카카오 장소 ID:', place.kakao_place_id || place.id);
       console.log('📍 현재 사용자 ID:', user.id);
       
-      // 1. localStorage에서 기존 drafts 불러오기
-      const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      // 1. localStorage에서 기존 drafts 불러오기 (계정별 키)
+      const existingDrafts = readStudioDrafts(user.id);
       console.log('📍 기존 drafts:', existingDrafts.length, '개');
       
       // 2. 중복 체크 — 숫자 카카오 ID 우선, 없으면 좌표(지도 클릭 픽 등)
@@ -983,7 +996,7 @@ export default function PlacePreviewCard({
       
       // 4. localStorage에 저장
       existingDrafts.push(newDraft);
-      localStorage.setItem('studio_drafts', JSON.stringify(existingDrafts));
+      writeStudioDrafts(user.id, existingDrafts);
       
       console.log('✅ 잔 채우기 리스트에 임시저장 완료:', newDraft);
       return 'success';
@@ -1135,6 +1148,7 @@ export default function PlacePreviewCard({
             }}
             firstSavedFrom="home"
             searchSessionIdRef={searchSessionIdRef}
+            searchFeedbackContextRef={searchFeedbackContextRef}
           />
         ) : (
           <>
@@ -1277,6 +1291,15 @@ export default function PlacePreviewCard({
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleShare(place)}
+                  style={styles.headerShareBtn}
+                  aria-label="공유"
+                  title="공유"
+                >
+                  <FaShareAlt size={13} />
+                </button>
+                <button
+                  type="button"
                   onClick={onClose}
                   style={styles.closeButtonInline}
                   aria-label="닫기"
@@ -1286,15 +1309,26 @@ export default function PlacePreviewCard({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onClose}
-                style={styles.closeButtonInline}
-                aria-label="닫기"
-                title="닫기"
-              >
-                <FaTimes size={14} />
-              </button>
+              <div style={styles.headerPhotoCloseCluster}>
+                <button
+                  type="button"
+                  onClick={() => handleShare(place)}
+                  style={styles.headerShareBtn}
+                  aria-label="공유"
+                  title="공유"
+                >
+                  <FaShareAlt size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={styles.closeButtonInline}
+                  aria-label="닫기"
+                  title="닫기"
+                >
+                  <FaTimes size={14} />
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1686,7 +1720,7 @@ export default function PlacePreviewCard({
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}
                     </span>
                     <span style={styles.curatorReason}>
                       "{featuredOneLineReason}"
@@ -1724,7 +1758,7 @@ export default function PlacePreviewCard({
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}
                     </span>
                     <span style={styles.curatorReason}>
                       "{featuredOneLineReason}"
@@ -1778,11 +1812,6 @@ export default function PlacePreviewCard({
                       >
                         {curatorName} 추천
                       </button>
-                      {curatorReason && (
-                        <div style={styles.curatorReason}>
-                          "{curatorReason}"
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -1790,7 +1819,22 @@ export default function PlacePreviewCard({
             </div>
           </div>
 
-          {hanjanSocialLines.length > 0 && (
+          <div style={styles.socialSummaryInlineRow}>
+            <PlacePickDetailSummary
+              place={place}
+              theme="dark"
+              compact
+              showAvatars={false}
+            />
+            {primaryHanjanLine ? (
+              <span style={styles.socialSummaryInlineSlash}>·</span>
+            ) : null}
+            {primaryHanjanLine ? (
+              <span style={styles.socialSummaryInlineText}>{primaryHanjanLine}</span>
+            ) : null}
+          </div>
+
+          {secondaryHanjanLines.length > 0 && (
             <div
               style={{
                 marginTop: "10px",
@@ -1802,7 +1846,7 @@ export default function PlacePreviewCard({
               }}
               aria-label="한잔함 요약"
             >
-              {hanjanSocialLines.map((line, idx) => (
+              {secondaryHanjanLines.map((line, idx) => (
                 <div
                   key={`${idx}-${line}`}
                   style={{
@@ -1819,8 +1863,33 @@ export default function PlacePreviewCard({
           )}
 
           <div style={styles.actionRow}>
+            <PlacePickButton place={place} variant="card" />
+
+            {isCurator ? (
+              <button
+                type="button"
+                onClick={handleQuickSaveClick}
+                style={styles.saveOutlineButton}
+                title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
+                aria-label="스튜디오 잔 채우기, 내 폴더만"
+              >
+                📁 잔채우기
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(true)}
+                style={styles.saveOutlineButton}
+                title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
+                aria-label="내 폴더에 저장"
+              >
+                📁 저장
+              </button>
+            )}
+
             <CheckinButton
               compact
+              hideHint
               place={place}
               placeId={checkinPlaceKey ?? String(place.id ?? "")}
               placeName={place.name}
@@ -1842,35 +1911,6 @@ export default function PlacePreviewCard({
               hanjanStats={hanjanStatsNorm}
               onHanjanRecorded={refetchHanjanStats}
             />
-
-            {isCurator ? (
-              /* 큐레이터용 버튼 */
-              <button
-                type="button"
-                onClick={handleQuickSaveClick}
-                style={styles.curatorSaveButton}
-              >
-                <span style={styles.curatorQuickSaveLine1}>⚡쾌속⚡</span>
-                <span style={styles.curatorQuickSaveLine2}>잔채우기</span>
-              </button>
-            ) : (
-              /* 일반 사용자용 버튼 */
-              <button
-                type="button"
-                onClick={() => setShowSaveModal(true)}
-                style={styles.quickSaveButton}
-              >
-                빠른저장
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => handleShare(place)}
-              style={styles.shareButton}
-            >
-              공유하기
-            </button>
           </div>
         </div>
           </>
@@ -1939,6 +1979,21 @@ const styles = {
   closeButtonInline: {
     border: "none",
     backgroundColor: "rgba(0,0,0,0.5)",
+    color: "#fff",
+    borderRadius: "999px",
+    width: "28px",
+    height: "28px",
+    padding: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+    lineHeight: 1,
+  },
+  headerShareBtn: {
+    border: "none",
+    backgroundColor: "rgba(0,0,0,0.45)",
     color: "#fff",
     borderRadius: "999px",
     width: "28px",
@@ -2381,32 +2436,22 @@ const styles = {
     color: "#999",
     fontStyle: "italic",
   },
-  curatorSaveButton: {
+  saveOutlineButton: {
     flex: 1,
-    minHeight: "40px",
     minWidth: 0,
-    padding: "5px 6px",
+    minHeight: "42px",
     borderRadius: "10px",
-    border: "1px solid #2a8f55",
-    backgroundColor: "#2ECC71",
-    color: "#ffffff",
+    border: "1px solid rgba(255,255,255,0.32)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.92)",
+    fontSize: "12px",
+    fontWeight: 700,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "1px",
-    lineHeight: 1.15,
+    padding: "0 8px",
     cursor: "pointer",
-  },
-  curatorQuickSaveLine1: {
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "-0.02em",
-  },
-  curatorQuickSaveLine2: {
-    fontSize: "11px",
-    fontWeight: "700",
-    letterSpacing: "-0.01em",
+    boxSizing: "border-box",
   },
   curatorChip: {
     fontSize: "11px",
@@ -2419,20 +2464,40 @@ const styles = {
     whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
   },
   curatorReason: {
-    fontSize: "12px",
+    fontSize: "11px",
     color: "#e8e8e8",
     fontStyle: "italic",
-    lineHeight: 1.3,
-    whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
-    maxWidth: "200px", // 최대 너비 제한
-    overflow: "hidden",
-    textOverflow: "ellipsis", // 넘치는 텍스트 ...으로 표시
+    lineHeight: 1.4,
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    overflowWrap: "break-word",
+    maxWidth: "min(72vw, 260px)",
   },
   actionRow: {
     marginTop: "10px",
     display: "flex",
     gap: "8px",
     alignItems: "stretch",
+  },
+  socialSummaryInlineRow: {
+    marginTop: "2px",
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: "6px",
+    rowGap: "2px",
+  },
+  socialSummaryInlineSlash: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.38)",
+    fontWeight: 700,
+    lineHeight: 1.2,
+  },
+  socialSummaryInlineText: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.62)",
+    fontWeight: 600,
+    lineHeight: 1.35,
   },
   directionsButton: {
     flex: 1,
@@ -2460,40 +2525,6 @@ const styles = {
     color: "#ffffff",
     fontSize: "13px",
     fontWeight: 700,
-  },
-  quickSaveButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: "40px",
-    borderRadius: "10px",
-    border: "1px solid #343434",
-    backgroundColor: "#2ECC71",
-    color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0 8px",
-    cursor: "pointer",
-    boxSizing: "border-box",
-  },
-  shareButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: "40px",
-    borderRadius: "10px",
-    border: "none",
-    backgroundColor: "#3498DB",
-    color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0 8px",
-    cursor: "pointer",
-    boxSizing: "border-box",
   },
   mapEmptyPrimaryBtn: {
     width: "100%",
