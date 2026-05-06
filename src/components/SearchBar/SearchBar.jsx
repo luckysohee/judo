@@ -62,6 +62,12 @@ export default function SearchBar({
   loadingStatusText = "",
   /** 타이핑 자동완성 후보를 지도 마커로 올릴 때 부모에 전달 (빈 배열이면 제거) */
   onKakaoTypingPreviewPlacesChange = null,
+  /** 홈 인트로 등에서 검색 입력으로 포커스 이동 */
+  searchInputRef = null,
+  /** 검색 대상: place | user */
+  searchTargetMode = "place",
+  /** 검색 대상 토글 */
+  onSearchTargetModeChange = null,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -87,6 +93,9 @@ export default function SearchBar({
   const channelPopoverCloseTimerRef = useRef(null);
   const firstAiTipTimerRef = useRef(null);
   const [showFirstAiSearchTip, setShowFirstAiSearchTip] = useState(false);
+  const useTargetToggle = typeof onSearchTargetModeChange === "function";
+  const isUserSearchMode = searchTargetMode === "user";
+  const allowPlaceSuggestions = showKakaoSearch && !isUserSearchMode;
 
   useEffect(() => {
     if (!isLoading) {
@@ -324,7 +333,7 @@ export default function SearchBar({
       }, 500); // 500ms 디바운스
     }
 
-    if (showKakaoSearch) {
+    if (allowPlaceSuggestions) {
       if (kakaoSearchDebounceRef.current) {
         clearTimeout(kakaoSearchDebounceRef.current);
       }
@@ -332,6 +341,10 @@ export default function SearchBar({
         kakaoSearchDebounceRef.current = null;
         searchKakaoPlaces(value);
       }, 300);
+    } else {
+      setKakaoResults([]);
+      setShowKakaoResultsState(false);
+      setSelectedKakaoIndex(-1);
     }
   };
 
@@ -354,7 +367,9 @@ export default function SearchBar({
       cancelPendingKakaoSearch();
       setIsSearching(true); // 검색 상태로 변경
       
-      onSubmit(query);
+      onSubmit(query, {
+        targetMode: searchTargetMode === "user" ? "user" : "place",
+      });
 
       // 검색 실행 후 모든 자동완성 UI 숨김
       setShowSuggestions(false);
@@ -441,7 +456,7 @@ export default function SearchBar({
   // 타이핑 자동완성 → 지도 후보 동기화
   useEffect(() => {
     if (typeof onKakaoTypingPreviewPlacesChange !== "function") return;
-    if (!showKakaoSearch || !showKakaoResults || kakaoResults.length === 0) {
+    if (!allowPlaceSuggestions || !showKakaoResults || kakaoResults.length === 0) {
       onKakaoTypingPreviewPlacesChange([]);
       return;
     }
@@ -449,7 +464,7 @@ export default function SearchBar({
   }, [
     kakaoResults,
     showKakaoResults,
-    showKakaoSearch,
+    allowPlaceSuggestions,
     onKakaoTypingPreviewPlacesChange,
   ]);
 
@@ -722,6 +737,16 @@ export default function SearchBar({
     scheduleChannelPopoverClose();
   };
 
+  const toggleSearchTargetMode = () => {
+    if (!useTargetToggle || isLoading) return;
+    const next = isUserSearchMode ? "place" : "user";
+    onSearchTargetModeChange(next);
+    cancelPendingKakaoSearch();
+    setKakaoResults([]);
+    setShowKakaoResultsState(false);
+    setSelectedKakaoIndex(-1);
+  };
+
   return (
     <section ref={searchRootRef} style={{ ...styles.section, position: "relative" }}>
       {/* 상태별 UI 렌더링 */}
@@ -744,7 +769,7 @@ export default function SearchBar({
 
       {/* 카카오 장소 검색 결과 - 위쪽으로 표시 */}
       <AnimatePresence>
-        {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
+        {allowPlaceSuggestions && showKakaoResults && kakaoResults.length > 0 && (
           <motion.div
             ref={kakaoResultsScrollRef}
             style={{
@@ -1046,9 +1071,22 @@ export default function SearchBar({
         ) : (
           <motion.button
             type="button"
-            onClick={handleSubmit}
+            onClick={useTargetToggle ? toggleSearchTargetMode : handleSubmit}
             style={styles.iconButton}
-            aria-label="검색"
+            aria-label={
+              useTargetToggle
+                ? isUserSearchMode
+                  ? "검색 대상: 유저. 다시 누르면 장소 검색으로 전환."
+                  : "검색 대상: 장소. 다시 누르면 유저 검색으로 전환."
+                : "검색"
+            }
+            title={
+              useTargetToggle
+                ? isUserSearchMode
+                  ? "유저 검색 모드 (다시 누르면 장소)"
+                  : "장소 검색 모드 (다시 누르면 유저)"
+                : "검색"
+            }
             disabled={isLoading}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1062,7 +1100,7 @@ export default function SearchBar({
                 ease: "linear",
               }}
             >
-              {isLoading ? "🔄" : "🔎"}
+              {isLoading ? "🔄" : useTargetToggle ? (isUserSearchMode ? "👤" : "🔎") : "🔎"}
             </motion.span>
           </motion.button>
         )}
@@ -1086,14 +1124,20 @@ export default function SearchBar({
             }}
           >
           <motion.input
+            ref={searchInputRef}
             className="judoSearchBarInput"
             value={query}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            enterKeyHint={useChannelToggle ? "search" : undefined}
-            placeholder={placeholder || "Search for places..."}
+            enterKeyHint={useChannelToggle || useTargetToggle ? "search" : undefined}
+            placeholder={
+              placeholder ||
+              (isUserSearchMode ? "@유저 핸들을 입력해 검색" : "Search for places...")
+            }
             title={
-              searchChannel === "basic"
+              isUserSearchMode
+                ? "유저 핸들(@username) 또는 닉네임으로 검색합니다."
+                : searchChannel === "basic"
                 ? "타이핑 시 카카오 장소 제안. 엔터는 카카오 키워드 검색(빠른 모드)."
                 : searchChannel === "ai"
                   ? "타이핑 시 위 목록은 가게 이름 제안(카카오). 엔터는 입력한 문장으로 AI 주도 통합 검색."
@@ -1101,7 +1145,7 @@ export default function SearchBar({
             }
             onFocus={() => {
               onUserInteractWithSearch?.();
-              if (!showKakaoSearch) return;
+              if (!allowPlaceSuggestions) return;
               // 포커스만으로 showKakaoResults를 켜면 결과가 없을 때도 전체 화면 백드롭이 올라가 지도 터치 드래그가 막힘(모바일)
               if (kakaoResults.length > 0) setShowKakaoResultsState(true);
             }}
@@ -1119,7 +1163,7 @@ export default function SearchBar({
           </div>
         </div>
 
-        {useChannelToggle && query.trim() ? (
+        {(useChannelToggle || useTargetToggle) && query.trim() ? (
           <motion.button
             type="button"
             onClick={handleSubmit}
@@ -1200,7 +1244,9 @@ export default function SearchBar({
               onClick={() => {
                 const nextValue = item.actualName || item.label;
                 setQuery(nextValue);
-                onSubmit?.(nextValue);
+                onSubmit?.(nextValue, {
+                  targetMode: searchTargetMode === "user" ? "user" : "place",
+                });
               }}
               style={styles.suggestionItem}
             >

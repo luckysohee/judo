@@ -549,6 +549,8 @@ export default function PlacePreviewCard({
   }, [mergedKakaoCuratorPhotos, googlePhotoUrls]);
 
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   useEffect(() => {
     setHeroPreviewIndex(0);
   }, [place?.id, place?.place_id, kakaoPlaceId]);
@@ -561,6 +563,42 @@ export default function PlacePreviewCard({
   const previewHasKakaoOpenablePhoto = useMemo(
     () => allPreviewUrls.some((u) => photoClickOpensKakao(u)),
     [allPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+  );
+
+  useEffect(() => {
+    if (!lightboxOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+      if (e.key === "ArrowRight") {
+        setLightboxIndex((idx) =>
+          allPreviewUrls.length
+            ? (idx + 1) % allPreviewUrls.length
+            : idx
+        );
+      }
+      if (e.key === "ArrowLeft") {
+        setLightboxIndex((idx) =>
+          allPreviewUrls.length
+            ? (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+            : idx
+        );
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen, allPreviewUrls.length]);
+
+  const openPhotoLightbox = useCallback(
+    (index) => {
+      if (!allPreviewUrls.length) return;
+      const safeIndex =
+        Number.isFinite(index) && index >= 0 && index < allPreviewUrls.length
+          ? index
+          : 0;
+      setLightboxIndex(safeIndex);
+      setLightboxOpen(true);
+    },
+    [allPreviewUrls]
   );
 
   const showGooglePhotoCredit =
@@ -794,14 +832,22 @@ export default function PlacePreviewCard({
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
   const selectedCuratorNames = Array.isArray(selectedCurators) ? selectedCurators : [];
 
+  /** `curators.name`(한글 별명) → display_name/displayName → @username — 장소 행의 name 필드는 쓰지 않음 */
   const getCuratorDisplayName = (curatorPlace) => {
-    return (
-      curatorPlace?.curators?.display_name ||
-      curatorPlace?.curators?.username ||
-      curatorPlace?.display_name ||
-      curatorPlace?.curator_id ||
-      ""
-    );
+    const c = curatorPlace?.curators;
+    if (c && typeof c === "object") {
+      const byName = String(c.name ?? "").trim();
+      if (byName) return byName;
+      const byDisp = String(
+        c.display_name ?? c.displayName ?? ""
+      ).trim();
+      if (byDisp) return byDisp;
+      const byUser = String(c.username ?? "").trim();
+      if (byUser) return byUser;
+      const bySlug = String(c.slug ?? "").trim();
+      if (bySlug) return bySlug;
+    }
+    return String(curatorPlace?.curator_id ?? "").trim();
   };
 
   const selectedCuratorLower = new Set(
@@ -812,9 +858,10 @@ export default function PlacePreviewCard({
 
   const curatorPlaceMatchesSelected = (curatorPlace) => {
     const candidates = [
+      curatorPlace?.curators?.name,
       curatorPlace?.curators?.display_name,
+      curatorPlace?.curators?.displayName,
       curatorPlace?.curators?.username,
-      curatorPlace?.display_name,
       curatorPlace?.curator_id,
     ].filter(Boolean);
     return candidates.some((candidate) =>
@@ -1335,52 +1382,28 @@ export default function PlacePreviewCard({
         {allPreviewUrls.length > 0 && heroPreviewUrl ? (
           <div style={styles.kakaoPreviewSection}>
             <div style={styles.photoHeroWrap}>
-              {photoClickOpensKakao(heroPreviewUrl) ? (
-                <button
-                  type="button"
-                  onClick={handleKakaoView}
-                  style={styles.kakaoPhotoHeroBtn}
-                  title="카카오맵에서 열기"
-                >
-                  <div style={styles.imageFrame}>
-                    <img
-                      key={heroPreviewUrl}
-                      src={heroPreviewUrl}
-                      alt=""
-                      style={styles.imageFill}
-                      loading="eager"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        setHeroPreviewIndex((i) =>
-                          i + 1 < allPreviewUrls.length ? i + 1 : i
-                        );
-                      }}
-                    />
-                  </div>
-                </button>
-              ) : (
-                <div
-                  style={styles.kakaoPhotoHeroStatic}
-                  role="img"
-                  aria-label="장소 사진"
-                >
-                  <div style={styles.imageFrame}>
-                    <img
-                      key={heroPreviewUrl}
-                      src={heroPreviewUrl}
-                      alt=""
-                      style={styles.imageFill}
-                      loading="eager"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        setHeroPreviewIndex((i) =>
-                          i + 1 < allPreviewUrls.length ? i + 1 : i
-                        );
-                      }}
-                    />
-                  </div>
+              <button
+                type="button"
+                onClick={() => openPhotoLightbox(heroPreviewIndex)}
+                style={styles.kakaoPhotoHeroBtn}
+                title="사진 크게 보기"
+              >
+                <div style={styles.imageFrame}>
+                  <img
+                    key={heroPreviewUrl}
+                    src={heroPreviewUrl}
+                    alt=""
+                    style={styles.imageFill}
+                    loading="eager"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      setHeroPreviewIndex((i) =>
+                        i + 1 < allPreviewUrls.length ? i + 1 : i
+                      );
+                    }}
+                  />
                 </div>
-              )}
+              </button>
               {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
                 <button
                   type="button"
@@ -1409,34 +1432,22 @@ export default function PlacePreviewCard({
                     key={`${src.slice(0, 48)}-${i}`}
                     style={styles.previewThumbWrap}
                   >
-                    {photoClickOpensKakao(src) ? (
-                      <button
-                        type="button"
-                        onClick={handleKakaoView}
-                        style={styles.kakaoPreviewThumbBtn}
-                        title="카카오맵에서 열기"
-                      >
-                        <img
-                          src={src}
-                          alt=""
-                          style={styles.kakaoPreviewThumbImg}
-                          loading="lazy"
-                        />
-                      </button>
-                    ) : (
-                      <div
-                        style={styles.kakaoPreviewThumbStatic}
-                        role="img"
-                        aria-label="큐레이터 등록 사진"
-                      >
-                        <img
-                          src={src}
-                          alt=""
-                          style={styles.kakaoPreviewThumbImg}
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idxInAll = allPreviewUrls.indexOf(src);
+                        openPhotoLightbox(idxInAll >= 0 ? idxInAll : 0);
+                      }}
+                      style={styles.kakaoPreviewThumbBtn}
+                      title="사진 크게 보기"
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        style={styles.kakaoPreviewThumbImg}
+                        loading="lazy"
+                      />
+                    </button>
                     {canUserDeleteCuratorPhotoUrl(src) ? (
                       <button
                         type="button"
@@ -1787,8 +1798,9 @@ export default function PlacePreviewCard({
           <div className="hide-scrollbar" style={styles.curatorRow}>
             <div style={styles.curatorScrollContainer}>
               {place.curatorPlaces?.map((curatorPlace, index) => {
-                // curatorPlaces에서 직접 데이터 가져오기
-                const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
+                // 큐레이터 표시는 curators.name 우선
+                const curatorName =
+                  getCuratorDisplayName(curatorPlace) || curatorPlace.curator_id;
                 const curatorReason =
                   curatorPlace.one_line_reason ||
                   curatorPlace.menu_reason ||
@@ -1913,6 +1925,56 @@ export default function PlacePreviewCard({
             />
           </div>
         </div>
+        {lightboxOpen && allPreviewUrls.length > 0 ? (
+          <div style={styles.photoLightbox} onClick={() => setLightboxOpen(false)}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxOpen(false);
+              }}
+              style={styles.photoLightboxClose}
+              aria-label="사진 닫기"
+              title="닫기"
+            >
+              <FaTimes size={16} />
+            </button>
+            {allPreviewUrls.length > 1 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((idx) =>
+                    (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+                  );
+                }}
+                style={styles.photoLightboxNavLeft}
+                aria-label="이전 사진"
+              >
+                ‹
+              </button>
+            ) : null}
+            <img
+              src={allPreviewUrls[lightboxIndex]}
+              alt="장소 사진 크게 보기"
+              style={styles.photoLightboxImage}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {allPreviewUrls.length > 1 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((idx) => (idx + 1) % allPreviewUrls.length);
+                }}
+                style={styles.photoLightboxNavRight}
+                aria-label="다음 사진"
+              >
+                ›
+              </button>
+            ) : null}
+          </div>
+        ) : null}
           </>
         )}
           </>
@@ -1932,7 +1994,7 @@ const styles = {
   card: {
     pointerEvents: "auto",
     width: "92%",
-    maxWidth: "400px",
+    maxWidth: "600px",
     maxHeight: "min(50vh, 360px)",
     overflowX: "hidden",
     overflowY: "auto",
@@ -2439,7 +2501,7 @@ const styles = {
   saveOutlineButton: {
     flex: 1,
     minWidth: 0,
-    minHeight: "42px",
+    minHeight: "44px",
     borderRadius: "10px",
     border: "1px solid rgba(255,255,255,0.32)",
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -2515,6 +2577,68 @@ const styles = {
     padding: "0 8px",
     cursor: "pointer",
     boxSizing: "border-box",
+  },
+  photoLightbox: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1200,
+    background: "rgba(0,0,0,0.86)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "16px",
+  },
+  photoLightboxImage: {
+    maxWidth: "min(100%, 980px)",
+    maxHeight: "86vh",
+    borderRadius: "12px",
+    objectFit: "contain",
+    boxShadow: "0 18px 36px rgba(0,0,0,0.45)",
+  },
+  photoLightboxClose: {
+    position: "absolute",
+    right: "16px",
+    top: "16px",
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.2)",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  photoLightboxNavLeft: {
+    position: "absolute",
+    left: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.22)",
+    color: "#fff",
+    fontSize: "28px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  photoLightboxNavRight: {
+    position: "absolute",
+    right: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.22)",
+    color: "#fff",
+    fontSize: "28px",
+    lineHeight: 1,
+    cursor: "pointer",
   },
   saveButton: {
     flex: 1,

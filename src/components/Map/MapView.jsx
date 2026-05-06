@@ -1121,7 +1121,8 @@ const MapView = forwardRef(({
                   DEFAULT_MAP_CENTER.lat,
                   DEFAULT_MAP_CENTER.lng
                 ),
-                level: 6,
+                // 첫 진입은 성수 중심 좁은 범위 유지 (압구정까지 초기 노출 방지)
+                level: 5,
               });
               mapRef.current = map;
               if (import.meta.env.DEV) console.log("지도 생성 완료");

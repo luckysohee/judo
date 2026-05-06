@@ -151,13 +151,15 @@ export function buildExpansionSuggestions(rawQuery, parsed, intentAssist) {
   }
   push(`${area} 술집으로 넓혀볼까요?`, `${area} 술집`);
 
-  if (alcohol || /사케|이자카야|와인바|칵테일|하이볼|맥주/.test(q)) {
+  if (alcohol || /사케|이자카야|와인바|칵테일|하이볼|맥주|막걸리|탁주/.test(q)) {
     const alc = alcohol || (q.includes("사케") ? "사케" : "");
     if (alc === "사케" || q.includes("사케")) {
       push(
         `사케 태그가 있는 ${district}권 장소로 볼까요?`,
         `${district} 사케`
       );
+    } else if (alc === "막걸리" || /막걸리|탁주/.test(q)) {
+      push(`${district} 막걸리 주점으로 볼까요?`, `${district} 막걸리`);
     } else if (alc) {
       push(`${alc}가 많은 ${district}권으로 볼까요?`, `${district} ${alc}`);
     }

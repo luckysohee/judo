@@ -45,11 +45,11 @@ const VARIANT_STYLES = {
     base: {
       flex: 1,
       minWidth: 0,
-      minHeight: "42px",
+      minHeight: "44px",
       borderRadius: "10px",
-      border: "1px solid rgba(255,255,255,0.28)",
-      backgroundColor: "rgba(255,255,255,0.04)",
-      color: "rgba(255,255,255,0.82)",
+      border: "1px solid rgba(255,255,255,0.42)",
+      backgroundColor: "rgba(255,255,255,0.08)",
+      color: "rgba(255,255,255,0.92)",
       fontSize: "12px",
       fontWeight: 700,
       display: "flex",
@@ -62,9 +62,9 @@ const VARIANT_STYLES = {
       boxShadow: "none",
     },
     picked: {
-      backgroundColor: "rgba(255,255,255,0.1)",
+      backgroundColor: "rgba(255,255,255,0.14)",
       color: "#ffffff",
-      border: "1px solid rgba(255,255,255,0.44)",
+      border: "1px solid rgba(255,255,255,0.58)",
       boxShadow: "none",
     },
     muted: {
@@ -363,8 +363,7 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
   );
 
   const v = VARIANT_STYLES[variant] || VARIANT_STYLES.card;
-  const noUuidReady = !resolving && !placeUuid;
-  const muted = Boolean(user?.id && noUuidReady);
+  const muted = false;
   const mergedStyle = {
     ...v.base,
     ...(picked ? v.picked : {}),

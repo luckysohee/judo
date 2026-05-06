@@ -7,6 +7,7 @@ import MapView from "./components/Map/MapView";
 import PlaceDetailPage from "./pages/PlaceDetailPage";
 import CuratorPageScreen from "./pages/CuratorPageScreen";
 import CuratorProfilePage from "./pages/CuratorProfilePage";
+import UserProfilePage from "./pages/UserProfilePage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import AdminHubPage from "./pages/AdminHubPage";
 import AdminApplicationsPage from "./pages/AdminApplicationsPage";
@@ -32,6 +33,7 @@ function App() {
       <Route path="/place/:id" element={<PlaceDetailPage />} />
       <Route path="/curator/:name" element={<CuratorPageScreen />} />
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
+      <Route path="/u/:userId" element={<UserProfilePage />} />
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin" element={<AdminRoute />}>
         <Route index element={<AdminHubPage />} />

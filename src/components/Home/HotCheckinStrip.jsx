@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useToast } from "../Toast/ToastProvider";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { supabase } from "../../lib/supabase";
+import MutualCheckinsHomeSection from "./MutualCheckinsHomeSection";
 
 function placeMatchesRankId(place, rankPlaceId) {
   const rid = String(rankPlaceId);
@@ -17,9 +19,12 @@ function placeMatchesRankId(place, rankPlaceId) {
 
 const TAB_HOT = "hot";
 const TAB_CURATORS = "curators";
+const TAB_MUTUAL = "mutual";
 
 /** 한 줄 칩·탭 행 기준 — 낮은 쪽(핫 TOP)에 맞춤 */
 const STRIP_ROW_PX = 28;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * 지도 위 가로 스트립: 탭 — 오늘 한잔 랭킹(24h) / 떠오르는 큐레이터(7일)
@@ -31,6 +36,10 @@ export default function HotCheckinStrip({
   mapRef,
   onPickPlace,
   onPickCurator,
+  user = null,
+  onOpenMutualPlaceDetail,
+  onPickMutualUser,
+  onMutualSearchOpenChange,
   hideWhenPreviewOpen = false,
   /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
   hideWhenSearchActive = false,
@@ -40,11 +49,12 @@ export default function HotCheckinStrip({
 
   const topFive = Array.isArray(rankingTop5) ? rankingTop5 : [];
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
+  const showMutualTab = Boolean(user?.id);
 
   const showStrip =
     !hideWhenPreviewOpen &&
     !hideWhenSearchActive &&
-    (topFive.length > 0 || curators.length > 0);
+    (topFive.length > 0 || curators.length > 0 || showMutualTab);
 
   if (!showStrip) return null;
 
@@ -187,7 +197,7 @@ export default function HotCheckinStrip({
     },
   };
 
-  const handleHotChip = (row) => {
+  const handleHotChip = async (row) => {
     const found = placesOnMap.find((p) => placeMatchesRankId(p, row.place_id));
     const wgs = found ? resolvePlaceWgs84(found) : null;
 
@@ -197,11 +207,46 @@ export default function HotCheckinStrip({
       return;
     }
 
-    showToast(
-      "지도에 표시된 가게만 이동할 수 있어요. 검색으로 불러온 뒤 다시 눌러 주세요.",
-      "info",
-      3200
-    );
+    // 지도에 마커가 없더라도 DB에서 바로 찾아 이동.
+    try {
+      const pid = String(row?.place_id ?? "").trim();
+      if (!pid) throw new Error("empty place_id");
+
+      const byIdQuery = UUID_RE.test(pid)
+        ? supabase.from("places").select("*").eq("id", pid).maybeSingle()
+        : supabase
+            .from("places")
+            .select("*")
+            .eq("kakao_place_id", pid)
+            .maybeSingle();
+      const { data: placeById, error: byIdErr } = await byIdQuery;
+      if (byIdErr) throw byIdErr;
+      let resolved = placeById;
+
+      if (!resolved && row?.place_name) {
+        const { data: byName, error: byNameErr } = await supabase
+          .from("places")
+          .select("*")
+          .eq("name", String(row.place_name).trim())
+          .limit(1);
+        if (byNameErr) throw byNameErr;
+        resolved = Array.isArray(byName) ? byName[0] : null;
+      }
+
+      if (!resolved) {
+        showToast("아직 위치를 찾지 못했어요. 잠시 후 다시 시도해 주세요.", "info", 3200);
+        return;
+      }
+
+      const rw = resolvePlaceWgs84(resolved);
+      if (rw && mapRef?.current?.moveToLocation) {
+        mapRef.current.moveToLocation(rw.lat, rw.lng);
+      }
+      onPickPlace?.(resolved, row);
+    } catch (error) {
+      console.warn("hot-strip place resolve:", error?.message || error);
+      showToast("장소 위치를 불러오지 못했어요. 다시 시도해 주세요.", "info", 3200);
+    }
   };
 
   const handleCuratorChip = (row) => {
@@ -234,68 +279,90 @@ export default function HotCheckinStrip({
           >
             ✨ 떠오르는 큐레이터
           </button>
+          {showMutualTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === TAB_MUTUAL}
+              style={styles.tabBtn(tab === TAB_MUTUAL)}
+              onClick={() => setTab(TAB_MUTUAL)}
+              title="아는 사람 활동"
+            >
+              👀 아는 사람
+            </button>
+          ) : null}
         </div>
-
-        <div style={styles.scroll} role="tabpanel">
-          {tab === TAB_HOT ? (
-            topFive.length === 0 ? (
-              <div style={styles.empty}>이번엔 조용해요</div>
+        {tab === TAB_MUTUAL && showMutualTab ? (
+          <MutualCheckinsHomeSection
+            compact
+            stripMode
+            user={user}
+            onOpenPlaceDetail={onOpenMutualPlaceDetail}
+            onPickUserFromSearch={onPickMutualUser}
+            onSearchOpenChange={onMutualSearchOpenChange}
+          />
+        ) : (
+          <div style={styles.scroll} role="tabpanel">
+            {tab === TAB_HOT ? (
+              topFive.length === 0 ? (
+                <div style={styles.empty}>이번엔 조용해요</div>
+              ) : (
+                topFive.map((row) => (
+                  <button
+                    key={String(row.place_id)}
+                    type="button"
+                    style={styles.chipHot}
+                    title={row.place_address || row.place_name}
+                    onClick={() => handleHotChip(row)}
+                  >
+                    {row.place_name}
+                    <span style={styles.count}>{row.total_checkins}</span>
+                  </button>
+                ))
+              )
+            ) : curators.length === 0 ? (
+              <div style={styles.empty}>이번 주는 조용해요</div>
             ) : (
-              topFive.map((row) => (
-                <button
-                  key={String(row.place_id)}
-                  type="button"
-                  style={styles.chipHot}
-                  title={row.place_address || row.place_name}
-                  onClick={() => handleHotChip(row)}
-                >
-                  {row.place_name}
-                  <span style={styles.count}>{row.total_checkins}</span>
-                </button>
-              ))
-            )
-          ) : curators.length === 0 ? (
-            <div style={styles.empty}>이번 주는 조용해요</div>
-          ) : (
-            curators.map((row) => {
-              const name =
-                String(row.display_name || "").trim() ||
-                `@${String(row.username || "").trim()}`;
-              const wp = Number(row.week_places) || 0;
-              const wf = Number(row.week_follows) || 0;
-              const statShort =
-                wp > 0 && wf > 0
-                  ? `잔+${wp} · 팔+${wf}`
-                  : wp > 0
-                    ? `잔+${wp}`
-                    : wf > 0
-                      ? `팔+${wf}`
-                      : "";
-              const titleLong =
-                wp > 0 && wf > 0
-                  ? `이번 주 잔 +${wp} · 팔로 +${wf}`
-                  : wp > 0
-                    ? `이번 주 잔 +${wp}`
-                    : wf > 0
-                      ? `팔로 +${wf}`
-                      : "";
-              return (
-                <button
-                  key={String(row.curator_id ?? row.username)}
-                  type="button"
-                  style={styles.chipCurator}
-                  title={titleLong || name}
-                  onClick={() => handleCuratorChip(row)}
-                >
-                  <span style={styles.chipCuratorName}>{name}</span>
-                  {statShort ? (
-                    <span style={styles.chipCuratorStat}>{statShort}</span>
-                  ) : null}
-                </button>
-              );
-            })
-          )}
-        </div>
+              curators.map((row) => {
+                const name =
+                  String(row.display_name || "").trim() ||
+                  `@${String(row.username || "").trim()}`;
+                const wp = Number(row.week_places) || 0;
+                const wf = Number(row.week_follows) || 0;
+                const statShort =
+                  wp > 0 && wf > 0
+                    ? `잔+${wp} · 팔+${wf}`
+                    : wp > 0
+                      ? `잔+${wp}`
+                      : wf > 0
+                        ? `팔+${wf}`
+                        : "";
+                const titleLong =
+                  wp > 0 && wf > 0
+                    ? `이번 주 잔 +${wp} · 팔로 +${wf}`
+                    : wp > 0
+                      ? `이번 주 잔 +${wp}`
+                      : wf > 0
+                        ? `팔로 +${wf}`
+                        : "";
+                return (
+                  <button
+                    key={String(row.curator_id ?? row.username)}
+                    type="button"
+                    style={styles.chipCurator}
+                    title={titleLong || name}
+                    onClick={() => handleCuratorChip(row)}
+                  >
+                    <span style={styles.chipCuratorName}>{name}</span>
+                    {statShort ? (
+                      <span style={styles.chipCuratorStat}>{statShort}</span>
+                    ) : null}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

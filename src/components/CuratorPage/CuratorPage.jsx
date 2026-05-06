@@ -2,6 +2,7 @@ import MapView from "../Map/MapView";
 import { useNavigate } from "react-router-dom";
 import PlacePicksPublicList from "../PlacePick/PlacePicksPublicList";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
+import PickUserButton, { PickCountsRow } from "../PickUserButton/PickUserButton";
 
 export default function CuratorPage({
   open,
@@ -12,10 +13,16 @@ export default function CuratorPage({
   onClose,
   onOpenPlaceDetail,
   onSelectPlace,
-  followState,
+  /** pick·카운트 기준 auth uid (curators.user_id) */
+  profileUserId,
+  pickReceivedCount,
+  pickOutgoingCount,
+  pickMutualVisible,
+  onPickCountsChange,
+  onRelationshipChange,
+  onBecomePicking,
   liveState,
   canEditLive,
-  onToggleFollow,
   onToggleLive,
   /** `place_picks` 조인 행 (curator_places 와 무관) */
   pickedPlacesRows = [],
@@ -52,9 +59,14 @@ export default function CuratorPage({
         </div>
 
         <div style={styles.statsRow}>
-          <div style={styles.statBox}>
-            <div style={styles.statValue}>{formatFollowerCount(curator.followers)}</div>
-            <div style={styles.statLabel}>팔로워</div>
+          <div style={{ ...styles.statBox, minWidth: 0 }}>
+            <PickCountsRow
+              profileUserId={profileUserId}
+              receivedCount={pickReceivedCount}
+              outgoingCount={pickOutgoingCount}
+              mutual={pickMutualVisible}
+              style={{ fontSize: 13, gap: 10 }}
+            />
           </div>
           <div style={styles.statBox}>
             <div style={styles.statValue}>{places.length}</div>
@@ -70,17 +82,24 @@ export default function CuratorPage({
           <div style={styles.bio}>{curator.bio}</div>
 
           <div style={styles.actionRow}>
-            <button
-              type="button"
-              onClick={onToggleFollow}
-              style={{
-                ...styles.followButton,
-                backgroundColor: followState ? "#FFD54F" : "#2ECC71",
-                color: "#111111",
-              }}
-            >
-              {followState ? "팔로잉" : "팔로우"}
-            </button>
+            <div style={styles.pickActionSlot}>
+              <PickUserButton
+                key={profileUserId || "pick"}
+                profileUserId={profileUserId}
+                loginPromptMessage="로그인이 필요합니다."
+                onPickCountsChange={onPickCountsChange}
+                onRelationshipChange={onRelationshipChange}
+                onBecomePicking={onBecomePicking}
+                buttonStyle={{
+                  flex: 1,
+                  marginTop: 0,
+                  width: "100%",
+                  padding: "12px",
+                  fontSize: "14px",
+                  borderRadius: "12px",
+                }}
+              />
+            </div>
 
             {canEditLive ? (
               <button
@@ -165,13 +184,6 @@ export default function CuratorPage({
       </div>
     </div>
   );
-}
-
-function formatFollowerCount(value) {
-  if (value >= 10000) {
-    return `${Math.floor(value / 1000) / 10}만`;
-  }
-  return value.toLocaleString("ko-KR");
 }
 
 const styles = {
@@ -270,14 +282,12 @@ const styles = {
     marginTop: "12px",
     display: "flex",
     gap: "10px",
+    alignItems: "stretch",
   },
-  followButton: {
+  pickActionSlot: {
     flex: 1,
-    border: "none",
-    borderRadius: "12px",
-    padding: "12px",
-    fontSize: "14px",
-    fontWeight: 800,
+    minWidth: 0,
+    display: "flex",
   },
   shareButton: {
     flex: 1,

@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from '../../lib/supabase';
 import { uploadUserProfileAvatarFile } from "../../utils/curatorPlacePhotos";
 import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
@@ -22,6 +23,11 @@ import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLoc
 import { fetchUserPickedPlaces } from "../../api/placePicks";
 import { fetchUserHanjanHistory } from "../../api/userHanjan";
 import PlacePickButton from "../PlacePick/PlacePickButton";
+import {
+  fetchStudioFollowingEnriched,
+  fetchStudioFollowersEnriched,
+} from "../../utils/studioFollowersFetch";
+import { unfollowUser } from "../../utils/userProfileFollows";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -368,6 +374,7 @@ const UserCard = ({
    */
   isOwnProfile: explicitIsOwnProfile = null,
 }) => {
+  const navigate = useNavigate();
   const { user: sessionUser, loading: authLoading } = useAuth();
 
   const showSavedFoldersTab = useMemo(() => {
@@ -391,6 +398,8 @@ const UserCard = ({
   const [pickedPlaces, setPickedPlaces] = useState([]);
   const [hanjanRows, setHanjanRows] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
+  /** 나를 팔로우한 사람 (studio_follower_previews_* 행) */
+  const [followerPreviews, setFollowerPreviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -589,7 +598,10 @@ const UserCard = ({
   }, [isVisible, attachSwipeDownClose, attachHandlePull]);
 
   useEffect(() => {
-    if (hideFollowingTab && activeTab === "following") {
+    if (
+      hideFollowingTab &&
+      (activeTab === "following" || activeTab === "followers")
+    ) {
       setActiveTab(showSavedFoldersTab ? "saved" : "picked");
     }
   }, [hideFollowingTab, activeTab, showSavedFoldersTab]);
@@ -665,6 +677,9 @@ const UserCard = ({
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setSelectedFolder(null);
+    if (tab !== "following" && tab !== "followers") {
+      setShowSearch(false);
+    }
   };
 
   // 폴더 클릭 핸들러
@@ -895,17 +910,33 @@ const UserCard = ({
     });
   };
 
+  const getFilteredFollowers = () => {
+    if (!searchQuery.trim()) return followerPreviews;
+    const q = searchQuery.toLowerCase();
+    return followerPreviews.filter((f) => {
+      const a = (f.primaryText || "").toLowerCase();
+      const b = (f.secondaryText || "").toLowerCase();
+      const c = (f.label || "").toLowerCase();
+      return a.includes(q) || b.includes(q) || c.includes(q);
+    });
+  };
+
   // 큐레이터 프로필 불러오기
   const loadCuratorProfile = async (curator) => {
     try {
+      if (curator && curator.isCurator === false) {
+        return;
+      }
+      const rawHandle = String(curator?.username || "").replace(/^@+/, "").trim();
+      if (!rawHandle) return;
       // 큐레이터 상세 정보 불러오기
       const { data: curatorData, error: curatorError } = await supabase
         .from('curators')
         .select('*')
-        .eq('username', curator.username)
-        .single();
+        .or(`slug.eq.${rawHandle},username.eq.${rawHandle}`)
+        .maybeSingle();
 
-      if (curatorError) {
+      if (curatorError || !curatorData) {
         console.error('큐레이터 정보 로드 오류:', curatorError);
         return;
       }
@@ -926,11 +957,10 @@ const UserCard = ({
         console.error('큐레이터 저장 장소 로드 오류:', placesError);
       }
 
-      // 큐레이터의 팔로워 수 불러오기
-      const { count: followerCount, error: followerError } = await supabase
-        .from('user_follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('curator_id', curatorData.id);
+      const { count: followerCount } = await supabase
+        .from("user_profile_follows")
+        .select("*", { count: "exact", head: true })
+        .eq("following_id", curatorData.user_id);
 
       setSelectedCurator({
         ...curatorData,
@@ -943,6 +973,18 @@ const UserCard = ({
 
     } catch (error) {
       console.error('큐레이터 프로필 로드 오류:', error);
+    }
+  };
+
+  const openFollowerPreview = (f) => {
+    if (embeddedAdminReadOnly) return;
+    const handle = String(f.secondaryText || "")
+      .replace(/^@/, "")
+      .trim();
+    if (f.isCurator && handle) {
+      loadCuratorProfile({ username: handle, isCurator: true });
+    } else if (f.user_id) {
+      navigate(`/u/${f.user_id}`);
     }
   };
 
@@ -1119,87 +1161,48 @@ const UserCard = ({
 
       if (hideFollowingTab) {
         setFollowingCurators([]);
+        setFollowerPreviews([]);
       } else if (useEmbedded) {
         setFollowingCurators(
           Array.isArray(embeddedFollowingCurators)
             ? embeddedFollowingCurators
             : []
         );
+        setFollowerPreviews([]);
       } else {
-      const { data: followingData, error: followingError } = await supabase
-        .from('user_follows')
-        .select('*')
-        .eq('user_id', user.id);
-
-      console.log("🔍 UserCard - 팔로우 데이터:", followingData);
-      console.log("🔍 UserCard - 현재 user.id:", user.id);
-
-      if (followingError) {
-        console.error('팔로우 큐레이터 로드 오류:', followingError);
-        setFollowingCurators([]);
-      } else if (followingData && followingData.length > 0) {
-        // 각 curator_id에 해당하는 큐레이터 정보 가져오기
-        const curatorIds = followingData.map(f => f.curator_id).filter(Boolean);
-        
-        if (curatorIds.length > 0) {
-          // UUID와 문자열을 분리
-          const uuidIds = curatorIds.filter(id => id.includes('-'));
-          const stringIds = curatorIds.filter(id => !id.includes('-'));
-          
-          let curatorData = [];
-          
-          // UUID 기반 조회
-          if (uuidIds.length > 0) {
-            const { data: uuidData, error: uuidError } = await supabase
-              .from('curators')
-              .select('*')
-              .in('id', uuidIds);
-            
-            if (!uuidError && uuidData) {
-              curatorData = [...curatorData, ...uuidData];
-            } else if (uuidError) {
-              console.error('UUID 큐레이터 정보 로드 오류:', uuidError);
-            }
-          }
-          
-          // 문자열(username) 기반 조회
-          if (stringIds.length > 0) {
-            const { data: stringData, error: stringError } = await supabase
-              .from('curators')
-              .select('*')
-              .or(`username.in.(${stringIds.map(id => `'${id}'`).join(',')}),slug.in.(${stringIds.map(id => `'${id}'`).join(',')})`);
-            
-            if (!stringError && stringData) {
-              curatorData = [...curatorData, ...stringData];
-            } else if (stringError) {
-              console.error('문자열 큐레이터 정보 로드 오류:', stringError);
-            }
-          }
-          
-          // 팔로우 데이터와 큐레이터 정보 결합
-          const enrichedData = followingData.map(follow => {
-            const curator = uuidIds.includes(follow.curator_id)
-              ? curatorData.find(c => c.id === follow.curator_id)
-              : curatorData.find(c => c.username === follow.curator_id) || 
-                curatorData.find(c => c.slug === follow.curator_id);
-            
-            console.log("🔍 큐레이터 매칭:", {
-              follow_curator_id: follow.curator_id,
-              found_curator: curator,
-              curator_username: curator?.username,
-              curator_slug: curator?.slug
-            });
-            
-            return curator || follow;
-          });
-          
-          setFollowingCurators(enrichedData);
-        } else {
-          setFollowingCurators(followingData);
-        }
-      } else {
-        setFollowingCurators([]);
-      }
+        const [rows, followersRaw] = await Promise.all([
+          fetchStudioFollowingEnriched(supabase, user.id),
+          fetchStudioFollowersEnriched(supabase, user.id, {
+            byFollowingUserId: user.id,
+          }),
+        ]);
+        setFollowerPreviews(
+          Array.isArray(followersRaw) ? followersRaw : []
+        );
+        const mapped = (rows || []).map((r) => {
+          const uid = r.following_user_id || r.user_id;
+          const handleFromSecondary = r.secondaryText
+            ? String(r.secondaryText).replace(/^@/, "")
+            : "";
+          const handle =
+            handleFromSecondary ||
+            (typeof r.label === "string" && r.label.startsWith("@")
+              ? r.label.slice(1)
+              : "user");
+          return {
+            id: uid,
+            user_id: uid,
+            following_user_id: uid,
+            username: handle,
+            display_name: r.primaryText,
+            displayName: r.primaryText,
+            bio: r.isCurator ? null : "사용자",
+            avatar_url: r.avatarUrl,
+            isCurator: Boolean(r.isCurator),
+            stats: { saveCount: 0, followerCount: 0 },
+          };
+        });
+        setFollowingCurators(mapped);
       }
 
     } catch (error) {
@@ -1329,22 +1332,18 @@ const UserCard = ({
     }
   };
 
-  const handleUnfollow = async (curatorId) => {
+  const handleUnfollow = async (followingUserId) => {
     try {
-      const { error } = await supabase
-        .from('user_follows')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('curator_id', curatorId);
-
-      if (error) {
-        console.error('언팔로우 오류:', error);
-        alert('언팔로우에 실패했습니다.');
-      } else {
-        setFollowingCurators(prev => prev.filter(c => c.id !== curatorId));
-      }
+      await unfollowUser(supabase, followingUserId);
+      setFollowingCurators((prev) =>
+        prev.filter(
+          (c) =>
+            (c.following_user_id || c.user_id || c.id) !== followingUserId
+        )
+      );
     } catch (error) {
-      console.error('언팔로우 처리 오류:', error);
+      console.error("remove 처리 오류:", error);
+      alert(error?.message || "remove에 실패했습니다.");
     }
   };
 
@@ -1904,7 +1903,7 @@ const UserCard = ({
             </div>
           ) : null}
 
-          {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → (팔로우) */}
+          {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → picked / pick */}
           <div
             style={{
               display: "flex",
@@ -2002,61 +2001,118 @@ const UserCard = ({
               </button>
             ) : null}
             {hideFollowingTab ? null : (
-              <button
-                type="button"
-                onClick={() => handleTabChange("following")}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  padding: "9px 4px",
-                  background:
-                    activeTab === "following"
-                      ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                      : "transparent",
-                  color:
-                    activeTab === "following"
-                      ? "white"
-                      : "rgba(255, 255, 255, 0.55)",
-                  border: "none",
-                  borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  fontSize: "11px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "4px",
-                  boxShadow:
-                    activeTab === "following"
-                      ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                      : "none",
-                }}
-              >
-                팔로우 ({followingCurators.length})
-                {activeTab === "following" && !embeddedAdminReadOnly && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowSearch(!showSearch);
-                    }}
-                    style={{
-                      backgroundColor: showSearch
-                        ? "rgba(255, 255, 255, 0.3)"
-                        : "rgba(255, 255, 255, 0.2)",
-                      border: "1px solid rgba(255, 255, 255, 0.3)",
-                      color: "white",
-                      borderRadius: "4px",
-                      padding: "2px 6px",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
-                    }}
-                  >
-                    🔍
-                  </div>
-                )}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange("followers")}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "9px 4px",
+                    background:
+                      activeTab === "followers"
+                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                        : "transparent",
+                    color:
+                      activeTab === "followers"
+                        ? "white"
+                        : "rgba(255, 255, 255, 0.55)",
+                    border: "none",
+                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "4px",
+                    boxShadow:
+                      activeTab === "followers"
+                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                        : "none",
+                  }}
+                >
+                  picked ({followerPreviews.length})
+                  {activeTab === "followers" && !embeddedAdminReadOnly && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSearch(!showSearch);
+                      }}
+                      style={{
+                        backgroundColor: showSearch
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : "rgba(255, 255, 255, 0.2)",
+                        border: "1px solid rgba(255, 255, 255, 0.3)",
+                        color: "white",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                      }}
+                    >
+                      🔍
+                    </div>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange("following")}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "9px 4px",
+                    background:
+                      activeTab === "following"
+                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                        : "transparent",
+                    color:
+                      activeTab === "following"
+                        ? "white"
+                        : "rgba(255, 255, 255, 0.55)",
+                    border: "none",
+                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "4px",
+                    boxShadow:
+                      activeTab === "following"
+                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                        : "none",
+                  }}
+                >
+                  pick ({followingCurators.length})
+                  {activeTab === "following" && !embeddedAdminReadOnly && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSearch(!showSearch);
+                      }}
+                      style={{
+                        backgroundColor: showSearch
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : "rgba(255, 255, 255, 0.2)",
+                        border: "1px solid rgba(255, 255, 255, 0.3)",
+                        color: "white",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                      }}
+                    >
+                      🔍
+                    </div>
+                  )}
+                </button>
+              </>
             )}
           </div>
             </div>
@@ -2544,6 +2600,106 @@ const UserCard = ({
                   </div>
                 )
               )
+            ) : activeTab === "followers" ? (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+              >
+                {showSearch && (
+                  <div
+                    style={{
+                      paddingBottom: "6px",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="picked 검색…"
+                      style={{
+                        width: "100%",
+                        padding: "6px 10px",
+                        backgroundColor: "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid rgba(255, 255, 255, 0.22)",
+                        borderRadius: "10px",
+                        color: "white",
+                        fontSize: "12px",
+                        outline: "none",
+                        boxSizing: "border-box",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+                >
+                  {getFilteredFollowers().length === 0 ? (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        padding: "10px",
+                        color: "#999",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {searchQuery
+                        ? "검색 결과가 없습니다"
+                        : "아직 picked가 없어요."}
+                    </div>
+                  ) : (
+                    getFilteredFollowers().map((f) => (
+                      <div
+                        key={f.user_id}
+                        style={curatorCardStyles.card}
+                      >
+                        <div style={curatorCardStyles.info}>
+                          <CuratorFollowAvatar
+                            curator={{
+                              username:
+                                String(f.secondaryText || "").replace(
+                                  /^@/,
+                                  ""
+                                ) || "user",
+                              display_name: f.primaryText,
+                              avatar_url: f.avatarUrl,
+                            }}
+                            sizePx={24}
+                          />
+                          <div style={curatorCardStyles.details}>
+                            <div
+                              style={{
+                                ...curatorCardStyles.name,
+                                cursor: embeddedAdminReadOnly
+                                  ? "default"
+                                  : "pointer",
+                                textDecoration: embeddedAdminReadOnly
+                                  ? "none"
+                                  : "underline",
+                                textDecorationColor:
+                                  "rgba(255, 255, 255, 0.3)",
+                              }}
+                              onClick={() => openFollowerPreview(f)}
+                            >
+                              {f.primaryText || f.label || "프로필"}
+                            </div>
+                            <div style={curatorCardStyles.meta}>
+                              {f.secondaryText || (f.isCurator ? "@unknown" : "사용자")}
+                            </div>
+                            <div style={curatorCardStyles.meta}>
+                              {f.isCurator ? "큐레이터" : "사용자"}
+                              {f.created_at
+                                ? ` · ${new Date(f.created_at).toLocaleDateString("ko-KR")}`
+                                : ""}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {/* 검색 입력창 */}
@@ -2553,7 +2709,7 @@ const UserCard = ({
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="팔로우한 큐레이터 검색..."
+                      placeholder="pick 검색…"
                       style={{
                         width: '100%',
                         padding: '6px 10px',
@@ -2571,16 +2727,16 @@ const UserCard = ({
                   </div>
                 )}
                 
-                {/* 큐레이터 리스트 */}
+                {/* pick 목록 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {getFilteredCurators().length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '10px', color: '#999', fontSize: '12px' }}>
-                      {searchQuery ? '검색 결과가 없습니다' : '아직 팔로우한 큐레이터가 없습니다.'}
+                      {searchQuery ? '검색 결과가 없습니다' : '아직 pick이 없어요.'}
                     </div>
                   ) : (
                     getFilteredCurators().map((curator) => (
                       <div
-                        key={curator.id}
+                        key={curator.following_user_id || curator.user_id || curator.id}
                         style={curatorCardStyles.card}
                       >
                         <div style={curatorCardStyles.info}>
@@ -2599,6 +2755,9 @@ const UserCard = ({
                               if (!embeddedAdminReadOnly) loadCuratorProfile(curator);
                             }}
                           >
+                            {curator.display_name || curator.displayName || "큐레이터"}
+                          </div>
+                          <div style={curatorCardStyles.meta}>
                             @{curator.username || "unknown"}
                           </div>
                           <div style={curatorCardStyles.meta}>
@@ -2610,11 +2769,15 @@ const UserCard = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleUnfollow(curator.id);
+                            handleUnfollow(
+                              curator.following_user_id ||
+                                curator.user_id ||
+                                curator.id
+                            );
                           }}
                           style={curatorCardStyles.unfollowButton}
                         >
-                          언팔로우
+                          remove
                         </button>
                         ) : null}
                       </div>
@@ -2713,7 +2876,7 @@ const UserCard = ({
                     {selectedCurator.display_name || '큐레이터'}
                   </div>
                   <div style={{ fontSize: '12px', color: '#999' }}>
-                    팔로워 {selectedCurator.stats?.followerCount || 0}명 • 저장 {selectedCurator.stats?.saveCount || 0}개
+                    picked {selectedCurator.stats?.followerCount || 0}명 • 저장 {selectedCurator.stats?.saveCount || 0}개
                   </div>
                 </div>
               </div>

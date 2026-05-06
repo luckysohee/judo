@@ -202,12 +202,12 @@ export default function CuratorManagementPage() {
       }
 
       const { count: followCount, error: folErr } = await supabase
-        .from("user_follows")
+        .from("user_profile_follows")
         .select("*", { count: "exact", head: true })
-        .eq("curator_id", userId);
+        .eq("following_id", userId);
 
       if (folErr) {
-        console.warn("user_follows count:", folErr.message || folErr);
+        console.warn("user_profile_follows count:", folErr.message || folErr);
       }
 
       const { data: prof } = await supabase

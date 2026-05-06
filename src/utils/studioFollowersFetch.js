@@ -38,8 +38,8 @@ function followerDisplayLines(nickRaw, handleRaw, authProvider) {
 }
 
 /**
- * 팔로워 한 명 표시: 큐레이터 행이 있으면 스튜디오 공개명·핸들 우선 (profiles OAuth 본명 혼선 방지)
- * username이 비어 있으면 profiles.username 순으로 @핸들 보강 (slug는 DB에 없을 수 있어 REST 조회에서는 제외)
+ * 팔로워 한 명 표시: 큐레이터 행이 있으면 name/slug를 단일 진실원으로 사용
+ * (profiles OAuth 본명·curators.display_name 혼선 방지)
  * @param {object|null|undefined} profile — profiles 행
  * @param {object|null|undefined} curatorRow — curators 행 (user_id 기준)
  */
@@ -48,38 +48,37 @@ export function resolveFollowerPresentation(profile, curatorRow) {
   const c =
     curatorRow && typeof curatorRow === "object" ? curatorRow : null;
 
+  const isCurator = Boolean(c);
   const nick = String(
-    c?.display_name || c?.name || p.display_name || ""
+    isCurator
+      ? (c?.name || "")
+      : (p.display_name || "")
   ).trim();
+  // 큐레이터는 slug를 단일 진실원으로 사용 (username 구값 폴백 금지)
   const handle = normalizeHandle(
-    c?.username || c?.slug || p?.username || ""
+    isCurator ? (c?.slug || "") : (p?.username || "")
   );
 
   const lines = followerDisplayLines(nick, handle, p.auth_provider);
 
   const avatarUrl =
     String(
-      c?.avatar_url || c?.avatar || c?.image || p.avatar_url || ""
+      c?.avatar_url || c?.image || p.avatar_url || ""
     ).trim() || null;
 
   return {
     ...lines,
     avatarUrl,
-    isCurator: Boolean(c),
+    isCurator,
+    curatorName: isCurator ? String(c?.name || "").trim() : null,
+    curatorSlug: isCurator ? normalizeHandle(c?.slug || "") : null,
     curatorGrade: c?.grade || null,
   };
 }
 
-/**
- * DB RPC studio_follower_previews — curators RLS와 무관하게 팔로워 조인
- */
-async function fetchStudioFollowersViaRpc(supabase, curatorId) {
-  const { data, error } = await supabase.rpc("studio_follower_previews", {
-    p_curator_id: curatorId,
-  });
-  if (error) return { error, rows: null };
-  const raw = Array.isArray(data) ? data : [];
-  const rows = raw.map((row) => {
+function mapFollowerRpcRows(raw) {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((row) => {
     const lines = followerDisplayLines(
       row.display_nick,
       row.handle_raw,
@@ -94,17 +93,115 @@ async function fetchStudioFollowersViaRpc(supabase, curatorId) {
       curatorGrade: row.curator_grade || null,
     };
   });
-  return { error: null, rows };
+}
+
+/**
+ * RPC가 과거 스냅샷 핸들/닉을 줄 수 있어, 현재 profiles/curators 기준으로 표시를 재정규화.
+ * - 큐레이터: curators.slug + curators.name
+ * - 일반 유저: profiles.username + profiles.display_name
+ */
+async function hydrateRowsWithCurrentIdentity(supabase, rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return list;
+  const ids = [...new Set(list.map((r) => String(r?.user_id || "").trim()).filter(Boolean))];
+  if (!ids.length) return list;
+
+  const [{ data: profs, error: pErr }, { data: curs, error: cErr }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, display_name, username, auth_provider, avatar_url")
+        .in("id", ids),
+      supabase
+        .from("curators")
+        .select("user_id, slug, name, username, avatar_url, image, grade")
+        .in("user_id", ids),
+    ]);
+  if (pErr) console.warn("identity hydrate profiles:", pErr.message);
+  if (cErr) console.warn("identity hydrate curators:", cErr.message);
+
+  const byId = Object.fromEntries((profs || []).map((p) => [String(p.id), p]));
+  const byCuratorUserId = Object.fromEntries((curs || []).map((c) => [String(c.user_id), c]));
+
+  return list.map((row) => {
+    const uid = String(row?.user_id || "").trim();
+    if (!uid) return row;
+    const pres = resolveFollowerPresentation(byId[uid], byCuratorUserId[uid]);
+    return {
+      ...row,
+      ...pres,
+    };
+  });
+}
+
+/**
+ * @param {string} [curatorId] — curators.id
+ * @param {{ byFollowingUserId?: string }} [opts] — auth user id of the followee (내 팔로워 탭)
+ */
+async function fetchStudioFollowersViaRpc(supabase, curatorId, opts = {}) {
+  const byUid = opts.byFollowingUserId;
+  if (byUid) {
+    const { data, error } = await supabase.rpc(
+      "studio_follower_previews_by_following",
+      { p_following_user_id: byUid }
+    );
+    if (error) return { error, rows: null };
+    return { error: null, rows: mapFollowerRpcRows(data) };
+  }
+  const { data, error } = await supabase.rpc("studio_follower_previews", {
+    p_curator_id: curatorId,
+  });
+  if (error) return { error, rows: null };
+  return { error: null, rows: mapFollowerRpcRows(data) };
 }
 
 /** REST만 (RPC 실패·미배포 시). curators.select에 slug 넣지 않음 — 컬럼 없으면 전체 쿼리 400 */
-async function fetchStudioFollowersEnrichedRest(supabase, curatorId) {
-  const { data: rows, error } = await supabase
-    .from("user_follows")
-    .select("user_id, created_at")
-    .eq("curator_id", curatorId)
-    .order("created_at", { ascending: false })
-    .limit(200);
+async function fetchStudioFollowersEnrichedRest(
+  supabase,
+  curatorId,
+  opts = {}
+) {
+  let rows;
+  let error;
+
+  if (opts.byFollowingUserId) {
+    const res = await supabase
+      .from("user_profile_follows")
+      .select("follower_id, created_at")
+      .eq("following_id", opts.byFollowingUserId)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    rows = res.data;
+    error = res.error;
+    if (!error && rows?.length) {
+      rows = rows.map((r) => ({
+        user_id: r.follower_id,
+        created_at: r.created_at,
+      }));
+    }
+  } else {
+    const { data: cur } = await supabase
+      .from("curators")
+      .select("user_id")
+      .eq("id", curatorId)
+      .maybeSingle();
+    if (!cur?.user_id) return [];
+
+    const res = await supabase
+      .from("user_profile_follows")
+      .select("follower_id, created_at")
+      .eq("following_id", cur.user_id)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    rows = res.data;
+    error = res.error;
+    if (!error && rows?.length) {
+      rows = rows.map((r) => ({
+        user_id: r.follower_id,
+        created_at: r.created_at,
+      }));
+    }
+  }
 
   if (error) throw error;
   if (!rows?.length) return [];
@@ -119,7 +216,7 @@ async function fetchStudioFollowersEnrichedRest(supabase, curatorId) {
       supabase
         .from("curators")
         .select(
-          "user_id, display_name, username, name, avatar_url, avatar, image, grade"
+          "user_id, slug, name, username, avatar_url, image, grade"
         )
         .in("user_id", ids),
     ]);
@@ -151,28 +248,35 @@ async function fetchStudioFollowersEnrichedRest(supabase, curatorId) {
 
 /**
  * 스튜디오 팔로워 목록: RPC 우선, 실패 시 REST
+ * @param {string} curatorIdOrFollowingUid — curators.id 또는, opts.byFollowingUserId 사용 시 following auth uid
+ * @param {{ byFollowingUserId?: string }} [opts]
  */
-export async function fetchStudioFollowersEnriched(supabase, curatorId) {
-  if (!curatorId) return [];
+export async function fetchStudioFollowersEnriched(
+  supabase,
+  curatorIdOrFollowingUid,
+  opts = {}
+) {
+  const id = curatorIdOrFollowingUid;
+  if (!opts.byFollowingUserId && !id) return [];
 
-  const { error: rpcErr, rows } = await fetchStudioFollowersViaRpc(
+  const { error: rpcErr } = await fetchStudioFollowersViaRpc(
     supabase,
-    curatorId
+    id,
+    opts
   );
-  if (!rpcErr && rows) {
-    return rows;
-  }
+  // picked/picks 표시는 최신 profiles/curators 기준으로 강제 정규화.
+  // RPC의 display_nick/handle_raw 스냅샷은 사용하지 않는다.
   if (rpcErr) {
     console.warn(
       "studio_follower_previews RPC 사용 불가 — REST로 폴백:",
       rpcErr.message
     );
   }
-  return fetchStudioFollowersEnrichedRest(supabase, curatorId);
+  return fetchStudioFollowersEnrichedRest(supabase, id, opts);
 }
 
 const CURATOR_FOLLOWING_FIELDS =
-  "id, user_id, display_name, username, name, avatar_url, avatar, image, grade";
+  "id, user_id, slug, name, username, avatar_url, image, grade";
 
 function normUuidishKey(v) {
   if (v == null) return "";
@@ -240,25 +344,21 @@ function resolveCuratorForFollowingId(raw, maps) {
   );
 }
 
-/** RPC·REST 공통 lookup 키 (studio_following_previews.curator_id_raw 와 맞춤) */
-function followingMergeKey(raw) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-  if (looksLikeUuid(s)) return normUuidishKey(s);
-  return s.toLowerCase();
-}
-
 function mapFollowingRpcRow(row, createdAt) {
   const lines = followerDisplayLines(row.display_nick, row.handle_raw, null);
   const avatarUrl = String(row.avatar_url || "").trim() || null;
-  const hasCurator = Boolean(row.curator_user_id);
+  const targetUserId =
+    row.following_user_id ??
+    row.curator_user_id ??
+    row.curator_id_raw;
   return {
-    user_id: row.curator_user_id ?? row.curator_id_raw,
+    user_id: targetUserId,
+    following_user_id: row.following_user_id ?? targetUserId,
     curator_id: row.curator_id_raw,
     created_at: createdAt,
     ...lines,
     avatarUrl,
-    isCurator: hasCurator,
+    isCurator: Boolean(row.is_curator),
     curatorGrade: row.curator_grade || null,
   };
 }
@@ -357,29 +457,80 @@ async function fetchStudioFollowingEnrichedBatch(supabase, follows) {
   }
   const maps = indexCuratorsForFollowingLookup([...dedup.values()]);
 
+  const needProfileUuids = new Set();
+  for (const follow of follows) {
+    const raw = follow.curator_id;
+    if (!resolveCuratorForFollowingId(raw, maps)) {
+      const s = String(raw ?? "").trim();
+      if (looksLikeUuid(s)) {
+        needProfileUuids.add(normUuidishKey(s));
+      }
+    }
+  }
+
+  let profilesById = {};
+  if (needProfileUuids.size) {
+    const { data: profs, error: pErr } = await supabase
+      .from("profiles")
+      .select("id, display_name, username, auth_provider, avatar_url")
+      .in("id", [...needProfileUuids]);
+    if (pErr) {
+      console.warn("팔로잉 프로필 로드:", pErr.message);
+    } else {
+      profilesById = Object.fromEntries(
+        (profs || []).map((p) => [p.id, p])
+      );
+    }
+  }
+
   return follows.map((follow) => {
     const raw = follow.curator_id;
     const curator = resolveCuratorForFollowingId(raw, maps);
 
     if (curator) {
       const lines = followerDisplayLines(
-        curator.display_name || curator.name,
-        curator.username,
+        curator.name,
+        curator.slug,
         null
       );
       const avatarUrl =
         String(
-          curator.avatar_url || curator.avatar || curator.image || ""
+          curator.avatar_url || curator.image || ""
         ).trim() || null;
       return {
         user_id: curator.user_id,
+        following_user_id: curator.user_id,
         curator_id: raw,
         created_at: follow.created_at,
         ...lines,
         avatarUrl,
         isCurator: true,
+        curatorName: String(curator.name || "").trim() || null,
+        curatorSlug: normalizeHandle(curator.slug || "") || null,
         curatorGrade: curator.grade || null,
       };
+    }
+
+    const s = String(raw ?? "").trim();
+    if (looksLikeUuid(s)) {
+      const prof = profilesById[normUuidishKey(s)];
+      if (prof) {
+        const lines = followerDisplayLines(
+          prof.display_name,
+          prof.username,
+          prof.auth_provider
+        );
+        return {
+          user_id: prof.id,
+          following_user_id: prof.id,
+          curator_id: prof.id,
+          created_at: follow.created_at,
+          ...lines,
+          avatarUrl: prof.avatar_url || null,
+          isCurator: false,
+          curatorGrade: null,
+        };
+      }
     }
 
     return fallbackFollowingEnriched(follow);
@@ -387,151 +538,67 @@ async function fetchStudioFollowingEnrichedBatch(supabase, follows) {
 }
 
 /**
- * 내가 팔로우한 큐레이터 (picks)
- * - studio_following_previews RPC 우선 (curators RLS 우회)
- * - user_follows ∪ curator_follows 병합 후, RPC에 없는 행만 REST 보강
+ * 내가 팔로우한 사용자 (picks) — 큐레이터·일반 프로필
+ * studio_following_previews RPC 우선, 실패 시 user_profile_follows + REST 보강
  */
 export async function fetchStudioFollowingEnriched(supabase, userId) {
   if (!userId) return [];
 
-  const [{ data: ufRows, error: ufErr }, cfRes] = await Promise.all([
-    supabase
-      .from("user_follows")
-      .select("curator_id, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(200),
-    supabase
-      .from("curator_follows")
-      .select("curator_id, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(200),
-  ]);
-
-  if (ufErr) throw ufErr;
-
-  let cfRows = [];
-  if (!cfRes.error && Array.isArray(cfRes.data)) {
-    cfRows = cfRes.data;
-  } else if (cfRes.error) {
-    const msg = String(cfRes.error.message || "").toLowerCase();
-    if (
-      !msg.includes("does not exist") &&
-      cfRes.error.code !== "42P01" &&
-      cfRes.error.code !== "PGRST205"
-    ) {
-      console.warn("팔로잉 curator_follows 로드:", cfRes.error.message);
-    }
-  }
-
-  const merged = new Map();
-  for (const row of [...(ufRows || []), ...cfRows]) {
-    const cid = row?.curator_id;
-    if (cid == null || cid === "") continue;
-    const k = String(cid).trim();
-    const prev = merged.get(k);
-    const t = row.created_at ? new Date(row.created_at).getTime() : 0;
-    const pt = prev?.created_at ? new Date(prev.created_at).getTime() : 0;
-    if (!prev || t >= pt) {
-      merged.set(k, { curator_id: row.curator_id, created_at: row.created_at });
-    }
-  }
-
-  const follows = [...merged.values()]
-    .sort((a, b) => {
-      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return tb - ta;
-    })
-    .slice(0, 200);
-
-  if (!follows.length) return [];
-
-  const { data: rpcData, error: rpcErr } = await supabase.rpc(
+  const { error: rpcErr } = await supabase.rpc(
     "studio_following_previews",
     { p_user_id: userId }
   );
+  // 최신 slug/name 표기를 보장하기 위해 RPC 결과 표시는 사용하지 않고 REST 재조합 고정.
 
-  const rpcMap = new Map();
-  if (!rpcErr && Array.isArray(rpcData)) {
-    for (const row of rpcData) {
-      const k = followingMergeKey(row.curator_id_raw);
-      if (k) rpcMap.set(k, row);
-    }
-  } else if (rpcErr) {
+  if (rpcErr) {
     console.warn(
       "studio_following_previews RPC 사용 불가 — REST로 폴백:",
       rpcErr.message
     );
   }
 
-  if (rpcErr || rpcMap.size === 0) {
-    return fetchStudioFollowingEnrichedBatch(supabase, follows);
-  }
+  const { data: ufRows, error: ufErr } = await supabase
+    .from("user_profile_follows")
+    .select("following_id, created_at")
+    .eq("follower_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-  const missing = [];
-  for (const f of follows) {
-    if (!rpcMap.has(followingMergeKey(f.curator_id))) {
-      missing.push(f);
-    }
-  }
+  if (ufErr) throw ufErr;
+  if (!ufRows?.length) return [];
 
-  let legacyMap = new Map();
-  if (missing.length) {
-    const batch = await fetchStudioFollowingEnrichedBatch(supabase, missing);
-    missing.forEach((f, i) => {
-      legacyMap.set(followingMergeKey(f.curator_id), batch[i]);
-    });
-  }
+  const follows = ufRows.map((r) => ({
+    curator_id: r.following_id,
+    created_at: r.created_at,
+  }));
 
-  return follows.map((f) => {
-    const k = followingMergeKey(f.curator_id);
-    const rpcRow = rpcMap.get(k);
-    if (rpcRow) return mapFollowingRpcRow(rpcRow, f.created_at);
-    const leg = legacyMap.get(k);
-    if (leg) return { ...leg, created_at: f.created_at };
-    return fallbackFollowingEnriched(f);
-  });
+  return fetchStudioFollowingEnrichedBatch(supabase, follows);
 }
 
-/** 잔 아카이브 팔로잉 숫자: user_follows ∪ curator_follows 의 서로 다른 curator_id 개수 */
+/** 팔로잉 수 (고유 following_id) */
 export async function countStudioFollowingDistinct(supabase, userId) {
   if (!userId) return 0;
 
-  const [ufRes, cfRes] = await Promise.all([
-    supabase.from("user_follows").select("curator_id").eq("user_id", userId),
-    supabase.from("curator_follows").select("curator_id").eq("user_id", userId),
-  ]);
+  const { data, error } = await supabase.rpc("user_follow_counts", {
+    p_user_id: userId,
+  });
+  if (!error && data != null) {
+    const row = Array.isArray(data) ? data[0] : data;
+    const n = Number(row?.following_count);
+    if (Number.isFinite(n)) return n;
+  }
+  if (error) {
+    console.warn("user_follow_counts RPC:", error.message);
+  }
 
-  if (ufRes.error) {
-    console.warn("팔로잉 수 user_follows:", ufRes.error.message);
+  const { count, error: cErr } = await supabase
+    .from("user_profile_follows")
+    .select("id", { count: "exact", head: true })
+    .eq("follower_id", userId);
+
+  if (cErr) {
+    console.warn("팔로잉 수 user_profile_follows:", cErr.message);
     return 0;
   }
-
-  const keys = new Set();
-  for (const r of ufRes.data || []) {
-    if (r?.curator_id != null && String(r.curator_id).trim() !== "") {
-      keys.add(String(r.curator_id).trim());
-    }
-  }
-
-  if (!cfRes.error && Array.isArray(cfRes.data)) {
-    for (const r of cfRes.data) {
-      if (r?.curator_id != null && String(r.curator_id).trim() !== "") {
-        keys.add(String(r.curator_id).trim());
-      }
-    }
-  } else if (cfRes.error) {
-    const msg = String(cfRes.error.message || "").toLowerCase();
-    if (
-      !msg.includes("does not exist") &&
-      cfRes.error.code !== "42P01" &&
-      cfRes.error.code !== "PGRST205"
-    ) {
-      console.warn("팔로잉 수 curator_follows:", cfRes.error.message);
-    }
-  }
-
-  return keys.size;
+  return count ?? 0;
 }

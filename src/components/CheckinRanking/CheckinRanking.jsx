@@ -26,6 +26,15 @@ const CheckinRanking = ({ position = 'sidebar' }) => {
           maxHeight: '400px',
           overflowY: 'auto'
         };
+      /** 상위 고정 래퍼 안에 쌓을 때(우측 맞픽 한잔 등) */
+      case 'sidebarStack':
+        return {
+          ...baseStyles,
+          width: '100%',
+          maxHeight: 'min(400px, 45vh)',
+          overflowY: 'auto',
+          flexShrink: 0,
+        };
       case 'bottom':
         return {
           ...baseStyles,

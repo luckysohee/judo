@@ -1058,6 +1058,273 @@ function pickBestDistinctCourse(
 }
 
 /**
+ * 고정된 1·2차 사이에 넣을 쩜오차 1곳 — `tryBuildCoursesForProfileThree`와 동일 거리·점수 감각.
+ */
+function pickBridgeForFixedEndpoints({
+  first,
+  second,
+  bridgePool,
+  rule1,
+  rule2,
+  effectiveParsed,
+  profile,
+}) {
+  const firstScore = calculateCoursePlaceScore(
+    first,
+    rule1,
+    effectiveParsed,
+    profile
+  );
+  const secondScore = calculateCoursePlaceScore(
+    second,
+    rule2,
+    effectiveParsed,
+    profile
+  );
+
+  const walkable = Boolean(effectiveParsed.walkable);
+  const namedArea = Boolean(effectiveParsed?.area);
+  const distanceTiers = namedArea
+    ? walkable
+      ? [450, 800, 1300, 2200, Number.POSITIVE_INFINITY]
+      : [1400, 2600, 4000, Number.POSITIVE_INFINITY]
+    : walkable
+      ? [500, 900, 1400, 2800, Number.POSITIVE_INFINITY]
+      : [2000, 8000, Number.POSITIVE_INFINITY];
+
+  for (const limit of distanceTiers) {
+    let best = null;
+    let bestScore = -Infinity;
+    for (const bridge of bridgePool) {
+      if (
+        isSameVenueForCourseStep(first, bridge) ||
+        isSameVenueForCourseStep(bridge, second)
+      ) {
+        continue;
+      }
+      const d1 = haversineMeters(
+        Number(first.lat),
+        Number(first.lng),
+        Number(bridge.lat),
+        Number(bridge.lng)
+      );
+      if (d1 < BRIDGE_LEG_MIN_M || d1 > BRIDGE_LEG_MAX_M) continue;
+
+      const d2 = haversineMeters(
+        Number(bridge.lat),
+        Number(bridge.lng),
+        Number(second.lat),
+        Number(second.lng)
+      );
+      if (d2 < SECOND_MIN_DISTANCE_METERS) continue;
+      if (Number.isFinite(limit) && limit < 1e8 && d2 > limit) continue;
+
+      const distanceBonus =
+        Math.max(0, 30 - d2 / 25) * profile.weights.distance;
+      let timingBonus = 0;
+      const secondClose = getMinutesUntilClose(second);
+      if (effectiveParsed.rightNow && secondClose != null) {
+        if (secondClose >= (rule2.stayMinutes ?? 60)) timingBonus += 10;
+        else if (secondClose < 40) timingBonus -= 50;
+      }
+
+      const pairScore =
+        firstScore +
+        bridge.matchScore +
+        secondScore +
+        distanceBonus +
+        timingBonus;
+
+      if (pairScore > bestScore) {
+        bestScore = pairScore;
+        best = {
+          bridge,
+          dFirstBridge: Math.round(d1),
+          dBridgeSecond: Math.round(d2),
+          pairScore,
+        };
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * UI 쩜오 ON: 화면에 있던 2단 추천 코스의 1·2차는 유지하고 쩜오차만 끼움 (실패 시 해당 카드는 2단 유지).
+ */
+export function upgradeTwoStepCoursesToHalfStep({
+  parsedQuery,
+  places = [],
+  bridgeAugment = [],
+  existingCourses = [],
+}) {
+  const pattern = choosePattern(parsedQuery);
+  if (!pattern || pattern.length !== 3) {
+    return Array.isArray(existingCourses) ? [...existingCourses] : [];
+  }
+
+  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
+    places,
+    parsedQuery
+  );
+  if (!areaPlaces.length) {
+    return Array.isArray(existingCourses) ? [...existingCourses] : [];
+  }
+
+  const areaKey = effectiveParsed?.area;
+  const areaBridgeAugment = areaKey
+    ? (bridgeAugment || []).filter((p) => placeMatchesArea(p, areaKey))
+    : bridgeAugment || [];
+
+  const [rule1, ruleBridge, rule2] = pattern;
+  const out = [];
+
+  for (const course of existingCourses) {
+    const steps = course?.steps || [];
+    if (steps.length >= 3) {
+      out.push(course);
+      continue;
+    }
+    if (steps.length < 2) {
+      out.push(course);
+      continue;
+    }
+
+    const profile = COURSE_PROFILES[course.profileKey] || COURSE_PROFILES.normal;
+    const firstPlace = steps[0]?.place;
+    const secondPlace = steps[1]?.place;
+    const first = withResolvedCoords(firstPlace);
+    const second = withResolvedCoords(secondPlace);
+    if (!first || !second) {
+      out.push(course);
+      continue;
+    }
+
+    const bridgeSource = mergePlaceListsDedupingVenues(
+      areaPlaces,
+      areaBridgeAugment
+    ).filter((p) => !isBudgetChainBridgeCoffeePlace(p));
+    let bridgePool = rankByRule(
+      bridgeSource,
+      ruleBridge,
+      effectiveParsed,
+      profile
+    );
+    if (!bridgePool.length) {
+      bridgePool = bridgeSource
+        .map(withResolvedCoords)
+        .filter(Boolean)
+        .filter((p) => placeLooksLikeBridgeSweetStop(p))
+        .map((p) => {
+          const s = calculateCoursePlaceScore(
+            p,
+            ruleBridge,
+            effectiveParsed,
+            profile
+          );
+          return { ...p, matchScore: Math.max(14, s) };
+        })
+        .filter((p) => p.matchScore > 0)
+        .sort((a, b) => b.matchScore - a.matchScore);
+    }
+
+    const best = pickBridgeForFixedEndpoints({
+      first,
+      second,
+      bridgePool,
+      rule1,
+      rule2,
+      effectiveParsed,
+      profile,
+    });
+
+    if (!best) {
+      out.push(course);
+      continue;
+    }
+
+    const { bridge, dFirstBridge, dBridgeSecond, pairScore } = best;
+
+    out.push({
+      ...course,
+      key: `${course.key}-half-${placeId(bridge) ?? "b"}`,
+      includeHalfStep: true,
+      totalScore: pairScore,
+      steps: [
+        {
+          ...steps[0],
+          step: 1,
+          label: rule1.label,
+          stayMinutes: rule1.stayMinutes,
+          place: firstPlace,
+        },
+        {
+          step: 2,
+          label: ruleBridge.label,
+          stayMinutes: ruleBridge.stayMinutes,
+          walkDistanceMeters: dFirstBridge,
+          place: bridge,
+        },
+        {
+          ...steps[1],
+          step: 3,
+          label: rule2.label,
+          stayMinutes: rule2.stayMinutes,
+          walkDistanceMeters: dBridgeSecond,
+          place: secondPlace,
+        },
+      ],
+    });
+  }
+
+  return out;
+}
+
+/**
+ * UI 쩜오 OFF: 3단 코스에서 가운데 쩜오차만 제거하고 1차와 마지막(2차)만 남김.
+ */
+export function stripHalfStepFromCourses(courses = []) {
+  return courses.map((course) => {
+    const steps = course?.steps || [];
+    if (steps.length < 3) {
+      const { includeHalfStep: _ih, ...rest } = course;
+      return { ...rest, includeHalfStep: false };
+    }
+    const s0 = steps[0];
+    const sLast = steps[steps.length - 1];
+    const p0 = s0?.place;
+    const p2 = sLast?.place;
+    const w0 = resolvePlaceWgs84(p0);
+    const w2 = resolvePlaceWgs84(p2);
+    if (!w0 || !w2) return course;
+    const d = haversineMeters(w0.lat, w0.lng, w2.lat, w2.lng);
+    const id0 = placeId(p0);
+    const id2 = placeId(p2);
+    return {
+      ...course,
+      key: `${course.profileKey || "c"}-${id0 ?? "a"}-${id2 ?? "z"}-2leg`,
+      includeHalfStep: false,
+      steps: [
+        {
+          ...s0,
+          step: 1,
+          label: s0.label || "1차",
+          place: p0,
+        },
+        {
+          ...sLast,
+          step: 2,
+          label: sLast.label || "2차",
+          walkDistanceMeters: Number.isFinite(d) ? Math.round(d) : sLast.walkDistanceMeters,
+          place: p2,
+        },
+      ],
+    };
+  });
+}
+
+/**
  * 프로필별 성격 다른 코스 최대 3개 (정석·분위기·큐레이터 픽).
  * @param {number} [opts.maxOptions] 1이면 정석 프로필만 1개 (하위 호환)
  * @param {Iterable<string>} [opts.excludeCourseKeys] 이미 본 `course.key` 제외
@@ -1095,6 +1362,8 @@ export function generateCourseOptions({
 
   const selectedCourses = [];
   const usedVenueKeys = new Set();
+  const seenCourseKeys = new Set();
+  const seenPairKeys = new Set();
   const excludeKeySet =
     excludeCourseKeys instanceof Set
       ? excludeCourseKeys
@@ -1132,8 +1401,60 @@ export function generateCourseOptions({
     if (!picked) continue;
 
     selectedCourses.push(picked);
+    if (picked?.key != null) seenCourseKeys.add(String(picked.key));
+    {
+      const pair = courseVenuePairKey(picked);
+      if (pair) seenPairKeys.add(pair);
+    }
     for (const k of venueKeysForCourse(picked)) {
       usedVenueKeys.add(k);
+    }
+  }
+
+  /**
+   * 프로필 간 venue 완전 비중복을 강제하면 지역/카테고리 풀이 작은 쿼리(예: 「연남동 2차 코스」)에서
+   * 카드가 1개만 남는 경우가 있다. 이때는 pair/key 중복만 막고 나머지 슬롯을 보강한다.
+   */
+  if (selectedCourses.length < maxOptions) {
+    const fallbackReservoir = [];
+    const fallbackAllowPairDup = [];
+    for (const profile of profiles) {
+      const rng = mulberry32(
+        (invocationSeed + hashString(`${profile.key || ""}:fallback`)) >>> 0
+      );
+      const candidates = buildCoursesWithProfile({
+        parsedQuery: effectiveParsed,
+        places: areaPlaces,
+        bridgeAugment: areaBridgeAugment,
+        pattern,
+        profile,
+        rng,
+      });
+      for (const c of candidates) {
+        const ckey = c?.key != null ? String(c.key) : null;
+        if (ckey && (excludeKeySet.has(ckey) || seenCourseKeys.has(ckey))) continue;
+        const pair = courseVenuePairKey(c);
+        if (pair && (excludePairSet.has(pair) || seenPairKeys.has(pair))) {
+          fallbackAllowPairDup.push(c);
+          continue;
+        }
+        fallbackReservoir.push(c);
+      }
+    }
+    for (const c of fallbackReservoir) {
+      if (selectedCourses.length >= maxOptions) break;
+      selectedCourses.push(c);
+      if (c?.key != null) seenCourseKeys.add(String(c.key));
+      const pair = courseVenuePairKey(c);
+      if (pair) seenPairKeys.add(pair);
+    }
+    /** 지역·태그 풀이 매우 작을 때: pair 중복 허용(동일 코스 key는 제외)으로 3카드 채우기 */
+    for (const c of fallbackAllowPairDup) {
+      if (selectedCourses.length >= maxOptions) break;
+      const ckey = c?.key != null ? String(c.key) : null;
+      if (ckey && (excludeKeySet.has(ckey) || seenCourseKeys.has(ckey))) continue;
+      selectedCourses.push(c);
+      if (ckey) seenCourseKeys.add(ckey);
     }
   }
 

@@ -10,6 +10,8 @@ import {
   courseVenuePairKey,
   isBudgetChainBridgeCoffeePlace,
   placeId,
+  stripHalfStepFromCourses,
+  upgradeTwoStepCoursesToHalfStep,
 } from "../utils/generateCourseOptions.js";
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
 import { normalizeHangulSearchCompounds } from "../utils/searchParser.js";
@@ -205,7 +207,9 @@ export function useCourseSearch() {
    *   includeHalfStep?: boolean,
    *   preserveSelectionFromCourse?: { steps?: unknown[] } | null,
    *   keepExistingOptionsUntilLoaded?: boolean,
-   * }} [loadOpts] — 내 주변 코스: GPS·앵커 반경만 쓸 때 strictNearby. 검색어에 지역(`parseCourseQuery.area`)이 있으면 후보는 전역 풀에서 지역 매칭으로 좁힘(반경만 쓰면 DB 좌표 편향으로 0건이 되기 쉬움). `preserveSelectionFromCourse`가 있으면 새 후보 중 1차·2차(3단이면 양 끝) 장소 id가 같은 카드를 선택(직행↔쩜오 토글 시 스와이프 위치 유지). `keepExistingOptionsUntilLoaded`면 로딩 중에도 기존 코스 카드를 비우지 않아 바텀시트가 접힌 것처럼 보이지 않음.
+   *   halfStepEditMode?: "insert" | "strip",
+   *   halfStepBaseCourses?: unknown[],
+   * }} [loadOpts] — 내 주변 코스: GPS·앵커 반경만 쓸 때 strictNearby. 검색어에 지역(`parseCourseQuery.area`)이 있으면 후보는 전역 풀에서 지역 매칭으로 좁힘(반경만 쓰면 DB 좌표 편향으로 0건이 되기 쉬움). `preserveSelectionFromCourse`가 있으면 새 후보 중 1차·2차(3단이면 양 끝) 장소 id가 같은 카드를 선택(직행↔쩜오 토글 시 스와이프 위치 유지). `keepExistingOptionsUntilLoaded`면 로딩 중에도 기존 코스 카드를 비우지 않아 바텀시트가 접힌 것처럼 보이지 않음. `halfStepEditMode`+`halfStepBaseCourses`로 쩜오 토글 시 기존 3추천을 새로 짜지 않고 끼워 넣기/제거.
    */
   const loadCourseOptionsFromQuery = useCallback(async (q, loadOpts = {}) => {
     const trimmed = normalizeHangulSearchCompounds(String(q || "")).trim();
@@ -232,6 +236,31 @@ export function useCourseSearch() {
     setCourseQueryParsed(parsed);
 
     try {
+      if (
+        loadOpts?.halfStepEditMode === "strip" &&
+        !parsed.includeHalfStep &&
+        Array.isArray(loadOpts?.halfStepBaseCourses) &&
+        loadOpts.halfStepBaseCourses.length > 0
+      ) {
+        const base = loadOpts.halfStepBaseCourses;
+        const preservedMyOwn = base.filter((c) => c?.profileKey === "my_own");
+        const engine = base.filter((c) => c?.profileKey !== "my_own");
+        const strippedEngine = stripHalfStepFromCourses(engine);
+        const fullOptions = [...strippedEngine, ...preservedMyOwn];
+        setCourseOptions(fullOptions);
+        const preserve = loadOpts?.preserveSelectionFromCourse;
+        const matched =
+          preserve && strippedEngine.length
+            ? findCoursePreservingLegEndpoints(preserve, strippedEngine)
+            : null;
+        setSelectedCourse(matched ?? strippedEngine[0] ?? null);
+        const { keys, pairs } = appendSeenFromCourses(strippedEngine);
+        setSeenCourseKeys(keys);
+        setSeenVenuePairKeys(pairs);
+        const mapPlaces = courseOptionsToMapPlaces(strippedEngine);
+        return { handled: true, options: fullOptions, mapPlaces, parsed };
+      }
+
       const { rows, error } = await fetchCoursePlacesRows(supabase);
 
       if (error) {
@@ -310,6 +339,37 @@ export function useCourseSearch() {
       }
 
       setCoursePlaces(placesForCourse);
+
+      if (
+        loadOpts?.halfStepEditMode === "insert" &&
+        parsed.includeHalfStep &&
+        parsed.steps === 2 &&
+        Array.isArray(loadOpts?.halfStepBaseCourses) &&
+        loadOpts.halfStepBaseCourses.length > 0
+      ) {
+        const base = loadOpts.halfStepBaseCourses;
+        const preservedMyOwn = base.filter((c) => c?.profileKey === "my_own");
+        const engine = base.filter((c) => c?.profileKey !== "my_own");
+        const upgradedEngine = upgradeTwoStepCoursesToHalfStep({
+          parsedQuery: parsed,
+          places: placesForCourse,
+          bridgeAugment: bridgeAugmentForEngine,
+          existingCourses: engine,
+        });
+        const fullOptions = [...upgradedEngine, ...preservedMyOwn];
+        setCourseOptions(fullOptions);
+        const preserve = loadOpts?.preserveSelectionFromCourse;
+        const matched =
+          preserve && upgradedEngine.length
+            ? findCoursePreservingLegEndpoints(preserve, upgradedEngine)
+            : null;
+        setSelectedCourse(matched ?? upgradedEngine[0] ?? null);
+        const { keys, pairs } = appendSeenFromCourses(upgradedEngine);
+        setSeenCourseKeys(keys);
+        setSeenVenuePairKeys(pairs);
+        const mapPlaces = courseOptionsToMapPlaces(upgradedEngine);
+        return { handled: true, options: fullOptions, mapPlaces, parsed };
+      }
 
       const options = generateCourseOptions({
         parsedQuery: parsed,

@@ -6,10 +6,15 @@ import {
 import { isHiddenInternalPlaceTag } from "./placeUiTags";
 
 function curatorRowPublicKey(curatorPlace) {
+  const nm = String(curatorPlace?.curators?.name ?? "").trim();
+  const dn = String(
+    curatorPlace?.curators?.display_name ??
+      curatorPlace?.curators?.displayName ??
+      ""
+  ).trim();
   const un = String(curatorPlace?.curators?.username ?? "").trim();
-  const dn = String(curatorPlace?.curators?.display_name ?? "").trim();
   const legacy = String(curatorPlace?.curator_id ?? "").trim();
-  return un || dn || legacy || "";
+  return nm || dn || un || legacy || "";
 }
 
 /**
@@ -54,10 +59,15 @@ export function buildFormattedPlacesFromJoin(joinRows) {
 
     place.curatorPlaces.forEach((curatorPlace) => {
       const curatorName =
-        curatorPlace.curators?.display_name ||
-        curatorPlace.curators?.username ||
-        curatorPlace.display_name ||
-        curatorPlace.curator_id ||
+        String(curatorPlace.curators?.name ?? "").trim() ||
+        String(
+          curatorPlace.curators?.display_name ??
+            curatorPlace.curators?.displayName ??
+            ""
+        ).trim() ||
+        String(curatorPlace.curators?.username ?? "").trim() ||
+        String(curatorPlace.display_name ?? "").trim() ||
+        String(curatorPlace.curator_id ?? "").trim() ||
         "";
 
       curatorNames.push(curatorName);
@@ -139,7 +149,9 @@ export function buildFormattedPlacesFromJoin(joinRows) {
         for (const cp of place.curatorPlaces || []) {
           add(cp.curator_id);
           add(cp.curators?.username);
+          add(cp.curators?.name);
           add(cp.curators?.display_name);
+          add(cp.curators?.displayName);
           add(cp.curators?.user_id);
           add(cp.curators?.id);
           const pub = curatorRowPublicKey(cp);

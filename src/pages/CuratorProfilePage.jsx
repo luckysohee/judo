@@ -1,34 +1,72 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { useAuth } from "../context/AuthContext";
 import { fetchUserPickedPlaces } from "../api/placePicks";
+import PickUserButton, {
+  PickCountsRow,
+} from "../components/PickUserButton/PickUserButton";
 import PlacePicksPublicList from "../components/PlacePick/PlacePicksPublicList";
 import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
 import { isPlaceSaved } from "../utils/storage";
+import { getPickCounts } from "../utils/userProfileFollows";
 
 export default function CuratorProfilePage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  
-  // URL 디코딩
-  const decodedSlug = decodeURIComponent(slug);
-  
+
+  const decodedSlug = slug ? decodeURIComponent(slug) : "";
+
   const [curator, setCurator] = useState(null);
-  const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
   const [profilePickRows, setProfilePickRows] = useState([]);
   const [profilePicksLoading, setProfilePicksLoading] = useState(false);
   const [pickDetailPlace, setPickDetailPlace] = useState(null);
+  const [receivedPickCount, setReceivedPickCount] = useState(0);
+  const [outgoingPickCount, setOutgoingPickCount] = useState(0);
+  const [mutual, setMutual] = useState(false);
+
+  const profileUserId = curator?.user_id ?? null;
+  const isSelf = Boolean(user?.id && profileUserId && user.id === profileUserId);
+
+  const onPickCountsChange = useCallback(({ received, outgoing }) => {
+    setReceivedPickCount(received);
+    setOutgoingPickCount(outgoing);
+  }, []);
+
+  const onRelationshipChange = useCallback(({ mutual: m }) => {
+    setMutual(Boolean(m));
+  }, []);
+
+  const fetchCurator = useCallback(async () => {
+    if (!decodedSlug) {
+      setCurator(null);
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("curators")
+        .select("*")
+        .eq("slug", decodedSlug)
+        .single();
+
+      if (error) throw error;
+      setCurator(data);
+    } catch (error) {
+      console.error("fetch curator error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [decodedSlug]);
 
   useEffect(() => {
-    if (!decodedSlug) return;
-    fetchCurator();
-  }, [decodedSlug]);
+    setLoading(true);
+    void fetchCurator();
+  }, [fetchCurator]);
 
   useEffect(() => {
     const uid = curator?.user_id;
@@ -54,69 +92,33 @@ export default function CuratorProfilePage() {
     };
   }, [curator?.user_id]);
 
-  const fetchCurator = async () => {
-    try {
-      console.log("Original slug:", slug);
-      console.log("Decoded slug:", decodedSlug); // 디버깅
-      
-      const { data, error } = await supabase
-        .from("curators")
-        .select("*")
-        .eq("slug", decodedSlug) // 디코딩된 slug 사용
-        .single();
-
-      console.log("Curator data:", data); // 디버깅
-      console.log("Error:", error); // 디버깅
-
-      if (error) throw error;
-      setCurator(data);
-      
-      if (user) {
-        await checkFollowStatus(data.id);
+  useEffect(() => {
+    let cancelled = false;
+    const uid = curator?.user_id;
+    if (!uid) {
+      setReceivedPickCount(0);
+      setOutgoingPickCount(0);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const c = await getPickCounts(supabase, uid);
+        if (!cancelled) {
+          setReceivedPickCount(c.followers_count);
+          setOutgoingPickCount(c.following_count);
+        }
+      } catch (e) {
+        console.warn("CuratorProfilePage pick counts:", e);
       }
-    } catch (error) {
-      console.error("fetch curator error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
 
-  const checkFollowStatus = async (curatorId) => {
-    try {
-      const { data, error } = await supabase.rpc("is_following_curator", {
-        curator_id: curatorId,
-      });
-      setIsFollowing(data || false);
-    } catch (error) {
-      console.error("check follow status error:", error);
-    }
-  };
-
-  const handleFollow = async () => {
-    if (!user || !curator) return;
-    
-    try {
-      setProcessing(true);
-      const rpc = isFollowing ? "unfollow_curator" : "follow_curator";
-      
-      const { error } = await supabase.rpc(rpc, {
-        curator_id: curator.id,
-      });
-
-      if (error) throw error;
-
-      if (rpc === "follow_curator") {
-        void syncAuthProviderToProfile(supabase, user).catch(() => {});
-      }
-
-      setIsFollowing(!isFollowing);
-    } catch (error) {
-      console.error("follow error:", error);
-      alert(error?.message || "팔로우 처리 중 오류가 발생했습니다.");
-    } finally {
-      setProcessing(false);
-    }
-  };
+  useEffect(() => {
+    if (!user?.id) setMutual(false);
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -150,25 +152,35 @@ export default function CuratorProfilePage() {
         <div style={styles.profile}>
           <div style={styles.name}>{curator.display_name}</div>
           <div style={styles.bio}>{curator.bio || "주도 큐레이터입니다."}</div>
-          
-          {user ? (
-            <button
-              type="button"
-              onClick={handleFollow}
-              disabled={processing}
-              style={{
-                ...styles.followButton,
-                ...(isFollowing ? styles.followingButton : styles.followButtonActive),
-                opacity: processing ? 0.6 : 1,
-              }}
-            >
-              {processing ? "처리 중..." : isFollowing ? "팔로잉" : "팔로우"}
-            </button>
-          ) : (
-            <div style={styles.loginPrompt}>
-              팔로우하려면 로그인이 필요합니다.
+
+          <PickCountsRow
+            profileUserId={profileUserId}
+            receivedCount={receivedPickCount}
+            outgoingCount={outgoingPickCount}
+            mutual={Boolean(user?.id && !isSelf && mutual)}
+            style={{ justifyContent: "center", marginBottom: 8 }}
+          />
+
+          {profileUserId ? (
+            <div style={{ marginTop: 4 }}>
+              <PickUserButton
+                key={profileUserId}
+                profileUserId={profileUserId}
+                onPickCountsChange={onPickCountsChange}
+                onRelationshipChange={onRelationshipChange}
+                onBecomePicking={() => {
+                  if (user)
+                    void syncAuthProviderToProfile(supabase, user).catch(() => {});
+                }}
+                buttonStyle={{
+                  padding: "12px 24px",
+                  fontSize: 16,
+                  borderRadius: 12,
+                  marginTop: 0,
+                }}
+              />
             </div>
-          )}
+          ) : null}
         </div>
 
         <div style={styles.picksSection}>
@@ -205,7 +217,8 @@ const styles = {
     minHeight: "100vh",
     backgroundColor: "#111111",
     color: "#ffffff",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   header: {
     padding: "16px",
@@ -233,35 +246,8 @@ const styles = {
   bio: {
     fontSize: "16px",
     color: "#bdbdbd",
-    marginBottom: "24px",
+    marginBottom: "16px",
     lineHeight: 1.5,
-  },
-  followButton: {
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px 24px",
-    fontSize: "16px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  followButtonActive: {
-    backgroundColor: "#2ECC71",
-    color: "#111111",
-    border: "none",
-  },
-  followingButton: {
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    border: "1px solid #444444",
-  },
-  loginPrompt: {
-    fontSize: "14px",
-    color: "#bdbdbd",
-    padding: "12px",
-    backgroundColor: "#1a1a1a",
-    borderRadius: "12px",
   },
   picksSection: {
     marginTop: "28px",

@@ -473,6 +473,14 @@ export function normalizeHangulSearchCompounds(query) {
     .replace(/\s+/g, " ")
     .trim();
   if (!q) return q;
+  /** «합정 + 1차 + 어디로» 가이드를 그대로 붙여넣었을 때: 양쪽 공백 있는 + 만 문장 공백으로 */
+  q = q.replace(/\s+[+＋]\s+/g, " ");
+  /** 붙여 쓴 «합정+1차» */
+  q = q.replace(
+    /([가-힣A-Za-z0-9]+)[+＋](?=1차|2차|3차|일차|이차|삼차)/giu,
+    "$1 "
+  );
+
   const pairs = [
     [/데이트코스/giu, "데이트 코스"],
     [/회식코스/giu, "회식 코스"],

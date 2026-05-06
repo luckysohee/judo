@@ -108,7 +108,8 @@ export function regenerateSecondStep({
     : choosePattern(parsedQuery);
   if (!pattern || pattern.length < 2) return [];
 
-  const rule2 = useBridgeAnchor ? pattern[2] : pattern[1];
+  /** 마지막 스텝 = 실제「2차」(바·술집). 3스텝 패턴에서 `pattern[1]`은 쩜오차라서 여기 쓰면 후보 점수가 전부 0에 가깝게 나감. */
+  const rule2 = pattern[pattern.length - 1];
   const profile = chooseProfile(selectedCourse.profileKey);
 
   const firstPlace = selectedCourse.steps[0].place;
@@ -138,6 +139,10 @@ export function regenerateSecondStep({
     walkable,
     userSecondPreferences
   );
+  const hasUserMaxDistance =
+    userSecondPreferences?.maxSecondDistanceM != null &&
+    Number.isFinite(Number(userSecondPreferences.maxSecondDistanceM));
+  const prioritizeCurators = Boolean(userSecondPreferences?.prioritizeCurators);
 
   const candidates = areaPlaces
     .map((place) => {
@@ -287,13 +292,40 @@ export function regenerateSecondStep({
     .filter((place) => place.candidateScore > 0);
 
   let filtered = [];
-
-  for (const limit of distanceLimits) {
+  if (hasUserMaxDistance) {
+    // 사용자가 최대 거리를 명시하면 그 상한까지 전체 후보를 본다(근거리 tier 조기종료 금지).
+    const userLimit = Math.max(...distanceLimits);
     filtered = candidates
-      .filter((place) => place.distanceFromAnchor <= limit)
-      .sort((a, b) => b.candidateScore - a.candidateScore);
+      .filter((place) => place.distanceFromAnchor <= userLimit)
+      .sort((a, b) => {
+        if (prioritizeCurators) {
+          const aCur = Number(a.overlapCuratorCount ?? a.overlap_curator_count ?? 0);
+          const bCur = Number(b.overlapCuratorCount ?? b.overlap_curator_count ?? 0);
+          if (bCur !== aCur) return bCur - aCur;
+          const aCnt = Number(a.curatorCount ?? a.curator_count ?? 0);
+          const bCnt = Number(b.curatorCount ?? b.curator_count ?? 0);
+          if (bCnt !== aCnt) return bCnt - aCnt;
+        }
+        return b.candidateScore - a.candidateScore;
+      });
+  } else {
+    for (const limit of distanceLimits) {
+      filtered = candidates
+        .filter((place) => place.distanceFromAnchor <= limit)
+        .sort((a, b) => {
+          if (prioritizeCurators) {
+            const aCur = Number(a.overlapCuratorCount ?? a.overlap_curator_count ?? 0);
+            const bCur = Number(b.overlapCuratorCount ?? b.overlap_curator_count ?? 0);
+            if (bCur !== aCur) return bCur - aCur;
+            const aCnt = Number(a.curatorCount ?? a.curator_count ?? 0);
+            const bCnt = Number(b.curatorCount ?? b.curator_count ?? 0);
+            if (bCnt !== aCnt) return bCnt - aCnt;
+          }
+          return b.candidateScore - a.candidateScore;
+        });
 
-    if (filtered.length) break;
+      if (filtered.length) break;
+    }
   }
 
   const sid = placeId(currentSecond);

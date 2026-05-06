@@ -444,7 +444,7 @@ export default function CheckinButton({
         hanjanButton: {
           padding: "0 10px",
           border: "1px solid rgba(217, 119, 6, 0.65)",
-          borderRadius: "12px",
+          borderRadius: "10px",
           background: "linear-gradient(180deg, #fde68a 0%, #f59e0b 48%, #d97706 100%)",
           color: "#422006",
           fontSize: "12px",
@@ -455,7 +455,7 @@ export default function CheckinButton({
           alignItems: "center",
           gap: "4px",
           minWidth: "0",
-          minHeight: "42px",
+          minHeight: "44px",
           width: "100%",
           boxSizing: "border-box",
           justifyContent: "center",

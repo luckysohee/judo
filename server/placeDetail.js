@@ -25,7 +25,6 @@ const CURATOR_PLACE_FETCH_COLUMNS = [
   "curator_id",
   "is_archived",
   "one_line_reason",
-  "menu_reason",
   "one_line_review",
   "tags",
   "moods",
@@ -91,7 +90,7 @@ export async function handlePlaceDetail(req, res) {
   if (uids.length > 0) {
     const { data: curRows, error: cuErr } = await sb
       .from("curators")
-      .select("user_id,username,display_name")
+      .select("user_id,slug,name,username,display_name")
       .in("user_id", uids);
     if (cuErr) {
       console.error("place-detail curators", cuErr);
@@ -101,6 +100,8 @@ export async function handlePlaceDetail(req, res) {
       const uid = String(c?.user_id ?? "").trim();
       if (uid) {
         curMap.set(uid, {
+          slug: c.slug ?? "",
+          name: c.name ?? "",
           username: c.username ?? "",
           display_name: c.display_name ?? "",
         });
@@ -113,7 +114,7 @@ export async function handlePlaceDetail(req, res) {
     const cu = _cid ? curMap.get(String(_cid)) : null;
     return {
       ...rest,
-      curators: cu || { username: "", display_name: "" },
+      curators: cu || { slug: "", name: "", username: "", display_name: "" },
     };
   });
 

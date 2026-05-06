@@ -1573,7 +1573,7 @@ export default function StudioHome() {
   const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
 
-  /** 스튜디오「픽한 가게」— `place_picks` 만 (curator_places 와 무관) */
+  /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
   const [studioPlacePicks, setStudioPlacePicks] = useState([]);
   const [studioPlacePicksLoading, setStudioPlacePicksLoading] = useState(false);
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
@@ -2159,117 +2159,105 @@ export default function StudioHome() {
   const [overlapSharedPlacesList, setOverlapSharedPlacesList] = useState([]);
   const [showOverlapPlacesList, setShowOverlapPlacesList] = useState(false);
 
-  // 큐레이터 프로필 ID 확인 (테스트용)
+  // 새 팔로워 읽지 않음 토스트 (user_profile_follows.is_read)
   useEffect(() => {
-    if (curatorProfile?.id) {
-      console.log('🔍 큐레이터 로그인:', curatorProfile.id);
-      console.log('🔍 전체 프로필:', curatorProfile);
-      console.log('🔍 현재 사용자:', user?.id);
-      
-      // 읽지 않은 팔로우 조회 및 Toast 알림
-      const fetchUnreadFollowers = async () => {
-        try {
-          const { data: unreadFollows, error: unreadError } = await supabase
-            .from('user_follows')
-            .select('user_id, created_at')
-            .eq('curator_id', curatorProfile.id)
-            .eq('is_read', false)
-            .order('created_at', { ascending: false });
+    if (!user?.id) return undefined;
 
-          if (unreadError) {
-            console.error('읽지 않은 팔로워 조회 실패:', unreadError);
-            return;
-          }
+    const fetchUnreadFollowers = async () => {
+      try {
+        const { data: unreadFollows, error: unreadError } = await supabase
+          .from("user_profile_follows")
+          .select("follower_id, created_at")
+          .eq("following_id", user.id)
+          .eq("is_read", false)
+          .order("created_at", { ascending: false });
 
-          if (unreadFollows && unreadFollows.length > 0) {
-            const enriched = await fetchStudioFollowersEnriched(
-              supabase,
-              curatorProfile.id
-            );
-            const byUserId = new Map(
-              enriched.map((r) => [r.user_id, r])
-            );
-
-            const followerPromises = unreadFollows.map(async (follow) => {
-              const row = byUserId.get(follow.user_id);
-              if (row) {
-                const toastLine =
-                  row.label === "이름 미설정" ? null : row.label;
-                return { ...follow, toastLine, toastDetail: null };
-              }
-              const [profRes, curRes] = await Promise.all([
-                supabase
-                  .from("profiles")
-                  .select("username, display_name, auth_provider, avatar_url")
-                  .eq("id", follow.user_id)
-                  .maybeSingle(),
-                supabase
-                  .from("curators")
-                  .select(
-                    "user_id, display_name, username, name, avatar_url, avatar, image, grade"
-                  )
-                  .eq("user_id", follow.user_id)
-                  .maybeSingle(),
-              ]);
-
-              const pres = resolveFollowerPresentation(
-                profRes.data || {},
-                curRes.data
-              );
-              const toastLine =
-                pres.label === "이름 미설정" ? null : pres.label;
-
-              return {
-                ...follow,
-                toastLine,
-                toastDetail: null,
-              };
-            });
-
-            const followersWithData = await Promise.all(followerPromises);
-            const count = followersWithData.length;
-            const firstFollower = followersWithData[0];
-
-            // 메시지 생성
-            const singleMsg = (() => {
-              const f = firstFollower;
-              if (f.toastDetail) {
-                return `✨ ${f.toastLine} — ${f.toastDetail}`;
-              }
-              if (!f.toastLine) {
-                return `✨ 새 팔로우가 생겼어요! 👤`;
-              }
-              return `✨ ${f.toastLine}님이 큐레이터님을 팔로우했습니다! 👤`;
-            })();
-
-            const message =
-              count === 1
-                ? singleMsg
-                : !firstFollower.toastLine
-                  ? `🚀 새 팔로우 ${count}건이 있어요. 👤`
-                  : `🚀 ${firstFollower.toastLine}님 외 ${count - 1}명이 큐레이터님을 팔로우합니다!`;
-
-            // Toast 알림 표시
-            showToast(message, 'info', 5000);
-
-            // 읽음 처리
-            await supabase
-              .from('user_follows')
-              .update({ is_read: true })
-              .eq('curator_id', curatorProfile.id)
-              .eq('is_read', false);
-          }
-        } catch (error) {
-          console.error('팔로워 알림 처리 오류:', error);
+        if (unreadError) {
+          console.error("읽지 않은 팔로워 조회 실패:", unreadError);
+          return;
         }
-      };
 
-      fetchUnreadFollowers();
-    } else {
-      console.log('🔍 큐레이터 프로필 없음');
-      console.log('🔍 현재 사용자:', user?.id);
-    }
-  }, [curatorProfile?.id, user?.id, showToast]);
+        if (unreadFollows && unreadFollows.length > 0) {
+          const enriched = await fetchStudioFollowersEnriched(supabase, user.id, {
+            byFollowingUserId: user.id,
+          });
+          const byUserId = new Map(enriched.map((r) => [r.user_id, r]));
+
+          const followerPromises = unreadFollows.map(async (follow) => {
+            const fid = follow.follower_id;
+            const row = byUserId.get(fid);
+            if (row) {
+              const toastLine =
+                row.label === "이름 미설정" ? null : row.label;
+              return { ...follow, toastLine, toastDetail: null };
+            }
+            const [profRes, curRes] = await Promise.all([
+              supabase
+                .from("profiles")
+                .select("username, display_name, auth_provider, avatar_url")
+                .eq("id", fid)
+                .maybeSingle(),
+              supabase
+                .from("curators")
+                .select(
+                  "user_id, display_name, username, name, avatar_url, avatar, image, grade"
+                )
+                .eq("user_id", fid)
+                .maybeSingle(),
+            ]);
+
+            const pres = resolveFollowerPresentation(
+              profRes.data || {},
+              curRes.data
+            );
+            const toastLine =
+              pres.label === "이름 미설정" ? null : pres.label;
+
+            return {
+              ...follow,
+              toastLine,
+              toastDetail: null,
+            };
+          });
+
+          const followersWithData = await Promise.all(followerPromises);
+          const count = followersWithData.length;
+          const firstFollower = followersWithData[0];
+
+          const singleMsg = (() => {
+            const f = firstFollower;
+            if (f.toastDetail) {
+              return `✨ ${f.toastLine} — ${f.toastDetail}`;
+            }
+            if (!f.toastLine) {
+              return `✨ 새 팔로우가 생겼어요! 👤`;
+            }
+            return `✨ ${f.toastLine}님이 나를 팔로우했습니다! 👤`;
+          })();
+
+          const message =
+            count === 1
+              ? singleMsg
+              : !firstFollower.toastLine
+                ? `🚀 새 팔로우 ${count}건이 있어요. 👤`
+                : `🚀 ${firstFollower.toastLine}님 외 ${count - 1}명이 나를 팔로우합니다!`;
+
+          showToast(message, "info", 5000);
+
+          await supabase
+            .from("user_profile_follows")
+            .update({ is_read: true })
+            .eq("following_id", user.id)
+            .eq("is_read", false);
+        }
+      } catch (error) {
+        console.error("팔로워 알림 처리 오류:", error);
+      }
+    };
+
+    void fetchUnreadFollowers();
+    return undefined;
+  }, [user?.id, showToast]);
 
   // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
@@ -2340,15 +2328,12 @@ export default function StudioHome() {
       else if (totalPlaces >= 50) level = 1;   // 브론즈
 
       // 팔로워 수(성장 추이 picked = 주간 신규 팔로워 집계에도 동일 행 사용)
-      console.log("🔍 큐레이터 프로필 ID:", curatorProfile?.id);
       const [{ data: followersData, error: followersError }, followingCount] =
         await Promise.all([
-          curatorProfile?.id
-            ? supabase
-                .from("user_follows")
-                .select("id, created_at")
-                .eq("curator_id", curatorProfile.id)
-            : Promise.resolve({ data: [], error: null }),
+          supabase
+            .from("user_profile_follows")
+            .select("id, created_at")
+            .eq("following_id", userId),
           countStudioFollowingDistinct(supabase, userId),
         ]);
 
@@ -2590,7 +2575,9 @@ export default function StudioHome() {
         
         const currentUser = profileData || {
           user_id: user.id, // 인증된 사용자 ID 연결
+          slug: user.user_metadata?.username || user.email?.split('@')[0],
           username: user.user_metadata?.username || user.email?.split('@')[0],
+          name: user.user_metadata?.display_name || "큐레이터",
           display_name: user.user_metadata?.display_name || "큐레이터",
           bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
           image: null,
@@ -2606,8 +2593,17 @@ export default function StudioHome() {
         setCuratorProfile(prev => ({
           ...prev,
           id: currentUser.id, // ID 필드 추가
-          username: currentUser.username,
-          displayName: currentUser.display_name,
+          user_id: currentUser.user_id || user.id,
+          username:
+            String(currentUser.slug || currentUser.username || "").trim(),
+          displayName:
+            String(
+              currentUser.name ||
+                currentUser.display_name ||
+                currentUser.slug ||
+                currentUser.username ||
+                ""
+            ).trim() || "큐레이터",
           bio: currentUser.bio,
           image:
             currentUser.avatar_url ??
@@ -4435,7 +4431,7 @@ export default function StudioHome() {
         </button>
         <button
           type="button"
-          title="픽한 가게 (place_picks)"
+          title="잔 픽 (place_picks)"
           onClick={() => {
             setStudioPickDetailPlace(null);
             setActiveSection("picks");
@@ -4445,7 +4441,7 @@ export default function StudioHome() {
             ...(activeSection === "picks" ? styles.topBarButtonActive : {}),
           }}
         >
-          픽한 가게
+          잔 픽
         </button>
       </div>
 
@@ -7207,7 +7203,7 @@ export default function StudioHome() {
               marginBottom: "8px",
             }}
           >
-            픽한 가게
+            잔 픽
           </div>
           <p
             style={{

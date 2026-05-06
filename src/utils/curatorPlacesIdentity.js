@@ -11,7 +11,7 @@
  * INSERT / `.eq("curator_id", …)` / RLS 비교는 항상 **로그인 사용자 UUID(auth uid)** 를 쓴다.
  *
  * 다른 테이블은 이름이 같아도 의미가 다를 수 있다. 예:
- * - `user_follows.curator_id` → 보통 `curators.id`(PK) 를 가리키는 경우가 많음 (팔로우 스키마는 별도).
+ * - 소셜 pick 은 `user_profile_follows(follower_id, following_id)` — 둘 다 auth uid.
  * - 이 헬퍼들은 **curator_places 한정**이다.
  *
  * DB 마이그레이션: `curator_places` FK → `curators(user_id)` 정렬됨.
