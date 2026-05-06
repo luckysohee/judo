@@ -25,7 +25,6 @@ const CURATOR_PLACE_FETCH_COLUMNS = [
   "curator_id",
   "is_archived",
   "one_line_reason",
-  "one_line_review",
   "tags",
   "moods",
   "alcohol_types",

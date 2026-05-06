@@ -1091,17 +1091,22 @@ export default function SearchBar({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <motion.span
-              style={styles.icon}
-              animate={{ rotate: isLoading ? 360 : 0 }}
-              transition={{
-                duration: 1,
-                repeat: isLoading ? Infinity : 0,
-                ease: "linear",
-              }}
-            >
-              {isLoading ? "🔄" : useTargetToggle ? (isUserSearchMode ? "👤" : "🔎") : "🔎"}
-            </motion.span>
+            {isLoading ? (
+              <motion.span
+                style={styles.loadingSpinner}
+                animate={{ rotate: 360 }}
+                transition={{
+                  duration: 0.9,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+                aria-hidden
+              />
+            ) : (
+              <span style={styles.icon}>
+                {useTargetToggle ? (isUserSearchMode ? "👤" : "🔎") : "🔎"}
+              </span>
+            )}
           </motion.button>
         )}
 
@@ -1162,47 +1167,6 @@ export default function SearchBar({
           />
           </div>
         </div>
-
-        {(useChannelToggle || useTargetToggle) && query.trim() ? (
-          <motion.button
-            type="button"
-            onClick={handleSubmit}
-            style={styles.inlineSubmitButton}
-            aria-label="검색 실행"
-            disabled={isLoading}
-            whileTap={{ scale: 0.9 }}
-            whileHover={{ scale: 1.04 }}
-          >
-            <motion.span
-              style={styles.icon}
-              animate={{ rotate: isLoading ? 360 : 0 }}
-              transition={{
-                duration: 1,
-                repeat: isLoading ? Infinity : 0,
-                ease: "linear",
-              }}
-            >
-              {isLoading ? "🔄" : "🔎"}
-            </motion.span>
-          </motion.button>
-        ) : null}
-
-        {query ? (
-          <motion.button
-            type="button"
-            onClick={handleClear}
-            style={styles.clearButton}
-            aria-label="검색어 지우기"
-            whileHover={{ scale: 1.1, rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
-            initial={{ opacity: 0, scale: 0 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            ✕
-          </motion.button>
-        ) : null}
 
         {rightActions ? (
           <div
@@ -1359,6 +1323,18 @@ const styles = {
     opacity: 0.9,
     flexShrink: 0,
     color: "#ffffff",
+  },
+
+  loadingSpinner: {
+    width: "14px",
+    height: "14px",
+    borderRadius: "50%",
+    border: "2px solid rgba(255,255,255,0.2)",
+    borderTopColor: "rgba(255,255,255,0.95)",
+    borderRightColor: "rgba(134,239,172,0.9)",
+    boxSizing: "border-box",
+    flexShrink: 0,
+    display: "inline-block",
   },
 
   input: {

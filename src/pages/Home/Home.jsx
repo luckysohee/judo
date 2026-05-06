@@ -2399,15 +2399,23 @@ export default function Home() {
               Number.isFinite(lastMapLevelRef.current)
             ? lastMapLevelRef.current
             : 6;
+      const hasCuratorChipFilter =
+        Array.isArray(selectedCuratorsRef.current) &&
+        selectedCuratorsRef.current.length > 0;
       const baseLimit = getLimitByZoom(level);
+      const curatorCapByZoom =
+        level >= 8 ? 180 : level >= 6 ? 220 : 300;
       const limit = Math.min(
-        120,
-        Math.round(baseLimit * (widenForSituation ? 1.9 : 1))
+        hasCuratorChipFilter ? curatorCapByZoom : 120,
+        Math.round(
+          baseLimit *
+            (hasCuratorChipFilter ? 2.4 : widenForSituation ? 1.9 : 1)
+        )
       );
 
       /** 뷰포트 캐시 버킷 — 6자리면 미세 팬마다 키가 갈라져 캐시가 거의 안 먹음, 4자리가 무난한 타협 */
       const r4 = (n) => Number(n).toFixed(4);
-      const cacheKey = `${r4(south)}_${r4(west)}_${r4(north)}_${r4(east)}_${limit}_${widenForSituation ? "sit" : "all"}`;
+      const cacheKey = `${r4(south)}_${r4(west)}_${r4(north)}_${r4(east)}_${limit}_${hasCuratorChipFilter ? "cur" : widenForSituation ? "sit" : "all"}`;
 
       let plainRows;
       let joinResult;
@@ -3902,6 +3910,31 @@ export default function Home() {
     }
   }, [dbCurators.length, query, scheduleDbPlacesForBounds]);
 
+  /** 큐레이터 칩 on/off 시점에는 뷰포트 후보 풀을 즉시 다시 불러와 필터 0건 착시를 줄인다. */
+  useEffect(() => {
+    if (String(query || "").trim()) return;
+    const b = lastMapBoundsRef.current;
+    if (b?.sw && b?.ne) {
+      const hasCuratorChipFilter =
+        Array.isArray(selectedCurators) && selectedCurators.length > 0;
+      if (hasCuratorChipFilter) {
+        /** 칩 클릭 직후는 디바운스 우회해서 즉시 1회 로드(체감 지연 완화) */
+        void loadDbPlacesForViewport({
+          boundsRaw: b,
+          mapLevel: lastMapLevelRef.current,
+        });
+      } else {
+        scheduleDbPlacesForBounds(b, lastMapLevelRef.current);
+      }
+    }
+  }, [
+    selectedCurators,
+    showSavedOnly,
+    query,
+    scheduleDbPlacesForBounds,
+    loadDbPlacesForViewport,
+  ]);
+
   /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
   useEffect(() => {
     const place = selectedPlace;
@@ -4005,12 +4038,33 @@ export default function Home() {
 
   const handleRisingCuratorPick = useCallback(
     (row) => {
-      const u = String(row?.username ?? "").trim();
-      if (!u) return;
+      const candidates = [
+        row?.curator_id,
+        row?.user_id,
+        row?.slug,
+        row?.username,
+        row?.display_name,
+        row?.name,
+      ]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean);
+      if (candidates.length === 0) return;
+      let selectedToken = "";
+      for (const c of candidates) {
+        const normalized = canonicalCuratorChipToken(c, dbCurators);
+        if (normalized) {
+          selectedToken = normalized;
+          break;
+        }
+      }
+      if (!selectedToken) {
+        /** dbCurators 매칭 실패 시에도 RPC가 준 auth uid(curator_id)로 직접 필터 시도 */
+        selectedToken = candidates[0];
+      }
       setShowSavedOnly(false);
       setLegendCategory(null);
       setShowAll(false);
-      setSelectedCurators([canonicalCuratorChipToken(u, dbCurators)]);
+      setSelectedCurators([selectedToken]);
     },
     [dbCurators]
   );
@@ -8322,10 +8376,23 @@ const handleClearSearch = () => {
   const getModalCurator = () => {
     if (selectedCurator) {
       // 선택된 큐레이터 정보 사용 (실제 데이터)
+      const slug = String(
+        selectedCurator.slug ||
+          selectedCurator.username ||
+          selectedCurator.name ||
+          ""
+      ).trim();
+      const name = String(
+        selectedCurator.name ||
+          selectedCurator.display_name ||
+          selectedCurator.displayName ||
+          slug
+      ).trim();
       return {
-        username: selectedCurator.username || selectedCurator.name,
-        displayName: selectedCurator.displayName || selectedCurator.name,
+        username: slug,
+        displayName: name,
         level: selectedCurator.grade || 2, // 실제 등급 또는 기본값
+        gradeRaw: selectedCurator.grade ?? null,
         saveCount: selectedCurator.saveCount || 0, // 실제 저장 수
         placeCount: selectedCurator.placeCount || 0, // 실제 장소 수
         followerCount: selectedCurator.followerCount || 0, // 실제 팔로워 수
@@ -8341,6 +8408,7 @@ const handleClearSearch = () => {
         username: firstCurator.name,
         displayName: firstCurator.displayName || firstCurator.name,
         level: 2, // Local Curator
+        gradeRaw: firstCurator.grade ?? null,
         saveCount: 60,
         placeCount: 9,
         followerCount: 123,
@@ -8353,6 +8421,7 @@ const handleClearSearch = () => {
       username: curatorProfile?.username || "nopokiller",
       displayName: curatorProfile?.displayName || "노포킬러",
       level: 2, // Local Curator
+      gradeRaw: curatorProfile?.grade ?? null,
       saveCount: 60,
       placeCount: 9,
       followerCount: 123,
@@ -8361,6 +8430,37 @@ const handleClearSearch = () => {
   };
 
   const testCurator = getModalCurator();
+  const isGeneralUserProfile = selectedCurator?.isCurator === false;
+  const modalRoleLabel = isGeneralUserProfile ? "아는 사람 프로필" : "큐레이터 프로필";
+  const modalBioText = isGeneralUserProfile
+    ? testCurator.bio || "아는 사람 활동 미리보기"
+    : testCurator.bio || "소개가 없습니다.";
+  const resolveGradeMeta = (rawGrade, numericLevel, isGeneralUser) => {
+    if (isGeneralUser) return { label: "New Drinker", emoji: "🌱" };
+    const g = String(rawGrade ?? "").trim().toLowerCase();
+    if (["top", "master", "vip", "pro", "4"].includes(g)) {
+      return { label: "Top Curator", emoji: "👑" };
+    }
+    if (["trusted", "senior", "3"].includes(g)) {
+      return { label: "Trusted Curator", emoji: "🏆" };
+    }
+    if (["local", "default", "2"].includes(g)) {
+      return { label: "Local Curator", emoji: "⭐" };
+    }
+    if (["new", "starter", "1"].includes(g)) {
+      return { label: "New Drinker", emoji: "🌱" };
+    }
+    const lv = Number(numericLevel);
+    if (Number.isFinite(lv) && lv >= 4) return { label: "Top Curator", emoji: "👑" };
+    if (Number.isFinite(lv) && lv >= 3) return { label: "Trusted Curator", emoji: "🏆" };
+    if (Number.isFinite(lv) && lv >= 2) return { label: "Local Curator", emoji: "⭐" };
+    return { label: "New Drinker", emoji: "🌱" };
+  };
+  const modalGradeMeta = resolveGradeMeta(
+    testCurator.gradeRaw,
+    testCurator.level,
+    isGeneralUserProfile
+  );
 
   // 내 위치 버튼 클릭 핸들러 (로그인 체크)
   const handleCurrentLocationClick = () => {
@@ -8434,124 +8534,196 @@ const handleClearSearch = () => {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            backgroundColor: "rgba(0, 0, 0, 0.72)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1000,
+            backdropFilter: "blur(4px)",
           }}
           onClick={() => setShowFollowModal(false)}
         >
           <div
             style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              padding: "25px",
-              width: "min(380px, calc(100vw - 32px))",
+              background:
+                "linear-gradient(180deg, rgba(18,18,20,0.98) 0%, rgba(8,8,10,0.98) 100%)",
+              borderRadius: "18px",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 18px 48px rgba(0,0,0,0.55)",
+              padding: "20px",
+              width: "min(420px, calc(100vw - 28px))",
               maxWidth: "100%",
               boxSizing: "border-box",
-              textAlign: "center",
               overflowWrap: "break-word",
+              backdropFilter: "blur(18px) saturate(150%)",
+              WebkitBackdropFilter: "blur(18px) saturate(150%)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 큐레이터 프로필 정보 */}
-            <div style={{ marginBottom: "20px" }}>
-              {/* 프로필 이미지와 이름 */}
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px", minWidth: 0 }}>
+            <div style={{ marginBottom: 14 }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "-0.01em",
+                  color: "rgba(255,255,255,0.9)",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                }}
+              >
+                {modalRoleLabel}
+              </span>
+            </div>
+
+            <div style={{ marginBottom: "18px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px", minWidth: 0 }}>
                 {testCurator.avatar ? (
                   <img
                     src={testCurator.avatar}
                     alt={testCurator.displayName}
                     style={{
-                      width: "48px",
-                      height: "48px",
+                      width: "56px",
+                      height: "56px",
                       borderRadius: "50%",
                       objectFit: "cover",
-                      border: "2px solid #2ECC71"
+                      border: "2px solid rgba(255,255,255,0.28)",
                     }}
                   />
                 ) : (
-                  <div style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: "#2ECC71",
-                    color: "white",
-                    fontSize: "18px",
-                    fontWeight: "bold",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: "2px solid #2ECC71"
-                  }}>
+                  <div
+                    style={{
+                      width: "56px",
+                      height: "56px",
+                      borderRadius: "50%",
+                      background:
+                        "linear-gradient(135deg, rgba(26,26,30,0.94) 0%, rgba(52,52,60,0.96) 100%)",
+                      color: "white",
+                      fontSize: "20px",
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "2px solid rgba(255,255,255,0.85)",
+                      boxShadow: "0 8px 18px rgba(0,0,0,0.45)",
+                    }}
+                  >
                     {testCurator.displayName.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
-                  <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", color: "#333", fontWeight: "bold", overflowWrap: "break-word", wordBreak: "break-word" }}>
+                  <h3
+                    style={{
+                      margin: "0 0 2px 0",
+                      fontSize: "18px",
+                      color: "#ffffff",
+                      fontWeight: 900,
+                      overflowWrap: "break-word",
+                      wordBreak: "break-word",
+                    }}
+                  >
                     @{testCurator.username}
                   </h3>
-                  <div style={{ 
-                    fontSize: "14px", 
-                    color: "666",
-                    fontWeight: "500"
-                  }}>
-                    {testCurator.level >= 4 ? "👑 Top Curator" : 
-                     testCurator.level >= 3 ? "🏆 Trusted Curator" : 
-                     testCurator.level >= 2 ? "⭐ Local Curator" : "🌱 New Drinker"}
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      color: "rgba(255,255,255,0.82)",
+                      fontWeight: 800,
+                      marginBottom: 2,
+                    }}
+                  >
+                    {testCurator.displayName || "아는 사람"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "rgba(255,255,255,0.56)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {`${modalGradeMeta.emoji} ${modalGradeMeta.label}`}
                   </div>
                 </div>
               </div>
-              
-              {/* 자기 소개글 */}
-              <div style={{ 
-                fontSize: "14px", 
-                color: "#555",
-                lineHeight: "1.5",
-                marginBottom: "16px",
-                padding: "12px",
-                backgroundColor: "#f8f9fa",
-                borderRadius: "8px"
-              }}>
-                "{testCurator.bio}"
+
+              <div
+                style={{
+                  fontSize: "13px",
+                  color: "rgba(255,255,255,0.84)",
+                  lineHeight: 1.55,
+                  marginBottom: "14px",
+                  padding: "12px",
+                  background: "rgba(255,255,255,0.06)",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  textAlign: "left",
+                }}
+              >
+                {modalBioText}
               </div>
-              
-              {/* 통계 정보 */}
-              <div style={{ 
-                display: "grid", 
-                gridTemplateColumns: "repeat(3, 1fr)", 
-                gap: "12px",
-                marginBottom: "20px"
-              }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#E74C3C" }}>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: "10px",
+                  marginBottom: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    padding: "10px 6px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "18px", fontWeight: 900, color: "#ffffff" }}>
                     {testCurator.saveCount}
                   </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.58)", fontWeight: 600 }}>
                     저장수
                   </div>
                 </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#F39C12" }}>
+                <div
+                  style={{
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    padding: "10px 6px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "18px", fontWeight: 900, color: "#ffffff" }}>
                     {testCurator.placeCount}
                   </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.58)", fontWeight: 600 }}>
                     추천 장소
                   </div>
                 </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#9B59B6" }}>
+                <div
+                  style={{
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    padding: "10px 6px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "18px", fontWeight: 900, color: "#ffffff" }}>
                     {testCurator.followerCount}
                   </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.58)", fontWeight: 600 }}>
                     팔로워
                   </div>
                 </div>
               </div>
             </div>
-            
-            {/* 팔로우 버튼 */}
+
             <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {testCurator.username === curatorProfile?.username ? (
                 <div
@@ -8560,12 +8732,12 @@ const handleClearSearch = () => {
                     maxWidth: "100%",
                     boxSizing: "border-box",
                     padding: "14px 12px",
-                    backgroundColor: "#e9ecef",
-                    color: "#6c757d",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: "15px",
-                    fontWeight: "bold",
+                    background: "rgba(100,116,139,0.14)",
+                    color: "#64748b",
+                    border: "1px solid rgba(100,116,139,0.2)",
+                    borderRadius: "12px",
+                    fontSize: "14px",
+                    fontWeight: 700,
                     textAlign: "center",
                     cursor: "not-allowed",
                     overflowWrap: "break-word",
@@ -8582,28 +8754,27 @@ const handleClearSearch = () => {
                     width: "100%",
                     maxWidth: "100%",
                     boxSizing: "border-box",
-                    padding: "16px",
-                    backgroundColor: "#2ECC71",
+                    padding: "14px 16px",
+                    background:
+                      "linear-gradient(135deg, #111111 0%, #2b2b2b 100%)",
                     color: "white",
                     border: "none",
-                    borderRadius: "10px",
-                    fontSize: "16px",
-                    fontWeight: "bold",
+                    borderRadius: "12px",
+                    fontSize: "15px",
+                    fontWeight: 800,
                     cursor: "pointer",
                     transition: "all 0.2s ease",
-                    boxShadow: "0 4px 12px rgba(46, 204, 113, 0.3)",
+                    boxShadow: "0 10px 20px rgba(0,0,0,0.42)",
                     overflowWrap: "break-word",
                     wordBreak: "break-word",
                   }}
                   onMouseOver={(e) => {
-                    e.target.style.backgroundColor = "#27AE60";
                     e.target.style.transform = "translateY(-1px)";
-                    e.target.style.boxShadow = "0 6px 16px rgba(46, 204, 113, 0.4)";
+                    e.target.style.boxShadow = "0 12px 24px rgba(0,0,0,0.5)";
                   }}
                   onMouseOut={(e) => {
-                    e.target.style.backgroundColor = "#2ECC71";
                     e.target.style.transform = "translateY(0)";
-                    e.target.style.boxShadow = "0 4px 12px rgba(46, 204, 113, 0.3)";
+                    e.target.style.boxShadow = "0 10px 20px rgba(0,0,0,0.42)";
                   }}
                   onClick={() => handleFollow(testCurator.username)}
                 >
@@ -8639,13 +8810,17 @@ const handleClearSearch = () => {
             setSelectedPlaceWithAnalytics(place, source)
           }
           onPickMutualUser={(row) => {
-            const username = String(row?.username || "").trim();
-            if (!username) return;
+            const slug = String(row?.slug || row?.username || "").trim();
+            if (!slug) return;
+            const profileName = String(
+              row?.name || row?.displayName || slug
+            ).trim();
             setSelectedCurator({
               userId: String(row?.userId || "").trim() || undefined,
-              name: username,
-              username,
-              displayName: String(row?.displayName || username).trim() || username,
+              name: profileName,
+              slug,
+              username: slug,
+              displayName: profileName,
               avatar: String(row?.avatarUrl || "").trim() || undefined,
               isCurator: Boolean(row?.isCurator),
               followerCount: Number(row?.followerCount) || 0,

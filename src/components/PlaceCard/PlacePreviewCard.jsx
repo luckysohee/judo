@@ -65,6 +65,7 @@ export default function PlacePreviewCard({
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
+  const cardRef = useRef(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [kakaoDetails, setKakaoDetails] = useState(null);
   const [isLoadingKakao, setIsLoadingKakao] = useState(false);
@@ -1155,13 +1156,12 @@ export default function PlacePreviewCard({
     ...styles.card,
     ...(showSaveModal
       ? {
-          maxHeight: "min(72vh, 520px)",
-          minHeight: "min(46vh, 340px)",
-          overflow: "hidden",
-          overflowX: "hidden",
-          overflowY: "hidden",
-          display: "flex",
-          flexDirection: "column",
+          backgroundColor: "transparent",
+          border: "none",
+          boxShadow: "none",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          overflow: "visible",
         }
       : {}),
   };
@@ -1171,9 +1171,20 @@ export default function PlacePreviewCard({
     !showSaveModal &&
     typeof onClose === "function";
 
+  useEffect(() => {
+    if (showSaveModal) return;
+    const el = cardRef.current;
+    if (!el) return;
+    // SaveModal에서 돌아온 직후 카드 스크롤이 잠기는 케이스 방지
+    el.style.overflowX = "hidden";
+    el.style.overflowY = "auto";
+    el.style.touchAction = "auto";
+  }, [showSaveModal]);
+
   return (
     <div style={styles.wrap}>
       <MotionCard
+        ref={cardRef}
         style={cardBaseStyle}
         drag={swipeOn ? "y" : false}
         dragControls={dragControls}
@@ -1184,19 +1195,25 @@ export default function PlacePreviewCard({
         onDragEnd={swipeOn ? onSheetDragEnd : undefined}
       >
         {showSaveModal ? (
-          <SaveModal
-            embeddedInPlaceCard
-            place={place}
-            isOpen={showSaveModal}
-            onClose={() => setShowSaveModal(false)}
-            onSaveComplete={() => {
-              setShowSaveModal(false);
-              onSavedToSupabase?.();
-            }}
-            firstSavedFrom="home"
-            searchSessionIdRef={searchSessionIdRef}
-            searchFeedbackContextRef={searchFeedbackContextRef}
-          />
+          <div style={styles.saveModalFrame}>
+            <SaveModal
+              embeddedInPlaceCard
+              place={place}
+              isOpen={showSaveModal}
+              onClose={() => setShowSaveModal(false)}
+              onDismissAll={() => {
+                setShowSaveModal(false);
+                onClose?.();
+              }}
+              onSaveComplete={() => {
+                setShowSaveModal(false);
+                onSavedToSupabase?.();
+              }}
+              firstSavedFrom="home"
+              searchSessionIdRef={searchSessionIdRef}
+              searchFeedbackContextRef={searchFeedbackContextRef}
+            />
+          </div>
         ) : (
           <>
         {swipeOn ? (
@@ -1993,9 +2010,10 @@ const styles = {
   },
   card: {
     pointerEvents: "auto",
-    width: "92%",
-    maxWidth: "600px",
-    maxHeight: "min(50vh, 360px)",
+    width: "min(92vw, 600px)",
+    height: "clamp(380px, 62vh, 560px)",
+    display: "flex",
+    flexDirection: "column",
     overflowX: "hidden",
     overflowY: "auto",
     WebkitOverflowScrolling: "touch",
@@ -2006,7 +2024,14 @@ const styles = {
     backdropFilter: "blur(12px)",
     animation: "judoCardUp 220ms ease-out",
     position: "relative",
-    transition: "all 0.3s ease"
+  },
+  saveModalFrame: {
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    pointerEvents: "auto",
   },
   sheetDragHandle: {
     display: "flex",

@@ -326,6 +326,8 @@ export default function MutualCheckinsHomeSection({
         const displayName = String(p?.display_name || "").trim();
         byUserId.set(uid, {
           userId: uid,
+          slug: username,
+          name: displayName || username || "사용자",
           username,
           displayName: displayName || username || "사용자",
           avatarUrl: String(p?.avatar_url || "").trim() || null,
@@ -340,6 +342,8 @@ export default function MutualCheckinsHomeSection({
         const prev = byUserId.get(uid);
         byUserId.set(uid, {
           userId: uid,
+          slug: username,
+          name: displayName || prev?.name || username || "사용자",
           username: prev?.username || username,
           displayName: displayName || prev?.displayName || username || "사용자",
           avatarUrl: String(c?.avatar_url || "").trim() || prev?.avatarUrl || null,

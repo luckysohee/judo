@@ -11,6 +11,23 @@ function toStringArray(value) {
   return [];
 }
 
+function looksLikeSyntheticCourseLabel(name, rawPlace) {
+  const n = String(name || "").trim();
+  if (!n) return true;
+  /** 카카오 place id가 있으면 실제 장소로 간주 */
+  if (rawPlace?.kakao_place_id) return false;
+  const lower = n.toLowerCase();
+  if (/데이트|코스|추천|근처|주변/.test(lower)) return true;
+  if (/(창작촌\s*펍|펍\s*테라스|테라스\s*술집)/.test(lower)) return true;
+  const parts = n.split(/\s+/).filter(Boolean);
+  if (parts.length < 3) return false;
+  const hasAreaLikeHead = /(동|역|구|거리|창작촌)$/.test(parts[0] || "");
+  const hasGenericTail = /(펍|테라스|술집|맛집|카페|바|이자카야|포차|요리주점)$/.test(
+    parts[parts.length - 1] || ""
+  );
+  return hasAreaLikeHead && hasGenericTail;
+}
+
 /**
  * Supabase `places` 등 원본 → 코스 엔진·UI용 공통 shape.
  * 컬럼명이 달라도 여기서 흡수.
@@ -101,5 +118,13 @@ export function normalizePlace(place) {
 export function normalizePlaces(places = []) {
   return places
     .map(normalizePlace)
-    .filter((p) => p && p.id != null && p.name && p.lat != null && p.lng != null);
+    .filter(
+      (p) =>
+        p &&
+        p.id != null &&
+        p.name &&
+        p.lat != null &&
+        p.lng != null &&
+        !looksLikeSyntheticCourseLabel(p.name, p._raw)
+    );
 }

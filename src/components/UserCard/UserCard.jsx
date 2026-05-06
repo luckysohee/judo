@@ -57,22 +57,22 @@ document.head.appendChild(style);
  */
 const userCardGlass = {
   overlay: {
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    backgroundColor: "rgba(0, 0, 0, 0.38)",
   },
   sheet: {
     background:
-      "linear-gradient(175deg, rgba(52,54,68,0.96) 0%, rgba(22,24,32,0.98) 32%, rgba(6,7,11,0.99) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.14)",
+      "linear-gradient(175deg, rgba(74,76,92,0.94) 0%, rgba(38,40,52,0.95) 34%, rgba(16,17,24,0.96) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.2)",
     boxShadow:
-      "0 -18px 56px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+      "0 -16px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.35)",
   },
   hairline: {
     borderColor: "rgba(255, 255, 255, 0.1)",
   },
   panel: {
     background:
-      "linear-gradient(150deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 50%, rgba(0,0,0,0.2) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.11)",
+      "linear-gradient(150deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.08) 54%, rgba(0,0,0,0.14) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
     boxShadow:
       "inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.3)",
   },
@@ -927,48 +927,92 @@ const UserCard = ({
       if (curator && curator.isCurator === false) {
         return;
       }
-      const rawHandle = String(curator?.username || "").replace(/^@+/, "").trim();
-      if (!rawHandle) return;
-      // 큐레이터 상세 정보 불러오기
-      const { data: curatorData, error: curatorError } = await supabase
-        .from('curators')
-        .select('*')
-        .or(`slug.eq.${rawHandle},username.eq.${rawHandle}`)
-        .maybeSingle();
+      const rawHandle = String(
+        curator?.slug || curator?.username || ""
+      ).replace(/^@+/, "").trim();
+      const rawUserId = String(
+        curator?.user_id || curator?.following_user_id || curator?.id || ""
+      ).trim();
+      if (!rawHandle && !rawUserId) return;
 
-      if (curatorError || !curatorData) {
-        console.error('큐레이터 정보 로드 오류:', curatorError);
-        return;
+      // 큐레이터 상세 정보 불러오기 (핸들 → user_id 순으로 폴백)
+      let curatorData = null;
+      if (rawHandle) {
+        const { data, error } = await supabase
+          .from("curators")
+          .select("*")
+          .or(`slug.eq.${rawHandle},username.eq.${rawHandle}`)
+          .maybeSingle();
+        if (error) {
+          console.error("큐레이터 정보 로드 오류(핸들):", error);
+        } else {
+          curatorData = data || null;
+        }
       }
+      if (!curatorData && rawUserId) {
+        const { data, error } = await supabase
+          .from("curators")
+          .select("*")
+          .eq("user_id", rawUserId)
+          .maybeSingle();
+        if (error) {
+          console.error("큐레이터 정보 로드 오류(user_id):", error);
+        } else {
+          curatorData = data || null;
+        }
+      }
+      if (!curatorData) return;
 
       // user_saved_places.user_id 는 일반적으로 auth.uid() (= curators.user_id). curators.id(PK)와 다름.
       const curatorAuthId = curatorData.user_id ?? curatorData.id;
-      const { data: savedPlaces, error: placesError } = await supabase
-        .from('user_saved_places')
-        .select(`
+      const [{ data: savedPlaces, error: placesError }, { count: followerCount }, { count: placeCount }, { count: saveCount }] =
+        await Promise.all([
+          supabase
+            .from("user_saved_places")
+            .select(`
           *,
           places (*)
         `)
-        .eq('user_id', curatorAuthId)
-        .order('created_at', { ascending: false })
-        .limit(20);
+            .eq("user_id", curatorAuthId)
+            .order("created_at", { ascending: false })
+            .limit(20),
+          supabase
+            .from("user_profile_follows")
+            .select("*", { count: "exact", head: true })
+            .eq("following_id", curatorAuthId),
+          supabase
+            .from("curator_places")
+            .select("*", { count: "exact", head: true })
+            .eq("curator_id", curatorAuthId),
+          supabase
+            .from("user_saved_places")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", curatorAuthId),
+        ]);
 
       if (placesError) {
-        console.error('큐레이터 저장 장소 로드 오류:', placesError);
+        console.error("큐레이터 저장 장소 로드 오류:", placesError);
       }
-
-      const { count: followerCount } = await supabase
-        .from("user_profile_follows")
-        .select("*", { count: "exact", head: true })
-        .eq("following_id", curatorData.user_id);
 
       setSelectedCurator({
         ...curatorData,
+        username: String(
+          curatorData.slug || curatorData.username || rawHandle || ""
+        ).trim(),
+        display_name: String(
+          curatorData.name ||
+            curatorData.display_name ||
+            curatorData.username ||
+            rawHandle ||
+            "큐레이터"
+        ).trim(),
         savedPlaces: savedPlaces || [],
+        placeCount: Number(placeCount) || 0,
         stats: {
           ...curatorData.stats,
-          followerCount: followerCount || 0
-        }
+          followerCount: Number(followerCount) || 0,
+          saveCount: Number(saveCount) || 0,
+        },
       });
 
     } catch (error) {
@@ -1572,7 +1616,8 @@ const UserCard = ({
                 width: '40px',
                 height: '40px',
                 borderRadius: '50%',
-                background: 'linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))',
+                background:
+                  "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1580,7 +1625,8 @@ const UserCard = ({
                 color: 'white',
                 overflow: 'hidden',
                 flexShrink: 0,
-                boxShadow: '0 2px 10px rgba(52, 152, 219, 0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
+                boxShadow:
+                  "0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.22)",
                 border: '1px solid rgba(255, 255, 255, 0.25)',
               }}>
                 {cardAvatarUrl ? (
@@ -1597,7 +1643,7 @@ const UserCard = ({
                 <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardNick || cardHandle || "사용자"}
                 </div>
-                <div style={{ fontSize: '12px', color: '#3498DB', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.68)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardHandle ? `@${cardHandle}` : "핸들 미설정 · 아래에서 추가"}
                 </div>
                 {user.user_metadata?.bio && (
@@ -1651,7 +1697,7 @@ const UserCard = ({
                   padding: "8px 10px",
                   borderRadius: "10px",
                   border: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  background: "rgba(52, 152, 219, 0.2)",
+                  background: "rgba(255, 255, 255, 0.1)",
                   color: "#fff",
                   fontSize: "12px",
                   fontWeight: 700,
@@ -1682,7 +1728,7 @@ const UserCard = ({
                           overflow: "hidden",
                           flexShrink: 0,
                           background:
-                            "linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))",
+                            "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -2802,7 +2848,7 @@ const UserCard = ({
         </div>
       </div>
 
-      {/* 큐레이터 프로필 모달 */}
+      {/* 유저/큐레이터 프로필 모달 */}
       {selectedCurator && (
         <div
           style={{
@@ -2815,46 +2861,77 @@ const UserCard = ({
             justifyContent: "center",
             alignItems: "center",
             zIndex: 2000,
-            ...userCardGlass.overlay,
+            background: "rgba(0, 0, 0, 0.72)",
+            backdropFilter: "blur(4px)",
           }}
+          onClick={() => setSelectedCurator(null)}
         >
           <div
             style={{
-              borderRadius: "22px",
-              width: "90%",
-              maxWidth: "500px",
+              borderRadius: "18px",
+              width: "min(420px, calc(100vw - 28px))",
+              maxWidth: "100%",
               maxHeight: "80vh",
               overflow: "hidden",
-              ...userCardGlass.sheet,
-              boxShadow:
-                "0 28px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+              background:
+                "linear-gradient(180deg, rgba(22,22,24,0.98) 0%, rgba(8,8,10,0.98) 100%)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 18px 48px rgba(0,0,0,0.55)",
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* 큐레이터 프로필 헤더 */}
+            {(() => {
+              const isGeneralUserProfile =
+                selectedCurator?.isCurator === false ||
+                selectedCurator?.is_curator === false;
+              const profileTitle = isGeneralUserProfile
+                ? "아는 사람 프로필"
+                : "큐레이터 프로필";
+              const subTitle = isGeneralUserProfile
+                ? (selectedCurator.display_name || selectedCurator.username || "아는 사람")
+                : (selectedCurator.display_name || "큐레이터");
+              const metricLine = isGeneralUserProfile
+                ? `picked ${selectedCurator.stats?.followerCount || 0}명`
+                : `picked ${selectedCurator.stats?.followerCount || 0}명 • 추천 ${selectedCurator.placeCount || 0}곳 • 저장 ${selectedCurator.stats?.saveCount || 0}개`;
+              return (
+                <>
+            {/* 프로필 헤더 */}
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '20px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+              padding: "14px 16px",
+              borderBottom: "1px solid rgba(255, 255, 255, 0.1)"
             }}>
-              <h3 style={{ margin: 0, color: 'white', fontSize: '16px' }}>
-                큐레이터 프로필
-              </h3>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.9)",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                }}
+              >
+                {profileTitle}
+              </span>
               <button
                 type="button"
                 onClick={() => setSelectedCurator(null)}
                 style={{
-                  width: "40px",
-                  height: "40px",
+                  width: "34px",
+                  height: "34px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "rgba(255, 255, 255, 0.1)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  backgroundColor: "rgba(255, 255, 255, 0.08)",
+                  border: "1px solid rgba(255, 255, 255, 0.18)",
                   borderRadius: "50%",
                   color: "rgba(255, 255, 255, 0.9)",
-                  fontSize: "22px",
+                  fontSize: "18px",
                   lineHeight: 1,
                   cursor: "pointer",
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
@@ -2864,19 +2941,19 @@ const UserCard = ({
               </button>
             </div>
 
-            {/* 큐레이터 정보 */}
-            <div style={{ padding: '20px' }}>
+            {/* 프로필 정보 */}
+            <div style={{ padding: "16px" }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
                 <CuratorFollowAvatar curator={selectedCurator} sizePx={60} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
                     @{selectedCurator.username}
                   </div>
-                  <div style={{ fontSize: '14px', color: '#ccc', marginBottom: '4px' }}>
-                    {selectedCurator.display_name || '큐레이터'}
+                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.72)', marginBottom: '4px' }}>
+                    {subTitle}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#999' }}>
-                    picked {selectedCurator.stats?.followerCount || 0}명 • 저장 {selectedCurator.stats?.saveCount || 0}개
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.54)' }}>
+                    {metricLine}
                   </div>
                 </div>
               </div>
@@ -2884,13 +2961,14 @@ const UserCard = ({
               {selectedCurator.bio && (
                 <div
                   style={{
-                    fontSize: "14px",
-                    color: "#e8eaef",
+                    fontSize: "13px",
+                    color: "rgba(255,255,255,0.84)",
                     lineHeight: "1.45",
-                    marginBottom: "20px",
-                    padding: "12px 14px",
+                    marginBottom: "14px",
+                    padding: "11px 12px",
                     borderRadius: "12px",
-                    ...userCardGlass.panel,
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.12)",
                   }}
                 >
                   {selectedCurator.bio}
@@ -2899,18 +2977,18 @@ const UserCard = ({
 
               {/* 저장된 장소 목록 */}
               <div>
-                <h4 style={{ color: 'white', fontSize: '14px', marginBottom: '12px' }}>
-                  저장한 장소 ({selectedCurator.savedPlaces?.length || 0})
+                <h4 style={{ color: 'rgba(255,255,255,0.92)', fontSize: '13px', marginBottom: '10px' }}>
+                  {isGeneralUserProfile ? "픽한 장소" : "저장한 장소"} ({selectedCurator.savedPlaces?.length || 0})
                 </h4>
                 <div style={{ 
-                  maxHeight: '300px', 
+                  maxHeight: '280px',
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px'
                 }}>
                   {selectedCurator.savedPlaces?.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                    <div style={{ textAlign: 'center', padding: '16px', color: 'rgba(255,255,255,0.52)' }}>
                       저장한 장소가 없습니다
                     </div>
                   ) : (
@@ -2918,15 +2996,16 @@ const UserCard = ({
                       <div
                         key={saved.id}
                         style={{
-                          padding: "12px",
+                          padding: "10px 11px",
                           borderRadius: "12px",
-                          ...userCardGlass.panel,
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
-                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>
                           {saved.places?.name || '정보 없음'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#999' }}>
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.58)' }}>
                           {saved.places?.address || '주소 정보 없음'}
                         </div>
                       </div>
@@ -2935,6 +3014,9 @@ const UserCard = ({
                 </div>
               </div>
             </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
