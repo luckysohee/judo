@@ -232,6 +232,19 @@ const MAP_SDK_MERGE_MAX_DEFAULT = 12;
 const MAP_SDK_MERGE_MAX_SITUATION_CHIP = 24;
 /** 술 칩: 의도 필터 후 이 개수 미만이면 뷰포트만 통과한 풀로 완화(퓨전일식만 남는 등 왜곡 방지) */
 const SITUATION_CHIP_INTENT_RELAX_THRESHOLD = 8;
+/** `curators` 행 프로필 사진 — 스키마·시기별로 image / avatar_url / avatar 로 갈린다 */
+function curatorRowProfileImage(row) {
+  if (!row || typeof row !== "object") return null;
+  for (const key of ["image", "avatar_url", "avatar"]) {
+    const v = row[key];
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
 /** 술 칩에 `/api/search/curator-places` 후보를 최대 몇 개까지 엔진에 섞을지 */
 const SITUATION_CHIP_CURATOR_BLEND_MAX = 6;
 /** 칩 큐레이터 API 반경 상한 — 15km는 화면 밖 성수 등이 섞이기 쉬움 */
@@ -4604,7 +4617,7 @@ export default function Home() {
           username: handle,
           displayName: nick,
           bio: data.bio,
-          image: data.image
+          image: curatorRowProfileImage(data),
         });
         console.log("✅ 큐레이터 프로필 로드됨:", handle);
 
@@ -4622,7 +4635,7 @@ export default function Home() {
           username: handle,
           displayName: nick,
           bio: data.bio,
-          image: data.image
+          image: curatorRowProfileImage(data),
         });
 
         setTimeout(() => {
@@ -4686,7 +4699,7 @@ export default function Home() {
         const { data, error } = await supabase
           .from("curators")
           .select(
-            "id, user_id, username, slug, name, display_name, bio, image, grade"
+            "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade"
           )
           .order("created_at", { ascending: false });
           
@@ -4726,7 +4739,7 @@ export default function Home() {
             userId: userId || null,
             displayName: nick || handle || "큐레이터",
             bio: curator.bio,
-            avatar: curator.image,
+            avatar: curatorRowProfileImage(curator),
             grade: curator.grade || "default",
             color: "#2ECC71",
           };
@@ -4775,9 +4788,9 @@ export default function Home() {
               username: handle,
               displayName: nick,
               bio: data.bio,
-              image: data.avatar
+              image: curatorRowProfileImage(data),
             };
-            
+
             setCuratorProfile(profile);
             console.log("🎭 큐레이터 프로필 로드:", profile);
           }
@@ -8391,7 +8404,13 @@ const handleClearSearch = () => {
       return {
         username: slug,
         displayName: name,
-        level: selectedCurator.grade || 2, // 실제 등급 또는 기본값
+        level:
+          selectedCurator.level ??
+          selectedCurator.grade_level ??
+          selectedCurator.gradeLevel ??
+          selectedCurator.tier ??
+          selectedCurator.rank ??
+          null,
         gradeRaw: selectedCurator.grade ?? null,
         saveCount: selectedCurator.saveCount || 0, // 실제 저장 수
         placeCount: selectedCurator.placeCount || 0, // 실제 장소 수
@@ -8437,17 +8456,37 @@ const handleClearSearch = () => {
     : testCurator.bio || "소개가 없습니다.";
   const resolveGradeMeta = (rawGrade, numericLevel, isGeneralUser) => {
     if (isGeneralUser) return { label: "New Drinker", emoji: "🌱" };
-    const g = String(rawGrade ?? "").trim().toLowerCase();
-    if (["top", "master", "vip", "pro", "4"].includes(g)) {
+    const gRaw = String(rawGrade ?? "").trim().toLowerCase();
+    const g = gRaw.replace(/[\s_-]+/g, "");
+    if (
+      ["top", "master", "vip", "pro", "4"].includes(g) ||
+      g.includes("topcurator") ||
+      g.includes("platinum") ||
+      g.includes("diamond") ||
+      g.includes("legend")
+    ) {
       return { label: "Top Curator", emoji: "👑" };
     }
-    if (["trusted", "senior", "3"].includes(g)) {
+    if (
+      ["trusted", "senior", "3"].includes(g) ||
+      g.includes("trustedcurator") ||
+      g.includes("gold")
+    ) {
       return { label: "Trusted Curator", emoji: "🏆" };
     }
-    if (["local", "default", "2"].includes(g)) {
+    if (
+      ["local", "default", "2"].includes(g) ||
+      g.includes("localcurator") ||
+      g.includes("silver")
+    ) {
       return { label: "Local Curator", emoji: "⭐" };
     }
-    if (["new", "starter", "1"].includes(g)) {
+    if (
+      ["new", "starter", "1"].includes(g) ||
+      g.includes("newdrinker") ||
+      g.includes("bronze") ||
+      g.includes("beginner")
+    ) {
       return { label: "New Drinker", emoji: "🌱" };
     }
     const lv = Number(numericLevel);
@@ -9829,78 +9868,76 @@ const handleClearSearch = () => {
                       ...(compactSearchBarAuth ? styles.authRowInlineNarrow : {}),
                     }}
                   >
-                    {/* 모든 사용자 @아이디 버튼 */}
-                    {!authLoading && user && (
-                      <button
-                        type="button"
-                        title={getProfileButtonHint().title}
-                        aria-label={getProfileButtonHint().aria}
-                        style={{
-                          ...(getUserRole() === "admin"
-                            ? styles.adminInlineButton
-                            : getUserRole() === "curator"
-                              ? styles.curatorInlineButton
-                              : styles.userInlineButton),
-                          ...styles.searchBarProfileButton,
-                          ...(compactSearchBarAuth
-                            ? styles.searchBarProfileButtonNarrow
-                            : {}),
-                        }}
-                        onClick={() => {
-                          const userRole = getUserRole();
-                          console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
-                          
-                          if (userRole === "admin") {
-                            // Admin은 큐레이터 신청내역 페이지로 이동
-                            navigate("/admin");
-                          } else if (userRole === "curator") {
-                            // 큐레이터는 스튜디오 페이지로 이동
-                            navigate("/studio");
-                          } else {
-                            // 일반 사용자는 UserCard 표시
-                            setShowUserCard(true);
-                          }
-                        }}
-                      >
-                        {searchBarProfilePhotoUrl && !searchBarProfileImgFailed ? (
-                          <img
-                            src={searchBarProfilePhotoUrl}
-                            alt=""
-                            style={styles.searchBarProfileImg}
-                            onError={() => setSearchBarProfileImgFailed(true)}
-                          />
-                        ) : (
-                          <span style={styles.searchBarProfileInitial}>
-                            {getSearchBarProfileInitial()}
-                          </span>
-                        )}
-                      </button>
-                    )}
-                    
                     {/* 일반 유저에게만 큐레이터 신청 버튼 표시 */}
                     {!authLoading && user && getUserRole() === "user" && (
                       <CuratorApplicationButton compact={compactSearchBarAuth} />
                     )}
                     
                     {authLoading ? null : user ? (
-                      <button
-                        type="button"
-                        style={{
-                          ...styles.authInlineButton,
-                          ...(compactSearchBarAuth
-                            ? styles.authInlineButtonNarrow
-                            : {}),
-                        }}
-                        title="로그아웃"
-                        onClick={() => {
-                          signOut().catch((error) => {
-                            console.error("signOut error:", error);
-                            alert(error?.message || "로그아웃에 실패했습니다.");
-                          });
-                        }}
-                      >
-                        {compactSearchBarAuth ? "나가기" : "로그아웃"}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          title={getProfileButtonHint().title}
+                          aria-label={getProfileButtonHint().aria}
+                          style={{
+                            ...(getUserRole() === "admin"
+                              ? styles.adminInlineButton
+                              : getUserRole() === "curator"
+                                ? styles.curatorInlineButton
+                                : styles.userInlineButton),
+                            ...styles.searchBarProfileButton,
+                            ...(compactSearchBarAuth
+                              ? styles.searchBarProfileButtonNarrow
+                              : {}),
+                          }}
+                          onClick={() => {
+                            const userRole = getUserRole();
+                            console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
+                            
+                            if (userRole === "admin") {
+                              // Admin은 큐레이터 신청내역 페이지로 이동
+                              navigate("/admin");
+                            } else if (userRole === "curator") {
+                              // 큐레이터는 스튜디오 페이지로 이동
+                              navigate("/studio");
+                            } else {
+                              // 일반 사용자는 UserCard 표시
+                              setShowUserCard(true);
+                            }
+                          }}
+                        >
+                          {searchBarProfilePhotoUrl && !searchBarProfileImgFailed ? (
+                            <img
+                              src={searchBarProfilePhotoUrl}
+                              alt=""
+                              style={styles.searchBarProfileImg}
+                              onError={() => setSearchBarProfileImgFailed(true)}
+                            />
+                          ) : (
+                            <span style={styles.searchBarProfileInitial}>
+                              {getSearchBarProfileInitial()}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            ...styles.authInlineButton,
+                            ...(compactSearchBarAuth
+                              ? styles.authInlineButtonNarrow
+                              : {}),
+                          }}
+                          title="로그아웃"
+                          onClick={() => {
+                            signOut().catch((error) => {
+                              console.error("signOut error:", error);
+                              alert(error?.message || "로그아웃에 실패했습니다.");
+                            });
+                          }}
+                        >
+                          {compactSearchBarAuth ? "나가기" : "로그아웃"}
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button

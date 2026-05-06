@@ -119,7 +119,7 @@ export function SelectedRecommendedPlaceDetailCard({
           <span className="h-1 w-10 rounded-full bg-neutral-300" aria-hidden />
         </div>
 
-        <div className="border-b border-neutral-100 px-4 pb-3 pt-1">
+        <div className="border-b border-neutral-100 px-5 pb-3 pt-1 sm:px-6">
           <h2
             id="selected-rec-place-title"
             className="text-lg font-semibold text-neutral-900"
@@ -143,20 +143,21 @@ export function SelectedRecommendedPlaceDetailCard({
             showAvatars={false}
           />
 
-          <div className="mt-3 flex gap-2">
-            <PlacePickButton place={mergedPlaceForPick} variant="lightRow" />
+          <div className="mt-3 flex items-stretch gap-1.5">
+            <PlacePickButton place={mergedPlaceForPick} variant="lightRowCompact" />
             <button
               type="button"
               onClick={() => onRequestSave?.(mergedPlaceForPick)}
               title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
               aria-label="내 폴더에 저장"
-              className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-neutral-300 bg-neutral-50 px-2 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-100 active:scale-[0.99]"
+              className="flex min-h-[30px] min-w-0 flex-1 items-center justify-center rounded-lg border border-neutral-300 bg-neutral-50 px-1.5 text-[11px] font-semibold leading-none text-neutral-800 transition hover:bg-neutral-100 active:scale-[0.99] sm:rounded-xl sm:px-2 sm:text-xs"
             >
-              {isSaved ? "📁 저장됨" : "📁 저장"}
+              {isSaved ? "저장됨" : "저장"}
             </button>
-            <div className="min-w-0 flex-1">
+            <div className="flex min-h-0 min-w-0 flex-1 items-stretch">
               <CheckinButton
                 compact
+                compactRowShort
                 hideHint
                 place={mergedPlaceForPick}
                 placeId={checkinKey ?? String(mergedPlaceForPick?.id ?? "")}

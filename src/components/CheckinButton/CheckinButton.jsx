@@ -161,6 +161,10 @@ export default function CheckinButton({
   onHanjanRecorded = null,
   /** `compact` 일 때 한 줄 힌트(불꽃 수 등) 숨김 — 액션 줄 전용 */
   hideHint = false,
+  /** `compact` 전용 — 주황/그라데이션 없이 무채 글래스 버튼 */
+  neutralCompact = false,
+  /** `compact`일 때 줄 높이만 살짝 낮춤 (추천 시트 등 3열 액션) */
+  compactRowShort = false,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
@@ -439,42 +443,82 @@ export default function CheckinButton({
     ? formatFireLine(displayHanjan.fireTodayDedup, displayHanjan.fire24hDedup)
     : null;
 
+  const compactMinH = compactRowShort ? "30px" : "44px";
+  const compactFs = compactRowShort ? "10px" : "12px";
+  const compactPadX = compactRowShort ? "6px" : "10px";
+
   const buttonStyles = compact
-    ? {
-        hanjanButton: {
-          padding: "0 10px",
-          border: "1px solid rgba(217, 119, 6, 0.65)",
-          borderRadius: "10px",
-          background: "linear-gradient(180deg, #fde68a 0%, #f59e0b 48%, #d97706 100%)",
-          color: "#422006",
-          fontSize: "12px",
-          fontWeight: "800",
-          cursor: loading ? "not-allowed" : "pointer",
-          transition: "all 0.2s ease",
-          display: "flex",
-          alignItems: "center",
-          gap: "4px",
-          minWidth: "0",
-          minHeight: "44px",
-          width: "100%",
-          boxSizing: "border-box",
-          justifyContent: "center",
-          whiteSpace: "nowrap",
-          boxShadow: "0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(180, 83, 9, 0.35)",
-        },
-        hanjanButtonHover: {
-          filter: "brightness(1.06)",
-          transform: "scale(1.02)",
-        },
-        hint: {
-          fontSize: "10px",
-          color: "rgba(255,255,255,0.45)",
-          marginTop: "2px",
-          textAlign: "center",
-          lineHeight: 1.25,
-          width: "100%",
-        },
-      }
+    ? neutralCompact
+      ? {
+          hanjanButton: {
+            padding: compactRowShort ? `0 ${compactPadX}` : "0 10px",
+            border: compactRowShort ? "1px solid #fb923c" : "2px solid #fb923c",
+            borderRadius: compactRowShort ? "8px" : "12px",
+            backgroundColor: "#1a1a1a",
+            color: "#fdba74",
+            fontSize: compactFs,
+            fontWeight: "800",
+            cursor: loading ? "not-allowed" : "pointer",
+            transition: "background-color 0.15s ease, border-color 0.15s ease",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            minWidth: "0",
+            minHeight: compactMinH,
+            width: "100%",
+            boxSizing: "border-box",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+            boxShadow: "none",
+          },
+          hanjanButtonHover: {
+            backgroundColor: "#222222",
+            borderColor: "#fdba74",
+          },
+          hint: {
+            fontSize: "10px",
+            color: "rgba(253, 186, 116, 0.75)",
+            marginTop: "2px",
+            textAlign: "center",
+            lineHeight: 1.25,
+            width: "100%",
+          },
+        }
+      : {
+          hanjanButton: {
+            padding: compactRowShort ? `0 ${compactPadX}` : "0 10px",
+            border: "1px solid rgba(217, 119, 6, 0.65)",
+            borderRadius: compactRowShort ? "8px" : "10px",
+            background: "linear-gradient(180deg, #fde68a 0%, #f59e0b 48%, #d97706 100%)",
+            color: "#422006",
+            fontSize: compactFs,
+            fontWeight: "800",
+            cursor: loading ? "not-allowed" : "pointer",
+            transition: "all 0.2s ease",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            minWidth: "0",
+            minHeight: compactMinH,
+            width: "100%",
+            boxSizing: "border-box",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+            boxShadow: "0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(180, 83, 9, 0.35)",
+          },
+          hanjanButtonHover: {
+            filter: "brightness(1.06)",
+            transform: compactRowShort ? "none" : "scale(1.02)",
+          },
+          hint: {
+            fontSize: "10px",
+            color: "rgba(255,255,255,0.45)",
+            marginTop: "2px",
+            textAlign: "center",
+            lineHeight: 1.25,
+            width: "100%",
+          },
+        }
     : {
         hanjanButton: {
           padding: "8px 16px",
@@ -537,7 +581,13 @@ export default function CheckinButton({
           }
         }}
       >
-        {loading ? "처리 중…" : "🍺 한잔함"}
+        {loading
+          ? compactRowShort
+            ? "중…"
+            : "처리 중…"
+          : compactRowShort
+            ? "한잔함"
+            : "🍺 한잔함"}
       </button>
 
       {compact && hideHint ? null : fireHint ? (

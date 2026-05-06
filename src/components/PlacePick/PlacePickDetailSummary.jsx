@@ -112,6 +112,55 @@ const PALETTE = {
     badgeColor: "#fffbeb",
     stackWrap: { display: "flex", flexDirection: "row", alignItems: "center" },
   },
+  /** 장소 카드 모달 — 악센트 색 없이 흑백 톤만 */
+  darkMono: {
+    sectionTitle: {
+      margin: "0 0 6px",
+      fontSize: "13px",
+      fontWeight: 800,
+      color: "rgba(255,255,255,0.88)",
+      letterSpacing: "-0.02em",
+    },
+    totalLine: {
+      margin: "0 0 4px",
+      fontSize: "12px",
+      fontWeight: 600,
+      color: "rgba(255,255,255,0.5)",
+    },
+    cardStripLine: {
+      margin: "4px 0 2px",
+      fontSize: "11px",
+      fontWeight: 600,
+      color: "rgba(255,255,255,0.48)",
+      lineHeight: 1.35,
+    },
+    breakdown: {
+      margin: "0 0 10px",
+      fontSize: "13px",
+      fontWeight: 600,
+      lineHeight: 1.45,
+    },
+    curatorPart: {
+      color: "rgba(255,255,255,0.76)",
+      fontWeight: 800,
+    },
+    userPart: {
+      color: "rgba(255,255,255,0.52)",
+      fontWeight: 600,
+    },
+    emptyMuted: {
+      margin: 0,
+      fontSize: "12px",
+      color: "rgba(255,255,255,0.42)",
+    },
+    avatarRingUser: "2px solid rgba(255,255,255,0.32)",
+    avatarRingCurator: "2px solid rgba(255,255,255,0.4)",
+    avatarFallbackBg: "rgba(255,255,255,0.1)",
+    avatarFallbackColor: "rgba(255,255,255,0.85)",
+    badgeBg: "rgba(255,255,255,0.2)",
+    badgeColor: "rgba(255,255,255,0.95)",
+    stackWrap: { display: "flex", flexDirection: "row", alignItems: "center" },
+  },
   light: {
     sectionTitle: {
       margin: "0 0 6px",
@@ -167,7 +216,7 @@ const PALETTE = {
  *
  * @param {{
  *   place: object,
- *   theme?: "dark" | "light",
+ *   theme?: "dark" | "darkMono" | "light",
  *   compact?: boolean,
  *   showAvatars?: boolean,
  * }} props
@@ -308,7 +357,8 @@ export function PlacePickDetailSummary({
   if (!showAvatars) {
     /** 카드·리스트: 큐레이터/추천이유 아래 보조 한 줄 — 칩 크기만 */
     const chip = Boolean(compact);
-    const label = `👍 ${total}명 픽`;
+    const label =
+      theme === "darkMono" ? `픽 ${total}명` : `👍 ${total}명 픽`;
     if (chip) {
       return (
         <div

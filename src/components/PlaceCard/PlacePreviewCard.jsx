@@ -1549,12 +1549,7 @@ export default function PlacePreviewCard({
               {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}
 
               {isSaved ? (
-                <div
-                  style={{
-                    ...styles.savedDot,
-                    backgroundColor: savedFolderColor || "#2ECC71",
-                  }}
-                />
+                <div style={styles.savedDot} aria-label="저장됨" title="저장됨" />
               ) : null}
             </div>
           </div>
@@ -1739,7 +1734,9 @@ export default function PlacePreviewCard({
                 )}
                 {/* 카카오 장소 평점 정보 */}
                 {kakaoDetails?.rating && (
-                  <span style={styles.rating}>⭐ {kakaoDetails.rating}</span>
+                  <span style={styles.rating}>
+                    ★ {kakaoDetails.rating}
+                  </span>
                 )}
                 {kakaoDetails?.review_count && (
                   <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
@@ -1851,7 +1848,7 @@ export default function PlacePreviewCard({
           <div style={styles.socialSummaryInlineRow}>
             <PlacePickDetailSummary
               place={place}
-              theme="dark"
+              theme="darkMono"
               compact
               showAvatars={false}
             />
@@ -1870,8 +1867,8 @@ export default function PlacePreviewCard({
                 marginBottom: "2px",
                 padding: "8px 10px",
                 borderRadius: "10px",
-                backgroundColor: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "#222222",
+                border: "1px solid rgba(255,255,255,0.07)",
               }}
               aria-label="한잔함 요약"
             >
@@ -1879,7 +1876,7 @@ export default function PlacePreviewCard({
                 <div
                   key={`${idx}-${line}`}
                   style={{
-                    color: "rgba(255,255,255,0.88)",
+                    color: "#ffffff",
                     fontSize: "12px",
                     lineHeight: 1.45,
                     fontWeight: 600,
@@ -1892,54 +1889,61 @@ export default function PlacePreviewCard({
           )}
 
           <div style={styles.actionRow}>
-            <PlacePickButton place={place} variant="card" />
+            <div style={styles.actionCell}>
+              <PlacePickButton place={place} variant="blackPink" />
+            </div>
 
-            {isCurator ? (
-              <button
-                type="button"
-                onClick={handleQuickSaveClick}
-                style={styles.saveOutlineButton}
-                title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
-                aria-label="스튜디오 잔 채우기, 내 폴더만"
-              >
-                📁 잔채우기
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowSaveModal(true)}
-                style={styles.saveOutlineButton}
-                title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
-                aria-label="내 폴더에 저장"
-              >
-                📁 저장
-              </button>
-            )}
+            <div style={styles.actionCell}>
+              {isCurator ? (
+                <button
+                  type="button"
+                  onClick={handleQuickSaveClick}
+                  style={styles.saveOutlineButton}
+                  title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
+                  aria-label="스튜디오 잔 채우기, 내 폴더만"
+                >
+                  📁 잔채우기
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowSaveModal(true)}
+                  style={styles.saveOutlineButton}
+                  title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
+                  aria-label="내 폴더에 저장"
+                >
+                  📁 저장
+                </button>
+              )}
+            </div>
 
-            <CheckinButton
-              compact
-              hideHint
-              place={place}
-              placeId={checkinPlaceKey ?? String(place.id ?? "")}
-              placeName={place.name}
-              placeAddress={
-                place.address ??
-                place.road_address_name ??
-                place.address_name ??
-                place.road_address ??
-                ""
-              }
-              placeLat={checkinWgs?.lat}
-              placeLng={checkinWgs?.lng}
-              kakaoPlaceId={
-                place.place_id ??
-                place.kakao_place_id ??
-                place.kakaoId ??
-                null
-              }
-              hanjanStats={hanjanStatsNorm}
-              onHanjanRecorded={refetchHanjanStats}
-            />
+            <div style={styles.actionCell}>
+              <CheckinButton
+                compact
+                neutralCompact
+                hideHint
+                place={place}
+                placeId={checkinPlaceKey ?? String(place.id ?? "")}
+                placeName={place.name}
+                placeAddress={
+                  place.address ??
+                  place.road_address_name ??
+                  place.address_name ??
+                  place.road_address ??
+                  ""
+                }
+                placeLat={checkinWgs?.lat}
+                placeLng={checkinWgs?.lng}
+                kakaoPlaceId={
+                  place.place_id ??
+                  place.kakao_place_id ??
+                  place.kakaoId ??
+                  null
+                }
+                hanjanStats={hanjanStatsNorm}
+                onHanjanRecorded={refetchHanjanStats}
+              />
+            </div>
           </div>
         </div>
         {lightboxOpen && allPreviewUrls.length > 0 ? (
@@ -2010,6 +2014,8 @@ const styles = {
   },
   card: {
     pointerEvents: "auto",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     width: "min(92vw, 600px)",
     height: "clamp(380px, 62vh, 560px)",
     display: "flex",
@@ -2017,11 +2023,13 @@ const styles = {
     overflowX: "hidden",
     overflowY: "auto",
     WebkitOverflowScrolling: "touch",
-    backgroundColor: "rgba(18,18,18,0.96)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "16px",
-    boxShadow: "0 14px 30px rgba(0,0,0,0.32)",
-    backdropFilter: "blur(12px)",
+    /* 큐레이터 스튜디오 톤: 셀 #1a1a1a 계열 · 보더 #222 · 가벼운 글래스 블러 */
+    backgroundColor: "rgba(26, 26, 26, 0.94)",
+    border: "1px solid #222222",
+    borderRadius: "12px",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.35)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
     animation: "judoCardUp 220ms ease-out",
     position: "relative",
   },
@@ -2053,9 +2061,13 @@ const styles = {
     alignItems: "center",
     justifyContent: "flex-end",
     flexWrap: "wrap",
-    gap: "6px",
-    padding: "4px 6px 6px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    gap: "8px",
+    padding: "8px 10px 10px",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxSizing: "border-box",
   },
   headerPhotoCloseCluster: {
     display: "flex",
@@ -2064,10 +2076,12 @@ const styles = {
     flexShrink: 0,
   },
   closeButtonInline: {
-    border: "none",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    color: "rgba(255,255,255,0.88)",
     borderRadius: "999px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     width: "28px",
     height: "28px",
     padding: 0,
@@ -2079,10 +2093,12 @@ const styles = {
     lineHeight: 1,
   },
   headerShareBtn: {
-    border: "none",
-    backgroundColor: "rgba(0,0,0,0.45)",
-    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    color: "rgba(255,255,255,0.88)",
     borderRadius: "999px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     width: "28px",
     height: "28px",
     padding: 0,
@@ -2100,14 +2116,14 @@ const styles = {
     height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
     borderRadius: "10px",
-    backgroundColor: "#242424",
+    backgroundColor: "#222222",
   },
   imageFrameStandalone: {
     position: "relative",
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
-    backgroundColor: "#242424",
+    backgroundColor: "#222222",
   },
   imageFill: {
     position: "absolute",
@@ -2122,8 +2138,8 @@ const styles = {
   imageFallback: {
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
-    backgroundColor: "#242424",
-    color: "#8a8a8a",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2134,9 +2150,8 @@ const styles = {
   },
   kakaoPreviewSection: {
     padding: "8px 10px 6px",
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.12) 100%)",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    backgroundColor: "#222222",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
   kakaoPhotoHeroBtn: {
     display: "block",
@@ -2170,14 +2185,14 @@ const styles = {
     width: "30px",
     height: "30px",
     padding: 0,
-    border: "none",
     borderRadius: "999px",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#fff",
-    backgroundColor: "rgba(0,0,0,0.55)",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "1px solid rgba(255,255,255,0.14)",
     boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
   },
   previewThumbWrap: {
@@ -2195,14 +2210,14 @@ const styles = {
     width: "22px",
     height: "22px",
     padding: 0,
-    border: "none",
     borderRadius: "999px",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#fff",
-    backgroundColor: "rgba(192,57,43,0.92)",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "1px solid rgba(255,255,255,0.14)",
     boxShadow: "0 1px 4px rgba(0,0,0,0.35)",
   },
   kakaoPreviewStrip: {
@@ -2220,24 +2235,24 @@ const styles = {
     width: "88px",
     height: "58px",
     padding: 0,
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid #333333",
     borderRadius: "10px",
     overflow: "hidden",
     cursor: "pointer",
-    background: "rgba(0,0,0,0.35)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    background: "#1a1a1a",
+    boxShadow: "none",
   },
   kakaoPreviewThumbStatic: {
     flex: "0 0 auto",
     width: "88px",
     height: "58px",
     padding: 0,
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid #333333",
     borderRadius: "10px",
     overflow: "hidden",
     cursor: "default",
-    background: "rgba(0,0,0,0.35)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    background: "#1a1a1a",
+    boxShadow: "none",
     flexShrink: 0,
   },
   kakaoPreviewThumbImg: {
@@ -2252,26 +2267,26 @@ const styles = {
   kakaoPreviewHint: {
     marginTop: "6px",
     fontSize: "10px",
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(255,255,255,0.5)",
     letterSpacing: "-0.02em",
     lineHeight: 1.35,
   },
   googlePhotoCredit: {
     marginTop: "4px",
     fontSize: "9px",
-    color: "rgba(255,255,255,0.35)",
+    color: "rgba(255,255,255,0.45)",
     lineHeight: 1.3,
   },
   kakaoPreviewLoading: {
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
-    backgroundColor: "#242424",
-    color: "#8a8a8a",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontSize: "12px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
   body: {
     padding: "8px 10px 10px",
@@ -2298,20 +2313,20 @@ const styles = {
     marginTop: "10px",
     padding: "8px 10px",
     borderRadius: "10px",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
-    border: "1px solid rgba(52, 152, 219, 0.28)",
+    backgroundColor: "#222222",
+    border: "1px solid rgba(255,255,255,0.07)",
   },
   blogInsightLabel: {
     fontSize: "10px",
     fontWeight: 700,
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(255,255,255,0.55)",
     marginBottom: "6px",
     letterSpacing: "-0.02em",
   },
   blogInsightSummary: {
     fontSize: "12px",
     fontWeight: 600,
-    color: "#e8f4ff",
+    color: "rgba(255,255,255,0.82)",
     lineHeight: 1.45,
     marginBottom: "8px",
   },
@@ -2323,20 +2338,20 @@ const styles = {
   blogInsightPill: {
     fontSize: "11px",
     fontWeight: 700,
-    color: "#a8d8ff",
-    border: "1px solid rgba(168,216,255,0.35)",
-    borderRadius: "999px",
-    padding: "3px 9px",
-    backgroundColor: "rgba(0,0,0,0.2)",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "12px",
+    padding: "4px 8px",
+    backgroundColor: "#333333",
   },
   blogInsightPillMuted: {
     fontSize: "11px",
     fontWeight: 600,
-    color: "rgba(255,255,255,0.72)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "999px",
-    padding: "3px 9px",
-    backgroundColor: "rgba(0,0,0,0.18)",
+    color: "#bdbdbd",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: "12px",
+    padding: "4px 8px",
+    backgroundColor: "#222222",
   },
   blogInsightEmpty: {
     fontSize: "11px",
@@ -2346,12 +2361,13 @@ const styles = {
   liveBadge: {
     height: "20px",
     padding: "0 10px",
-    borderRadius: "999px",
-    backgroundColor: "#34D17A",
-    color: "#111111",
+    borderRadius: "8px",
+    backgroundColor: "rgba(46, 204, 113, 0.12)",
+    color: "#2ECC71",
+    border: "1px solid rgba(46, 204, 113, 0.45)",
     fontSize: "11px",
-    fontWeight: 900,
-    letterSpacing: "0.5px",
+    fontWeight: 800,
+    letterSpacing: "0.4px",
     display: "flex",
     alignItems: "center",
   },
@@ -2360,16 +2376,19 @@ const styles = {
     height: "10px",
     borderRadius: "999px",
     flexShrink: 0,
+    backgroundColor: "#2ECC71",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    boxSizing: "border-box",
   },
   meta: {
     marginTop: "4px",
     fontSize: "12px",
-    color: "#a9a9a9",
+    color: "#bdbdbd",
   },
   comment: {
     marginTop: "8px",
     fontSize: "13px",
-    color: "#e8e8e8",
+    color: "rgba(255,255,255,0.76)",
     lineHeight: 1.5,
     display: "-webkit-box",
     WebkitLineClamp: 2,
@@ -2384,10 +2403,10 @@ const styles = {
   },
   tag: {
     fontSize: "11px",
-    color: "#f3f3f3",
-    backgroundColor: "#202020",
-    border: "1px solid #343434",
-    borderRadius: "999px",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "none",
+    borderRadius: "12px",
     padding: "5px 8px",
   },
   curatorRow: {
@@ -2417,19 +2436,19 @@ const styles = {
   },
   curatorComment: {
     fontSize: "12px",
-    color: "#3498db",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
+    color: "#ffffff",
+    backgroundColor: "#222222",
     padding: "8px 12px",
-    borderRadius: "8px",
+    borderRadius: "10px",
     marginTop: "8px",
-    border: "1px solid rgba(52, 152, 219, 0.2)",
+    border: "1px solid rgba(255,255,255,0.07)",
     display: "flex",
     alignItems: "center",
     gap: "6px",
   },
   curatorCommentText: {
     fontWeight: "600",
-    color: "#3498db",
+    color: "#2ECC71",
   },
   headerRight: {
     display: "flex",
@@ -2442,7 +2461,7 @@ const styles = {
   kakaoLink: {
     background: "none",
     border: "none",
-    color: "#3498db",
+    color: "#bdbdbd",
     fontSize: "11px",
     cursor: "pointer",
     padding: "2px 4px",
@@ -2451,19 +2470,21 @@ const styles = {
     transition: "all 0.2s"
   },
   curatorPhotoUploadBtn: {
-    background: "rgba(46, 204, 113, 0.2)",
-    border: "1px solid rgba(46, 204, 113, 0.55)",
-    color: "#2ECC71",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    color: "rgba(255,255,255,0.88)",
     fontSize: "11px",
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
-    padding: "4px 8px",
-    borderRadius: "6px",
+    padding: "6px 10px",
+    borderRadius: "8px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     whiteSpace: "nowrap",
   },
   category: {
     fontSize: "13px",
-    color: "#3498db",
+    color: "#bdbdbd",
     fontWeight: "500",
     marginRight: "8px",
   },
@@ -2475,7 +2496,7 @@ const styles = {
   },
   addressLineFirst: {
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     whiteSpace: "pre-wrap",
     wordBreak: "keep-all",
@@ -2483,7 +2504,7 @@ const styles = {
   },
   addressLineCont: {
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     whiteSpace: "pre-wrap",
     wordBreak: "keep-all",
@@ -2495,42 +2516,42 @@ const styles = {
     display: "block",
     width: "100%",
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     marginBottom: "2px",
   },
   rating: {
     fontSize: "12px",
-    color: "#f39c12",
+    color: "#ffffff",
     marginRight: "4px",
   },
   reviewCount: {
     fontSize: "11px",
-    color: "#999",
+    color: "#bdbdbd",
   },
   distance: {
     fontSize: "12px",
-    color: "#9cc8ff",
+    color: "#bdbdbd",
     marginLeft: "8px",
   },
   walkingTime: {
     fontSize: "12px",
-    color: "#9cc8ff",
+    color: "#bdbdbd",
     marginLeft: "6px",
   },
   loadingText: {
     fontSize: "11px",
-    color: "#999",
+    color: "#bdbdbd",
     fontStyle: "italic",
   },
   saveOutlineButton: {
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
+    height: "44px",
     minHeight: "44px",
-    borderRadius: "10px",
-    border: "1px solid rgba(255,255,255,0.32)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    color: "rgba(255,255,255,0.92)",
+    borderRadius: "12px",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
+    color: "#ffffff",
     fontSize: "12px",
     fontWeight: 700,
     display: "flex",
@@ -2540,19 +2561,25 @@ const styles = {
     cursor: "pointer",
     boxSizing: "border-box",
   },
+  actionCell: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "stretch",
+  },
   curatorChip: {
     fontSize: "11px",
-    borderRadius: "999px",
-    border: "1px solid #343434",
-    backgroundColor: "#171717",
-    color: "#d4d4d4",
+    borderRadius: "12px",
+    border: "none",
+    backgroundColor: "#333333",
+    color: "#ffffff",
     padding: "5px 9px",
     alignSelf: "flex-start",
     whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
   },
   curatorReason: {
     fontSize: "11px",
-    color: "#e8e8e8",
+    color: "rgba(255,255,255,0.7)",
     fontStyle: "italic",
     lineHeight: 1.4,
     whiteSpace: "normal",
@@ -2582,7 +2609,7 @@ const styles = {
   },
   socialSummaryInlineText: {
     fontSize: "11px",
-    color: "rgba(255,255,255,0.62)",
+    color: "#bdbdbd",
     fontWeight: 600,
     lineHeight: 1.35,
   },
@@ -2591,9 +2618,9 @@ const styles = {
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid #b8732a",
-    backgroundColor: "#E67E22",
-    color: "#ffffff",
+    border: "2px solid #7bed9f",
+    backgroundColor: "#1a1a1a",
+    color: "#7bed9f",
     fontSize: "12px",
     fontWeight: 700,
     display: "flex",
@@ -2668,8 +2695,8 @@ const styles = {
   saveButton: {
     flex: 1,
     height: "36px",
-    borderRadius: "10px",
-    border: "1px solid #343434",
+    borderRadius: "12px",
+    border: "1px solid #444444",
     backgroundColor: "#1a1a1a",
     color: "#ffffff",
     fontSize: "13px",
@@ -2678,10 +2705,10 @@ const styles = {
   mapEmptyPrimaryBtn: {
     width: "100%",
     minHeight: "44px",
-    borderRadius: "10px",
-    border: "none",
+    borderRadius: "12px",
+    border: "1px solid #2ECC71",
     backgroundColor: "#2ECC71",
-    color: "#fff",
+    color: "#111111",
     fontSize: "14px",
     fontWeight: 700,
     cursor: "pointer",
@@ -2689,10 +2716,10 @@ const styles = {
   mapEmptySecondaryBtn: {
     width: "100%",
     minHeight: "42px",
-    borderRadius: "10px",
-    border: "1px solid rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    color: "#eee",
+    borderRadius: "12px",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
+    color: "#ffffff",
     fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
@@ -2708,9 +2735,9 @@ const styles = {
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid rgba(124, 58, 237, 0.45)",
-    background: "rgba(250,245,255,0.98)",
-    color: "#5b21b6",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
+    color: "#ffffff",
     fontSize: "14px",
     fontWeight: 800,
     cursor: "pointer",
@@ -2719,18 +2746,18 @@ const styles = {
   mapCollectButtonDisabled: {
     opacity: 0.45,
     cursor: "not-allowed",
-    background: "rgba(255,255,255,0.08)",
-    color: "rgba(255,255,255,0.55)",
-    border: "1px solid rgba(255,255,255,0.12)",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
+    border: "1px solid #333333",
   },
   mapConfirmSecondButton: {
     flex: 1,
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid rgba(46, 204, 113, 0.55)",
+    border: "1px solid #2ECC71",
     backgroundColor: "#2ECC71",
-    color: "#ffffff",
+    color: "#111111",
     fontSize: "14px",
     fontWeight: 800,
     cursor: "pointer",

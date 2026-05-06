@@ -141,6 +141,75 @@ const VARIANT_STYLES = {
     },
     busy: { opacity: 0.78 },
   },
+  /** 추천 바텀 시트 등 — 픽만 최소 너비(짧은 라벨 + 얇은 테두리) */
+  lightRowCompact: {
+    base: {
+      flex: "0 0 auto",
+      minWidth: 0,
+      minHeight: "30px",
+      height: "30px",
+      borderRadius: "999px",
+      border: "1px solid rgba(225, 29, 72, 0.55)",
+      backgroundColor: "rgba(255, 255, 255, 0.98)",
+      color: "#9f1239",
+      fontSize: "11px",
+      fontWeight: 700,
+      letterSpacing: "-0.02em",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "0 7px",
+      cursor: "pointer",
+      boxSizing: "border-box",
+      boxShadow: "0 1px 4px rgba(190, 24, 93, 0.07)",
+    },
+    picked: {
+      backgroundColor: "#fce7f3",
+      color: "#831843",
+      border: "1px solid #ec4899",
+      boxShadow: "0 0 8px rgba(236, 72, 153, 0.12)",
+    },
+    muted: {
+      opacity: 0.45,
+      cursor: "not-allowed",
+      boxShadow: "none",
+    },
+    busy: { opacity: 0.78 },
+  },
+  /** 블랙 배경 + 핑크 테두리만 (장소 모달 등 다크 글래스 위) */
+  blackPink: {
+    base: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: "44px",
+      borderRadius: "999px",
+      border: "2px solid rgba(236, 72, 153, 0.72)",
+      backgroundColor: "rgba(6, 6, 8, 0.94)",
+      color: "rgba(253, 242, 248, 0.96)",
+      fontSize: "13px",
+      fontWeight: 800,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "0 12px",
+      cursor: "pointer",
+      boxSizing: "border-box",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+    },
+    picked: {
+      backgroundColor: "rgba(5, 5, 8, 0.96)",
+      color: "#fdf2f8",
+      border: "2px solid #f472b6",
+      boxShadow:
+        "inset 0 1px 0 rgba(255,255,255,0.05), 0 0 16px rgba(236, 72, 153, 0.22)",
+    },
+    muted: {
+      opacity: 0.45,
+      cursor: "not-allowed",
+      boxShadow: "none",
+    },
+    busy: { opacity: 0.78 },
+  },
   /** 다이얼로그 하단 보조(닫기·지도 옆) */
   dialog: {
     base: {
@@ -169,6 +238,40 @@ const VARIANT_STYLES = {
     },
     muted: {
       opacity: 0.45,
+      cursor: "not-allowed",
+      boxShadow: "none",
+    },
+    busy: { opacity: 0.78 },
+  },
+  /** 장소 카드 모달 — 무채·글래스 테두리만 */
+  mono: {
+    base: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: "44px",
+      borderRadius: "10px",
+      border: "1px solid rgba(255,255,255,0.24)",
+      backgroundColor: "rgba(255,255,255,0.06)",
+      color: "rgba(255,255,255,0.9)",
+      fontSize: "12px",
+      fontWeight: 700,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "0 12px",
+      cursor: "pointer",
+      boxSizing: "border-box",
+      gap: "4px",
+      boxShadow: "none",
+    },
+    picked: {
+      backgroundColor: "rgba(255,255,255,0.14)",
+      color: "#ffffff",
+      border: "1px solid rgba(255,255,255,0.42)",
+      boxShadow: "none",
+    },
+    muted: {
+      opacity: 0.48,
       cursor: "not-allowed",
       boxShadow: "none",
     },
@@ -373,13 +476,18 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
   };
 
   const isFolderChip = variant === "folderChip";
+  const noPickEmoji = variant === "mono" || variant === "lightRowCompact";
   const label = picked
     ? isFolderChip
       ? "픽함"
-      : "👍 픽함"
+      : noPickEmoji
+        ? "픽함"
+        : "👍 픽함"
     : isFolderChip
       ? "공개 픽"
-      : "👍 픽";
+      : noPickEmoji
+        ? "픽"
+        : "👍 픽";
 
   const titleText = picked
     ? "공개 추천을 취소합니다. 내 폴더 저장은 그대로입니다."
