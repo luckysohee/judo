@@ -62,6 +62,8 @@ export default function PlacePreviewCard({
   onShowArrivalWalkingOnMap,
   /** 지도에 도착 도보 경로가 떠 있을 때 — 넓은 화면에서도 핸들 스와이프로 카드 닫기 */
   arrivalWalkingRouteShown = false,
+  /** 낮 모드 등에서 한잔 불가 시 false — 버튼은 보이되 비활성 느낌 */
+  canCheckIn = true,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -1922,6 +1924,7 @@ export default function PlacePreviewCard({
                 compact
                 neutralCompact
                 hideHint
+                canCheckIn={canCheckIn}
                 place={place}
                 placeId={checkinPlaceKey ?? String(place.id ?? "")}
                 placeName={place.name}

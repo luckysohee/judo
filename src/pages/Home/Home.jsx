@@ -107,6 +107,7 @@ import {
 } from "../../utils/searchPlaceFeedback";
 import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
+import HotNowSection from "../../components/Home/HotNowSection";
 import MutualCheckinsHomeSection from "../../components/Home/MutualCheckinsHomeSection";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
 import {
@@ -214,6 +215,13 @@ import {
   filterPlacesBySituationFolder,
   SITUATION_FOLDER,
 } from "../../utils/situationPlaceFilter";
+import {
+  getJudoModeCopy,
+  getJudoOperationMode,
+} from "../../utils/judoOperationMode";
+
+/** 낮 모드에서 지도 LIVE 펄스용으로 빈 Set 재사용 */
+const EMPTY_LIVE_PLACE_IDS = new Set();
 
 /** 「1차·2차·분위기」빠른 칩 — 코스 아님·단발 검색 (`mapViewportChipSearch` 로 지도 뷰 기준만) */
 const DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY = {
@@ -2327,6 +2335,8 @@ export default function Home() {
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
   /** placeholder KST 구간 갱신(분 단위) */
   const [searchPlaceholderTick, setSearchPlaceholderTick] = useState(0);
+  /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
+  const [now, setNow] = useState(() => new Date());
 
   const homeDustIntroDoneRef = useRef(false);
   const [homeDustIntroDismissed, setHomeDustIntroDismissed] = useState(() => {
@@ -2613,6 +2623,8 @@ export default function Home() {
         : getHomeSearchPlaceholderKst("auto"),
     [searchPlaceholderTick, searchTargetMode]
   );
+  const judoMode = useMemo(() => getJudoOperationMode(now), [now]);
+  const judoCopy = useMemo(() => getJudoModeCopy(judoMode), [judoMode]);
 
   const dismissSearchIdleHint = useCallback(() => {
     setSearchIdleHintVisible(false);
@@ -2625,6 +2637,13 @@ export default function Home() {
   useEffect(() => {
     const id = window.setInterval(() => {
       setSearchPlaceholderTick((n) => n + 1);
+    }, 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNow(new Date());
     }, 60000);
     return () => window.clearInterval(id);
   }, []);
@@ -4025,7 +4044,8 @@ export default function Home() {
     };
   }, [selectedPlace?.id, selectedPlace?.place_id, selectedPlace?.kakao_place_id]);
 
-  const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
+  const { checkinRanking, placeCheckinCounts, hotPlaces } =
+    useRealtimeCheckins();
   const rankingTop5 = useMemo(
     () => (Array.isArray(checkinRanking) ? checkinRanking.slice(0, 5) : []),
     [checkinRanking]
@@ -5937,6 +5957,32 @@ export default function Home() {
       openRecommendedPlace,
       setSelectedPlaceWithAnalytics,
     ],
+  );
+
+  const handleHotNowPick = useCallback(
+    (row) => {
+      const pid = String(row?.place_id ?? row?.id ?? "").trim();
+      const found = mapDisplayedPlacesWithLegend.find((p) => {
+        const keys = [p?.id, p?.place_id, p?.kakao_place_id, p?.kakaoId]
+          .filter((x) => x != null && String(x).trim() !== "")
+          .map((x) => String(x));
+        return pid && keys.includes(pid);
+      });
+      if (found) {
+        setSelectedPlaceWithAnalytics(found, "hot_now_section");
+        const w = resolvePlaceWgs84(found);
+        if (w && mapRef?.current?.moveToLocation) {
+          mapRef.current.moveToLocation(w.lat, w.lng);
+        }
+        return;
+      }
+      showToast(
+        "지도에 올라온 장소면 여기서 바로 열려요. 검색으로 이름을 찾아보세요.",
+        "info",
+        2800,
+      );
+    },
+    [mapDisplayedPlacesWithLegend, setSelectedPlaceWithAnalytics, showToast],
   );
 
   useMapCenterOnFirstHighlighted(mapRef, recommendHighlightedMapPlaces);
@@ -8538,11 +8584,12 @@ const handleClearSearch = () => {
           }}
         >
           <div style={{ pointerEvents: "auto" }}>
-            <CheckinRanking position="sidebarStack" />
+            <CheckinRanking position="sidebarStack" judoMode={judoMode} />
           </div>
           <div style={{ pointerEvents: "auto" }}>
             <MutualCheckinsHomeSection
               user={user}
+              judoMode={judoMode}
               onOpenPlaceDetail={(place, source) =>
                 setSelectedPlaceWithAnalytics(place, source)
               }
@@ -8845,6 +8892,7 @@ const handleClearSearch = () => {
           placesOnMap={mapDisplayedPlacesWithLegend}
           mapRef={mapRef}
           user={user}
+          judoMode={judoMode}
           onOpenMutualPlaceDetail={(place, source) =>
             setSelectedPlaceWithAnalytics(place, source)
           }
@@ -8942,7 +8990,7 @@ const handleClearSearch = () => {
                     <span style={styles.drinksSituationEmoji} aria-hidden>
                       🍺
                     </span>
-                    <span>지금 2차 가기 좋은 곳</span>
+                    <span>2차 가기 좋은 곳</span>
                   </button>
                   <button
                     type="button"
@@ -9001,7 +9049,9 @@ const handleClearSearch = () => {
             }
             curatorColorMap={curatorColorMap}
             savedColorMap={savedColorMap}
-            livePlaceIds={livePlaceIds}
+            livePlaceIds={
+              judoMode.isDayMode ? EMPTY_LIVE_PLACE_IDS : livePlaceIds
+            }
             userFolders={userSavedPlaces} // 사용자 폴더 정보 전달
             onQuickSave={handleQuickSave} // 쾌속 잔 채우기 핸들러 전달
             userRole={getUserRole?.()} // 사용자 역할 전달
@@ -9015,7 +9065,10 @@ const handleClearSearch = () => {
             }}
             onMapViewportChange={onMapViewportChange}
             checkinCountByPlaceId={placeCheckinCounts}
-            hotRankTopPlaceIds={hotRankTopPlaceIds}
+            hotRankTopPlaceIds={
+              judoMode.isDayMode ? null : hotRankTopPlaceIds
+            }
+            canShowLiveFlame={judoMode.canShowLiveFlame}
             onMapBackgroundClick={() =>
               setMarkerGuideMapCloseTick((t) => t + 1)
             }
@@ -9083,6 +9136,7 @@ const handleClearSearch = () => {
             matchedMapPlace={matchedMapPlace}
             mergedPlace={mergedRecommendDetailPlace}
             isSaved={recommendDetailIsSaved}
+            canCheckIn={judoMode.canCheckIn}
             onRequestSave={(p) => setSaveTargetPlace(p)}
             recommendationBatchPlaces={
               curatorImportRecommendation?.ok
@@ -9166,7 +9220,7 @@ const handleClearSearch = () => {
                   onAnimationEnd={handleHomeDustIntroAnimationEnd}
                 >
                   <p style={styles.homeDustIntroTitle}>
-                    동네 + 1차 + 어디로
+                    오늘은 어디서 한잔?
                   </p>
                   <p style={styles.homeDustIntroSub}>
                     예: 합정 1차 어디로 — 탭하면 검색에 써 보세요
@@ -9606,7 +9660,7 @@ const handleClearSearch = () => {
         ) : null}
 
         <div style={styles.headerOverlay}>
-          <div style={styles.logoStack}>
+          <div style={styles.headerTopRow}>
             <button
               type="button"
               onClick={() => {
@@ -9618,38 +9672,37 @@ const handleClearSearch = () => {
             >
               JUDO
             </button>
-          </div>
 
-          <div style={styles.filterWrapper}>
-            <CuratorFilterBar
-              curators={dbCurators}
-              selectedCurators={selectedCurators}
-              allActive={showAll && selectedCurators.length === 0}
-              onToggle={(name) => {
-                const key = String(name ?? "").trim();
-                if (!key) return;
+            <div style={styles.filterWrapper}>
+              <CuratorFilterBar
+                curators={dbCurators}
+                selectedCurators={selectedCurators}
+                allActive={showAll && selectedCurators.length === 0}
+                onToggle={(name) => {
+                  const key = String(name ?? "").trim();
+                  if (!key) return;
 
-                setShowSavedOnly(false);
-                setLegendCategory(null);
-                const cleanPrev = selectedCuratorsRef.current.filter(
-                  (item) => item != null && String(item).trim() !== ""
-                );
-                const token = canonicalCuratorChipToken(key, dbCurators);
-                const idx = cleanPrev.findIndex((c) => {
-                  const prev = String(c ?? "").trim();
-                  if (!prev) return false;
-                  return (
-                    canonicalCuratorChipToken(prev, dbCurators).toLowerCase() ===
-                    token.toLowerCase()
+                  setShowSavedOnly(false);
+                  setLegendCategory(null);
+                  const cleanPrev = selectedCuratorsRef.current.filter(
+                    (item) => item != null && String(item).trim() !== ""
                   );
-                });
-                const next =
-                  idx >= 0
-                    ? cleanPrev.filter((_, i) => i !== idx)
-                    : [...cleanPrev, token];
-                setSelectedCurators(next);
-                setShowAll(next.length === 0);
-              }}
+                  const token = canonicalCuratorChipToken(key, dbCurators);
+                  const idx = cleanPrev.findIndex((c) => {
+                    const prev = String(c ?? "").trim();
+                    if (!prev) return false;
+                    return (
+                      canonicalCuratorChipToken(prev, dbCurators).toLowerCase() ===
+                      token.toLowerCase()
+                    );
+                  });
+                  const next =
+                    idx >= 0
+                      ? cleanPrev.filter((_, i) => i !== idx)
+                      : [...cleanPrev, token];
+                  setSelectedCurators(next);
+                  setShowAll(next.length === 0);
+                }}
               onSelectAll={() => {
                 setShowSavedOnly(false);
                 setLegendCategory(null);
@@ -9667,9 +9720,28 @@ const handleClearSearch = () => {
                 setSelectedCurator(curator);
                 setShowFollowModal(true);
               }}
-            />
+              />
+            </div>
           </div>
+
+          {!judoMode.isDayMode ? (
+            <div style={styles.logoNightTagline}>
+              <h1 style={styles.logoNightHeadline}>{judoCopy.headline}</h1>
+              <p style={styles.logoNightSub}>{judoCopy.sub}</p>
+            </div>
+          ) : null}
         </div>
+
+        {judoMode.isDayMode ? (
+          <div
+            style={styles.judoDayNoticeFixedBar}
+            role="status"
+            aria-live="polite"
+            title={judoCopy.sub}
+          >
+            {judoCopy.sub}
+          </div>
+        ) : null}
 
         <div style={styles.legendOverlay}>
           {courseSecondPickMode &&
@@ -9757,8 +9829,15 @@ const handleClearSearch = () => {
               ) : null}
               {!query.trim() &&
               !isAiSearching &&
-              !mutualSearchPanelOpen &&
-              curatorSpotlightPlaces.length > 0 ? (
+              !mutualSearchPanelOpen ? (
+                <>
+                  {judoMode.canShowHotNow ? (
+                    <HotNowSection
+                      places={hotPlaces}
+                      onPickPlace={handleHotNowPick}
+                    />
+                  ) : null}
+                  {curatorSpotlightPlaces.length > 0 ? (
                 <div
                   style={{
                     display: "flex",
@@ -9787,6 +9866,8 @@ const handleClearSearch = () => {
                     />
                   </div>
                 </div>
+                  ) : null}
+                </>
               ) : null}
               <SearchBar
                 query={query}
@@ -10012,6 +10093,7 @@ const handleClearSearch = () => {
               <PlacePreviewCard
                 place={selectedPlace}
                 isSaved={previewSavedState.isSaved}
+                canCheckIn={judoMode.canCheckIn}
                 savedFolderColor={
                   previewSavedState.folderColor ??
                   savedColorMap[selectedPlace.id]
@@ -12051,7 +12133,6 @@ const styles = {
     width: "100%",
     height: "100%",
   },
-
   /** 첫 진입만 — 지도 영역 정중앙, 먼지처럼 흩어지며 사라짐 */
   homeDustIntroOverlay: {
     position: "absolute",
@@ -12115,26 +12196,31 @@ const styles = {
     left: "50%",
     transform: "translateX(-50%)",
     bottom: "calc(188px + env(safe-area-inset-bottom, 0px))",
-    width: "min(720px, calc(100% - 24px))",
+    /** 아래 HotCheckinStrip 래퍼와 폭 기준 통일(튀어나옴 방지) */
+    width: "min(720px, calc(100% - 32px))",
     zIndex: 88,
     pointerEvents: "auto",
+    boxSizing: "border-box",
   },
   drinksSituationStrip: {
     display: "flex",
     flexDirection: "row",
     gap: 8,
-    overflowX: "auto",
+    overflowX: "hidden",
+    /** 아래 플로팅 박스 외곽선과 좌우 라인 정확히 일치 */
     padding: "2px 0 0",
     WebkitOverflowScrolling: "touch",
     scrollbarWidth: "none",
     msOverflowStyle: "none",
   },
   drinksSituationChip: {
-    flex: "0 0 auto",
+    flex: "1 1 0",
+    minWidth: 0,
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    padding: "8px 12px",
+    justifyContent: "center",
+    gap: 4,
+    padding: "6px 7px",
     borderRadius: 999,
     border: "1px solid rgba(255,255,255,0.55)",
     background: "rgba(255,255,255,0.42)",
@@ -12142,16 +12228,19 @@ const styles = {
     WebkitBackdropFilter: "blur(18px) saturate(180%)",
     boxShadow:
       "0 4px 18px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
-    fontSize: 12,
-    fontWeight: 750,
+    fontSize: "clamp(10.5px, 2.7vw, 11.5px)",
+    fontWeight: 700,
     color: "#1e293b",
     cursor: "pointer",
     whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     WebkitTapHighlightColor: "transparent",
   },
   drinksSituationEmoji: {
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 1,
+    flexShrink: 0,
   },
 
   headerOverlay: {
@@ -12160,8 +12249,9 @@ const styles = {
     left: "16px",
     right: "16px",
     display: "flex",
-    alignItems: "center",
-    gap: "14px",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: "5px",
     /** 지도 SDK·하단 UI(z~1e4)보다 위에 두고, 새 스택킹 문맥으로 히트 테스트 안정화 */
     zIndex: 25000,
     isolation: "isolate",
@@ -12169,13 +12259,73 @@ const styles = {
     touchAction: "manipulation",
   },
 
-  logoStack: {
+  headerTopRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: "6px",
+    width: "100%",
+    minWidth: 0,
+  },
+
+  /**
+   * 낮 모드: 지도 상단 고정 — 반투명 검정 바(토스트형). 좌측만 사용해 우측 별(저장)·지도 버튼 영역 여유.
+   */
+  judoDayNoticeFixedBar: {
+    position: "fixed",
+    left: "16px",
+    /** `legendOverlay.top`(64) + 저장 별 버튼 높이의 절반(14) → 별 원형과 같은 세로 중심 */
+    top: "calc(64px + 14px)",
+    transform: "translateY(-50%)",
+    zIndex: 24980,
+    boxSizing: "border-box",
+    maxWidth: "calc(100vw - 104px)",
+    width: "max-content",
+    margin: 0,
+    padding: "6px 12px",
+    borderRadius: "11px",
+    background:
+      "linear-gradient(180deg, rgba(22,22,24,0.56) 0%, rgba(10,10,12,0.48) 100%)",
+    backdropFilter: "blur(16px) saturate(155%)",
+    WebkitBackdropFilter: "blur(16px) saturate(155%)",
+    color: "rgba(255, 255, 255, 0.94)",
+    fontSize: "12px",
+    fontWeight: 650,
+    lineHeight: 1.25,
+    textAlign: "left",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+    boxShadow:
+      "0 6px 18px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.22)",
+    pointerEvents: "none",
+    WebkitFontSmoothing: "antialiased",
+  },
+
+  logoNightTagline: {
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-start",
-    gap: "6px",
-    flexShrink: 0,
-    pointerEvents: "auto",
+    gap: "2px",
+    maxWidth: "min(440px, calc(100vw - 40px))",
+  },
+  logoNightHeadline: {
+    margin: 0,
+    fontSize: "clamp(11px, 2.6vw, 14px)",
+    fontWeight: 900,
+    letterSpacing: "-0.03em",
+    color: "#111",
+    lineHeight: 1.2,
+    textShadow: "0 1px 0 rgba(255,255,255,0.85)",
+  },
+  logoNightSub: {
+    margin: 0,
+    fontSize: "clamp(10px, 2.2vw, 11px)",
+    fontWeight: 650,
+    color: "rgba(17, 17, 17, 0.74)",
+    lineHeight: 1.35,
+    textShadow: "0 1px 0 rgba(255,255,255,0.8)",
   },
 
   /** 로고 = 홈 전체 새로고침(상태 초기화) */

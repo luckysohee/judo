@@ -2,6 +2,11 @@ import { useState } from "react";
 import { useToast } from "../Toast/ToastProvider";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { supabase } from "../../lib/supabase";
+import {
+  getJudoModeCopy,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+  JUDO_DAY_SIDE_STRIP_HINT,
+} from "../../utils/judoOperationMode";
 import MutualCheckinsHomeSection from "./MutualCheckinsHomeSection";
 
 function placeMatchesRankId(place, rankPlaceId) {
@@ -43,9 +48,16 @@ export default function HotCheckinStrip({
   hideWhenPreviewOpen = false,
   /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
   hideWhenSearchActive = false,
+  judoMode = null,
 }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState(TAB_HOT);
+
+  const dayLocked = Boolean(judoMode?.isDayMode);
+  const dayScheduleToast = () => {
+    const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
+    showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+  };
 
   const topFive = Array.isArray(rankingTop5) ? rankingTop5 : [];
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
@@ -198,6 +210,10 @@ export default function HotCheckinStrip({
   };
 
   const handleHotChip = async (row) => {
+    if (dayLocked) {
+      dayScheduleToast();
+      return;
+    }
     const found = placesOnMap.find((p) => placeMatchesRankId(p, row.place_id));
     const wgs = found ? resolvePlaceWgs84(found) : null;
 
@@ -297,6 +313,7 @@ export default function HotCheckinStrip({
             compact
             stripMode
             user={user}
+            judoMode={judoMode}
             onOpenPlaceDetail={onOpenMutualPlaceDetail}
             onPickUserFromSearch={onPickMutualUser}
             onSearchOpenChange={onMutualSearchOpenChange}
@@ -305,13 +322,24 @@ export default function HotCheckinStrip({
           <div style={styles.scroll} role="tabpanel">
             {tab === TAB_HOT ? (
               topFive.length === 0 ? (
-                <div style={styles.empty}>이번엔 조용해요</div>
+                <div style={styles.empty}>
+                  {dayLocked ? JUDO_DAY_SIDE_STRIP_HINT : "이번엔 조용해요"}
+                </div>
               ) : (
                 topFive.map((row) => (
                   <button
                     key={String(row.place_id)}
                     type="button"
-                    style={styles.chipHot}
+                    style={{
+                      ...styles.chipHot,
+                      ...(dayLocked
+                        ? {
+                            opacity: 0.52,
+                            cursor: "not-allowed",
+                            filter: "grayscale(0.28)",
+                          }
+                        : {}),
+                    }}
                     title={row.place_address || row.place_name}
                     onClick={() => handleHotChip(row)}
                   >

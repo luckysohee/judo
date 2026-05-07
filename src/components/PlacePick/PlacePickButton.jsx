@@ -176,22 +176,24 @@ const VARIANT_STYLES = {
     },
     busy: { opacity: 0.78 },
   },
-  /** 블랙 배경 + 핑크 테두리만 (장소 모달 등 다크 글래스 위) */
+  /** 블랙 배경 + 핑크 테두리 (장소 모달 액션줄 — 저장·한잔과 동일 높이·폰트) */
   blackPink: {
     base: {
       flex: 1,
       minWidth: 0,
+      height: "44px",
       minHeight: "44px",
-      borderRadius: "999px",
-      border: "2px solid rgba(236, 72, 153, 0.72)",
+      maxHeight: "44px",
+      borderRadius: "12px",
+      border: "1px solid rgba(236, 72, 153, 0.78)",
       backgroundColor: "rgba(6, 6, 8, 0.94)",
       color: "rgba(253, 242, 248, 0.96)",
-      fontSize: "13px",
-      fontWeight: 800,
+      fontSize: "12px",
+      fontWeight: 700,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      padding: "0 12px",
+      padding: "0 8px",
       cursor: "pointer",
       boxSizing: "border-box",
       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
@@ -199,9 +201,9 @@ const VARIANT_STYLES = {
     picked: {
       backgroundColor: "rgba(5, 5, 8, 0.96)",
       color: "#fdf2f8",
-      border: "2px solid #f472b6",
+      border: "1px solid #f472b6",
       boxShadow:
-        "inset 0 1px 0 rgba(255,255,255,0.05), 0 0 16px rgba(236, 72, 153, 0.22)",
+        "inset 0 1px 0 rgba(255,255,255,0.05), 0 0 12px rgba(236, 72, 153, 0.2)",
     },
     muted: {
       opacity: 0.45,

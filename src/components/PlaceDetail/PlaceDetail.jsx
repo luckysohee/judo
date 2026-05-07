@@ -6,6 +6,7 @@ import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { checkinPlaceKeyFromPlace } from "../../utils/checkinPlaceKeyFromPlace";
 import { normalizeHanjanStats } from "../../utils/hanjanSocialCopy";
+import { getJudoOperationMode } from "../../utils/judoOperationMode";
 import { supabase } from "../../lib/supabase";
 
 // 기본 이미지 폴백 시스템
@@ -121,6 +122,17 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
       });
   }, [checkinKey]);
 
+  const [judoScheduleTick, setJudoScheduleTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setJudoScheduleTick((n) => n + 1), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const canCheckIn = useMemo(() => {
+    void judoScheduleTick;
+    return getJudoOperationMode().canCheckIn;
+  }, [judoScheduleTick]);
+
   // 임시 체크인 버튼
   const handleTempCheckin = () => {
     console.log('🎯 체크인 테스트:', place.id, place.name);
@@ -210,6 +222,7 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
                 <CheckinButton
                   compact
                   hideHint
+                  canCheckIn={canCheckIn}
                   place={place}
                   placeId={checkinKey ?? String(place?.id ?? "")}
                   placeName={place.name}

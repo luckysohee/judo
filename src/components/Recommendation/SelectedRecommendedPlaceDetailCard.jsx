@@ -26,6 +26,7 @@ export function SelectedRecommendedPlaceDetailCard({
   onRequestSave,
   onClose,
   onViewOnMap,
+  canCheckIn = true,
 }) {
   if (!selectedRecommendedPlace && !matchedMapPlace) return null;
 
@@ -159,6 +160,7 @@ export function SelectedRecommendedPlaceDetailCard({
                 compact
                 compactRowShort
                 hideHint
+                canCheckIn={canCheckIn}
                 place={mergedPlaceForPick}
                 placeId={checkinKey ?? String(mergedPlaceForPick?.id ?? "")}
                 placeName={

@@ -10,6 +10,10 @@ import {
   formatFireLine,
   normalizeHanjanStats,
 } from "../../utils/hanjanSocialCopy";
+import {
+  JUDO_CHECKIN_SCHEDULE_ERROR,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+} from "../../utils/judoOperationMode";
 
 function parseCoord(v) {
   if (v == null || v === "") return null;
@@ -82,10 +86,18 @@ function messageForTooFarFromPlace(err) {
   return "가게 근처에 있을 때만 여기서 한잔으로 잡힙니다. 지도에서 위치를 확인해 주세요.";
 }
 
+function isScheduleClosedError(err) {
+  const msg = [err?.message, err?.code].filter(Boolean).join(" ");
+  return msg.includes(JUDO_CHECKIN_SCHEDULE_ERROR);
+}
+
 function messageForHanjanError(err) {
   const msg = [err?.message, err?.details, err?.hint, err?.code]
     .filter(Boolean)
     .join(" ");
+  if (msg.includes(JUDO_CHECKIN_SCHEDULE_ERROR)) {
+    return JUDO_CHECKIN_SCHEDULE_TOAST;
+  }
   if (msg.includes("checkin_too_far_from_place")) {
     return messageForTooFarFromPlace(err);
   }
@@ -165,6 +177,8 @@ export default function CheckinButton({
   neutralCompact = false,
   /** `compact`일 때 줄 높이만 살짝 낮춤 (추천 시트 등 3열 액션) */
   compactRowShort = false,
+  /** 운영 시간 외(`false`)에는 한잔 RPC 미실행·토스트만 — 버튼은 숨기지 않음 */
+  canCheckIn = true,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
@@ -244,6 +258,11 @@ export default function CheckinButton({
   };
 
   const handleHanjan = () => {
+    if (loading) return;
+    if (!canCheckIn) {
+      showToast(JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+      return;
+    }
     if (!user?.id) {
       showToast("로그인이 필요합니다.", "warning");
       return;
@@ -433,7 +452,11 @@ export default function CheckinButton({
       }
     } catch (error) {
       console.error("한잔 기록 오류:", error);
-      showToast(messageForHanjanError(error), "error");
+      if (isScheduleClosedError(error)) {
+        showToast(JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+      } else {
+        showToast(messageForHanjanError(error), "error");
+      }
     } finally {
       setLoading(false);
     }
@@ -447,6 +470,8 @@ export default function CheckinButton({
   const compactFs = compactRowShort ? "10px" : "12px";
   const compactPadX = compactRowShort ? "6px" : "10px";
 
+  const checkInLocked = !canCheckIn;
+
   const buttonStyles = compact
     ? neutralCompact
       ? {
@@ -458,7 +483,8 @@ export default function CheckinButton({
             color: "#fdba74",
             fontSize: compactFs,
             fontWeight: "800",
-            cursor: loading ? "not-allowed" : "pointer",
+            cursor:
+              loading || checkInLocked ? "not-allowed" : "pointer",
             transition: "background-color 0.15s ease, border-color 0.15s ease",
             display: "flex",
             alignItems: "center",
@@ -493,7 +519,8 @@ export default function CheckinButton({
             color: "#422006",
             fontSize: compactFs,
             fontWeight: "800",
-            cursor: loading ? "not-allowed" : "pointer",
+            cursor:
+              loading || checkInLocked ? "not-allowed" : "pointer",
             transition: "all 0.2s ease",
             display: "flex",
             alignItems: "center",
@@ -528,7 +555,8 @@ export default function CheckinButton({
           color: "#FF6B6B",
           fontSize: "14px",
           fontWeight: "bold",
-          cursor: loading ? "not-allowed" : "pointer",
+          cursor:
+            loading || checkInLocked ? "not-allowed" : "pointer",
           transition: "all 0.3s ease",
           display: "flex",
           alignItems: "center",
@@ -548,6 +576,13 @@ export default function CheckinButton({
         },
       };
 
+  const hanjanButtonVisual = {
+    ...buttonStyles.hanjanButton,
+    ...(checkInLocked
+      ? { opacity: 0.5, filter: "grayscale(0.35)", cursor: "not-allowed" }
+      : {}),
+  };
+
   return (
     <div
       style={
@@ -566,18 +601,18 @@ export default function CheckinButton({
     >
       <button
         type="button"
-        style={buttonStyles.hanjanButton}
+        style={hanjanButtonVisual}
         onClick={handleHanjan}
-        disabled={loading}
+        aria-disabled={checkInLocked || loading}
         onMouseEnter={(e) => {
-          if (!loading) {
+          if (!loading && !checkInLocked) {
             Object.assign(e.target.style, buttonStyles.hanjanButtonHover);
           }
         }}
         onMouseLeave={(e) => {
           if (!loading) {
             e.target.style.filter = "";
-            Object.assign(e.target.style, buttonStyles.hanjanButton);
+            Object.assign(e.target.style, hanjanButtonVisual);
           }
         }}
       >
@@ -590,7 +625,11 @@ export default function CheckinButton({
             : "🍺 한잔함"}
       </button>
 
-      {compact && hideHint ? null : fireHint ? (
+      {compact && hideHint && !checkInLocked ? null : checkInLocked ? (
+        <div style={{ ...buttonStyles.hint, opacity: 0.72 }}>
+          {JUDO_CHECKIN_SCHEDULE_TOAST}
+        </div>
+      ) : fireHint ? (
         <div style={buttonStyles.hint}>{fireHint}</div>
       ) : (
         <div style={buttonStyles.hint}>

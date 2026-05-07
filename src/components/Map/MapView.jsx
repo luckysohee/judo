@@ -274,7 +274,12 @@ function buildMapShortCaption(place, situationFolderKey, checkinMeta) {
   return "";
 }
 
-function markerCheckinMeta(place, checkinCountByPlaceId, hotRankTopPlaceIds) {
+function markerCheckinMeta(
+  place,
+  checkinCountByPlaceId,
+  hotRankTopPlaceIds,
+  canShowLiveFlame = true,
+) {
   const ids = [place?.id, place?.place_id, place?.kakao_place_id, place?.kakaoId]
     .filter((x) => x != null && x !== "")
     .map((x) => String(x));
@@ -283,10 +288,11 @@ function markerCheckinMeta(place, checkinCountByPlaceId, hotRankTopPlaceIds) {
     const v = checkinCountByPlaceId?.[id];
     if (typeof v === "number" && v > checkinCount) checkinCount = v;
   }
-  const showHotFlame =
+  const inHotRank =
     hotRankTopPlaceIds &&
     typeof hotRankTopPlaceIds.has === "function" &&
     ids.some((id) => hotRankTopPlaceIds.has(id));
+  const showHotFlame = Boolean(canShowLiveFlame && inHotRank);
   return { checkinCount, showHotFlame };
 }
 
@@ -311,6 +317,8 @@ const MapView = forwardRef(({
   checkinCountByPlaceId = {},
   /** Set<string> 랭킹 TOP place_id */
   hotRankTopPlaceIds = null,
+  /** false면 마커 🔥(핫 불꽃) 표시 안 함 — 낮 모드 등 */
+  canShowLiveFlame = true,
   /** false면 지도 우하단 내 위치 FAB 숨김(부모에서 다른 위치에 배치할 때) */
   showFloatingLocationButton = true,
   onMyLocationLoadingChange,
@@ -1392,7 +1400,12 @@ const MapView = forwardRef(({
         !p.isCoursePin &&
         !isEphemeralSearchMapMarker(p);
 
-      const checkinMeta = markerCheckinMeta(p, checkinCountByPlaceId, hotRankTopPlaceIds);
+      const checkinMeta = markerCheckinMeta(
+        p,
+        checkinCountByPlaceId,
+        hotRankTopPlaceIds,
+        canShowLiveFlame,
+      );
       const mapShortCaption = buildMapShortCaption(
         p,
         situationFolderFilter,
@@ -1570,6 +1583,7 @@ const MapView = forwardRef(({
     userFolders,
     checkinCountByPlaceId,
     hotRankTopPlaceIds,
+    canShowLiveFlame,
     preserveViewportOnPlacesChange,
     placesFitBoundsPadding,
     skipKoreaBBoxForCuratorPins,

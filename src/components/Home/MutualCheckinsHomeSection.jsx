@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchMutualCheckins } from "../../utils/userActivity";
+import {
+  getJudoModeCopy,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+  JUDO_DAY_SIDE_STRIP_HINT,
+} from "../../utils/judoOperationMode";
 import PickUserButton from "../PickUserButton/PickUserButton";
 
 const THREE_H_MS = 3 * 60 * 60 * 1000;
@@ -191,9 +196,15 @@ export default function MutualCheckinsHomeSection({
   compact = false,
   stripMode = false,
   onSearchOpenChange,
+  judoMode = null,
 }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const dayLocked = Boolean(judoMode?.isDayMode);
+  const dayScheduleToast = useCallback(() => {
+    const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
+    showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+  }, [judoMode, showToast]);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [profilesById, setProfilesById] = useState({});
@@ -847,7 +858,22 @@ export default function MutualCheckinsHomeSection({
               </button>
             </div>
           </div>
-          {cards.length > 0 ? (
+          {dayLocked ? (
+            <button
+              type="button"
+              style={{
+                ...styles.stripChip,
+                opacity: 0.55,
+                cursor: "not-allowed",
+                filter: "grayscale(0.22)",
+                flex: "1 1 auto",
+                minWidth: 0,
+              }}
+              onClick={dayScheduleToast}
+            >
+              {JUDO_DAY_SIDE_STRIP_HINT}
+            </button>
+          ) : cards.length > 0 ? (
             cards.slice(0, 8).map((card, idx) => (
               <button
                 key={`${card.kind}:${card.groupKey}:${idx}:${maxCreatedMs(card.rows)}`}
@@ -1042,13 +1068,45 @@ export default function MutualCheckinsHomeSection({
         </div>
       ) : null}
 
-      {!loading && rows.length === 0 ? (
+      {!dayLocked && !loading && rows.length === 0 ? (
         <div style={styles.empty}>
           아는 사람 활동이 아직 없어요
         </div>
       ) : null}
 
-      {cards.length > 0 ? (
+      {dayLocked ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: compact ? "6px 6px 8px" : "10px 8px 12px",
+            color: "#64748b",
+            fontSize: compact ? 10 : 11,
+            fontWeight: 650,
+            lineHeight: 1.4,
+          }}
+        >
+          {JUDO_DAY_SIDE_STRIP_HINT}
+          <span style={{ display: "block", marginTop: compact ? 6 : 8 }}>
+            <button
+              type="button"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid rgba(52,152,219,0.28)",
+                background: "rgba(52,152,219,0.06)",
+                color: "#2563ab",
+                fontWeight: 750,
+                fontSize: compact ? 10 : 11,
+                cursor: "pointer",
+                opacity: 0.92,
+              }}
+              onClick={dayScheduleToast}
+            >
+              한잔 시간 안내
+            </button>
+          </span>
+        </div>
+      ) : cards.length > 0 ? (
         <div style={styles.list}>
           {cards.map((card, idx) => {
             const head = primaryLine(card, profilesById, placeNames);

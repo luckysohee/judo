@@ -1,8 +1,16 @@
 import React from 'react';
 import { useRealtimeCheckins } from '../../hooks/useRealtimeCheckins';
+import { useToast } from '../Toast/ToastProvider';
+import {
+  getJudoModeCopy,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+  JUDO_DAY_SIDE_STRIP_HINT,
+} from '../../utils/judoOperationMode';
 
-const CheckinRanking = ({ position = 'sidebar' }) => {
+const CheckinRanking = ({ position = 'sidebar', judoMode = null }) => {
   const { checkinRanking } = useRealtimeCheckins();
+  const { showToast } = useToast();
+  const dayLocked = Boolean(judoMode?.isDayMode);
 
   const getPositionStyles = () => {
     const baseStyles = {
@@ -169,6 +177,49 @@ const CheckinRanking = ({ position = 'sidebar' }) => {
       document.head.removeChild(style);
     };
   }, []);
+
+  const dayScheduleToast = () => {
+    const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
+    showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+  };
+
+  if (dayLocked) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <h3 style={{ ...styles.title, opacity: 0.72 }}>
+            <span style={{ ...styles.fireIcon, animation: "none", opacity: 0.65 }}>
+              🔥
+            </span>
+            지금 핫한 가게
+          </h3>
+        </div>
+        <div style={{ ...styles.emptyState, padding: "12px 12px 14px" }}>
+          <p style={{ fontSize: 12, fontWeight: 750, color: "#555", margin: "0 0 10px", lineHeight: 1.35 }}>
+            {JUDO_DAY_SIDE_STRIP_HINT}
+          </p>
+          <button
+            type="button"
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "10px",
+              border: "1px solid rgba(0,0,0,0.1)",
+              background: "rgba(0,0,0,0.04)",
+              color: "#555",
+              fontWeight: 700,
+              fontSize: "12px",
+              cursor: "pointer",
+              opacity: 0.88,
+            }}
+            onClick={dayScheduleToast}
+          >
+            한잔 시간 안내
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!checkinRanking || checkinRanking.length === 0) {
     return (
