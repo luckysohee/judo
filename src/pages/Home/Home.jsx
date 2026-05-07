@@ -107,7 +107,6 @@ import {
 } from "../../utils/searchPlaceFeedback";
 import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
-import HotNowSection from "../../components/Home/HotNowSection";
 import MutualCheckinsHomeSection from "../../components/Home/MutualCheckinsHomeSection";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
 import {
@@ -232,6 +231,63 @@ const DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY = {
   [SITUATION_FOLDER.vibe]:
     "분위기 데이트 와인 조용한 술집",
 };
+
+function shuffleArray(list) {
+  const arr = Array.isArray(list) ? list.slice() : [];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function toHotStripRow(placeLike, fallbackWeight = 0) {
+  if (!placeLike || typeof placeLike !== "object") return null;
+  const pid = String(
+    placeLike.place_id ??
+      placeLike.kakao_place_id ??
+      placeLike.kakaoId ??
+      placeLike.id ??
+      "",
+  ).trim();
+  if (!pid) return null;
+  const name = String(placeLike.place_name ?? placeLike.name ?? "").trim();
+  if (!name) return null;
+  const totalCheckins = Math.max(
+    0,
+    Number(
+      placeLike.total_checkins ??
+        placeLike.checkin_count ??
+        placeLike.total_dedup ??
+        0,
+    ) || 0,
+  );
+  const weightedPick = Math.max(
+    0,
+    Number(
+      placeLike.pick_weighted ??
+        placeLike.pick_w ??
+        placeLike.pick_weight ??
+        placeLike.pick_count ??
+        placeLike.total_picks ??
+        0,
+    ) || 0,
+  );
+  const score = totalCheckins * 5 + weightedPick * 3 + fallbackWeight;
+  return {
+    place_id: pid,
+    place_name: name,
+    place_address: String(
+      placeLike.place_address ??
+        placeLike.address ??
+        placeLike.road_address_name ??
+        placeLike.address_name ??
+        "",
+    ).trim(),
+    total_checkins: totalCheckins,
+    _score: score,
+  };
+}
 
 /** 술 상황 칩(펼친 지도 뷰 기준)—화면 안 상위 결과만 두고 과다 마커·줌아웃 완화 */
 const SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS = 48;
@@ -2625,6 +2681,21 @@ export default function Home() {
   );
   const judoMode = useMemo(() => getJudoOperationMode(now), [now]);
   const judoCopy = useMemo(() => getJudoModeCopy(judoMode), [judoMode]);
+  const dayModeRemainingClock = useMemo(() => {
+    if (!judoMode.isDayMode) return "";
+    const target = new Date(now);
+    target.setHours(16, 0, 0, 0);
+    const diffMs = Math.max(0, target.getTime() - now.getTime());
+    const totalSec = Math.floor(diffMs / 1000);
+    const hh = String(Math.floor(totalSec / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }, [judoMode.isDayMode, now]);
+  const dayModeNoticeText = useMemo(() => {
+    if (!judoMode.isDayMode) return "";
+    return `${judoCopy.sub} (${dayModeRemainingClock})`;
+  }, [judoCopy.sub, judoMode.isDayMode, dayModeRemainingClock]);
 
   const dismissSearchIdleHint = useCallback(() => {
     setSearchIdleHintVisible(false);
@@ -2644,7 +2715,7 @@ export default function Home() {
   useEffect(() => {
     const id = window.setInterval(() => {
       setNow(new Date());
-    }, 60000);
+    }, 1000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -4044,13 +4115,11 @@ export default function Home() {
     };
   }, [selectedPlace?.id, selectedPlace?.place_id, selectedPlace?.kakao_place_id]);
 
-  const { checkinRanking, placeCheckinCounts, hotPlaces } =
-    useRealtimeCheckins();
+  const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
   const rankingTop5 = useMemo(
     () => (Array.isArray(checkinRanking) ? checkinRanking.slice(0, 5) : []),
     [checkinRanking]
   );
-
   const [risingCurators, setRisingCurators] = useState([]);
 
   const loadRisingCurators = useCallback(async () => {
@@ -5889,6 +5958,41 @@ export default function Home() {
     preserveMapViewportSituationChip,
   ]);
 
+  const hotStripPlaceRows = useMemo(() => {
+    const byId = new Map();
+    const ingest = (raw, bonus = 0) => {
+      const row = toHotStripRow(raw, bonus);
+      if (!row) return;
+      const prev = byId.get(row.place_id);
+      if (!prev || Number(row._score) > Number(prev._score)) {
+        byId.set(row.place_id, row);
+      }
+    };
+
+    for (const r of rankingTop5) ingest(r, 120);
+    for (const p of curatorSpotlightPlaces || []) ingest(p, 90);
+    for (const p of mapDisplayedPlacesWithLegend.slice(0, 80)) {
+      const rawPickish =
+        Number(
+          p?.pick_weighted ?? p?.pick_w ?? p?.pick_count ?? p?.total_picks ?? 0
+        ) || 0;
+      const savedBonus = userSavedPlaces?.[p?.id] ? 45 : 0;
+      ingest(p, rawPickish * 2 + savedBonus + 15);
+    }
+
+    const pool = Array.from(byId.values()).sort((a, b) => b._score - a._score);
+    if (pool.length <= 5) return pool.map(({ _score, ...rest }) => rest);
+
+    const topBucket = pool.slice(0, Math.min(14, pool.length));
+    const picked = shuffleArray(topBucket).slice(0, 5);
+    return picked.map(({ _score, ...rest }) => rest);
+  }, [
+    rankingTop5,
+    curatorSpotlightPlaces,
+    mapDisplayedPlacesWithLegend,
+    userSavedPlaces,
+  ]);
+
   useLayoutEffect(() => {
     const tick = mapSearchMarkerFitTick;
     if (tick === 0) return;
@@ -5957,32 +6061,6 @@ export default function Home() {
       openRecommendedPlace,
       setSelectedPlaceWithAnalytics,
     ],
-  );
-
-  const handleHotNowPick = useCallback(
-    (row) => {
-      const pid = String(row?.place_id ?? row?.id ?? "").trim();
-      const found = mapDisplayedPlacesWithLegend.find((p) => {
-        const keys = [p?.id, p?.place_id, p?.kakao_place_id, p?.kakaoId]
-          .filter((x) => x != null && String(x).trim() !== "")
-          .map((x) => String(x));
-        return pid && keys.includes(pid);
-      });
-      if (found) {
-        setSelectedPlaceWithAnalytics(found, "hot_now_section");
-        const w = resolvePlaceWgs84(found);
-        if (w && mapRef?.current?.moveToLocation) {
-          mapRef.current.moveToLocation(w.lat, w.lng);
-        }
-        return;
-      }
-      showToast(
-        "지도에 올라온 장소면 여기서 바로 열려요. 검색으로 이름을 찾아보세요.",
-        "info",
-        2800,
-      );
-    },
-    [mapDisplayedPlacesWithLegend, setSelectedPlaceWithAnalytics, showToast],
   );
 
   useMapCenterOnFirstHighlighted(mapRef, recommendHighlightedMapPlaces);
@@ -8725,9 +8803,10 @@ const handleClearSearch = () => {
                   </div>
                   <div
                     style={{
-                      fontSize: "12px",
-                      color: "rgba(255,255,255,0.56)",
-                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#ffffff",
+                      fontWeight: 800,
+                      textShadow: "0 1px 3px rgba(0,0,0,0.38)",
                     }}
                   >
                     {`${modalGradeMeta.emoji} ${modalGradeMeta.label}`}
@@ -8887,7 +8966,7 @@ const handleClearSearch = () => {
         </div>
 
         <HotCheckinStrip
-          rankingTop5={rankingTop5}
+          rankingTop5={hotStripPlaceRows}
           risingCurators={risingCurators}
           placesOnMap={mapDisplayedPlacesWithLegend}
           mapRef={mapRef}
@@ -9724,12 +9803,6 @@ const handleClearSearch = () => {
             </div>
           </div>
 
-          {!judoMode.isDayMode ? (
-            <div style={styles.logoNightTagline}>
-              <h1 style={styles.logoNightHeadline}>{judoCopy.headline}</h1>
-              <p style={styles.logoNightSub}>{judoCopy.sub}</p>
-            </div>
-          ) : null}
         </div>
 
         {judoMode.isDayMode ? (
@@ -9737,9 +9810,9 @@ const handleClearSearch = () => {
             style={styles.judoDayNoticeFixedBar}
             role="status"
             aria-live="polite"
-            title={judoCopy.sub}
+            title={dayModeNoticeText}
           >
-            {judoCopy.sub}
+            {dayModeNoticeText}
           </div>
         ) : null}
 
@@ -9831,12 +9904,6 @@ const handleClearSearch = () => {
               !isAiSearching &&
               !mutualSearchPanelOpen ? (
                 <>
-                  {judoMode.canShowHotNow ? (
-                    <HotNowSection
-                      places={hotPlaces}
-                      onPickPlace={handleHotNowPick}
-                    />
-                  ) : null}
                   {curatorSpotlightPlaces.length > 0 ? (
                 <div
                   style={{
@@ -12275,27 +12342,27 @@ const styles = {
     position: "fixed",
     left: "16px",
     /** `legendOverlay.top`(64) + 저장 별 버튼 높이의 절반(14) → 별 원형과 같은 세로 중심 */
-    top: "calc(64px + 14px)",
+    top: "calc(64px + 18px)",
     transform: "translateY(-50%)",
     zIndex: 24980,
     boxSizing: "border-box",
-    maxWidth: "calc(100vw - 104px)",
+    maxWidth: "calc(100vw - 72px)",
     width: "max-content",
     margin: 0,
-    padding: "6px 12px",
+    padding: "6px 14px",
     borderRadius: "11px",
     background:
       "linear-gradient(180deg, rgba(22,22,24,0.56) 0%, rgba(10,10,12,0.48) 100%)",
     backdropFilter: "blur(16px) saturate(155%)",
     WebkitBackdropFilter: "blur(16px) saturate(155%)",
     color: "rgba(255, 255, 255, 0.94)",
-    fontSize: "12px",
+    fontSize: "12.5px",
     fontWeight: 650,
     lineHeight: 1.25,
     textAlign: "left",
     whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
+    overflow: "visible",
+    textOverflow: "clip",
     border: "1px solid rgba(255, 255, 255, 0.16)",
     boxShadow:
       "0 6px 18px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.22)",
