@@ -110,7 +110,6 @@ import {
   dampedSearchSocialScoreDelta,
   fetchSearchSocialBoostByPlaces,
 } from "../../utils/searchSocialBoost";
-import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 import {
   emitSearchTelemetry,
   KEYWORD_SEARCH_FALLBACK_MIN_RESULTS,
@@ -144,7 +143,6 @@ import {
   walkingRouteDisplayMinutes,
   getCourseLongWalkStrollHint,
 } from "../../utils/courseWalkingRouteQuality.js";
-import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import { verifyTopKakaoSearchCandidates } from "../../utils/verifyTopKakaoSearchCandidates";
 import {
   mergePickedPlaceWithCuratorCatalog,
@@ -230,6 +228,10 @@ import { styles } from "./homeStyles.js";
 import { useAiSearchLoadingDots } from "./hooks/useAiSearchLoadingDots";
 import { useTickingNow } from "./hooks/useTickingNow";
 import { useMinuteTick } from "./hooks/useMinuteTick";
+import {
+  useAiSheetUiState,
+  AI_SHEET_PAGE_SIZE,
+} from "./hooks/useAiSheetUiState";
 import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
@@ -1414,10 +1416,6 @@ export default function Home() {
   selectedCuratorsRef.current = selectedCurators;
   const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
   const [aiSummary, setAiSummary] = useState("");
-  const [aiSheetPhotoByKey, setAiSheetPhotoByKey] = useState({});
-  const [aiSheetExpandedReasonByKey, setAiSheetExpandedReasonByKey] = useState(
-    {}
-  );
   const [aiReasons, setAiReasons] = useState([]);
   const [aiRecommendedIds, setAiRecommendedIds] = useState([]);
   /** 비-basic AI 검색: 추천 id·리스트·지도를 DB/내부와 섞지 않고 상위만 */
@@ -1427,7 +1425,6 @@ export default function Home() {
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
-  const [aiSheetPage, setAiSheetPage] = useState(0);
   /** 단순 위치+메뉴 검색: 맞춤 피크바·자동 시트 없이 지도 마커만 */
   const [simpleMapSearchMarkersOnly, setSimpleMapSearchMarkersOnly] =
     useState(false);
@@ -3835,153 +3832,23 @@ export default function Home() {
   ]);
 
   /** 바텀시트 한 페이지 행 수 — 엔진 후보 풀은 `externalPlacesPool`·`aiRecommendedIds`에 전부 실음 */
-  const AI_SHEET_PAGE_SIZE = 5;
-  const aiSheetTotalPages = Math.max(
-    1,
-    Math.ceil((aiBottomSheetPlaces?.length || 0) / AI_SHEET_PAGE_SIZE)
-  );
-  const aiBottomSheetPagedPlaces = useMemo(() => {
-    const start = aiSheetPage * AI_SHEET_PAGE_SIZE;
-    return (aiBottomSheetPlaces || []).slice(start, start + AI_SHEET_PAGE_SIZE);
-  }, [aiBottomSheetPlaces, aiSheetPage]);
-  const [aiSheetPhotoViewerOpen, setAiSheetPhotoViewerOpen] = useState(false);
-  const [aiSheetPhotoViewerIndex, setAiSheetPhotoViewerIndex] = useState(0);
-  /** 배경 탭으로 닫은 뒤 같은 포인터 이벤트가 썸네일로 떨어져 라이트박스가 즉시 다시 열리는 것 방지 */
-  const aiSheetPhotoViewerSuppressOpenUntilRef = useRef(0);
-
-  const closeAiSheetPhotoViewer = useCallback(() => {
-    setAiSheetPhotoViewerOpen(false);
-    aiSheetPhotoViewerSuppressOpenUntilRef.current = Date.now() + 480;
-  }, []);
-
-  useEffect(() => {
-    if (!aiSheetOpen) {
-      setAiSheetPhotoViewerOpen(false);
-    }
-  }, [aiSheetOpen]);
-
-  useEffect(() => {
-    if (!aiSheetPhotoViewerOpen) return undefined;
-    const onKey = (e) => {
-      if (e.key === "Escape") closeAiSheetPhotoViewer();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [aiSheetPhotoViewerOpen, closeAiSheetPhotoViewer]);
-
-  useEffect(() => {
-    if (aiSheetPage >= aiSheetTotalPages) {
-      setAiSheetPage(Math.max(0, aiSheetTotalPages - 1));
-    }
-  }, [aiSheetPage, aiSheetTotalPages]);
-
-  const aiSheetPlacePreviewKey = useCallback((place) => {
-    const id = String(place?.id || "").trim();
-    if (id) return id;
-    const nm = String(place?.name || place?.place_name || "").trim();
-    const ad = String(place?.address || place?.address_name || "").trim();
-    return `${nm}__${ad}`;
-  }, []);
-
-  const aiSheetPhotoViewerItems = useMemo(() => {
-    const out = [];
-    for (const p of aiBottomSheetPagedPlaces || []) {
-      const key = aiSheetPlacePreviewKey(p);
-      const enrichedPhoto = key ? aiSheetPhotoByKey[key] : "";
-      const previewImageUrl = [
-        enrichedPhoto,
-        p?.thumbnail,
-        p?.thumbnail_url,
-        p?.image,
-        p?.image_url,
-        p?.photo,
-        p?.photo_url,
-        p?.picture,
-      ]
-        .map((v) => String(v || "").trim())
-        .find((v) => /^https?:\/\//i.test(v) || v.startsWith("/api/"));
-      const wgs = resolvePlaceWgs84(p);
-      const lat = Number(wgs?.lat);
-      const lng = Number(wgs?.lng);
-      const fallbackStaticMapUrl =
-        Number.isFinite(lat) && Number.isFinite(lng)
-          ? buildKakaoStaticMapUrl(lat, lng, { w: 900, h: 640, level: 4 })
-          : "";
-      const src = previewImageUrl || fallbackStaticMapUrl || "";
-      if (!src) continue;
-      out.push({
-        key,
-        src,
-        title: String(p?.name || p?.place_name || "장소 사진").trim(),
-      });
-    }
-    return out;
-  }, [aiBottomSheetPagedPlaces, aiSheetPhotoByKey, aiSheetPlacePreviewKey]);
-
-  useEffect(() => {
-    if (!aiSheetOpen || !Array.isArray(aiBottomSheetPlaces) || aiBottomSheetPlaces.length === 0) {
-      return;
-    }
-    const ac = new AbortController();
-
-    const run = async () => {
-      for (const p of aiBottomSheetPlaces.slice(0, 8)) {
-        if (ac.signal.aborted) break;
-        const key = aiSheetPlacePreviewKey(p);
-        if (!key || aiSheetPhotoByKey[key]) continue;
-        const name = String(p?.name || p?.place_name || "").trim();
-        if (!name) continue;
-        const address = String(p?.address || p?.address_name || "").trim();
-        const wgs = resolvePlaceWgs84(p);
-        const lat = Number(wgs?.lat);
-        const lng = Number(wgs?.lng);
-        const kakaoId = normalizeKakaoPlaceId(p);
-        // 1) 카카오 상세 썸네일 우선 시도 (가게 사진 체감이 가장 자연스러움)
-        if (kakaoId) {
-          try {
-            const kakaoInfo = await getKakaoPlaceBasicInfoViaProxy(kakaoId, {
-              query: name,
-              ...(Number.isFinite(lng) ? { x: lng } : {}),
-              ...(Number.isFinite(lat) ? { y: lat } : {}),
-            });
-            const kakaoThumb = String(kakaoInfo?.thumbnail_url || "").trim();
-            if (kakaoThumb) {
-              setAiSheetPhotoByKey((prev) =>
-                prev[key] ? prev : { ...prev, [key]: kakaoThumb }
-              );
-              continue;
-            }
-          } catch {
-            /* no-op */
-          }
-        }
-        const qs = new URLSearchParams({ name });
-        if (address) qs.set("address", address);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          qs.set("lat", String(lat));
-          qs.set("lng", String(lng));
-        }
-        try {
-          const res = await fetch(`/api/google-place-photos?${qs.toString()}`, {
-            signal: ac.signal,
-          });
-          const data = await res.json().catch(() => null);
-          const first = Array.isArray(data?.imageUrls)
-            ? String(data.imageUrls[0] || "").trim()
-            : "";
-          if (first) {
-            setAiSheetPhotoByKey((prev) =>
-              prev[key] ? prev : { ...prev, [key]: first }
-            );
-          }
-        } catch {
-          /* no-op */
-        }
-      }
-    };
-    void run();
-    return () => ac.abort();
-  }, [aiSheetOpen, aiBottomSheetPlaces, aiSheetPlacePreviewKey, aiSheetPhotoByKey]);
+  const {
+    aiSheetPage,
+    setAiSheetPage,
+    aiSheetTotalPages,
+    aiBottomSheetPagedPlaces,
+    aiSheetExpandedReasonByKey,
+    setAiSheetExpandedReasonByKey,
+    aiSheetPhotoByKey,
+    aiSheetPlacePreviewKey,
+    aiSheetPhotoViewerOpen,
+    setAiSheetPhotoViewerOpen,
+    aiSheetPhotoViewerIndex,
+    setAiSheetPhotoViewerIndex,
+    aiSheetPhotoViewerSuppressOpenUntilRef,
+    aiSheetPhotoViewerItems,
+    closeAiSheetPhotoViewer,
+  } = useAiSheetUiState({ aiSheetOpen, aiBottomSheetPlaces });
 
   /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
   const courseSecondPulsePlacesForMap = useMemo(() => {
