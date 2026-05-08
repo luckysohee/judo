@@ -97,6 +97,7 @@ import {
   rpcIncrementSearchPlaceFeedbackImpressions,
 } from "../../utils/searchPlaceFeedback";
 import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
+import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
@@ -235,6 +236,7 @@ import {
 import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
+import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
 import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
@@ -1429,11 +1431,17 @@ export default function Home() {
   const [simpleMapSearchMarkersOnly, setSimpleMapSearchMarkersOnly] =
     useState(false);
   const loadingDots = useAiSearchLoadingDots(isAiSearching);
-  const [searchLoadingLabel, setSearchLoadingLabel] = useState("");
-  const [searchExpandUX, setSearchExpandUX] = useState(null);
-  /** 야장 검색 무결과 → 5km 큐레이터 폴백 안내 */
-  const [yajangFallbackBanner, setYajangFallbackBanner] = useState(null);
-  const [searchDistanceOrigin, setSearchDistanceOrigin] = useState(null); // 추천 리스트 거리·도보 표시용 기준 좌표
+  const {
+    searchLoadingLabel,
+    setSearchLoadingLabel,
+    searchExpandUX,
+    setSearchExpandUX,
+    yajangFallbackBanner,
+    setYajangFallbackBanner,
+    searchDistanceOrigin,
+    setSearchDistanceOrigin,
+    resetAll: resetSearchStatusMeta,
+  } = useSearchStatusMeta();
   const [isLocationBasedSearch, setIsLocationBasedSearch] = useState(false); // 위치기반 검색 여부
   /** 지역명만 검색해 줌인한 뒤 — 「여기서 검색」 */
   const [showMapSearchHereButton, setShowMapSearchHereButton] = useState(false);
@@ -3207,6 +3215,8 @@ export default function Home() {
       setSearchExpandUX(null);
       setSearchDistanceOrigin(null);
     }
+    /** setSearchExpandUX/setSearchDistanceOrigin은 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   // Admin/큐레이터/일반 사용자에 따른 표시 로직
@@ -4301,10 +4311,7 @@ const handleClearSearch = () => {
   setAiSheetOpen(false);
   setSimpleMapSearchMarkersOnly(false);
   setIsAiSearching(false);
-  setSearchLoadingLabel("");
-  setSearchExpandUX(null);
-  setYajangFallbackBanner(null);
-  setSearchDistanceOrigin(null);
+  resetSearchStatusMeta();
   setMapViewportCenterFromUser(null);
   setShowMapSearchHereButton(false);
   searchHereArmedRef.current = false;
@@ -7471,56 +7478,14 @@ const handleClearSearch = () => {
               />
             </div>
           ) : searchExpandUX && query.trim() && !isAiSearching ? (
-            <div style={styles.expandSearchWrap} role="region" aria-label="검색 확장 제안">
-              <div style={styles.expandSearchCard}>
-                <div style={styles.expandSearchTitle}>{searchExpandUX.headline}</div>
-                <p style={styles.expandSearchNote}>{searchExpandUX.dataNote}</p>
-                <p style={styles.expandSearchSub}>{searchExpandUX.subline}</p>
-                {Array.isArray(searchExpandUX.fallbackHints) &&
-                searchExpandUX.fallbackHints.length > 0 ? (
-                  <ul style={styles.expandFallbackHints} aria-label="조건 완화 아이디어">
-                    {searchExpandUX.fallbackHints.map((line, idx) => (
-                      <li key={idx}>{line}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                {searchExpandUX.quickBroadenQuery ? (
-                  <button
-                    type="button"
-                    style={styles.expandPrimaryBtn}
-                    onClick={() => {
-                      setSearchExpandUX(null);
-                      handleSearchSubmit(searchExpandUX.quickBroadenQuery);
-                    }}
-                  >
-                    {searchExpandUX.quickBroadenLabel ||
-                      `한 번에 넓게 «${searchExpandUX.quickBroadenQuery}»로 찾기`}
-                  </button>
-                ) : null}
-                <div style={styles.expandChipCol}>
-                  {(searchExpandUX.suggestions || []).map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      style={styles.expandChip}
-                      onClick={() => {
-                        setSearchExpandUX(null);
-                        handleSearchSubmit(s.query);
-                      }}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  style={styles.expandDismiss}
-                  onClick={() => setSearchExpandUX(null)}
-                >
-                  닫기
-                </button>
-              </div>
-            </div>
+            <HomeSearchExpandPanel
+              data={searchExpandUX}
+              onPick={(q) => {
+                setSearchExpandUX(null);
+                handleSearchSubmit(q);
+              }}
+              onDismiss={() => setSearchExpandUX(null)}
+            />
           ) : isCourseMode && query.trim() && !isAiSearching ? (
             <HomeCourseMergedSheet
               styles={styles}
