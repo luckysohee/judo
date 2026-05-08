@@ -245,6 +245,17 @@ import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
 import { orderPlacesByImportFirst } from "../../utils/orderPlacesByImportFirst";
 
+/** 프로덕션 번들에서 호출되어도 출력 없음 — 실패 추적은 `console.error` 유지 */
+const _nativeConsole = globalThis.console;
+const _devConsoleLog = _nativeConsole.log.bind(_nativeConsole);
+const _devConsoleWarn = _nativeConsole.warn.bind(_nativeConsole);
+function devLog(...args) {
+  if (import.meta.env.DEV) _devConsoleLog(...args);
+}
+function devWarn(...args) {
+  if (import.meta.env.DEV) _devConsoleWarn(...args);
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const mapRef = useRef(null);
@@ -425,11 +436,11 @@ export default function Home() {
             ? `${locationName} ${tailAfterLocation}`
             : locationName;
         searchLocation = null;
-        console.log("🔍 지역명 기반 검색:", searchKeyword);
+        devLog("🔍 지역명 기반 검색:", searchKeyword);
       } else {
         searchKeyword = intentPhrase || kwIn.trim();
         searchLocation = userLocation;
-        console.log("🔍 현재 위치 기반 검색:", searchKeyword);
+        devLog("🔍 현재 위치 기반 검색:", searchKeyword);
       }
 
       const kakaoSuffix = getKakaoKeywordSuffix(keyword);
@@ -487,7 +498,7 @@ export default function Home() {
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
 
-              console.log(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
+              devLog(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
             } else {
               // 현재 위치 기반 검색은 800m 이내 필터링
               const placesWithDistance = data
@@ -545,12 +556,12 @@ export default function Home() {
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
 
-              console.log(`🍺 ${searchKeyword} 근처 검색 결과:`, nearbyPlaces.length);
+              devLog(`🍺 ${searchKeyword} 근처 검색 결과:`, nearbyPlaces.length);
             }
             
             resolve(nearbyPlaces);
           } else {
-            console.log(`🍺 ${searchKeyword} 검색 결과 없음:`, status);
+            devLog(`🍺 ${searchKeyword} 검색 결과 없음:`, status);
             resolve([]);
           }
         },
@@ -617,7 +628,7 @@ export default function Home() {
     const timeoutId = setTimeout(() => controller.abort(), BLOG_FETCH_MS);
 
     try {
-      console.log("📝 서버 블로그 크롤 요청:", q);
+      devLog("📝 서버 블로그 크롤 요청:", q);
       const url = AI_API_BASE
         ? `${AI_API_BASE}/api/blog-reviews`
         : "/api/blog-reviews";
@@ -628,18 +639,18 @@ export default function Home() {
         signal: controller.signal,
       });
       if (!res.ok) {
-        console.warn("📝 blog-reviews HTTP", res.status);
+        devWarn("📝 blog-reviews HTTP", res.status);
         return [];
       }
       const data = await res.json();
       const list = Array.isArray(data.blogReviews) ? data.blogReviews : [];
-      console.log("📝 블로그 리뷰 수:", list.length);
+      devLog("📝 블로그 리뷰 수:", list.length);
       return list;
     } catch (error) {
       if (error?.name === "AbortError") {
-        console.warn("📝 블로그 요청 시간 초과 — 지도 결과는 그대로 사용");
+        devWarn("📝 블로그 요청 시간 초과 — 지도 결과는 그대로 사용");
       } else {
-        console.warn("📝 네이버 블로그 요청 실패 (서버 미기동 또는 크롤러 오류):", error);
+        devWarn("📝 네이버 블로그 요청 실패 (서버 미기동 또는 크롤러 오류):", error);
       }
       return [];
     } finally {
@@ -669,7 +680,7 @@ export default function Home() {
     const useApiBounds = !geoAnchored;
     const queries = expandFoodKakaoQueries(kwMap);
 
-    console.log("🗺️ searchMapBars:", { kwMap, geoAnchored, useApiBounds, queries });
+    devLog("🗺️ searchMapBars:", { kwMap, geoAnchored, useApiBounds, queries });
 
     const broadCategories = kakaoMapSearchWantsBroadPlaceCategories(kwMap);
     const runOne = (q) =>
@@ -712,7 +723,7 @@ export default function Home() {
         merged.push(p);
       }
     }
-    console.log("🗺️ searchMapBars 병합 건수:", merged.length, "쿼리 수:", queries.length);
+    devLog("🗺️ searchMapBars 병합 건수:", merged.length, "쿼리 수:", queries.length);
     return merged;
   };
 
@@ -1334,7 +1345,7 @@ export default function Home() {
         console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
         setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
         if (import.meta.env.DEV) {
-          console.log(
+          devLog(
             "📦 bounds fetch 결과:",
             (plainRows || []).length,
             "(join 오류·places만)"
@@ -1360,7 +1371,7 @@ export default function Home() {
       setDbPlaces(merged);
 
       if (import.meta.env.DEV) {
-        console.log("📦 bounds fetch 결과:", merged.length, {
+        devLog("📦 bounds fetch 결과:", merged.length, {
           큐레이터연결: fromJoin.length,
           places만: extraPlain.length,
           캐시: Boolean(cached),
@@ -2557,7 +2568,7 @@ export default function Home() {
         }
       } catch (e) {
         courseSwipePreserveScrollLeftRef.current = null;
-        console.warn("course radius change:", e);
+        devWarn("course radius change:", e);
       }
     },
     [
@@ -2657,7 +2668,7 @@ export default function Home() {
         }
       } catch (e) {
         courseSwipePreserveScrollLeftRef.current = null;
-        console.warn("course half-step toggle:", e);
+        devWarn("course half-step toggle:", e);
         setCourseIncludeHalfStep(() => !next);
         showToast("코스를 다시 짜는 데 실패했어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
       }
@@ -2760,7 +2771,7 @@ export default function Home() {
       p_limit: 8,
     });
     if (error) {
-      console.warn("home_rising_curators:", error.message);
+      devWarn("home_rising_curators:", error.message);
       setRisingCurators([]);
       return;
     }
@@ -3397,7 +3408,7 @@ export default function Home() {
           }
           return false;
         });
-        console.log("⭐ 저장만 보기(큐레이터·내 추천·비공개 포함):", myPlaces.length);
+        devLog("⭐ 저장만 보기(큐레이터·내 추천·비공개 포함):", myPlaces.length);
         return myPlaces;
       }
 
@@ -3405,7 +3416,7 @@ export default function Home() {
       const folderSaved = dbPlaces.filter((p) =>
         placeMatchesSavedKeySet(p, savedKeySet)
       );
-      console.log("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
+      devLog("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
       return folderSaved;
     }
 
@@ -3567,7 +3578,7 @@ export default function Home() {
         deduped.push(p);
       }
       if (import.meta.env.DEV) {
-        console.log("🔍 displayedPlaces(추천 id만):", deduped.length, {
+        devLog("🔍 displayedPlaces(추천 id만):", deduped.length, {
           external: deduped.length,
           internal: 0,
           naver: 0,
@@ -3605,7 +3616,7 @@ export default function Home() {
     }
 
     if (import.meta.env.DEV) {
-      console.log("🔍 displayedPlaces(추천 id만):", deduped.length, {
+      devLog("🔍 displayedPlaces(추천 id만):", deduped.length, {
         external: externalRecommendedPlaces.length,
         internal: internalRecommendedPlaces.length,
         naver: naverPlaces.length,
@@ -3699,7 +3710,7 @@ export default function Home() {
             raw: ip,
           }));
       if (import.meta.env.DEV) {
-        console.log(
+        devLog(
           "[aiSheet pinTop3FromImport/wanted]",
           top3Wanted.map((w) => ({ id: w.id, name: w.name }))
         );
@@ -3749,7 +3760,7 @@ export default function Home() {
         }
       }
       if (import.meta.env.DEV) {
-        console.log("[aiSheet pinTop3FromImport]", {
+        devLog("[aiSheet pinTop3FromImport]", {
           orderedNames: orderedNames.slice(0, 3),
           pinnedCount: pinned.length,
           baseCount: base.length,
@@ -3773,11 +3784,11 @@ export default function Home() {
         out.push(p);
       }
       if (import.meta.env.DEV) {
-        console.log(
+        devLog(
           "[aiSheet pinTop3FromImport/pinned]",
           pinned.map((p) => String(p?.name || p?.place_name || "").trim())
         );
-        console.log(
+        devLog(
           "[aiSheet pinTop3FromImport/finalTop3]",
           out.slice(0, 3).map((p) => String(p?.name || p?.place_name || "").trim())
         );
@@ -3896,7 +3907,7 @@ export default function Home() {
     // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
     if (showSavedOnly) {
       if (import.meta.env.DEV) {
-        console.log("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
+        devLog("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
       }
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return appendSelectedPlacePinIfMissing(
@@ -3984,7 +3995,7 @@ export default function Home() {
         kTypingPins
       );
       if (import.meta.env.DEV) {
-        console.log("🔍 AI+기존 마커 병합:", merged.length, {
+        devLog("🔍 AI+기존 마커 병합:", merged.length, {
           base: filteredBase.length,
           kakao: kPins.length,
         });
@@ -4010,14 +4021,14 @@ export default function Home() {
       return place.is_public !== false;
     });
     if (import.meta.env.DEV) {
-      console.log("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
+      devLog("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
     }
 
     const result = dedupeMapPlacesByKakaoId(
       mergePlaces(mergePlaces(filtered, kPins), kTypingPins)
     ); // 동일 id면 확정 검색·displayedPlaces 쪽을 먼저 두어 예전 kPins(DB 오좌표)가 덮어쓰지 않게 함
     if (import.meta.env.DEV) {
-      console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
+      devLog("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
     }
 
     return appendSelectedPlacePinIfMissing(
@@ -4106,7 +4117,7 @@ export default function Home() {
         mapRef.current?.fitToPlaces?.(rows, pad ?? undefined);
       } catch (e) {
         if (import.meta.env.DEV) {
-          console.warn("[map] fit to displayed search markers", e);
+          devWarn("[map] fit to displayed search markers", e);
         }
       }
     };
@@ -4408,7 +4419,7 @@ const handleClearSearch = () => {
 
   // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
   const handleQuickSave = (place) => {
-    console.log('📍 쾌속 잔 채우기 요청:', place);
+    devLog('📍 쾌속 잔 채우기 요청:', place);
     
     // PlacePreviewCard의 로직과 동일하게 처리
     // localStorage에 저장하는 로직을 구현해야 함
@@ -4481,7 +4492,7 @@ const handleClearSearch = () => {
         }
         navigate(`/u/${best.id}`);
       } catch (err) {
-        console.warn("user handle search:", err?.message || err);
+        devWarn("user handle search:", err?.message || err);
         showToast("유저 검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
       } finally {
         setIsAiSearching(false);
@@ -4648,7 +4659,7 @@ const handleClearSearch = () => {
     setCourseGpsRadiusM(COURSE_GPS_DEFAULT_RADIUS_M);
     setCourseSearchUsedGpsOrigin(false);
 
-    console.log('🧹 모든 검색 상태 초기화 완료');
+    devLog('🧹 모든 검색 상태 초기화 완료');
 
     if (!nextQuery) {
       homeSearchSkipCoursePreviewRef.current = false;
@@ -4712,7 +4723,7 @@ const handleClearSearch = () => {
         };
       } catch (fbPreErr) {
         if (import.meta.env.DEV) {
-          console.warn("[search-feedback] prefetch:", fbPreErr);
+          devWarn("[search-feedback] prefetch:", fbPreErr);
         }
       }
 
@@ -4732,7 +4743,7 @@ const handleClearSearch = () => {
           }
         } catch (socErr) {
           if (import.meta.env.DEV) {
-            console.warn("[search] social boost prefetch:", socErr);
+            devWarn("[search] social boost prefetch:", socErr);
           }
         }
         return base;
@@ -4801,7 +4812,7 @@ const handleClearSearch = () => {
             }
           } catch (panErr) {
             if (import.meta.env.DEV) {
-              console.warn("코스 지명 앵커:", panErr);
+              devWarn("코스 지명 앵커:", panErr);
             }
           }
         }
@@ -4823,7 +4834,7 @@ const handleClearSearch = () => {
               mapRef.current.moveToLocation(pos.lat, pos.lng);
             }
           } catch (locErr) {
-            console.warn("코스 주변 위치:", locErr);
+            devWarn("코스 주변 위치:", locErr);
             const denied = Number(locErr?.code) === 1;
             const timedOut = Number(locErr?.code) === 3;
             showToast(
@@ -4889,7 +4900,7 @@ const handleClearSearch = () => {
       // 검색 모드에 따라 다르게 처리
       if (shouldUseLocationSearch) {
         // 내 위치 중심 검색 (빨강 핀 클릭 후) - 위치 기반 검색
-        console.log("🔍 내 위치 중심 검색 시작:", nextQuery);
+        devLog("🔍 내 위치 중심 검색 시작:", nextQuery);
 
         let strictNearbyOrigin = null;
         let strictNearbyGpsFailed = false;
@@ -4905,7 +4916,7 @@ const handleClearSearch = () => {
             }
           } catch (locErr) {
             strictNearbyGpsFailed = true;
-            console.warn("주변 검색 위치:", locErr);
+            devWarn("주변 검색 위치:", locErr);
             const denied = Number(locErr?.code) === 1;
             const timedOut = Number(locErr?.code) === 3;
             showToast(
@@ -4982,7 +4993,7 @@ const handleClearSearch = () => {
           resolveNearbySearchOrigin(),
           intentAssistPromise,
         ]);
-        console.log("📍 주변 검색 기준 좌표:", userLocation, {
+        devLog("📍 주변 검색 기준 좌표:", userLocation, {
           fromSelectedPlaceCard: Boolean(searchAnchorCoords),
           preferDeviceGps: Boolean(
             explicitNearMe || userPinnedLocationSearchMode
@@ -5029,7 +5040,7 @@ const handleClearSearch = () => {
               naturalQ.facets || parseSearchQuery(nextQuery),
               nextQuery
             );
-        console.log('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
+        devLog('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
           keyword: nearbyKeyword,
           intentAssist: !!intentAssist,
         });
@@ -5113,7 +5124,7 @@ const handleClearSearch = () => {
           setYajangFallbackBanner(null);
         }
 
-        console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
+        devLog('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
 
         const anchorKakaoId = selectedPlaceSnapshot
           ? normalizeKakaoPlaceId(selectedPlaceSnapshot)
@@ -5184,7 +5195,7 @@ const handleClearSearch = () => {
             }
           } catch (nearFbErr) {
             if (import.meta.env.DEV) {
-              console.warn("[search] keyword→AI 주변 보조:", nearFbErr);
+              devWarn("[search] keyword→AI 주변 보조:", nearFbErr);
             }
           }
         }
@@ -5288,7 +5299,7 @@ const handleClearSearch = () => {
 
       } else {
         // 전체 지도 범용 검색 (바로 검색) - 미리보기 리스트 후 마커
-        console.log("🔍 전체 지도 범용 검색 시작:", nextQuery);
+        devLog("🔍 전체 지도 범용 검색 시작:", nextQuery);
 
         const kwForMap = stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery;
         let locationName = extractLocationAnchorFromQuery(kwForMap);
@@ -5411,7 +5422,7 @@ const handleClearSearch = () => {
               });
               await new Promise((r) => setTimeout(r, 280));
             } catch (geoErr) {
-              if (import.meta.env.DEV) console.warn("지역명 줌인:", geoErr);
+              devWarn("지역명 줌인:", geoErr);
             }
           }
           if (outlineQuery) {
@@ -5430,7 +5441,7 @@ const handleClearSearch = () => {
                 }
               } catch (outlineErr) {
                 if (import.meta.env.DEV) {
-                  console.warn("행정구역 경계:", outlineErr);
+                  devWarn("행정구역 경계:", outlineErr);
                 }
                 if (searchSessionIdRef.current !== outlineSessionId) return;
                 setRegionBoundaryOverlay(null);
@@ -5506,8 +5517,8 @@ const handleClearSearch = () => {
           ? `${searchKeyword} ${mapPlaceSuffix}`.trim()
           : searchKeyword;
 
-        console.log("🔍 추출된 지역명:", locationName);
-        console.log("🔍 최종 검색 키워드:", searchKeywordApi);
+        devLog("🔍 추출된 지역명:", locationName);
+        devLog("🔍 최종 검색 키워드:", searchKeywordApi);
         // 2. 지역명으로 지도 이동 및 줌인 (「여기서 검색」모드면 이미 맞춘 화면 유지)
         if (
           locationName &&
@@ -5530,7 +5541,7 @@ const handleClearSearch = () => {
                   });
                   mapRef.current.setZoomLevel(5); // 지역명 검색 시 더 좁은 범위
                   
-                  console.log(`🗺️ ${panKw}으로 지도 이동 및 줌인 완료`);
+                  devLog(`🗺️ ${panKw}으로 지도 이동 및 줌인 완료`);
                 }
                 resolve(); // 항상 resolve 호출
               });
@@ -5587,7 +5598,7 @@ const handleClearSearch = () => {
               mapFallbackQueries = [mapQuery];
             }
             if (import.meta.env.DEV && mapFallbackQueries.length > 0) {
-              console.log("[map-fallback-query]", {
+              devLog("[map-fallback-query]", {
                 rawQuery: nextQuery,
                 region: locationName || null,
                 fallbackQueries: mapFallbackQueries,
@@ -5742,14 +5753,14 @@ const handleClearSearch = () => {
               unifiedBlogFromServer = Array.isArray(unified.blogReviews)
                 ? unified.blogReviews
                 : [];
-              console.log("🗺️ 통합 검색(네이버+카카오+블로그):", {
+              devLog("🗺️ 통합 검색(네이버+카카오+블로그):", {
                 places: mapPlaces.length,
                 blog: unifiedBlogFromServer.length,
                 meta: unified.meta,
               });
             }
           } catch (unifiedErr) {
-            console.warn(
+            devWarn(
               "🗺️ 통합 검색 실패, 카카오 지도 SDK만 사용:",
               unifiedErr?.message
             );
@@ -5787,7 +5798,7 @@ const handleClearSearch = () => {
             );
             if (import.meta.env.DEV && gated.checks?.length) {
               for (const row of gated.checks) {
-                console.log("[backup-restore-check]", row);
+                devLog("[backup-restore-check]", row);
               }
             }
             mapPlaces = gated.kept.map((p) => ({ ...p }));
@@ -5831,7 +5842,7 @@ const handleClearSearch = () => {
             );
           } catch (blendErr) {
             if (import.meta.env.DEV) {
-              console.warn("[chip-search] 통합·SDK 블렌드:", blendErr);
+              devWarn("[chip-search] 통합·SDK 블렌드:", blendErr);
             }
           }
         }
@@ -5856,7 +5867,7 @@ const handleClearSearch = () => {
             SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS
           );
           if (import.meta.env.DEV) {
-            console.log("[chip-search] relaxed parsed-intent filter", {
+            devLog("[chip-search] relaxed parsed-intent filter", {
               afterIntent,
               viewportOnly: chipViewportPlacesBeforeIntent.length,
               kept: mapPlaces.length,
@@ -5879,7 +5890,7 @@ const handleClearSearch = () => {
           );
           if (import.meta.env.DEV && gated.checks?.length) {
             for (const row of gated.checks) {
-              console.log("[backup-restore-check]", row);
+              devLog("[backup-restore-check]", row);
             }
           }
           mapPlaces = filterPlacesByParsedIntent(
@@ -5888,7 +5899,7 @@ const handleClearSearch = () => {
             nextQuery,
           );
           if (import.meta.env.DEV) {
-            console.log(
+            devLog(
               "[map-search] viewport emptied list; scoring uses unified backup only",
               { restored: mapPlaces.length, backup: unifiedMapPlacesBackup.length }
             );
@@ -5909,7 +5920,7 @@ const handleClearSearch = () => {
             );
             mapPlaces = withIntent.length > 0 ? withIntent : sdkChip;
             if (import.meta.env.DEV) {
-              console.log("[chip-viewport-empty-recovery]", {
+              devLog("[chip-viewport-empty-recovery]", {
                 sdkInView: sdkChip.length,
                 afterIntent: withIntent.length,
                 kept: mapPlaces.length,
@@ -5917,17 +5928,17 @@ const handleClearSearch = () => {
             }
           } catch (e) {
             if (import.meta.env.DEV) {
-              console.warn("[chip-search] viewport empty recovery:", e);
+              devWarn("[chip-search] viewport empty recovery:", e);
             }
           }
         }
-        console.log("🗺️ 전체 지도 검색 결과:", mapPlaces.length, {
+        devLog("🗺️ 전체 지도 검색 결과:", mapPlaces.length, {
           mapQuery,
           intentAssist: !!intentAssist,
         });
 
         if (import.meta.env.DEV) {
-          console.log("[scoring-input]", {
+          devLog("[scoring-input]", {
             unifiedBackupCount: unifiedMapPlacesBackup.length,
             mapPlacesCount: mapPlaces.length,
           });
@@ -6104,7 +6115,7 @@ const handleClearSearch = () => {
             }
           } catch (mapFbErr) {
             if (import.meta.env.DEV) {
-              console.warn("[search] keyword→AI 지도 보조:", mapFbErr);
+              devWarn("[search] keyword→AI 지도 보조:", mapFbErr);
             }
           }
         }
@@ -6117,7 +6128,7 @@ const handleClearSearch = () => {
             maxDistanceKm: 12,
           });
           if (import.meta.env.DEV && beforeGate !== scoredPlaces.length) {
-            console.log("[map-region-gate]", {
+            devLog("[map-region-gate]", {
               locationName: String(locationName).trim(),
               dropped: beforeGate - scoredPlaces.length,
               kept: scoredPlaces.length,
@@ -6130,7 +6141,7 @@ const handleClearSearch = () => {
         telemetryQualitySummary =
           summarizeSearchResultQualityForTelemetry(scoredPlaces);
 
-        console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
+        devLog('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
 
         scoredPlaces = enrichPlacesWithReason(nextQuery, scoredPlaces, {
           keywordAiFallback: telemetryKeywordAiFallback,
@@ -6160,7 +6171,7 @@ const handleClearSearch = () => {
             }
           } catch (blendCurErr) {
             if (import.meta.env.DEV) {
-              console.warn("[chip-search] curator blend:", blendCurErr);
+              devWarn("[chip-search] curator blend:", blendCurErr);
             }
           }
         }
@@ -6268,7 +6279,7 @@ const handleClearSearch = () => {
         }
 
         if (kakaoFormattedPlaces.length === 0) {
-          console.log("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
+          devLog("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
             hasPlaces: kakaoFormattedPlaces.length > 0,
             hasMapRef: !!mapRef.current,
             kakaoApi: !!window.kakao?.maps,
@@ -6519,7 +6530,7 @@ const handleClearSearch = () => {
   // 큐레이터 상세 정보 가져오기
   const fetchCuratorDetails = async (curatorName) => {
     try {
-      console.log("🔍 큐레이터 상세 정보 조회:", curatorName);
+      devLog("🔍 큐레이터 상세 정보 조회:", curatorName);
       
       // curators 테이블에서 상세 정보 조회
       const { data: curatorData, error: curatorError } = await supabase
@@ -6529,16 +6540,16 @@ const handleClearSearch = () => {
         .maybeSingle(); // .single() 대신 .maybeSingle() 사용
       
       if (curatorError) {
-        console.log("❌ 큐레이터 정보 조회 실패:", curatorError);
+        console.error("❌ 큐레이터 정보 조회 실패:", curatorError);
         return null;
       }
       
       if (!curatorData) {
-        console.log("❌ 큐레이터 정보 없음:", curatorName);
+        devLog("❌ 큐레이터 정보 없음:", curatorName);
         return null;
       }
       
-      console.log("✅ 큐레이터 상세 정보:", curatorData);
+      devLog("✅ 큐레이터 상세 정보:", curatorData);
       
       const curatorAuthId = curatorData.user_id;
       const { data: placesData, error: placesError } = await supabase
@@ -6967,7 +6978,7 @@ const handleClearSearch = () => {
             onLocationButtonClick={handleCurrentLocationClick}
             onCurrentLocationChange={(location) => {
               setCurrentLocation(location);
-              console.log('📍 현재 위치 업데이트:', location);
+              devLog('📍 현재 위치 업데이트:', location);
             }}
             onMapViewportChange={onMapViewportChange}
             checkinCountByPlaceId={placeCheckinCounts}
@@ -7175,7 +7186,7 @@ const handleClearSearch = () => {
                 handleClearSearch();
               }}
               onProfileClick={(curator) => {
-                console.log("👤 큐레이터 프로필 클릭:", curator);
+                devLog("👤 큐레이터 프로필 클릭:", curator);
                 setSelectedCurator(curator);
                 setShowFollowModal(true);
               }}
@@ -7285,20 +7296,20 @@ const handleClearSearch = () => {
                 onSearchTargetModeChange={setSearchTargetMode}
                 userLocation={currentLocation}
                 onNearbySearch={(location) => {
-                  console.log('📍 내 주변 검색:', location);
+                  devLog('📍 내 주변 검색:', location);
                   setIsLocationBasedSearch(true);
                   // 현재 위치 상태 업데이트 (마커 표시용)
                   setCurrentLocation(location);
                   // 지도를 현재 위치로 이동
                   if (mapRef?.current?.moveToLocation) {
-                    console.log('🗺️ 지도 이동:', location.lat, location.lng);
+                    devLog('🗺️ 지도 이동:', location.lat, location.lng);
                     mapRef.current.moveToLocation(location.lat, location.lng);
                   } else {
-                    console.log('⚠️ mapRef 또는 moveToLocation 없음:', mapRef?.current);
+                    devLog('⚠️ mapRef 또는 moveToLocation 없음:', mapRef?.current);
                   }
                 }}
                 onNearbyPlacesFound={(places) => {
-                  console.log('📍 내 주변 술집 마커로 표시:', places.length, '개');
+                  devLog('📍 내 주변 술집 마커로 표시:', places.length, '개');
                   // 카카오 장소 데이터를 마커 형식으로 변환
                   const formattedPlaces = places.map(place => ({
                     id: `kakao_${place.id}`,
@@ -7330,13 +7341,13 @@ const handleClearSearch = () => {
                 onRealTimeSearch={(value) => {
                   // AI 실시간 검색 기능 추가
                   if (value.trim()) {
-                    console.log('🤖 AI 실시간 검색:', value);
+                    devLog('🤖 AI 실시간 검색:', value);
                     // 여기에 AI 검색 로직 추가
                   }
                 }}
                 onLocationModeChange={(isLocationBased) => {
                   setIsLocationBasedSearch(isLocationBased);
-                  console.log('🔍 위치기반 검색 모드:', isLocationBased);
+                  devLog('🔍 위치기반 검색 모드:', isLocationBased);
                 }}
                 rightActions={
                   <HomeSearchAuthSlot
@@ -7351,7 +7362,7 @@ const handleClearSearch = () => {
                     profileInitial={getSearchBarProfileInitial()}
                     onProfileClick={() => {
                       const userRole = getUserRole();
-                      console.log(" @아이디 버튼 클릭:", {
+                      devLog(" @아이디 버튼 클릭:", {
                         userRole,
                         isAdmin,
                         isCurator,
