@@ -234,6 +234,7 @@ import {
   AI_SHEET_PAGE_SIZE,
 } from "./hooks/useAiSheetUiState";
 import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
+import { useKakaoSearchPlaces } from "./hooks/useKakaoSearchPlaces";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
 import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
@@ -1406,9 +1407,13 @@ export default function Home() {
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
-  const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
-  /** 카카오 키워드 자동완성 후보 — 리스트와 동일하게 지도에 전부 표시 */
-  const [kakaoTypingPreviewPlaces, setKakaoTypingPreviewPlaces] = useState([]);
+  const {
+    kakaoPlaces,
+    setKakaoPlaces,
+    kakaoTypingPreviewPlaces,
+    setKakaoTypingPreviewPlaces,
+    resetAll: resetKakaoSearchPlaces,
+  } = useKakaoSearchPlaces();
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
@@ -2465,6 +2470,8 @@ export default function Home() {
     if (!pick?.steps?.length) return;
 
     setKakaoPlaces(courseOptionsToMapPlaces([pick]));
+    /** setKakaoPlaces는 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCourseMode, courseDrivingMap, courseOptions, courseSecondPulseMapPlaces]);
 
   // 현재 위치 상태
@@ -4301,8 +4308,7 @@ const handleClearSearch = () => {
   setSelectedPlace(null);
   setMapSearchMarkerFitTick(0);
   lastHandledMapSearchFitTickRef.current = 0;
-  setKakaoPlaces([]); // 카카오 장소들도 정리
-  setKakaoTypingPreviewPlaces([]);
+  resetKakaoSearchPlaces();
   setAiError("");
   setAiSummary("");
   setAiReasons([]);
@@ -4396,6 +4402,8 @@ const handleClearSearch = () => {
       setSelectedPlaceWithAnalytics(forMap, "kakao_autocomplete");
       /** 지도 이동은 MapView `selectedPlace` effect(카드 높이만큼 pan 보정)에 맡김 — 여기서 setCenter를 반복하면 보정이 깨짐 */
     },
+    /** setKakaoPlaces·setKakaoTypingPreviewPlaces는 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       curatorPlaceCatalogForMerge,
       setSelectedPlaceWithAnalytics,
@@ -4670,8 +4678,7 @@ const handleClearSearch = () => {
     // 이전 검색 결과 강제 초기화
     setExternalPlaces([]);
     setExternalPlacesPool([]);
-    setKakaoPlaces([]);
-    setKakaoTypingPreviewPlaces([]);
+    resetKakaoSearchPlaces();
     setBlogReviews([]);
     setSearchExpandUX(null);
     setYajangFallbackBanner(null);
