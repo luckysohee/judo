@@ -17,6 +17,7 @@ import CuratorApplicationButton from "../../components/CuratorApplicationButton/
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
+import HomeMapFloatingActions from "../../components/Home/HomeMapFloatingActions";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import { PlacePickButton } from "../../components/PlacePick/PlacePickButton";
@@ -8099,59 +8100,25 @@ const handleClearSearch = () => {
               </div>
             </>
           ) : null}
-          {showMapSearchHereButton ? (
-            <button
-              type="button"
-              onClick={() => {
-                searchHereArmedRef.current = true;
-                setShowMapSearchHereButton(false);
-                setMapViewportSearchLock(true);
-                showToast(
-                  "다음 검색은 지금 화면 안에서만 찾아요.",
-                  "info",
-                  2600
-                );
-              }}
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)",
-                bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
-                zIndex: 130,
-                padding: "11px 18px",
-                borderRadius: 999,
-                border: "1px solid rgba(124, 58, 237, 0.55)",
-                background: "rgba(255,255,255,0.98)",
-                color: "#5b21b6",
-                fontSize: 14,
-                fontWeight: 800,
-                cursor: "pointer",
-                boxShadow: "0 4px 18px rgba(0,0,0,0.14)",
-                WebkitTapHighlightColor: "transparent",
-              }}
-            >
-              여기서 검색
-            </button>
-          ) : null}
-          {canAddHalfStepNow ? (
-            <button
-              type="button"
-              onClick={() => {
-                void handleCourseIncludeHalfStepChange(true);
-              }}
-              disabled={isLoadingCourse || isAiSearching}
-              style={{
-                ...styles.courseAddHalfStepFloatingBtn,
-                ...(isLoadingCourse || isAiSearching
-                  ? { opacity: 0.58, cursor: "wait" }
-                  : {}),
-              }}
-              title="1차와 2차 사이에 카페·디저트 쩜오차를 끼워 다시 경로를 보여줘요"
-            >
-              <span aria-hidden>🍨</span>
-              쩜오 추가
-            </button>
-          ) : null}
+          <HomeMapFloatingActions
+            showSearchHere={showMapSearchHereButton}
+            onSearchHere={() => {
+              searchHereArmedRef.current = true;
+              setShowMapSearchHereButton(false);
+              setMapViewportSearchLock(true);
+              showToast(
+                "다음 검색은 지금 화면 안에서만 찾아요.",
+                "info",
+                2600,
+              );
+            }}
+            showAddHalfStep={canAddHalfStepNow}
+            onAddHalfStep={() => {
+              void handleCourseIncludeHalfStepChange(true);
+            }}
+            halfStepDisabled={isLoadingCourse || isAiSearching}
+            halfStepStyles={styles.courseAddHalfStepFloatingBtn}
+          />
         </div>
 
         {courseSecondFindModalOpen ? (
