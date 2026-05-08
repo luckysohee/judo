@@ -18,6 +18,8 @@ import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
 import HomeMapFloatingActions from "../../components/Home/HomeMapFloatingActions";
+import HomeDustIntroOverlay from "../../components/Home/HomeDustIntroOverlay";
+import CourseSecondFindModal from "../../components/Home/CourseSecondFindModal";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import { PlacePickButton } from "../../components/PlacePick/PlacePickButton";
@@ -229,7 +231,6 @@ import {
   collectCuratorIdsForRescueMatch,
   COURSE_GPS_DEFAULT_RADIUS_M,
   COURSE_GPS_RADIUS_OPTIONS,
-  COURSE_SECOND_FIND_DISTANCE_OPTIONS,
   curatorRowProfileImage,
   DRINKS_SITUATION_CHIP_RESULT_HINTS,
   DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
@@ -262,11 +263,6 @@ import {
   toHotStripRow,
   UNIFIED_MAP_MERGE_MAX_PHRASES,
 } from "./homeModule.js";
-import {
-  COURSE_SECOND_SNACK_OPTIONS,
-  STUDIO_ATMOSPHERE_OPTIONS,
-  STUDIO_LIQUOR_TYPE_OPTIONS,
-} from "../../utils/placeTaxonomy.js";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import {
@@ -8039,67 +8035,17 @@ const handleClearSearch = () => {
               setSelectedPlaceWithAnalytics(mapTarget, "recommend_detail");
             }}
           />
-          {!selectedPlace &&
-          !String(query || "").trim() &&
-          !isAiSearching &&
-          !homeDustIntroDismissed ? (
-            <>
-              <style>{`
-                @keyframes homeDustIntroCycle {
-                  0% {
-                    opacity: 0;
-                    filter: blur(14px);
-                    transform: scale(0.9);
-                    letter-spacing: -0.06em;
-                  }
-                  16% {
-                    opacity: 1;
-                    filter: blur(0px);
-                    transform: scale(1);
-                    letter-spacing: -0.03em;
-                  }
-                  44% {
-                    opacity: 1;
-                    filter: blur(0px);
-                    transform: scale(1);
-                    letter-spacing: -0.03em;
-                  }
-                  100% {
-                    opacity: 0;
-                    filter: blur(26px);
-                    transform: scale(1.18);
-                    letter-spacing: 0.14em;
-                  }
-                }
-              `}</style>
-              <div
-                style={styles.homeDustIntroOverlay}
-                aria-hidden={false}
-                role="button"
-                tabIndex={0}
-                aria-label="검색창에서 답하기"
-                onClick={handleHomeDustIntroTapToAnswer}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleHomeDustIntroTapToAnswer();
-                  }
-                }}
-              >
-                <div
-                  style={styles.homeDustIntroInner}
-                  onAnimationEnd={handleHomeDustIntroAnimationEnd}
-                >
-                  <p style={styles.homeDustIntroTitle}>
-                    오늘은 어디서 한잔?
-                  </p>
-                  <p style={styles.homeDustIntroSub}>
-                    예: 합정 1차 어디로 — 탭하면 검색에 써 보세요
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : null}
+          <HomeDustIntroOverlay
+            visible={
+              !selectedPlace &&
+              !String(query || "").trim() &&
+              !isAiSearching &&
+              !homeDustIntroDismissed
+            }
+            onTapToAnswer={handleHomeDustIntroTapToAnswer}
+            onAnimationEnd={handleHomeDustIntroAnimationEnd}
+            styleMap={styles}
+          />
           <HomeMapFloatingActions
             showSearchHere={showMapSearchHereButton}
             onSearchHere={() => {
@@ -8121,380 +8067,24 @@ const handleClearSearch = () => {
           />
         </div>
 
-        {courseSecondFindModalOpen ? (
-          <div
-            role="presentation"
-            style={{
-              position: "fixed",
-              inset: 0,
-              /** mapCardOverlay 최대 320보다 위 — 추천 카드 위에 2차 조건 모달이 덮이도록 */
-              zIndex: 400,
-              background: "rgba(0,0,0,0.45)",
-              display: "flex",
-              alignItems: "flex-end",
-              justifyContent: "center",
-              padding: "12px 12px max(16px, env(safe-area-inset-bottom))",
-              pointerEvents: "auto",
-            }}
-            onClick={cancelCourseSecondFindModal}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="course-second-find-title"
-              style={{
-                width: "100%",
-                maxWidth: 420,
-                maxHeight: "min(72vh, 520px)",
-                overflow: "auto",
-                borderRadius: 16,
-                background: "rgba(255,255,255,0.98)",
-                boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
-                padding: "16px 16px 14px",
-                pointerEvents: "auto",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                id="course-second-find-title"
-                style={{
-                  fontSize: 16,
-                  fontWeight: 800,
-                  color: "#3d2914",
-                  marginBottom: 4,
-                }}
-              >
-                2차 후보 조건
-              </div>
-              <p
-                style={{
-                  margin: "0 0 14px",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  color: "#666",
-                }}
-              >
-                골라 주시면 그에 맞춰 가산점을 줘요. 분위기·주종은 잔 올리기와
-                같은 목록이에요. 거리는 1차 기준으로 후보를 잘라요. 안 고르면
-                분위기·주종·안주는 기본 룰만 쓰고, 거리는 3km로 둡니다.
-              </p>
-              <p
-                style={{
-                  margin: "0 0 12px",
-                  fontSize: 11,
-                  lineHeight: 1.4,
-                  color: "rgba(61,41,20,0.68)",
-                  fontWeight: 700,
-                }}
-              >
-                선택한 조건으로 주변 2차 후보를 다시 계산해요.
-              </p>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                분위기
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {STUDIO_ATMOSPHERE_OPTIONS.map((v) => {
-                  const on = courseSecondFindVibes.includes(v);
-                  return (
-                    <button
-                      key={`2fv-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindVibes((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                주종
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {STUDIO_LIQUOR_TYPE_OPTIONS.map((v) => {
-                  const on = courseSecondFindLiquors.includes(v);
-                  return (
-                    <button
-                      key={`2fl-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindLiquors((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                안주
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {COURSE_SECOND_SNACK_OPTIONS.map((v) => {
-                  const on = courseSecondFindAnju.includes(v);
-                  return (
-                    <button
-                      key={`2fa-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindAnju((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                1차에서 거리
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {COURSE_SECOND_FIND_DISTANCE_OPTIONS.map(({ m, label }) => {
-                  const on = courseSecondFindMaxDistanceM === m;
-                  return (
-                    <button
-                      key={`2fd-${m}`}
-                      type="button"
-                      onClick={() => setCourseSecondFindMaxDistanceM(m)}
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#3d2914",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={courseSecondFindPreferCloser}
-                  onChange={(e) =>
-                    setCourseSecondFindPreferCloser(e.target.checked)
-                  }
-                />
-                더 가까운 곳 우선
-              </label>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 8,
-                  marginBottom: 16,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#3d2914",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={courseSecondFindPrioritizeCurators}
-                  onChange={(e) =>
-                    setCourseSecondFindPrioritizeCurators(e.target.checked)
-                  }
-                  style={{ marginTop: 2 }}
-                />
-                <span>
-                  큐레이터 추천 우선
-                  <span
-                    style={{
-                      display: "block",
-                      marginTop: 4,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: "#777",
-                    }}
-                  >
-                    여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점
-                  </span>
-                </span>
-              </label>
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={cancelCourseSecondFindModal}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(92, 64, 51, 0.22)",
-                    background: "#fff",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#5c4033",
-                    cursor: "pointer",
-                  }}
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  disabled={mapCourseFirstBusy}
-                  onClick={confirmCourseSecondFindModal}
-                  style={{
-                    padding: "10px 16px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: "rgba(124, 58, 237, 0.92)",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    color: "#fff",
-                    cursor: mapCourseFirstBusy ? "default" : "pointer",
-                    opacity: mapCourseFirstBusy ? 0.65 : 1,
-                  }}
-                >
-                  {mapCourseFirstBusy ? "찾는 중…" : "후보 찾기"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+        <CourseSecondFindModal
+          open={courseSecondFindModalOpen}
+          onCancel={cancelCourseSecondFindModal}
+          onConfirm={confirmCourseSecondFindModal}
+          confirmBusy={mapCourseFirstBusy}
+          vibes={courseSecondFindVibes}
+          onChangeVibes={setCourseSecondFindVibes}
+          liquors={courseSecondFindLiquors}
+          onChangeLiquors={setCourseSecondFindLiquors}
+          anju={courseSecondFindAnju}
+          onChangeAnju={setCourseSecondFindAnju}
+          maxDistanceM={courseSecondFindMaxDistanceM}
+          onChangeMaxDistanceM={setCourseSecondFindMaxDistanceM}
+          preferCloser={courseSecondFindPreferCloser}
+          onChangePreferCloser={setCourseSecondFindPreferCloser}
+          prioritizeCurators={courseSecondFindPrioritizeCurators}
+          onChangePrioritizeCurators={setCourseSecondFindPrioritizeCurators}
+        />
 
         <div style={styles.headerOverlay}>
           <div style={styles.headerTopRow}>
