@@ -23,12 +23,8 @@ import HomeCourseMergedSheet from "../../components/Home/HomeCourseMergedSheet";
 import HomeAiBottomSheetCluster from "../../components/Home/HomeAiBottomSheetCluster";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
-import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
-import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
-import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
-import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
+import HomeBottomModalStack from "../../components/Home/HomeBottomModalStack";
 import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
-import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 import CheckInToast from "../../components/CheckInToast/CheckInToast";
 
 import { places as dummyPlaces } from "../../data/places";
@@ -8575,49 +8571,35 @@ const handleClearSearch = () => {
       </main>
 
 
-      <SavedPlaces
-        open={savedPlacesOpen}
+      <HomeBottomModalStack
+        user={user}
+        savedPlacesOpen={savedPlacesOpen}
         folders={folders}
         savedPlacesByFolder={savedPlacesByFolder}
-        onClose={() => setSavedPlacesOpen(false)}
+        onCloseSavedPlaces={() => setSavedPlacesOpen(false)}
         getUserRole={getUserRole}
-      />
-
-      <AddPlaceForm
-        open={addPlaceOpen}
+        addPlaceOpen={addPlaceOpen}
         curators={dbCurators}
-        onClose={() => setAddPlaceOpen(false)}
-        onAdded={refreshCustomPlaces}
-      />
-
-      <SaveFolderModal
-        open={!!saveTargetPlace}
-        place={saveTargetPlace}
-        folders={folders}
+        onCloseAddPlace={() => setAddPlaceOpen(false)}
+        onAddPlaceAdded={refreshCustomPlaces}
+        saveTargetPlace={saveTargetPlace}
         savedFolderIds={
           saveTargetPlace ? getPlaceFolderIds(saveTargetPlace.id) : []
         }
-        onClose={() => {
+        onCloseSaveFolder={() => {
           setSaveTargetPlace(null);
-          // 저장 완료 후 폴더 정보 다시 로드
           loadUserSavedPlaces();
         }}
         onFoldersUpdated={() => {
           refreshStorage();
-          // 폴더 업데이트 후 폴더 정보 다시 로드
           loadUserSavedPlaces();
         }}
         onSaveToFolder={(pId, fId) => {
           savePlaceToFolder(pId, fId);
           refreshStorage();
         }}
-      />
-
-      {/* UserCard - 일반 사용자용 */}
-      <UserCard
-        user={user}
-        isVisible={showUserCard}
-        onClose={() => setShowUserCard(false)}
+        showUserCard={showUserCard}
+        onCloseUserCard={() => setShowUserCard(false)}
         onPublicProfileSaved={refreshMapUserProfile}
       />
 
