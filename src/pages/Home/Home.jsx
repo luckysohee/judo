@@ -1457,6 +1457,8 @@ export default function Home() {
       searchTargetMode === "user"
         ? "@유저 핸들을 검색해 보세요"
         : getHomeSearchPlaceholderKst("auto"),
+    /** searchPlaceholderTick은 시간 흐름에 따른 강제 재계산용. KST에 따라 placeholder가 바뀜 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [searchPlaceholderTick, searchTargetMode]
   );
   const judoMode = useMemo(() => getJudoOperationMode(now), [now]);
@@ -2248,6 +2250,8 @@ export default function Home() {
       );
       el.scrollLeft = Math.max(0, Math.min(targetLeft, maxScroll));
     }
+    /** key 변화에만 반응 — selectedCourse 객체 reference 갱신만으로 스크롤 재정렬 트리거 X */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCourseMode, aiSheetOpen, selectedCourse?.key, courseOptions]);
 
   useEffect(() => {
@@ -2893,6 +2897,8 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
+    /** 같은 venue 내부 필드 변화로는 재요청하지 않음 — id 3종에만 반응 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlace?.id, selectedPlace?.place_id, selectedPlace?.kakao_place_id]);
 
   const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
@@ -3621,6 +3627,8 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
+    /** user.email은 환영 alert 안에서만 읽음 — id가 같은 한 reference 변화로 재실행 안 시킴 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user?.id]);
 
   // 큐레이터 프로필 로드
@@ -3834,11 +3842,15 @@ export default function Home() {
     setTimeout(() => {
       console.log("🔍 dbCurators 데이터:", dbCurators.map(c => ({ id: c.id, name: c.name })));
     }, 1000);
+    /** mount-only — dbCurators 로깅은 1초 뒤 디버깅용 스냅샷 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (authLoading) return;
     loadUserSavedPlaces();
+    /** loadUserSavedPlaces는 매 렌더 재생성되므로 deps에 넣으면 무한 호출 — auth/user 변화에만 반응 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user?.id]);
 
   // 상태 변화 감지
@@ -3930,6 +3942,8 @@ export default function Home() {
       if (c && !folderColor) folderColor = c;
     }
     return { isSaved: isSavedFlag, folderColor };
+    /** savedMap 자체는 사용 안 하지만 isPlaceSaved가 그 storage를 참조 — 해당 변화는 refreshStorage로 별도 트리거 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlace, folders, savedMap]);
 
   const filteredByCuratorPlaces = useMemo(() => {
@@ -4010,6 +4024,8 @@ export default function Home() {
     }
 
     return filtered;
+    /** curatorProfile 전체 reference 변경에는 반응 X — id/user_id/username만 추적 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     showSavedOnly,
     showAll,
@@ -4020,6 +4036,7 @@ export default function Home() {
     isCurator,
     curatorProfile?.id,
     curatorProfile?.user_id,
+    curatorProfile?.username,
     savedMap,
     userSavedPlaces,
   ]);
