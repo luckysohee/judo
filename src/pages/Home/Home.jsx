@@ -237,6 +237,9 @@ import {
   UNIFIED_MAP_MERGE_MAX_PHRASES,
 } from "./homeModule.js";
 import { styles } from "./homeStyles.js";
+import { useAiSearchLoadingDots } from "./hooks/useAiSearchLoadingDots";
+import { useTickingNow } from "./hooks/useTickingNow";
+import { useMinuteTick } from "./hooks/useMinuteTick";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
@@ -1170,9 +1173,9 @@ export default function Home() {
   const [searchTargetMode, setSearchTargetMode] = useState("place");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
   /** placeholder KST 구간 갱신(분 단위) */
-  const [searchPlaceholderTick, setSearchPlaceholderTick] = useState(0);
+  const searchPlaceholderTick = useMinuteTick();
   /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
-  const [now, setNow] = useState(() => new Date());
+  const now = useTickingNow();
 
   const homeDustIntroDoneRef = useRef(false);
   const [homeDustIntroDismissed, setHomeDustIntroDismissed] = useState(() => {
@@ -1430,7 +1433,7 @@ export default function Home() {
   /** 단순 위치+메뉴 검색: 맞춤 피크바·자동 시트 없이 지도 마커만 */
   const [simpleMapSearchMarkersOnly, setSimpleMapSearchMarkersOnly] =
     useState(false);
-  const [loadingDots, setLoadingDots] = useState(".");
+  const loadingDots = useAiSearchLoadingDots(isAiSearching);
   const [searchLoadingLabel, setSearchLoadingLabel] = useState("");
   const [searchExpandUX, setSearchExpandUX] = useState(null);
   /** 야장 검색 무결과 → 5km 큐레이터 폴백 안내 */
@@ -1485,20 +1488,6 @@ export default function Home() {
       window.clearTimeout(searchIdleHintAutoHideRef.current);
       searchIdleHintAutoHideRef.current = null;
     }
-  }, []);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setSearchPlaceholderTick((n) => n + 1);
-    }, 60000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-    return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -3378,23 +3367,6 @@ export default function Home() {
     window.addEventListener("judo_storage_updated", refresh);
     return () => window.removeEventListener("judo_storage_updated", refresh);
   }, []);
-
-  useEffect(() => {
-    if (!isAiSearching) {
-      setLoadingDots(".");
-      return;
-    }
-
-    const frames = [".", "..", "..."];
-    let index = 0;
-
-    const timer = setInterval(() => {
-      index = (index + 1) % frames.length;
-      setLoadingDots(frames[index]);
-    }, 350);
-
-    return () => clearInterval(timer);
-  }, [isAiSearching]);
 
   useEffect(() => {
     let cancelled = false;
