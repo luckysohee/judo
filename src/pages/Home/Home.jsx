@@ -139,11 +139,7 @@ import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFr
 import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
 import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
 import { debounce } from "../../utils/debounce";
-import {
-  fetchPlaceDetail,
-  fetchPlaceUuidByKakaoPlaceId,
-  getLimitByZoom,
-} from "../../api/places";
+import { getLimitByZoom } from "../../api/places";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   isWalkingRouteReasonable,
@@ -221,7 +217,6 @@ import {
   MAP_PAN_STATION_ALIAS,
   MAP_SDK_MERGE_MAX_DEFAULT,
   MAP_SDK_MERGE_MAX_SITUATION_CHIP,
-  mergeDbPlaceDetailForPreview,
   mergeSituationChipCuratorPlaces,
   placeMatchesSavedKeySet,
   readKakaoMapCenterLatLng,
@@ -240,6 +235,7 @@ import { styles } from "./homeStyles.js";
 import { useAiSearchLoadingDots } from "./hooks/useAiSearchLoadingDots";
 import { useTickingNow } from "./hooks/useTickingNow";
 import { useMinuteTick } from "./hooks/useMinuteTick";
+import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
@@ -1165,7 +1161,6 @@ export default function Home() {
   const lastMapLevelRef = useRef(null);
   /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
   const homeSearchSkipCoursePreviewRef = useRef(false);
-  const placeDetailRequestSeqRef = useRef(0);
   /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
   const situationFolderFilterRef = useRef(null);
 
@@ -2812,83 +2807,7 @@ export default function Home() {
   ]);
 
   /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
-  useEffect(() => {
-    const place = selectedPlace;
-    if (!place) return;
-
-    const seq = ++placeDetailRequestSeqRef.current;
-    let cancelled = false;
-
-    (async () => {
-      let uuid = null;
-      const idStr = place?.id != null ? String(place.id) : "";
-      if (
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          idStr
-        )
-      ) {
-        uuid = idStr;
-      } else {
-        const kid = normalizeKakaoPlaceId(place);
-        if (!kid) return;
-        uuid = await fetchPlaceUuidByKakaoPlaceId(kid);
-        if (!uuid) return;
-      }
-
-      if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
-
-      try {
-        const { place: detail, curatorPlaceRows } = await fetchPlaceDetail(
-          uuid,
-          AI_API_BASE,
-        );
-        if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
-
-        const joinRows = (curatorPlaceRows || []).map((cp) => ({
-          ...cp,
-          places: { ...detail },
-        }));
-        const attached = attachCuratorsToCuratorPlaceRows(
-          joinRows,
-          curatorAttachRowsRef.current
-        );
-        const formatted = buildFormattedPlacesFromJoin(attached);
-        const enriched = formatted[0] ?? null;
-
-        setSelectedPlace((prev) => {
-          if (!prev) return prev;
-          if (cancelled || seq !== placeDetailRequestSeqRef.current) return prev;
-
-          const prevUuid =
-            prev?.id != null &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              String(prev.id)
-            )
-              ? String(prev.id)
-              : null;
-          const prevKid = normalizeKakaoPlaceId(prev);
-          const detailKid = normalizeKakaoPlaceId(detail);
-
-          const sameVenue =
-            (prevUuid && prevUuid === uuid) ||
-            (prevKid && detailKid && prevKid === detailKid);
-          if (!sameVenue) return prev;
-
-          return mergeDbPlaceDetailForPreview(prev, detail, enriched);
-        });
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("fetchPlaceDetail:", e?.message ?? e);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    /** 같은 venue 내부 필드 변화로는 재요청하지 않음 — id 3종에만 반응 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPlace?.id, selectedPlace?.place_id, selectedPlace?.kakao_place_id]);
+  usePlaceDetailEnrichment(selectedPlace, setSelectedPlace, curatorAttachRowsRef);
 
   const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
   const rankingTop5 = useMemo(
