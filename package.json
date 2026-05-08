@@ -41,7 +41,6 @@
     "vitest": "^3.2.4"
   },
   "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
-  "main": "batch_geocoding.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/luckysohee/judo.git"
