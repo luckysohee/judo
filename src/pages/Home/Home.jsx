@@ -10,7 +10,6 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
-import MarkerLegend from "../../components/Map/MarkerLegend";
 import SearchBar from "../../components/SearchBar/SearchBar";
 import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
 import CuratorApplicationButton from "../../components/CuratorApplicationButton/CuratorApplicationButton";
@@ -20,6 +19,8 @@ import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
 import HomeMapFloatingActions from "../../components/Home/HomeMapFloatingActions";
 import HomeDustIntroOverlay from "../../components/Home/HomeDustIntroOverlay";
 import CourseSecondFindModal from "../../components/Home/CourseSecondFindModal";
+import HomeMapLegendBar from "../../components/Home/HomeMapLegendBar";
+import HomeBlogReviewSection from "../../components/Home/HomeBlogReviewSection";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import { PlacePickButton } from "../../components/PlacePick/PlacePickButton";
@@ -8181,7 +8182,7 @@ const handleClearSearch = () => {
               후보 끄기
             </button>
           ) : null}
-          <MarkerLegend
+          <HomeMapLegendBar
             mapCloseTick={markerGuideMapCloseTick}
             savedOnly={showSavedOnly}
             onToggleSavedOnly={() => {
@@ -8190,7 +8191,7 @@ const handleClearSearch = () => {
                 if (next && selectedPlace) {
                   const savedKeySet = buildMergedSavedPlaceKeySet(
                     savedMap,
-                    userSavedPlaces
+                    userSavedPlaces,
                   );
                   if (!placeMatchesSavedKeySet(selectedPlace, savedKeySet)) {
                     setSelectedPlace(null);
@@ -8205,36 +8206,11 @@ const handleClearSearch = () => {
               setLegendCategory((prev) => (prev === key ? null : key));
               if (selectedPlace) setSelectedPlace(null);
             }}
+            onRequestMyLocation={() => mapRef.current?.requestMyLocation?.()}
+            mapLocationLoading={mapLocationLoading}
+            myLocationButtonStyle={styles.legendMyLocationButton}
+            myLocationSpinnerStyle={styles.legendMyLocationSpinner}
           />
-          <button
-            type="button"
-            onClick={() => mapRef.current?.requestMyLocation?.()}
-            disabled={mapLocationLoading}
-            style={{
-              ...styles.legendMyLocationButton,
-              opacity: mapLocationLoading ? 0.72 : 1,
-            }}
-            title="내 위치"
-            aria-label="내 위치로 이동"
-          >
-            {mapLocationLoading ? (
-              <span style={styles.legendMyLocationSpinner} aria-hidden />
-            ) : (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                aria-hidden
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-              </svg>
-            )}
-          </button>
         </div>
 
         {!selectedPlace && !mutualSearchPanelOpen ? (
@@ -10310,89 +10286,7 @@ const handleClearSearch = () => {
                 </div>
               ) : null}
 
-              {/* 네이버 블로그 리뷰 섹션 */}
-              {blogReviews.length > 0 && (
-                <div style={{
-                  marginTop: "16px",
-                  padding: "16px",
-                  backgroundColor: "#f8f9fa",
-                  borderRadius: "12px",
-                  borderTop: "1px solid #e9ecef"
-                }}>
-                  <div style={{
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    color: "#495057",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px"
-                  }}>
-                    <span>📝</span>
-                    네이버 블로그 실제 리뷰 ({blogReviews.length}개)
-                  </div>
-                  <div style={{
-                    maxHeight: "200px",
-                    overflowY: "auto",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px"
-                  }}>
-                    {blogReviews.slice(0, 3).map((review, index) => (
-                      <div key={index} style={{
-                        padding: "8px",
-                        backgroundColor: "white",
-                        borderRadius: "8px",
-                        border: "1px solid #e9ecef"
-                      }}>
-                        <div style={{
-                          fontSize: "12px",
-                          fontWeight: "500",
-                          color: "#e74c3c",
-                          marginBottom: "4px"
-                        }}>
-                          {review.place_name}
-                        </div>
-                        <div style={{
-                          fontSize: "11px",
-                          color: "#666",
-                          lineHeight: "1.4",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden"
-                        }}>
-                          {review.content && review.content !== "내용 추출 실패" 
-                            ? review.content.length > 100 
-                              ? review.content.substring(0, 100) + "..."
-                              : review.content
-                            : "리뷰 내용을 불러오지 못했습니다."
-                          }
-                        </div>
-                        {review.publish_date && review.publish_date !== "작성일 없음" && (
-                          <div style={{
-                            fontSize: "10px",
-                            color: "#999",
-                            marginTop: "4px"
-                          }}>
-                            {review.publish_date}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {blogReviews.length > 3 && (
-                    <div style={{
-                      fontSize: "11px",
-                      color: "#999",
-                      textAlign: "center",
-                      marginTop: "8px"
-                    }}>
-                      외 {blogReviews.length - 3}개의 리뷰 더보기
-                    </div>
-                  )}
-                </div>
-              )}
+              <HomeBlogReviewSection blogReviews={blogReviews} />
               {aiSheetPhotoViewerOpen && aiSheetPhotoViewerItems.length > 0
                 ? createPortal(
                     <div
