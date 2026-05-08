@@ -208,7 +208,6 @@ import {
   getCourseSwipeIndexFromScroll,
   getHomeSearchPlaceholderKst,
   HOME_CENTER_DUST_INTRO_KEY,
-  HOME_SEARCH_IDLE_HINTS_KEY,
   logSignalsCheckDev,
   mapPanAnchorKeyword,
   MAP_PAN_STATION_ALIAS,
@@ -218,7 +217,6 @@ import {
   placeMatchesSavedKeySet,
   readKakaoMapCenterLatLng,
   searchMapBottomChromePx,
-  SEARCH_IDLE_HINT_MESSAGES,
   SEARCH_INTENT_ASSIST_MS,
   SEONGSU_MAP_CENTER,
   shuffleArray,
@@ -234,6 +232,7 @@ import { useTickingNow } from "./hooks/useTickingNow";
 import { useMinuteTick } from "./hooks/useMinuteTick";
 import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
+import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
 import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
@@ -1450,10 +1449,6 @@ export default function Home() {
   const [situationFolderFilter, setSituationFolderFilter] = useState(null);
   situationFolderFilterRef.current = situationFolderFilter;
 
-  const [searchIdleHintVisible, setSearchIdleHintVisible] = useState(false);
-  const [searchIdleHintText, setSearchIdleHintText] = useState("");
-  const searchIdleHintAutoHideRef = useRef(null);
-
   const homeSearchPlaceholderText = useMemo(
     () =>
       searchTargetMode === "user"
@@ -1481,14 +1476,6 @@ export default function Home() {
     return `${judoCopy.sub} (${dayModeRemainingClock})`;
   }, [judoCopy.sub, judoMode.isDayMode, dayModeRemainingClock]);
 
-  const dismissSearchIdleHint = useCallback(() => {
-    setSearchIdleHintVisible(false);
-    if (searchIdleHintAutoHideRef.current != null) {
-      window.clearTimeout(searchIdleHintAutoHideRef.current);
-      searchIdleHintAutoHideRef.current = null;
-    }
-  }, []);
-
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -1497,70 +1484,16 @@ export default function Home() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  /** 비입력 ~2.6초 후 보조 힌트(세션 최대 2회) — 검색바가 주, 이건 보조 */
-  useEffect(() => {
-    dismissSearchIdleHint();
-    if (selectedPlace || String(query || "").trim() || isAiSearching) {
-      return undefined;
-    }
-    if (!homeDustIntroDismissed) {
-      return undefined;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-    ) {
-      return undefined;
-    }
-    let shownCount = 0;
-    try {
-      shownCount = parseInt(
-        sessionStorage.getItem(HOME_SEARCH_IDLE_HINTS_KEY) || "0",
-        10
-      );
-    } catch {
-      shownCount = 0;
-    }
-    if (shownCount >= 2) {
-      return undefined;
-    }
-
-    const delayMs = 2600;
-    const showTimer = window.setTimeout(() => {
-      const idx = Math.min(
-        shownCount,
-        Math.max(0, SEARCH_IDLE_HINT_MESSAGES.length - 1)
-      );
-      setSearchIdleHintText(SEARCH_IDLE_HINT_MESSAGES[idx] ?? "");
-      try {
-        sessionStorage.setItem(
-          HOME_SEARCH_IDLE_HINTS_KEY,
-          String(shownCount + 1)
-        );
-      } catch {
-        /* ignore */
-      }
-      setSearchIdleHintVisible(true);
-      searchIdleHintAutoHideRef.current = window.setTimeout(() => {
-        setSearchIdleHintVisible(false);
-        searchIdleHintAutoHideRef.current = null;
-      }, 6500);
-    }, delayMs);
-
-    return () => {
-      window.clearTimeout(showTimer);
-      if (searchIdleHintAutoHideRef.current != null) {
-        window.clearTimeout(searchIdleHintAutoHideRef.current);
-        searchIdleHintAutoHideRef.current = null;
-      }
-    };
-  }, [
+  const {
+    visible: searchIdleHintVisible,
+    text: searchIdleHintText,
+    dismiss: dismissSearchIdleHint,
+  } = useSearchIdleHint({
     query,
     selectedPlace,
     isAiSearching,
     homeDustIntroDismissed,
-    dismissSearchIdleHint,
-  ]);
+  });
 
   useEffect(() => {
     if (String(query || "").trim()) {
