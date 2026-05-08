@@ -14,6 +14,15 @@ const WALKABLE_HINTS = [
   "근처",
 ];
 
+function parsePartySizeFromText(text) {
+  const q = String(text || "");
+  const m = q.match(/(\d{1,2})\s*(?:명|인)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(20, Math.floor(n));
+}
+
 /** 코스 문장에서 지명 후보로 쓰지 않는 토큰 */
 const COURSE_NON_LOCATION_TOKENS = new Set([
   "데이트",
@@ -133,6 +142,7 @@ export function parseCourseQuery(query = "", options = {}) {
 
   const rightNow =
     /지금|오늘|당장|바로/i.test(text);
+  const partySize = parsePartySizeFromText(text);
 
   return {
     raw: text,
@@ -142,6 +152,7 @@ export function parseCourseQuery(query = "", options = {}) {
     walkable,
     dateMode,
     rightNow,
+    partySize,
     /** `dateMode`와 동일 — 코스 엔진·훅에서 공통 이름 */
     mode: dateMode,
     theme: "drinking_course",

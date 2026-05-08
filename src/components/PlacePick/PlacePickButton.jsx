@@ -36,6 +36,17 @@ function isUniqueViolation(err) {
   return /23505|unique constraint|duplicate key/i.test(msg);
 }
 
+function emitPlacePickDelta(placeUuid, delta) {
+  if (typeof window === "undefined") return;
+  const pid = String(placeUuid || "").trim();
+  if (!pid || !Number.isFinite(delta) || delta === 0) return;
+  window.dispatchEvent(
+    new CustomEvent("judo:place-pick-delta", {
+      detail: { placeUuid: pid, delta: Number(delta) },
+    })
+  );
+}
+
 /**
  * 픽 = 공개 추천(필·외곽선·살짝 글로우) — 저장(각진·무채)과 역할·형태 모두 구분.
  * 픽함 = 공개 상태 뱃지에 가깝게(채움 강화, 여전히 필).
@@ -187,6 +198,7 @@ const VARIANT_STYLES = {
       borderRadius: "12px",
       border: "1px solid rgba(236, 72, 153, 0.78)",
       backgroundColor: "rgba(6, 6, 8, 0.94)",
+      backgroundImage: "none",
       color: "rgba(253, 242, 248, 0.96)",
       fontSize: "12px",
       fontWeight: 700,
@@ -199,11 +211,13 @@ const VARIANT_STYLES = {
       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
     },
     picked: {
-      backgroundColor: "rgba(5, 5, 8, 0.96)",
-      color: "#fdf2f8",
+      backgroundColor: "#f472b6",
+      backgroundImage:
+        "linear-gradient(180deg, #f9a8d4 0%, #f472b6 54%, #ec4899 100%)",
+      color: "#4a044e",
       border: "1px solid #f472b6",
       boxShadow:
-        "inset 0 1px 0 rgba(255,255,255,0.05), 0 0 12px rgba(236, 72, 153, 0.2)",
+        "inset 0 1px 0 rgba(255,255,255,0.28), 0 0 12px rgba(236, 72, 153, 0.24)",
     },
     muted: {
       opacity: 0.45,
@@ -446,6 +460,7 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
             return;
           }
           setPicked(false);
+          emitPlacePickDelta(targetPlaceUuid, -1);
           return;
         }
         const { error } = await pickPlace(targetPlaceUuid);
@@ -459,6 +474,7 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
           return;
         }
         setPicked(true);
+        emitPlacePickDelta(targetPlaceUuid, 1);
         maybeShowPickPublicNotice(targetPlaceUuid, showToast);
       } finally {
         setBusy(false);
@@ -478,15 +494,23 @@ export function PlacePickButton({ place, variant = "card", className, style }) {
   };
 
   const isFolderChip = variant === "folderChip";
+  const isLightRowCompact = variant === "lightRowCompact";
+  const isBottomListPick = variant === "blackPink";
   const noPickEmoji = variant === "mono" || variant === "lightRowCompact";
   const label = picked
     ? isFolderChip
       ? "픽함"
+      : isLightRowCompact
+        ? "👍"
+      : isBottomListPick
+        ? "👍"
       : noPickEmoji
         ? "픽함"
         : "👍 픽함"
     : isFolderChip
       ? "공개 픽"
+      : isBottomListPick
+        ? "👍 픽"
       : noPickEmoji
         ? "픽"
         : "👍 픽";

@@ -83,6 +83,7 @@ export default function PlacePreviewCard({
   const dragControls = useDragControls();
   const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
   const [directionsLoading, setDirectionsLoading] = useState(false);
+  const [quickSavePicked, setQuickSavePicked] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
@@ -91,6 +92,10 @@ export default function PlacePreviewCard({
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    setQuickSavePicked(false);
+  }, [place?.id, place?.place_id, place?.kakao_place_id]);
 
   const onSheetDragEnd = useCallback(
     (_, info) => {
@@ -901,7 +906,8 @@ export default function PlacePreviewCard({
     // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
     if (userRole === "curator" || userRole === "admin") {
       console.log('🎯 큐레이터/관리자 - 쾌속 잔 채우기 실행');
-      await handleSaveClick();
+      const ok = await handleSaveClick();
+      if (ok) setQuickSavePicked(true);
     } else {
       console.log('👥 일반 사용자 - 저장 모달 열기');
       // 일반 사용자는 저장 모달 열기
@@ -924,14 +930,15 @@ export default function PlacePreviewCard({
         
         // 결과에 따른 토스트 메시지 표시
         if (result === 'duplicate') {
-          alert('이미 잔 채우기 리스트에 있는 장소입니다');
+          showToast('이미 잔 채우기 리스트에 저장된 장소예요.', 'info');
+          return true;
         } else if (result === 'success') {
           showToast('잔 채우기 리스트에 임시저장되었습니다!', 'success');
+          return true;
         } else {
           alert('❌ 잔 채우기에 실패했습니다.');
+          return false;
         }
-        
-        return;
       }
       
       try {
@@ -947,23 +954,30 @@ export default function PlacePreviewCard({
             });
             
           if (error) {
+            if (error.code === "23505") {
+              showToast("이미 잔 채우기 리스트에 저장된 장소예요.", "info");
+              return true;
+            }
             console.error('잔 채우기 저장 실패:', error);
             alert('잔 채우기 저장에 실패했습니다.');
-            return;
+            return false;
           }
           
           console.log('✅ 잔 채우기 리스트에 저장 완료');
           alert('✅ 잔 채우기 리스트에 저장되었습니다!');
+          return true;
         }
       } catch (error) {
         console.error('쾌속 잔 채우기 오류:', error);
         alert('쾌속 잔 채우기에 실패했습니다.');
+        return false;
       }
-      return;
+      return false;
     }
     
     // 일반 사용자일 경우 기존 저장 모달 표시
     setShowSaveModal(true);
+    return false;
   };
 
   // 백그라운드 임시저장 함수
@@ -1900,11 +1914,15 @@ export default function PlacePreviewCard({
                 <button
                   type="button"
                   onClick={handleQuickSaveClick}
-                  style={styles.saveOutlineButton}
+                  style={
+                    quickSavePicked
+                      ? { ...styles.quickSaveOutlineButton, ...styles.quickSaveOutlineButtonPicked }
+                      : styles.quickSaveOutlineButton
+                  }
                   title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
                   aria-label="스튜디오 잔 채우기, 내 폴더만"
                 >
-                  📁 잔채우기
+                  {quickSavePicked ? "🗂️" : "📁 잔채우기"}
                 </button>
               ) : (
                 <button
@@ -2564,6 +2582,30 @@ const styles = {
     cursor: "pointer",
     boxSizing: "border-box",
   },
+  quickSaveOutlineButton: {
+    width: "100%",
+    height: "44px",
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid #60a5fa",
+    backgroundColor: "#0f172a",
+    color: "#dbeafe",
+    fontSize: "12px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
+  quickSaveOutlineButtonPicked: {
+    background: "linear-gradient(180deg, #22d3ee 0%, #0891b2 100%)",
+    color: "#f0f9ff",
+    border: "1px solid #67e8f9",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px rgba(34,211,238,0.32)",
+  },
   actionCell: {
     flex: 1,
     minWidth: 0,
@@ -2621,11 +2663,11 @@ const styles = {
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "2px solid #7bed9f",
+    border: "1px solid #444444",
     backgroundColor: "#1a1a1a",
-    color: "#7bed9f",
-    fontSize: "12px",
-    fontWeight: 700,
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 800,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2738,11 +2780,11 @@ const styles = {
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid #444444",
+    border: "2px solid #7bed9f",
     backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    fontSize: "14px",
-    fontWeight: 800,
+    color: "#7bed9f",
+    fontSize: "12px",
+    fontWeight: 700,
     cursor: "pointer",
     boxSizing: "border-box",
   },

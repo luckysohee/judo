@@ -185,6 +185,7 @@ export default function CheckinButton({
     useRealtimeCheckins();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [hanjanPicked, setHanjanPicked] = useState(false);
   const [profileRow, setProfileRow] = useState(null);
   const [internalHanjan, setInternalHanjan] = useState(null);
 
@@ -233,6 +234,10 @@ export default function CheckinButton({
     if (!placeId || hanjanStatsProp != null) return;
     void loadInternalHanjan();
   }, [placeId, hanjanStatsProp, loadInternalHanjan, placeCheckinCounts]);
+
+  useEffect(() => {
+    setHanjanPicked(false);
+  }, [placeId]);
 
   const getUserNickname = () => resolveCheckinDisplayName(user, profileRow);
 
@@ -319,6 +324,7 @@ export default function CheckinButton({
       accuracyM,
       skipDistanceCheck,
     });
+    setHanjanPicked(true);
     await toastAfterSuccess(skipDistanceCheck);
   };
 
@@ -366,19 +372,15 @@ export default function CheckinButton({
         accuracyM = g.accuracyM;
       } catch (geoErr) {
         if (isGeoTimeoutOrDenied(geoErr)) {
-          const loose = window.confirm(
-            `${messageForHanjanError(geoErr)}\n\n위치 없이 한잔만 남길까요? (여기서 한잔 수에는 안 잡혀요.)`
-          );
-          if (loose) {
-            await runHanjanRpc({
-              plat,
-              plng,
-              userLat: null,
-              userLng: null,
-              accuracyM: null,
-              skipDistanceCheck: true,
-            });
-          }
+          // GPS 타임아웃/거부 시에는 자동으로 느슨한 저장으로 폴백 (실패 체감 최소화)
+          await runHanjanRpc({
+            plat,
+            plng,
+            userLat: null,
+            userLng: null,
+            accuracyM: null,
+            skipDistanceCheck: true,
+          });
           return;
         }
         showToast(messageForHanjanError(geoErr), "warning");
@@ -426,26 +428,34 @@ export default function CheckinButton({
             });
             strictRecovered = true;
           } catch (retryErr) {
-            if (!isTooFarRpcError(retryErr)) throw retryErr;
+            if (!isTooFarRpcError(retryErr)) {
+              // 재시도 GPS가 타임아웃/권한거부여도 느슨한 저장으로 폴백
+              if (isGeoTimeoutOrDenied(retryErr)) {
+                await runHanjanRpc({
+                  plat,
+                  plng,
+                  userLat: null,
+                  userLng: null,
+                  accuracyM: null,
+                  skipDistanceCheck: true,
+                });
+                strictRecovered = true;
+                return;
+              }
+              throw retryErr;
+            }
           }
           if (strictRecovered) {
             return;
           }
-          const loose = window.confirm(
-            "위치를 다시 받아도 거리가 멀리 잡혔습니다.\n\n위치 없이 한잔만 남길까요? (여기서 한잔 수에는 안 잡혀요.)"
-          );
-          if (loose) {
-            await runHanjanRpc({
-              plat,
-              plng,
-              userLat: null,
-              userLng: null,
-              accuracyM: null,
-              skipDistanceCheck: true,
-            });
-          } else {
-            throw rpcErr;
-          }
+          await runHanjanRpc({
+            plat,
+            plng,
+            userLat: null,
+            userLng: null,
+            accuracyM: null,
+            skipDistanceCheck: true,
+          });
         } else {
           throw rpcErr;
         }
@@ -471,6 +481,7 @@ export default function CheckinButton({
   const compactPadX = compactRowShort ? "6px" : "10px";
 
   const checkInLocked = !canCheckIn;
+  const showPickedVisual = hanjanPicked && !checkInLocked;
 
   const buttonStyles = compact
     ? neutralCompact
@@ -578,6 +589,16 @@ export default function CheckinButton({
 
   const hanjanButtonVisual = {
     ...buttonStyles.hanjanButton,
+    ...(showPickedVisual
+      ? {
+          backgroundColor: "#fb923c",
+          background: "linear-gradient(180deg, #fdba74 0%, #fb923c 100%)",
+          color: "#2b1603",
+          borderColor: "#fdba74",
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px rgba(251,146,60,0.25)",
+        }
+      : {}),
     ...(checkInLocked
       ? { opacity: 0.5, filter: "grayscale(0.35)", cursor: "not-allowed" }
       : {}),
@@ -620,6 +641,8 @@ export default function CheckinButton({
           ? compactRowShort
             ? "중…"
             : "처리 중…"
+          : showPickedVisual
+            ? "🍺"
           : compactRowShort
             ? "한잔함"
             : "🍺 한잔함"}

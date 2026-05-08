@@ -270,6 +270,60 @@ function coursePlaceMatchesRuleCategories(place, ruleCategories) {
   return false;
 }
 
+function coursePartySizeFitScore(place, partySize) {
+  const n = Number(partySize);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+
+  const tokens = placeCategories(place).map((c) => String(c).toLowerCase());
+  const tags = normalizeArray(place.tags).map((t) => String(t).toLowerCase());
+  const hay = `${tokens.join(" ")} ${tags.join(" ")} ${String(
+    place?.name || place?.place_name || ""
+  ).toLowerCase()} ${String(place?.category_name || "").toLowerCase()}`;
+
+  const hasAny = (arr) => arr.some((k) => hay.includes(k));
+  const groupLike = hasAny([
+    "포차",
+    "주점",
+    "호프",
+    "pub",
+    "펍",
+    "고깃집",
+    "고기",
+    "한식",
+    "단체",
+    "룸",
+    "회식",
+    "테이블",
+  ]);
+  const dateLike = hasAny([
+    "와인",
+    "칵테일",
+    "데이트",
+    "바",
+    "이자카야",
+    "무드",
+    "조용",
+    "다이닝",
+  ]);
+
+  if (n >= 5) {
+    if (groupLike) return 16;
+    if (dateLike) return -8;
+    return 0;
+  }
+  if (n >= 3) {
+    if (groupLike) return 10;
+    if (dateLike) return -3;
+    return 0;
+  }
+  if (n === 2) {
+    if (dateLike) return 8;
+    if (groupLike) return -2;
+    return 0;
+  }
+  return 0;
+}
+
 function isBridgeCourseRule(rule) {
   return String(rule?.label || "") === "쩜오차";
 }
@@ -490,6 +544,11 @@ export function calculateCoursePlaceScore(
     if (minutesUntilClose < 40) score -= 60;
     else if (minutesUntilClose < 70) score -= 25;
     else if (minutesUntilClose >= (rule.stayMinutes ?? 60)) score += 8;
+  }
+
+  const partyFit = coursePartySizeFitScore(place, parsedQuery.partySize);
+  if (partyFit !== 0) {
+    score += partyFit;
   }
 
   /** 쩜오차: DB 카테고리 배열이 빈 카페·디저트가 많아 규칙 매칭만으론 0점으로 빠지는 경우 보강 */

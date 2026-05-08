@@ -233,6 +233,7 @@ export function PlacePickDetailSummary({
   const [placeUuid, setPlaceUuid] = useState(null);
   const [summary, setSummary] = useState(null);
   const [pickerRows, setPickerRows] = useState([]);
+  const [optimisticDeltaTotal, setOptimisticDeltaTotal] = useState(0);
 
   const p = PALETTE[theme] || PALETTE.dark;
   const avatarSize = compact ? 32 : 36;
@@ -244,6 +245,7 @@ export function PlacePickDetailSummary({
     setPlaceUuid(null);
     setSummary(null);
     setPickerRows([]);
+    setOptimisticDeltaTotal(0);
 
     (async () => {
       const uuid = await resolvePlaceUuidForPick(place);
@@ -344,11 +346,25 @@ export function PlacePickDetailSummary({
     place?.name,
   ]);
 
+  useEffect(() => {
+    if (!placeUuid || typeof window === "undefined") return undefined;
+    const onDelta = (evt) => {
+      const pid = String(evt?.detail?.placeUuid || "").trim();
+      if (!pid || pid !== String(placeUuid)) return;
+      const d = Number(evt?.detail?.delta || 0);
+      if (!Number.isFinite(d) || d === 0) return;
+      setOptimisticDeltaTotal((prev) => prev + d);
+    };
+    window.addEventListener("judo:place-pick-delta", onDelta);
+    return () => window.removeEventListener("judo:place-pick-delta", onDelta);
+  }, [placeUuid]);
+
   if (loading) return null;
 
   if (!placeUuid) return null;
 
-  const total = summary ? Number(summary.total_count) || 0 : 0;
+  const totalBase = summary ? Number(summary.total_count) || 0 : 0;
+  const total = Math.max(0, totalBase + optimisticDeltaTotal);
   const cur = summary ? Number(summary.curator_pick_count) || 0 : 0;
   const usr = summary ? Number(summary.user_pick_count) || 0 : 0;
 

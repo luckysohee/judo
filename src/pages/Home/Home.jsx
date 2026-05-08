@@ -11,8 +11,8 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
 import SearchBar from "../../components/SearchBar/SearchBar";
-import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
-import CuratorApplicationButton from "../../components/CuratorApplicationButton/CuratorApplicationButton";
+import HomeCuratorFilterRow from "../../components/Home/HomeCuratorFilterRow";
+import HomeSearchAuthSlot from "../../components/Home/HomeSearchAuthSlot";
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
@@ -8101,36 +8101,36 @@ const handleClearSearch = () => {
               JUDO
             </button>
 
-            <div style={styles.filterWrapper}>
-              <CuratorFilterBar
-                curators={dbCurators}
-                selectedCurators={selectedCurators}
-                allActive={showAll && selectedCurators.length === 0}
-                onToggle={(name) => {
-                  const key = String(name ?? "").trim();
-                  if (!key) return;
+            <HomeCuratorFilterRow
+              wrapperStyle={styles.filterWrapper}
+              curators={dbCurators}
+              selectedCurators={selectedCurators}
+              allActive={showAll && selectedCurators.length === 0}
+              onToggle={(name) => {
+                const key = String(name ?? "").trim();
+                if (!key) return;
 
-                  setShowSavedOnly(false);
-                  setLegendCategory(null);
-                  const cleanPrev = selectedCuratorsRef.current.filter(
-                    (item) => item != null && String(item).trim() !== ""
+                setShowSavedOnly(false);
+                setLegendCategory(null);
+                const cleanPrev = selectedCuratorsRef.current.filter(
+                  (item) => item != null && String(item).trim() !== ""
+                );
+                const token = canonicalCuratorChipToken(key, dbCurators);
+                const idx = cleanPrev.findIndex((c) => {
+                  const prev = String(c ?? "").trim();
+                  if (!prev) return false;
+                  return (
+                    canonicalCuratorChipToken(prev, dbCurators).toLowerCase() ===
+                    token.toLowerCase()
                   );
-                  const token = canonicalCuratorChipToken(key, dbCurators);
-                  const idx = cleanPrev.findIndex((c) => {
-                    const prev = String(c ?? "").trim();
-                    if (!prev) return false;
-                    return (
-                      canonicalCuratorChipToken(prev, dbCurators).toLowerCase() ===
-                      token.toLowerCase()
-                    );
-                  });
-                  const next =
-                    idx >= 0
-                      ? cleanPrev.filter((_, i) => i !== idx)
-                      : [...cleanPrev, token];
-                  setSelectedCurators(next);
-                  setShowAll(next.length === 0);
-                }}
+                });
+                const next =
+                  idx >= 0
+                    ? cleanPrev.filter((_, i) => i !== idx)
+                    : [...cleanPrev, token];
+                setSelectedCurators(next);
+                setShowAll(next.length === 0);
+              }}
               onSelectAll={() => {
                 setShowSavedOnly(false);
                 setLegendCategory(null);
@@ -8144,12 +8144,10 @@ const handleClearSearch = () => {
               }}
               onProfileClick={(curator) => {
                 console.log("👤 큐레이터 프로필 클릭:", curator);
-                // 선택된 큐레이터 정보 설정하고 모달 표시
                 setSelectedCurator(curator);
                 setShowFollowModal(true);
               }}
-              />
-            </div>
+            />
           </div>
 
         </div>
@@ -8334,121 +8332,52 @@ const handleClearSearch = () => {
                   console.log('🔍 위치기반 검색 모드:', isLocationBased);
                 }}
                 rightActions={
-                  <div
-                    style={{
-                      ...styles.authRowInline,
-                      ...(compactSearchBarAuth ? styles.authRowInlineNarrow : {}),
+                  <HomeSearchAuthSlot
+                    authLoading={authLoading}
+                    isLoggedIn={Boolean(user)}
+                    userRole={getUserRole()}
+                    compact={compactSearchBarAuth}
+                    profileButtonHint={getProfileButtonHint()}
+                    profilePhotoUrl={searchBarProfilePhotoUrl}
+                    profilePhotoFailed={searchBarProfileImgFailed}
+                    onProfilePhotoError={() => setSearchBarProfileImgFailed(true)}
+                    profileInitial={getSearchBarProfileInitial()}
+                    onProfileClick={() => {
+                      const userRole = getUserRole();
+                      console.log(" @아이디 버튼 클릭:", {
+                        userRole,
+                        isAdmin,
+                        isCurator,
+                        username: getDisplayUsername(),
+                      });
+                      if (userRole === "admin") {
+                        navigate("/admin");
+                      } else if (userRole === "curator") {
+                        navigate("/studio");
+                      } else {
+                        setShowUserCard(true);
+                      }
                     }}
-                  >
-                    {/* 일반 유저에게만 큐레이터 신청 버튼 표시 */}
-                    {!authLoading && user && getUserRole() === "user" && (
-                      <CuratorApplicationButton compact={compactSearchBarAuth} />
-                    )}
-                    
-                    {authLoading ? null : user ? (
-                      <>
-                        <button
-                          type="button"
-                          title={getProfileButtonHint().title}
-                          aria-label={getProfileButtonHint().aria}
-                          style={{
-                            ...(getUserRole() === "admin"
-                              ? styles.adminInlineButton
-                              : getUserRole() === "curator"
-                                ? styles.curatorInlineButton
-                                : styles.userInlineButton),
-                            ...styles.searchBarProfileButton,
-                            ...(compactSearchBarAuth
-                              ? styles.searchBarProfileButtonNarrow
-                              : {}),
-                          }}
-                          onClick={() => {
-                            const userRole = getUserRole();
-                            console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
-                            
-                            if (userRole === "admin") {
-                              // Admin은 큐레이터 신청내역 페이지로 이동
-                              navigate("/admin");
-                            } else if (userRole === "curator") {
-                              // 큐레이터는 스튜디오 페이지로 이동
-                              navigate("/studio");
-                            } else {
-                              // 일반 사용자는 UserCard 표시
-                              setShowUserCard(true);
-                            }
-                          }}
-                        >
-                          {searchBarProfilePhotoUrl && !searchBarProfileImgFailed ? (
-                            <img
-                              src={searchBarProfilePhotoUrl}
-                              alt=""
-                              style={styles.searchBarProfileImg}
-                              onError={() => setSearchBarProfileImgFailed(true)}
-                            />
-                          ) : (
-                            <span style={styles.searchBarProfileInitial}>
-                              {getSearchBarProfileInitial()}
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          style={{
-                            ...styles.authInlineButton,
-                            ...(compactSearchBarAuth
-                              ? styles.authInlineButtonNarrow
-                              : {}),
-                          }}
-                          title="로그아웃"
-                          onClick={() => {
-                            signOut().catch((error) => {
-                              console.error("signOut error:", error);
-                              alert(error?.message || "로그아웃에 실패했습니다.");
-                            });
-                          }}
-                        >
-                          {compactSearchBarAuth ? "나가기" : "로그아웃"}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          style={{
-                            ...styles.authIconButton,
-                            ...styles.googleButton,
-                          }}
-                          onClick={() => {
-                            signInWithProvider("google").catch((error) => {
-                              console.error("google login error:", error);
-                              alert(error?.message || "구글 로그인에 실패했습니다.");
-                            });
-                          }}
-                          aria-label="Google 로그인"
-                          title="Google 로그인"
-                        >
-                          <span style={styles.googleG}>G</span>
-                        </button>
-                        <button
-                          type="button"
-                          style={{
-                            ...styles.authIconButton,
-                            ...styles.kakaoButton,
-                          }}
-                          onClick={() => {
-                            signInWithProvider("kakao").catch((error) => {
-                              console.error("kakao login error:", error);
-                              alert(error?.message || "카카오 로그인에 실패했습니다.");
-                            });
-                          }}
-                          aria-label="Kakao 로그인"
-                          title="Kakao 로그인"
-                        >
-                          <span style={styles.kakaoK}>K</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
+                    onSignOut={() => {
+                      signOut().catch((error) => {
+                        console.error("signOut error:", error);
+                        alert(error?.message || "로그아웃에 실패했습니다.");
+                      });
+                    }}
+                    onGoogleLogin={() => {
+                      signInWithProvider("google").catch((error) => {
+                        console.error("google login error:", error);
+                        alert(error?.message || "구글 로그인에 실패했습니다.");
+                      });
+                    }}
+                    onKakaoLogin={() => {
+                      signInWithProvider("kakao").catch((error) => {
+                        console.error("kakao login error:", error);
+                        alert(error?.message || "카카오 로그인에 실패했습니다.");
+                      });
+                    }}
+                    styleMap={styles}
+                  />
                 }
               />
             </div>
