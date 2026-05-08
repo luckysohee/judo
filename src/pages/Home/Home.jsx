@@ -16,8 +16,7 @@ import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar
 import CuratorApplicationButton from "../../components/CuratorApplicationButton/CuratorApplicationButton";
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
-import { RecommendedPlacesList } from "../../components/Recommendation/RecommendedPlacesList";
-import { SelectedRecommendedPlaceDetailCard } from "../../components/Recommendation/SelectedRecommendedPlaceDetailCard";
+import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import { PlacePickButton } from "../../components/PlacePick/PlacePickButton";
@@ -7998,17 +7997,11 @@ const handleClearSearch = () => {
               추천
             </button>
           ) : null}
-          {!isCourseMode &&
-          curatorImportRecommendation?.ok &&
-          !aiSheetUsesDisplayedPlaces ? (
-            <div className="pointer-events-auto absolute bottom-[calc(156px+env(safe-area-inset-bottom,0px))] left-3 right-3 z-[124] max-h-[40vh] overflow-y-auto rounded-xl border border-neutral-200/90 bg-white/95 p-3 shadow-lg md:left-auto md:right-3 md:w-80">
-              <RecommendedPlacesList
-                recommendation={curatorImportRecommendation}
-                onSelectPlace={handleRecommendPlaceFromList}
-              />
-            </div>
-          ) : null}
-          <SelectedRecommendedPlaceDetailCard
+          <HomeRecommendOverlay
+            isCourseMode={isCourseMode}
+            recommendation={curatorImportRecommendation}
+            onSelectPlace={handleRecommendPlaceFromList}
+            aiSheetUsesDisplayedPlaces={aiSheetUsesDisplayedPlaces}
             selectedRecommendedPlace={selectedRecommendedPlace}
             matchedMapPlace={matchedMapPlace}
             mergedPlace={mergedRecommendDetailPlace}
