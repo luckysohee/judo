@@ -239,6 +239,7 @@ import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
 import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
 import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
+import { useViewportWidth } from "./hooks/useViewportWidth";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
@@ -1392,9 +1393,7 @@ export default function Home() {
   /** 하단 검색바: `basic` 카카오·경량 / `ai` 기존 주도·의도·통합 검색 */
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [mutualSearchPanelOpen, setMutualSearchPanelOpen] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth : 1280,
-  );
+  const viewportWidth = useViewportWidth();
   const searchSessionIdRef = useRef(null);
   /** 직전 검색 제출 스냅샷 — 장소 클릭 시 CTR 버킷(`searchClickPath`) 연결 */
   const lastSearchSubmitTelemetryRef = useRef(null);
@@ -1485,14 +1484,6 @@ export default function Home() {
     if (!judoMode.isDayMode) return "";
     return `${judoCopy.sub} (${dayModeRemainingClock})`;
   }, [judoCopy.sub, judoMode.isDayMode, dayModeRemainingClock]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const onResize = () => setViewportWidth(window.innerWidth);
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   const {
     visible: searchIdleHintVisible,
@@ -3305,39 +3296,13 @@ export default function Home() {
     const isFirstVisit = !hasVisitedBefore;
     
     if (isFirstVisit) {
-      // 최초 방문이면 전체 선택
-      setShowAll(true);
-      setSelectedCurators([]);
       localStorage.setItem("judo_has_visited", "true");
-      console.log("🎯 최초 방문: 전체 선택");
-    } else {
-      // 재방문이면 전체 선택 상태로 시작
-      setShowAll(true);
-      setSelectedCurators([]);
-      console.log("🎯 재방문: 전체 선택 상태로 시작");
     }
+    setShowAll(true);
+    setSelectedCurators([]);
     /** mount-only — refreshCustomPlaces는 hook이 안정화한 reference라 deps 누락 무관 */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // 페이지 로드 시 UI 초기화
-  useEffect(() => {
-    console.log("🔄 페이지 로드 - 데이터 초기화");
-    setSelectedCurators([]);
-    setShowAll(true);
-
-    setTimeout(() => {
-      console.log("🔍 dbCurators 데이터:", dbCurators.map(c => ({ id: c.id, name: c.name })));
-    }, 1000);
-    /** mount-only — dbCurators 로깅은 1초 뒤 디버깅용 스냅샷 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 상태 변화 감지
-  useEffect(() => {
-    console.log("🔄 상태 변화:", { showAll, selectedCurators, dbCuratorsLength: dbCurators.length });
-    console.log("📋 dbCurators 상세:", dbCurators);
-  }, [showAll, selectedCurators, dbCurators]);
 
   /** 큐레이터 목록이 늦게 오면 닉네임으로만 저장된 선택을 user_id / id 로 맞춤 */
   useEffect(() => {
@@ -3354,15 +3319,10 @@ export default function Home() {
     });
   }, [dbCurators]);
 
-  const allPlaces = useMemo(() => {
-  const result = [...customPlaces, ...dbPlaces];
-  console.log("📦 allPlaces 상태:", { 
-    customPlacesLength: customPlaces.length, 
-    dbPlacesLength: dbPlaces.length, 
-    totalLength: result.length 
-  });
-  return result;
-}, [customPlaces, dbPlaces]);
+  const allPlaces = useMemo(
+    () => [...customPlaces, ...dbPlaces],
+    [customPlaces, dbPlaces],
+  );
 
   const savedPlacesByFolder = useMemo(() => {
     const result = {};
