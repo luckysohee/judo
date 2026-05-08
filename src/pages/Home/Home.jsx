@@ -27,8 +27,6 @@ import HomeBottomModalStack from "../../components/Home/HomeBottomModalStack";
 import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
 import CheckInToast from "../../components/CheckInToast/CheckInToast";
 
-import { places as dummyPlaces } from "../../data/places";
-
 import { useAuth } from "../../context/AuthContext";
 
 import { supabase } from "../../lib/supabase";
@@ -44,7 +42,6 @@ import {
   savePlaceToFolder,
 } from "../../utils/storage";
 
-import { getCustomPlaces } from "../../utils/customPlacesStorage";
 import { curatorPlaceMatchesLoggedInCurator } from "../../utils/curatorPlacesIdentity";
 import { mapClickCoordToPreviewPlace } from "../../utils/mapClickCoordToPreviewPlace";
 import {
@@ -136,7 +133,6 @@ import {
 import {
   resolvePlaceWgs84,
   haversineMeters,
-  kakaoNumericPlaceId,
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
@@ -154,12 +150,7 @@ import {
   walkingRouteDisplayMinutes,
   getCourseLongWalkStrollHint,
 } from "../../utils/courseWalkingRouteQuality.js";
-import {
-  getKakaoPlaceDetailsViaProxy,
-  getKakaoPlaceBasicInfoViaProxy,
-  searchKakaoKeywordViaProxy,
-  searchKakaoAddressViaProxy,
-} from "../../utils/kakaoAPIProxy";
+import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import { verifyTopKakaoSearchCandidates } from "../../utils/verifyTopKakaoSearchCandidates";
 import {
   mergePickedPlaceWithCuratorCatalog,
@@ -169,7 +160,6 @@ import {
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { collectReasonEvidence } from "../../utils/reasonEvidence.js";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
-import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useCourseSearch } from "../../hooks/useCourseSearch";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
@@ -258,39 +248,9 @@ export default function Home() {
 
   const { user, loading: authLoading, signInWithProvider, signOut } = useAuth();
 
-  const devAdminUserId = import.meta.env.VITE_ADMIN_USER_ID;
-
-  // 팔로우 알림 확인 함수
+  /** follower_notifications 미사용 — 테이블 도입 시 supabase 쿼리 복원 */
   const checkUnreadFollowers = async (curatorId) => {
-    // 테이블이 존재하지 않으므로 바로 종료
-    console.log('ℹ️ follower_notifications 테이블이 존재하지 않아 팔로우 알림 확인을 건너뜁니다.');
-    return;
-    
-    try {
-      // 테이블이 존재하는지 확인 후 쿼리 실행
-      const { data, error } = await supabase
-        .from('follower_notifications')
-        .select('*')
-        .eq('curator_id', curatorId)
-        .eq('is_read', false);
-
-      if (error) {
-        // 테이블이 없는 경우 에러를 무시하고 로그만 남김
-        if (error.code === 'PGRST205') {
-          console.log('ℹ️ follower_notifications 테이블이 존재하지 않습니다.');
-          return;
-        }
-        console.error('팔로우 알림 확인 오류:', error);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        console.log(`🔔 새로운 팔로워 ${data.length}명이 있습니다!`);
-        // 여기에 알림 표시 로직 추가
-      }
-    } catch (error) {
-      console.error('팔로우 알림 확인 중 오류:', error);
-    }
+    void curatorId;
   };
 
   // 로컬 AI 검색 함수들
@@ -627,220 +587,6 @@ export default function Home() {
   };
 
   // 네이버 블로그 검색 함수
-  // 카카오 API로 장소 추가 정보 가져오기
-  const enrichPlaceWithKakaoInfo = async (place) => {
-    const hasUsefulCategory = Boolean(
-      (place.category_name && String(place.category_name).trim()) ||
-        (place.category &&
-          String(place.category).trim() &&
-          place.category !== "미분류")
-    );
-    const wgs0 = resolvePlaceWgs84(place);
-    const coordsOk =
-      wgs0 && isLikelyKoreaWgs84(wgs0.lat, wgs0.lng);
-    if (place.isKakaoEnriched && hasUsefulCategory && coordsOk) {
-      return place;
-    }
-
-    const labelForSearch =
-      (place?.name && String(place.name).trim()) ||
-      (place?.place_name && String(place.place_name).trim()) ||
-      "";
-    const firstAddr = [
-      place?.address,
-      place?.road_address_name,
-      place?.address_name,
-    ]
-      .map((x) => (typeof x === "string" ? x.trim() : ""))
-      .find((s) => s.length > 0);
-
-    if (!labelForSearch && !firstAddr) {
-      return place;
-    }
-    const keywordQuery = labelForSearch || firstAddr.slice(0, 80);
-
-    try {
-      if (import.meta.env.DEV) {
-        console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", keywordQuery);
-      }
-
-      const py = parseFloat(place.lat ?? place.y);
-      const px = parseFloat(place.lng ?? place.x);
-
-      const idCandidates = [
-        place.kakao_place_id,
-        place.place_id,
-        place.kakaoId,
-      ]
-        .map((x) => (x != null ? String(x).trim() : ""))
-        .filter((s) => /^\d+$/.test(s));
-
-      /** 브라우저에서 dapi.kakao.com 직접 호출은 CORS로 막히므로 백엔드 프록시 사용 */
-      let kakaoPlace = null;
-      for (const kid of idCandidates) {
-        kakaoPlace = await getKakaoPlaceDetailsViaProxy(kid, {
-          query: keywordQuery,
-          x: Number.isFinite(px) ? px : undefined,
-          y: Number.isFinite(py) ? py : undefined,
-        });
-        if (kakaoPlace && (kakaoPlace.category_name || kakaoPlace.place_name)) {
-          break;
-        }
-      }
-
-      if (!kakaoPlace) {
-        const { documents: docs } = await searchKakaoKeywordViaProxy({
-          query: keywordQuery,
-          x: Number.isFinite(px) ? px : undefined,
-          y: Number.isFinite(py) ? py : undefined,
-          radius: 500,
-          size: 15,
-        });
-
-        for (const kid of idCandidates) {
-          kakaoPlace = docs.find((d) => String(d.id) === kid);
-          if (kakaoPlace) break;
-        }
-        if (!kakaoPlace && docs.length) {
-          kakaoPlace = docs[0];
-        }
-      }
-
-      if (!kakaoPlace) {
-        const addrQ = [
-          place.address,
-          place.road_address_name,
-          place.address_name,
-        ]
-          .map((x) => (typeof x === "string" ? x.trim() : ""))
-          .find((s) => s.length >= 4);
-        if (addrQ) {
-          const { documents: adocs } = await searchKakaoAddressViaProxy({
-            query: addrQ,
-            size: 5,
-          });
-          const d0 = Array.isArray(adocs) ? adocs[0] : null;
-          if (d0) {
-            const ky = parseFloat(d0.y);
-            const kx = parseFloat(d0.x);
-            if (Number.isFinite(ky) && Number.isFinite(kx)) {
-              kakaoPlace = {
-                ...d0,
-                place_name: d0.place_name || place.name,
-                category_name:
-                  d0.category_name ||
-                  place.category_name ||
-                  place.category ||
-                  "",
-                id: d0.id,
-              };
-            }
-          }
-        }
-      }
-
-      if (kakaoPlace) {
-        if (import.meta.env.DEV) {
-          console.log("✅ 카카오 장소 정보 찾음:", kakaoPlace.place_name);
-        }
-
-        const ky = parseFloat(kakaoPlace.y);
-        const kx = parseFloat(kakaoPlace.x);
-        const catFromKakao =
-          kakaoPlace.category_name ||
-          place.category_name ||
-          place.category ||
-          "";
-
-        const resolvedName =
-          (kakaoPlace.place_name && String(kakaoPlace.place_name).trim()) ||
-          (place.name && String(place.name).trim()) ||
-          (place.place_name && String(place.place_name).trim()) ||
-          keywordQuery;
-
-        const enrichedPlace = {
-          ...place,
-          name: resolvedName,
-          category: catFromKakao || place.category,
-          category_name: catFromKakao || place.category_name,
-          phone: kakaoPlace.phone || place.phone,
-          road_address_name: kakaoPlace.road_address_name || place.address,
-          address_name: kakaoPlace.address_name || place.address,
-          place_url: kakaoPlace.place_url,
-          x: kakaoPlace.x,
-          y: kakaoPlace.y,
-          ...(Number.isFinite(ky) && Number.isFinite(kx)
-            ? { lat: ky, lng: kx }
-            : {}),
-          isKakaoEnriched: true,
-          kakaoId: kakaoPlace.id,
-        };
-
-        // Supabase places 스키마(앱 전반): name, address, lat, lng, category, kakao_place_id, phone 등만 존재.
-        // category_name / x / y / kakaoId / isKakaoEnriched 는 DB 컬럼이 아니면 400.
-        try {
-          const kid =
-            kakaoPlace.id != null ? String(kakaoPlace.id).trim() : "";
-          const nextAddr =
-            (kakaoPlace.road_address_name &&
-              String(kakaoPlace.road_address_name).trim()) ||
-            (kakaoPlace.address_name &&
-              String(kakaoPlace.address_name).trim()) ||
-            null;
-          const nextCat =
-            (kakaoPlace.category_name &&
-              String(kakaoPlace.category_name).trim()) ||
-            (place.category && String(place.category).trim()) ||
-            null;
-          const patch = {};
-          if (resolvedName) patch.name = resolvedName;
-          if (nextCat) patch.category = nextCat;
-          if (nextAddr) patch.address = nextAddr;
-          if (kakaoPlace.phone != null && String(kakaoPlace.phone).trim() !== "") {
-            patch.phone = String(kakaoPlace.phone).trim();
-          }
-          if (Number.isFinite(ky) && Number.isFinite(kx)) {
-            patch.lat = ky;
-            patch.lng = kx;
-          }
-          if (/^\d+$/.test(kid)) {
-            patch.kakao_place_id = kid;
-          }
-
-          if (Object.keys(patch).length === 0) {
-            if (import.meta.env.DEV) {
-              console.log("⏭️ Supabase places PATCH 생략: 갱신할 필드 없음");
-            }
-          } else {
-            const { error: updErr } = await supabase
-              .from("places")
-              .update(patch)
-              .eq("id", place.id);
-            if (updErr) {
-              if (import.meta.env.DEV) {
-                console.warn("⚠️ Supabase places PATCH 실패:", updErr.message);
-              }
-            } else if (import.meta.env.DEV) {
-              console.log("🔄 Supabase 장소 정보 PATCH 완료");
-            }
-          }
-        } catch (updateError) {
-          if (import.meta.env.DEV) {
-            console.log("⚠️ Supabase 업데이트 예외:", updateError.message);
-          }
-        }
-
-        return enrichedPlace;
-      }
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.log("⚠️ 카카오 장소 정보 조회 오류:", error.message);
-      }
-    }
-
-    return place;
-  };
-
   const searchBlogReviews = async (keyword) => {
     const q = typeof keyword === "string" ? keyword.trim() : "";
     if (!q) return [];
@@ -1401,9 +1147,6 @@ export default function Home() {
       ? crypto.getRandomValues(new Uint32Array(1))[0]
       : Math.floor(Math.random() * 0xffffffff)) >>> 0,
   );
-  /** 큐레이터 스트립 수동 새로고침 — salt 갱신으로만 리렌더 유도 */
-  const [curatorSpotlightShuffleTick, setCuratorSpotlightShuffleTick] =
-    useState(0);
   /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
   const forceReopenAiSheetAfterSearchRef = useRef(false);
 
@@ -2987,7 +2730,7 @@ export default function Home() {
       } catch (e) {
         courseSwipePreserveScrollLeftRef.current = null;
         console.warn("course half-step toggle:", e);
-        setCourseIncludeHalfStep((prev) => !next);
+        setCourseIncludeHalfStep(() => !next);
         showToast("코스를 다시 짜는 데 실패했어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
       }
     },
@@ -3526,14 +3269,6 @@ export default function Home() {
     },
     [setSelectedPlaceWithAnalytics, courseSecondPickMode]
   );
-
-  const livePlaceIdsText = useMemo(() => {
-    try {
-      return Array.from(livePlaceIds || []).join(", ");
-    } catch {
-      return "";
-    }
-  }, [livePlaceIds]);
 
   useEffect(() => {
     let mounted = true;
@@ -4316,7 +4051,7 @@ export default function Home() {
     const maxOff = n - win;
     const off = (salt % (maxOff + 1)) | 0;
     return pool.slice(off, off + win);
-  }, [dbPlaces, curatorSpotlightShuffleTick]);
+  }, [dbPlaces]);
 
   // 외부 데이터를 저장할 상태 추가
   const [externalPlaces, setExternalPlaces] = useState([]);
@@ -5017,11 +4752,16 @@ export default function Home() {
     }
 
     const pool = Array.from(byId.values()).sort((a, b) => b._score - a._score);
-    if (pool.length <= 5) return pool.map(({ _score, ...rest }) => rest);
+    const stripScore = (item) => {
+      const rest = { ...item };
+      delete rest._score;
+      return rest;
+    };
+    if (pool.length <= 5) return pool.map(stripScore);
 
     const topBucket = pool.slice(0, Math.min(14, pool.length));
     const picked = shuffleArray(topBucket).slice(0, 5);
-    return picked.map(({ _score, ...rest }) => rest);
+    return picked.map(stripScore);
   }, [
     rankingTop5,
     curatorSpotlightPlaces,
