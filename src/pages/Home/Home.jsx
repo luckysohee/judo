@@ -101,7 +101,7 @@ import {
   computeSearchFeedbackBoost,
   rpcIncrementSearchPlaceFeedbackImpressions,
 } from "../../utils/searchPlaceFeedback";
-import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
+import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
@@ -8192,50 +8192,25 @@ const handleClearSearch = () => {
         {!selectedPlace && !mutualSearchPanelOpen ? (
           <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
-              {searchIdleHintVisible && searchIdleHintText ? (
-                <div
-                  role="status"
-                  style={styles.searchIdleFloatingHint}
-                >
-                  {searchIdleHintText}
-                </div>
-              ) : null}
-              {!query.trim() &&
-              !isAiSearching &&
-              !mutualSearchPanelOpen ? (
-                <>
-                  {curatorSpotlightPlaces.length > 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    width: "100%",
-                    marginBottom: 4,
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <CuratorPicksStrip
-                      places={curatorSpotlightPlaces}
-                      visible
-                      onPick={(place) => {
-                        setSelectedPlaceWithAnalytics(
-                          place,
-                          "curator_spotlight",
-                        );
-                        if (
-                          mapRef?.current?.moveToLocation &&
-                          place?.lat != null &&
-                          place?.lng != null
-                        ) {
-                          mapRef.current.moveToLocation(place.lat, place.lng);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-                  ) : null}
-                </>
-              ) : null}
+              <HomeSearchAboveStrip
+                idleHintVisible={searchIdleHintVisible}
+                idleHintText={searchIdleHintText}
+                idleHintStyle={styles.searchIdleFloatingHint}
+                showSpotlight={
+                  !query.trim() && !isAiSearching && !mutualSearchPanelOpen
+                }
+                spotlightPlaces={curatorSpotlightPlaces}
+                onPickSpotlightPlace={(place) => {
+                  setSelectedPlaceWithAnalytics(place, "curator_spotlight");
+                  if (
+                    mapRef?.current?.moveToLocation &&
+                    place?.lat != null &&
+                    place?.lng != null
+                  ) {
+                    mapRef.current.moveToLocation(place.lat, place.lng);
+                  }
+                }}
+              />
               <SearchBar
                 query={query}
                 setQuery={setQuery}
