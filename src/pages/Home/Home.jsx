@@ -34,8 +34,6 @@ import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
 import { followUser } from "../../utils/userProfileFollows";
 
 import {
-  getFolders,
-  getSavedPlacesMap,
   getPlaceFolderIds,
   getPrimarySavedFolderColor,
   isPlaceSaved,
@@ -201,7 +199,6 @@ import {
   canonicalCuratorChipToken,
   collectCuratorIdsForRescueMatch,
   COURSE_GPS_DEFAULT_RADIUS_M,
-  curatorRowProfileImage,
   DRINKS_SITUATION_CHIP_RESULT_HINTS,
   DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
   DRINKS_SITUATION_CHIP_UNIFIED_PHRASES,
@@ -235,7 +232,9 @@ import { styles } from "./homeStyles.js";
 import { useAiSearchLoadingDots } from "./hooks/useAiSearchLoadingDots";
 import { useTickingNow } from "./hooks/useTickingNow";
 import { useMinuteTick } from "./hooks/useMinuteTick";
+import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
+import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
@@ -248,10 +247,27 @@ export default function Home() {
 
   const { user, loading: authLoading, signInWithProvider, signOut } = useAuth();
 
-  /** follower_notifications 미사용 — 테이블 도입 시 supabase 쿼리 복원 */
-  const checkUnreadFollowers = async (curatorId) => {
-    void curatorId;
-  };
+  const {
+    folders,
+    savedMap,
+    customPlaces,
+    userSavedPlaces,
+    refreshStorage,
+    refreshCustomPlaces,
+    loadUserSavedPlaces,
+  } = useUserSavedPlacesAndFolders({ user, authLoading });
+
+  /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 — useAuthRoleAndCurators에서 채움 */
+  const curatorAttachRowsRef = useRef([]);
+
+  const {
+    isAdmin,
+    isCurator,
+    curatorProfile,
+    dbCurators,
+    mapUserProfile,
+    refreshMapUserProfile,
+  } = useAuthRoleAndCurators({ user, authLoading, curatorAttachRowsRef });
 
   // 로컬 AI 검색 함수들
   const getCurrentUserLocation = () => {
@@ -1135,11 +1151,6 @@ export default function Home() {
     return reasons.length > 0 ? reasons.join(', ') : '검색·거리 기준 후보';
   };
 
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isCurator, setIsCurator] = useState(false);
-  const curatorWelcomeRef = useRef(false); // 큐레이터 상태 변화 감지용 ref
-  const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
-  const [dbCurators, setDbCurators] = useState([]); // DB에서 가져온 큐레이터 목록
   const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
   /** 탭 새로고침마다 바뀌는 값 — 큐레이터 스트립 첫 후보 로테이션·동순위 섞기 */
   const curatorSpotlightSaltRef = useRef(
@@ -1150,8 +1161,6 @@ export default function Home() {
   /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
   const forceReopenAiSheetAfterSearchRef = useRef(false);
 
-  /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 */
-  const curatorAttachRowsRef = useRef([]);
   const mapViewportLoadSeqRef = useRef(0);
   /** `/api/places-in-bounds` 동시 요청 수 — stale 완료만으로 로딩이 영구 true 되는 것 방지 */
   const mapViewportFetchInFlightRef = useRef(0);
@@ -1394,22 +1403,17 @@ export default function Home() {
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
-  const [folders, setFolders] = useState([]);
-  const [savedMap, setSavedMap] = useState({});
   const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
   /** 카카오 키워드 자동완성 후보 — 리스트와 동일하게 지도에 전부 표시 */
   const [kakaoTypingPreviewPlaces, setKakaoTypingPreviewPlaces] = useState([]);
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
-  const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
   const selectedCuratorsRef = useRef([]);
   selectedCuratorsRef.current = selectedCurators;
   const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
-  const [userSavedPlaces, setUserSavedPlaces] = useState({}); // 사용자 저장 장소 폴더 정보
-
   const [aiSummary, setAiSummary] = useState("");
   const [aiSheetPhotoByKey, setAiSheetPhotoByKey] = useState({});
   const [aiSheetExpandedReasonByKey, setAiSheetExpandedReasonByKey] = useState(
@@ -1600,7 +1604,6 @@ export default function Home() {
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
   /** 일반 유저 공개 프로필(profiles) — 닉네임·핸들. 로그인 계정(이메일)과 UI 분리 */
-  const [mapUserProfile, setMapUserProfile] = useState(null);
   const [searchBarProfileImgFailed, setSearchBarProfileImgFailed] =
     useState(false);
 
@@ -3276,311 +3279,6 @@ export default function Home() {
     }
   }, [query]);
 
-  useEffect(() => {
-    refreshStorage();
-    refreshCustomPlaces();
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => refreshStorage();
-    window.addEventListener("judo_storage_updated", refresh);
-    return () => window.removeEventListener("judo_storage_updated", refresh);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const checkAdmin = async () => {
-      if (authLoading) return;
-      if (!user?.id) {
-        setIsAdmin(false);
-        return;
-      }
-
-      // 개발 환경에서는 VITE_ADMIN_USER_ID로 바로 admin 인식
-      if (import.meta.env.DEV && import.meta.env.VITE_ADMIN_USER_ID === user.id) {
-        console.log("🔧 개발 환경: Admin 계정 자동 인식");
-        setIsAdmin(true);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (error) {
-        console.error("admin check error:", error);
-        setIsAdmin(false);
-        return;
-      }
-
-      setIsAdmin(data?.role === "admin");
-      console.log("👑 Admin check 결과:", { userId: user.id, isAdmin: data?.role === "admin" });
-    };
-
-    const checkCurator = async () => {
-      if (authLoading) return;
-      if (!user?.id) {
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      console.log("Checking curator for user ID:", user.id); // 디버깅용
-
-      const { data, error } = await supabase
-        .from("curators")
-        .select("*") // 모든 필드 가져오기
-        .eq("user_id", user.id) // user_id로 조회
-        .maybeSingle();
-
-      console.log("Curator check result:", { data, error }); // 디버깅용
-
-      if (cancelled) return;
-      if (error) {
-        console.error("curator check error:", error);
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      const isUserCurator = !!data;
-      const wasCuratorBefore = curatorWelcomeRef.current;
-
-      setIsCurator(isUserCurator);
-      curatorWelcomeRef.current = isUserCurator;
-
-      if (isUserCurator && !wasCuratorBefore) {
-        console.log("🎉 새로운 큐레이터 환영 메시지 표시");
-
-        const welcomeKey = `curator_welcome_${user.id}`;
-        const hasShownWelcome = localStorage.getItem(welcomeKey);
-
-        if (!hasShownWelcome) {
-          setTimeout(() => {
-            const emailPrefix = user?.email ? user.email.split('@')[0] : 'user';
-            alert(`🎉 큐레이터가 되신 것을 환영합니다!\n\n이제 스튜디오에서 장소를 등록하고\n팔로워들과 멋진 장소를 공유할 수 있어요!\n\n스튜디오 입장 → @${emailPrefix} 버튼을 눌러서 입장하세요!`);
-            localStorage.setItem(welcomeKey, 'shown');
-          }, 1000);
-        }
-
-        const handle = String(data.slug || data.username || "").trim();
-        const nick = String(data.name || data.display_name || handle || "").trim();
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: handle,
-          displayName: nick,
-          bio: data.bio,
-          image: curatorRowProfileImage(data),
-        });
-        console.log("✅ 큐레이터 프로필 로드됨:", handle);
-
-        // 큐레이터 로그인 시 팔로우 알림 확인
-        setTimeout(() => {
-          checkUnreadFollowers(data.id);
-        }, 1500);
-      } else if (isUserCurator) {
-        // 기존 큐레이터도 팔로우 알림 확인
-        const handle = String(data.slug || data.username || "").trim();
-        const nick = String(data.name || data.display_name || handle || "").trim();
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: handle,
-          displayName: nick,
-          bio: data.bio,
-          image: curatorRowProfileImage(data),
-        });
-
-        setTimeout(() => {
-          checkUnreadFollowers(data.id);
-        }, 1500);
-      }
-
-      // 반려된 신청 확인 로직 (Strict Mode 이중 effect·병렬 checkCurator 대비)
-      const checkRejectedApplication = async () => {
-        try {
-          const { data: rejectedRows, error } = await supabase
-            .from("curator_applications")
-            .select("*")
-            .eq("user_id", user.id)
-            .eq("status", "rejected")
-            .order("created_at", { ascending: false })
-            .limit(1);
-          const rejectedApp = Array.isArray(rejectedRows) ? rejectedRows[0] : null;
-
-          if (cancelled) return;
-
-          if (error) {
-            console.error("반려 신청 확인 오류:", error);
-            return;
-          }
-
-          if (rejectedApp) {
-            const rejectKey = `curator_rejected_${user.id}_${rejectedApp.id}`;
-            if (localStorage.getItem(rejectKey)) return;
-
-            // setTimeout 전에 예약: 동시에 두 번 돌아온 호출이 둘 다 alert를 잡지 않도록
-            localStorage.setItem(rejectKey, "shown");
-
-            setTimeout(() => {
-              if (cancelled) return;
-              const customReason =
-                rejectedApp.rejection_reason &&
-                String(rejectedApp.rejection_reason).trim();
-              const reasonLine = customReason
-                ? customReason
-                : "검토 결과 큐레이터 신청 기준에 맞지 않아 반려되었습니다.";
-              alert(
-                `😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: ${reasonLine}\n\n내용을 보완한 뒤 다시 신청하실 수 있습니다.`
-              );
-            }, 1500);
-          }
-        } catch (error) {
-          console.error("반려 확인 중 오류:", error);
-        }
-      };
-
-      checkRejectedApplication();
-    };
-
-    checkAdmin();
-    checkCurator();
-    
-    // 모든 큐레이터 데이터 가져오기
-    const loadCurators = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("curators")
-          .select(
-            "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade"
-          )
-          .order("created_at", { ascending: false });
-          
-        if (error) {
-          console.error("큐레이터 로드 오류:", error);
-          curatorAttachRowsRef.current = [];
-          setDbCurators([]);
-          return;
-        }
-
-        curatorAttachRowsRef.current = data || [];
-
-        // CuratorFilterBar: 칩 키는 slug(@핸들) → name(별명) → username → display_name → id 순
-        const formattedCurators = data.map((curator) => {
-          const slug =
-            curator.slug != null ? String(curator.slug).trim() : "";
-          const u =
-            curator.username != null ? String(curator.username).trim() : "";
-          const d =
-            curator.display_name != null
-              ? String(curator.display_name).trim()
-              : "";
-          const nm =
-            curator.name != null ? String(curator.name).trim() : "";
-          const pk = curator.id != null ? String(curator.id).trim() : "";
-          const userId =
-            curator.user_id != null ? String(curator.user_id).trim() : "";
-          const handle = slug || u;
-          const nick = nm || d;
-          const filterKey = handle || nick || pk;
-          return {
-            id: pk || filterKey,
-            filterKey,
-            name: nick || filterKey,
-            slug: slug || null,
-            username: handle || null,
-            userId: userId || null,
-            displayName: nick || handle || "큐레이터",
-            bio: curator.bio,
-            avatar: curatorRowProfileImage(curator),
-            grade: curator.grade || "default",
-            color: "#2ECC71",
-          };
-        });
-        
-        setDbCurators(formattedCurators);
-        console.log("✅ 큐레이터 목록 로드:", formattedCurators.length, "개");
-        console.log("📝 큐레이터 데이터:", formattedCurators); 
-      } catch (error) {
-        console.error("큐레이터 로드 실패:", error);
-        curatorAttachRowsRef.current = [];
-        setDbCurators([]);
-      }
-    };
-
-    loadCurators();
-
-    return () => {
-      cancelled = true;
-    };
-    /** user.email은 환영 alert 안에서만 읽음 — id가 같은 한 reference 변화로 재실행 안 시킴 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
-
-  // 큐레이터 프로필 로드
-  useEffect(() => {
-    if (user && isCurator) {
-      // 큐레이터 프로필 로드 (Supabase DB에서 직접)
-      const loadCuratorProfile = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('curators')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
-          
-          if (error) {
-            console.error("큐레이터 프로필 조회 실패:", error);
-            return;
-          }
-          
-          if (data) {
-            const handle = String(data.slug || data.username || "").trim();
-            const nick = String(data.name || data.display_name || handle || "").trim();
-            const profile = {
-              id: data.id,
-              user_id: data.user_id,
-              username: handle,
-              displayName: nick,
-              bio: data.bio,
-              image: curatorRowProfileImage(data),
-            };
-
-            setCuratorProfile(profile);
-            console.log("🎭 큐레이터 프로필 로드:", profile);
-          }
-        } catch (error) {
-          console.error("큐레이터 프로필 로드 실패:", error);
-        }
-      };
-      
-      loadCuratorProfile();
-    }
-  }, [user, isCurator]);
-
-  const refreshMapUserProfile = useCallback(async () => {
-    if (!user?.id) {
-      setMapUserProfile(null);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("username, display_name, auth_provider, avatar_url")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (!error && data) setMapUserProfile(data);
-    else setMapUserProfile(null);
-  }, [user?.id]);
-
-  useEffect(() => {
-    refreshMapUserProfile();
-  }, [refreshMapUserProfile]);
-
   // Admin/큐레이터/일반 사용자에 따른 표시 로직
   const getDisplayUsername = () => {
     if (isAdmin) {
@@ -3653,8 +3351,7 @@ export default function Home() {
     return "user";
   };
   useEffect(() => {
-    localStorage.removeItem("judo_custom_places");
-    setCustomPlaces([]);
+    refreshCustomPlaces();
 
     // 최초 방문 확인
     const hasVisitedBefore = localStorage.getItem("judo_has_visited");
@@ -3672,57 +3369,9 @@ export default function Home() {
       setSelectedCurators([]);
       console.log("🎯 재방문: 전체 선택 상태로 시작");
     }
+    /** mount-only — refreshCustomPlaces는 hook이 안정화한 reference라 deps 누락 무관 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // 사용자 저장 장소 폴더 정보 로드
-  const loadUserSavedPlaces = async () => {
-    try {
-      if (!user?.id) {
-        setUserSavedPlaces({});
-        return;
-      }
-
-      // 임시: RPC 함수 없이 직접 쿼리 (getUser() 생략 — useAuth user로 락 경쟁 완화)
-      const { data, error } = await supabase
-        .from('user_saved_places')
-        .select(`
-          place_id,
-          user_saved_place_folders(
-            folder_key,
-            system_folders(
-              name,
-              color,
-              icon
-            )
-          )
-        `)
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('❌ 사용자 저장 장소 로드 실패:', error);
-        setUserSavedPlaces({});
-        return;
-      }
-
-      // place_id 기반으로 폴더 정보 맵핑
-      const folderMap = {};
-      data?.forEach(item => {
-        const folders = item.user_saved_place_folders?.map(upf => ({
-          key: upf.folder_key,
-          name: upf.system_folders?.name,
-          color: upf.system_folders?.color,
-          icon: upf.system_folders?.icon
-        })) || [];
-        folderMap[item.place_id] = folders;
-      });
-
-      setUserSavedPlaces(folderMap);
-      console.log('✅ 사용자 저장 장소 로드:', folderMap);
-    } catch (error) {
-      console.error('❌ 사용자 저장 장소 로드 중 오류:', error);
-      setUserSavedPlaces({});
-    }
-  };
 
   // 페이지 로드 시 UI 초기화
   useEffect(() => {
@@ -3736,13 +3385,6 @@ export default function Home() {
     /** mount-only — dbCurators 로깅은 1초 뒤 디버깅용 스냅샷 */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (authLoading) return;
-    loadUserSavedPlaces();
-    /** loadUserSavedPlaces는 매 렌더 재생성되므로 deps에 넣으면 무한 호출 — auth/user 변화에만 반응 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
 
   // 상태 변화 감지
   useEffect(() => {
@@ -3764,17 +3406,6 @@ export default function Home() {
       return same ? prev : next;
     });
   }, [dbCurators]);
-
-  const refreshStorage = () => {
-    setFolders(getFolders());
-    setSavedMap(getSavedPlacesMap());
-  };
-
-  const refreshCustomPlaces = () => {
-    // localStorage에 저장된 더미 데이터 정리
-    localStorage.removeItem("judo_custom_places");
-    setCustomPlaces([]); // 빈 배열로 설정
-  };
 
   const allPlaces = useMemo(() => {
   const result = [...customPlaces, ...dbPlaces];
