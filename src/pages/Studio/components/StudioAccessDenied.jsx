@@ -52,7 +52,6 @@ const styles = {
     color: "#ffffff",
   },
   inner: {
-    marginTop: "100px",
     maxWidth: "600px",
     margin: "100px auto 0",
   },
