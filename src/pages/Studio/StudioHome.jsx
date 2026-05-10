@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   uploadCuratorPlacePhoto,
@@ -15,13 +15,6 @@ import MapView from "../../components/Map/MapView";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
 import { countStudioFollowingDistinct } from "../../utils/studioFollowersFetch";
-import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
-import {
-  selectSystemFoldersOrdered,
-  insertSystemFolderRow,
-  deleteOwnCustomSystemFolder,
-  updateOwnCustomSystemFolder,
-} from "../../utils/systemFoldersSupabase";
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
@@ -37,10 +30,8 @@ import { isPlaceSaved } from "../../utils/storage";
 import {
   devLog,
   devWarn,
-  FALLBACK_SAVED_FOLDER_DEFS,
   isDeletableUserSavedFolderKey,
   SAVED_FOLDER_EDIT_COLOR_OPTIONS,
-  studioSavedPlaceId,
   growthTrendLineYPercent,
   dedupeCuratorPlacesByPlaceId,
   upsertCuratorPlaceForStudio,
@@ -51,6 +42,7 @@ import {
 } from "./studioHomeModule.js";
 import { useStudioUnreadFollowerToast } from "./hooks/useStudioUnreadFollowerToast";
 import { useStudioPlacePicks } from "./hooks/useStudioPlacePicks";
+import { useStudioSavedFolders } from "./hooks/useStudioSavedFolders";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -60,8 +52,8 @@ export default function StudioHome() {
   const mapRef = useRef(null); // 지도 ref 다시 추가
   /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
   const skipAddSectionResetRef = useRef(false);
-  /** 잔 리스트 탭 진입 시에만 내 저장 폴더 접기 (다른 탭↔리스트 전환 시 기본 접힘) */
-  const prevActiveSectionForListFolderRef = useRef(null);
+  /** deleteOwnCustomSystemFolder 힌트용 curators PK — 프로필 state보다 위에서 폴더 훅을 두므로 매 렌더 동기화 */
+  const curatorRowIdForFoldersRef = useRef(null);
   /** 잔 아카이브 탭으로 전환할 때만 인사이트 RPC 재조회 (수정 저장은 길이 불변이라 기존 useEffect가 안 돎) */
   const prevActiveSectionForArchiveStatsRef = useRef(null);
   /** 잔 아카이브 프로필 박스 — 보기 모드에서 사진만 바로 저장 */
@@ -78,25 +70,6 @@ export default function StudioHome() {
 
   /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
-
-  /** 잔 리스트 상단 — 카카오 「저장」 폴더 (system_folders + user_saved_places) */
-  const [savedFolderDefs, setSavedFolderDefs] = useState(FALLBACK_SAVED_FOLDER_DEFS);
-  const [savedByFolder, setSavedByFolder] = useState(() => ({}));
-  const [savedFoldersLoadError, setSavedFoldersLoadError] = useState("");
-  const [savedFoldersLoading, setSavedFoldersLoading] = useState(false);
-  const [savedFolderKey, setSavedFolderKey] = useState(null);
-  const [savedShowNewFolder, setSavedShowNewFolder] = useState(false);
-  const [savedNewFolderName, setSavedNewFolderName] = useState("");
-  const [savedFolderSaving, setSavedFolderSaving] = useState(false);
-  const [savedFoldersEditMode, setSavedFoldersEditMode] = useState(false);
-  const [savedFolderMetaDeletingKey, setSavedFolderMetaDeletingKey] =
-    useState(null);
-  const [savedFolderEditName, setSavedFolderEditName] = useState("");
-  const [savedFolderEditColor, setSavedFolderEditColor] = useState("#3498DB");
-  const [savedFolderEditIcon, setSavedFolderEditIcon] = useState("📁");
-  const [savedFolderMetaSaving, setSavedFolderMetaSaving] = useState(false);
-  /** 잔 리스트 — 내 저장 폴더 패널 (기본 접힘) */
-  const [savedFoldersListExpanded, setSavedFoldersListExpanded] = useState(false);
 
   // 변경사항 감지 상태
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -223,6 +196,46 @@ export default function StudioHome() {
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
   const [editingDraftId, setEditingDraftId] = useState(null); // 수정 중인 임시저장 ID
+
+  const {
+    savedByFolder,
+    savedFoldersLoadError,
+    savedFoldersLoading,
+    savedFolderKey,
+    setSavedFolderKey,
+    savedShowNewFolder,
+    setSavedShowNewFolder,
+    savedNewFolderName,
+    setSavedNewFolderName,
+    savedFolderSaving,
+    savedFoldersEditMode,
+    setSavedFoldersEditMode,
+    savedFolderMetaDeletingKey,
+    savedFolderEditName,
+    setSavedFolderEditName,
+    savedFolderEditColor,
+    setSavedFolderEditColor,
+    savedFolderEditIcon,
+    setSavedFolderEditIcon,
+    savedFolderMetaSaving,
+    savedFoldersListExpanded,
+    setSavedFoldersListExpanded,
+    loadSavedFolders,
+    sortedSavedFolders,
+    hasDeletableSavedFolders,
+    handleDeleteSavedFolder,
+    handleSaveSavedFolderMeta,
+    savedFolderPlaceIdSet,
+    insertCustomSystemFolderRow,
+    persistUserSavedPlaceFolders,
+    handleAddSavedFolder,
+  } = useStudioSavedFolders({
+    user,
+    activeSection,
+    setMyPlaces,
+    setAddPlaceSelectedFolders,
+    getCuratorRowId: () => curatorRowIdForFoldersRef.current,
+  });
 
   // 탭 변경 시 폼 초기화 (잔 리스트→수정→잔 올리기 시에는 건너뜀 — 아니면 editingPlaceId가 지워져 신규 INSERT로 중복 저장됨)
   useEffect(() => {
@@ -543,6 +556,7 @@ export default function StudioHome() {
     created_at: new Date().toISOString(), // 큐레이터 시작일
     username_changed_at: null,
   });
+  curatorRowIdForFoldersRef.current = curatorProfile?.id ?? null;
 
   // 큐레이터 통계 상태 - 실제 데이터 기반
   const [curatorStats, setCuratorStats] = useState({
@@ -1051,260 +1065,10 @@ export default function StudioHome() {
     }
   };
 
-  const loadSavedFolders = useCallback(async () => {
-    if (!user?.id) return;
-    setSavedFoldersLoading(true);
-    setSavedFoldersLoadError("");
-    try {
-      const sfPromise = selectSystemFoldersOrdered(supabase, user.id);
-      const savPromise = supabase
-        .from("user_saved_places")
-        .select(
-          `
-          id,
-          place_id,
-          places ( id, name, address ),
-          user_saved_place_folders ( folder_key )
-        `
-        )
-        .eq("user_id", user.id);
-
-      const [sfResult, savResult] = await Promise.all([sfPromise, savPromise]);
-
-      const { data: sfRows, error: sfErr } = sfResult;
-      const { data: savedRows, error: savErr } = savResult;
-
-      if (!sfErr && sfRows?.length) {
-        setSavedFolderDefs(sfRows);
-      } else if (sfErr) {
-        devWarn("system_folders:", sfErr.message);
-      }
-
-      if (savErr) {
-        setSavedFoldersLoadError(
-          savErr.message || "저장 폴더 목록을 불러오지 못했습니다."
-        );
-        setSavedByFolder({});
-        return;
-      }
-
-      const defList = sfRows?.length ? sfRows : FALLBACK_SAVED_FOLDER_DEFS;
-      const next = {};
-      defList.forEach((f) => {
-        next[f.key] = [];
-      });
-
-      (savedRows || []).forEach((row) => {
-        const links = row.user_saved_place_folders;
-        if (!links?.length) return;
-        links.forEach((l) => {
-          const k = l?.folder_key;
-          if (!k) return;
-          if (!next[k]) next[k] = [];
-          next[k].push(row);
-        });
-      });
-
-      setSavedByFolder(next);
-    } catch (e) {
-      setSavedFoldersLoadError(e?.message || "오류가 발생했습니다.");
-    } finally {
-      setSavedFoldersLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (
-      (activeSection === "list" || activeSection === "add") &&
-      user?.id
-    ) {
-      loadSavedFolders();
-    }
-  }, [activeSection, user?.id, loadSavedFolders]);
-
-  useEffect(() => {
-    const prev = prevActiveSectionForListFolderRef.current;
-    if (
-      activeSection === "list" &&
-      prev != null &&
-      prev !== "list"
-    ) {
-      setSavedFoldersListExpanded(false);
-    }
-    prevActiveSectionForListFolderRef.current = activeSection;
-  }, [activeSection]);
-
   const { studioPlacePicks, studioPlacePicksLoading } = useStudioPlacePicks({
     user,
     activeSection,
   });
-
-  const sortedSavedFolders = useMemo(() => {
-    return [...savedFolderDefs].sort(
-      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-    );
-  }, [savedFolderDefs]);
-
-  const hasDeletableSavedFolders = useMemo(
-    () => sortedSavedFolders.some((f) => isDeletableUserSavedFolderKey(f.key)),
-    [sortedSavedFolders]
-  );
-
-  useEffect(() => {
-    if (!savedFoldersEditMode || !savedFolderKey) return;
-    if (!isDeletableUserSavedFolderKey(savedFolderKey)) return;
-    const f = savedFolderDefs.find((x) => x.key === savedFolderKey);
-    if (!f) return;
-    setSavedFolderEditName(String(f.name || "").trim());
-    setSavedFolderEditColor(f.color || "#3498DB");
-    setSavedFolderEditIcon(String(f.icon || "📁").trim() || "📁");
-  }, [savedFoldersEditMode, savedFolderKey, savedFolderDefs]);
-
-  /** 폴더 삭제 후 등 DB와 잔 리스트 동기화 */
-  const reloadStudioMyPlaces = useCallback(async () => {
-    if (!user?.id) return;
-    let data = [];
-    try {
-      data = await fetchCuratorPlacesMergedWithPlaces(supabase, user.id);
-    } catch (e) {
-      devWarn("reloadStudioMyPlaces:", e?.message || e);
-      return;
-    }
-    const deduped = dedupeCuratorPlacesByPlaceId(data);
-    setMyPlaces(mapCuratorJoinRowsToMyPlaces(deduped));
-  }, [user?.id]);
-
-  const handleDeleteSavedFolder = async (key) => {
-    if (!user?.id) return;
-    if (!isDeletableUserSavedFolderKey(key)) return;
-    if (
-      !window.confirm(
-        "이 폴더에 넣어 둔 잔은 내 저장·스튜디오 잔 리스트(추천)에서 모두 사라집니다. 다른 폴더에도 같이 넣었어도 해당 저장·추천이 지워집니다. 폴더 목록에서도 사라집니다. 계속할까요?"
-      )
-    ) {
-      return;
-    }
-    setSavedFolderMetaDeletingKey(key);
-    try {
-      const folderItems = savedByFolder[key] || [];
-      const hintSavedIds = folderItems.map((r) => r.id).filter(Boolean);
-      const hintPlaceIds = folderItems
-        .map((r) => {
-          if (r?.place_id != null) return String(r.place_id);
-          if (r?.places?.id != null) return String(r.places.id);
-          return null;
-        })
-        .filter(Boolean);
-      const hint = {
-        savedPlaceIds: hintSavedIds,
-        placeIds: hintPlaceIds,
-        curatorRowId: curatorProfile?.id ?? null,
-      };
-
-      const { error } = await deleteOwnCustomSystemFolder(
-        supabase,
-        user.id,
-        key,
-        hint
-      );
-      if (error) {
-        alert(error.message || "삭제하지 못했습니다.");
-        return;
-      }
-      setSavedFolderKey((k) => (k === key ? null : k));
-      setAddPlaceSelectedFolders((prev) => prev.filter((fk) => fk !== key));
-      await loadSavedFolders();
-      await reloadStudioMyPlaces();
-    } finally {
-      setSavedFolderMetaDeletingKey(null);
-    }
-  };
-
-  const handleSaveSavedFolderMeta = useCallback(async () => {
-    if (!savedFolderKey || !isDeletableUserSavedFolderKey(savedFolderKey)) return;
-    const name = savedFolderEditName.trim();
-    if (!name) {
-      alert("폴더 이름을 입력해주세요.");
-      return;
-    }
-    setSavedFolderMetaSaving(true);
-    try {
-      const { error } = await updateOwnCustomSystemFolder(supabase, savedFolderKey, {
-        name,
-        color: savedFolderEditColor,
-        icon: savedFolderEditIcon.trim() || "📁",
-      });
-      if (error) {
-        alert(error.message || "폴더를 수정하지 못했습니다.");
-        return;
-      }
-      await loadSavedFolders();
-    } finally {
-      setSavedFolderMetaSaving(false);
-    }
-  }, [
-    savedFolderKey,
-    savedFolderEditName,
-    savedFolderEditColor,
-    savedFolderEditIcon,
-    loadSavedFolders,
-  ]);
-
-  /** 잔 리스트 카드: 선택한 폴더에 넣은 places.id 집합 (내 잔과 교집합) */
-  const savedFolderPlaceIdSet = useMemo(() => {
-    if (!savedFolderKey) return null;
-    const rows = savedByFolder[savedFolderKey] || [];
-    const ids = new Set();
-    for (const row of rows) {
-      const id = studioSavedPlaceId(row);
-      if (id) ids.add(String(id));
-    }
-    return ids;
-  }, [savedFolderKey, savedByFolder]);
-
-  const insertCustomSystemFolderRow = useCallback(
-    async (trimmedName) => {
-      if (!trimmedName) return { ok: false };
-      if (!user?.id) {
-        return {
-          ok: false,
-          error: { message: "로그인이 필요합니다." },
-        };
-      }
-      const key = `custom_${Date.now()}`;
-      const maxSo = Math.max(
-        0,
-        ...savedFolderDefs.map((f) => Number(f.sort_order) || 0)
-      );
-      const { error } = await insertSystemFolderRow(supabase, {
-        key,
-        name: trimmedName,
-        color: "#3498DB",
-        icon: "📁",
-        description: "",
-        sort_order: maxSo + 1,
-        is_active: true,
-        created_by: user.id,
-      });
-      if (error) {
-        return { ok: false, error };
-      }
-      await loadSavedFolders();
-      return { ok: true, key };
-    },
-    [savedFolderDefs, loadSavedFolders, user?.id]
-  );
-
-  const persistUserSavedPlaceFolders = useCallback(
-    (placeUuid, folderKeys) =>
-      upsertUserSavedPlaceFolders(supabase, {
-        placeId: placeUuid,
-        folderKeys,
-        firstSavedFrom: "studio",
-        authUser: user,
-      }),
-    [user]
-  );
 
   useEffect(() => {
     if (!user?.id || !editingPlaceId) return;
@@ -1343,28 +1107,6 @@ export default function StudioHome() {
       cancelled = true;
     };
   }, [user?.id, editingPlaceId]);
-
-  const handleAddSavedFolder = async () => {
-    const name = savedNewFolderName.trim();
-    if (!name) return;
-    setSavedFolderSaving(true);
-    try {
-      const res = await insertCustomSystemFolderRow(name);
-      if (!res.ok) {
-        if (res.error) {
-          alert(
-            res.error.message ||
-              "폴더를 추가하지 못했습니다. Supabase에 INSERT 정책이 있는지 확인하세요."
-          );
-        }
-        return;
-      }
-      setSavedNewFolderName("");
-      setSavedShowNewFolder(false);
-    } finally {
-      setSavedFolderSaving(false);
-    }
-  };
 
   const toggleAddPlaceFolder = (folderKey) => {
     setAddPlaceSelectedFolders((prev) =>
