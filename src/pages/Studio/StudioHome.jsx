@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast/ToastProvider";
@@ -66,8 +66,6 @@ export default function StudioHome() {
   /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
-  useStudioKakaoMapResizeOnAdd({ mapRef, activeSection });
-
   // 잔 올리기 폼 상태
   const [formData, setFormData] = useState({
     name_address: "",
@@ -129,6 +127,9 @@ export default function StudioHome() {
     image: null,
   });
   const [usernameError, setUsernameError] = useState("");
+  const curatorProfileId = curatorProfile?.id ?? null;
+
+  useStudioKakaoMapResizeOnAdd({ mapRef, activeSection });
 
   const {
     savedByFolder,
@@ -167,7 +168,7 @@ export default function StudioHome() {
     activeSection,
     setMyPlaces,
     setAddPlaceSelectedFolders,
-    curatorRowId: curatorProfile?.id ?? null,
+    curatorRowId: curatorProfileId,
   });
 
   const {
@@ -237,7 +238,7 @@ export default function StudioHome() {
   } = useStudioCuratorStats({
     user,
     myPlacesLength: myPlaces.length,
-    curatorProfileId: curatorProfile?.id ?? null,
+    curatorProfileId,
     activeSection,
   });
 
@@ -342,6 +343,17 @@ export default function StudioHome() {
     editingPlaceId,
     setAddPlaceSelectedFolders,
   });
+
+  const handleSelectAddSection = useCallback(() => {
+    setEditingDraftId(null);
+    setEditingPlaceId(null);
+    try {
+      localStorage.removeItem("editing_place_id");
+    } catch {
+      /* ignore */
+    }
+    setActiveSection("add");
+  }, []);
 
   if (loading) {
     return (
@@ -507,16 +519,7 @@ export default function StudioHome() {
           topBarButton: styles.topBarButton,
           topBarButtonActive: styles.topBarButtonActive,
         }}
-        onSelectAdd={() => {
-          setEditingDraftId(null);
-          setEditingPlaceId(null);
-          try {
-            localStorage.removeItem("editing_place_id");
-          } catch {
-            /* ignore */
-          }
-          setActiveSection("add");
-        }}
+        onSelectAdd={handleSelectAddSection}
         onSelectList={() => setActiveSection("list")}
         onSelectDrafts={() => setActiveSection("drafts")}
         onSelectArchive={() => setActiveSection("archive")}
