@@ -1,0 +1,45 @@
+/** 잔 아카이브 탭 — 통계 2×2 그리드 전용 (StudioHome styles 에서 분리) */
+export const studioArchiveStatStyles = {
+  archiveStatsGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gridTemplateRows: "auto auto",
+    gap: "8px",
+    marginBottom: "16px",
+    width: "100%",
+    maxWidth: "440px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    boxSizing: "border-box",
+  },
+  archiveStatCell: {
+    backgroundColor: "#222",
+    padding: "10px 10px 8px",
+    borderRadius: "10px",
+    textAlign: "center",
+    border: "1px solid rgba(255,255,255,0.07)",
+    minWidth: 0,
+  },
+  archiveStatValue: {
+    fontSize: "20px",
+    fontWeight: 800,
+    lineHeight: 1.15,
+    marginBottom: "4px",
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "-0.02em",
+  },
+  archiveStatLabel: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.88)",
+    fontWeight: 700,
+    lineHeight: 1.3,
+    letterSpacing: "-0.02em",
+  },
+  archiveStatSub: {
+    fontSize: "10px",
+    color: "rgba(255,255,255,0.45)",
+    marginTop: "3px",
+    lineHeight: 1.2,
+    fontWeight: 500,
+  },
+};
