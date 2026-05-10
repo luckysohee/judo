@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCollectionDetail } from "../api/collections";
 import CollectionCourseMap from "../components/Collections/CollectionCourseMap";
+import {
+  formatWalkingMinutes,
+  walkingMinutesBetweenPlaces,
+} from "../utils/walkingTime";
 
 /**
  * 컬렉션 상세 — 제목/설명 + 코스 지도(번호 마커·Polyline) + 포함 장소 리스트(`order_index` 정렬).
@@ -106,9 +110,15 @@ export default function CollectionDetailPage() {
         {places.length === 0 ? (
           <li style={styles.emptyItem}>이 컬렉션에 아직 장소가 없습니다.</li>
         ) : (
-          places.map((row, idx) => (
-            <PlaceRow key={row.id} order={idx + 1} row={row} />
-          ))
+          places.map((row, idx) => {
+            const next = places[idx + 1];
+            return (
+              <Fragment key={row.id}>
+                <PlaceRow order={idx + 1} row={row} />
+                {next ? <WalkingDivider from={row} to={next} /> : null}
+              </Fragment>
+            );
+          })
         )}
       </ol>
     </div>
@@ -120,6 +130,26 @@ function BackButton({ onClick }) {
     <button type="button" onClick={onClick} style={styles.backBtn}>
       ← 뒤로
     </button>
+  );
+}
+
+function WalkingDivider({ from, to }) {
+  const minutes = walkingMinutesBetweenPlaces(from?.places, to?.places);
+  const label = formatWalkingMinutes(minutes);
+  const computable = Boolean(label);
+  return (
+    <li style={styles.walkRow} aria-hidden="true">
+      <span style={styles.walkConnector} />
+      <span
+        style={{
+          ...styles.walkChip,
+          ...(computable ? null : styles.walkChipMissing),
+        }}
+      >
+        {computable ? label : "도보시간 계산 불가"}
+      </span>
+      <span style={styles.walkConnector} />
+    </li>
   );
 }
 
@@ -303,6 +333,35 @@ const styles = {
     padding: 24,
     textAlign: "center",
     color: "#888",
+  },
+  walkRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "0 28px",
+    margin: "-2px 0",
+    listStyle: "none",
+  },
+  walkConnector: {
+    flex: 1,
+    height: 1,
+    background:
+      "linear-gradient(90deg, rgba(46,204,113,0.05), rgba(46,204,113,0.45), rgba(46,204,113,0.05))",
+  },
+  walkChip: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#9ad3a4",
+    background: "rgba(46,204,113,0.12)",
+    border: "1px solid rgba(46,204,113,0.4)",
+    borderRadius: 999,
+    padding: "3px 10px",
+    whiteSpace: "nowrap",
+  },
+  walkChipMissing: {
+    color: "#bdbdbd",
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.18)",
   },
   helper: {
     color: "#bdbdbd",

@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import {
+  formatWalkingMinutes,
+  walkingMinutesBetweenCoords,
+} from "../../utils/walkingTime";
 
 const DEFAULT_CENTER = { lat: 37.54465, lng: 127.05595 };
 
-/**
- * @param {unknown} place
- * @returns {{ lat: number, lng: number } | null}
- */
-function parsePlaceLatLng(place) {
-  if (!place || typeof place !== "object") return null;
-  const lat = Number(place.lat);
-  const lng = Number(place.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+/** Custom overlay 배열 ref 의 내용을 모두 지도에서 떼어내고 비운다. */
+function clearOverlayList(ref) {
+  if (!ref?.current) return;
+  ref.current.forEach((o) => {
+    try {
+      o.setMap(null);
+    } catch {
+      /* ignore */
+    }
+  });
+  ref.current = [];
 }
 
 /**
@@ -25,6 +31,7 @@ export default function CollectionCourseMap({ collectionPlaces }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const overlaysRef = useRef([]);
+  const segmentOverlaysRef = useRef([]);
   const polylineRef = useRef(null);
 
   const [mapReady, setMapReady] = useState(false);
@@ -35,7 +42,7 @@ export default function CollectionCourseMap({ collectionPlaces }) {
     const out = [];
     collectionPlaces.forEach((row, idx) => {
       const place = row?.places || {};
-      const coords = parsePlaceLatLng(place);
+      const coords = resolvePlaceWgs84(place);
       if (!coords) return;
       const title =
         String(place.name || place.display_name || "이름 없음").trim() ||
@@ -94,14 +101,8 @@ export default function CollectionCourseMap({ collectionPlaces }) {
 
     return () => {
       cancelled = true;
-      overlaysRef.current.forEach((o) => {
-        try {
-          o.setMap(null);
-        } catch {
-          /* ignore */
-        }
-      });
-      overlaysRef.current = [];
+      clearOverlayList(overlaysRef);
+      clearOverlayList(segmentOverlaysRef);
       if (polylineRef.current) {
         try {
           polylineRef.current.setMap(null);
@@ -120,14 +121,8 @@ export default function CollectionCourseMap({ collectionPlaces }) {
     const map = mapRef.current;
     const kakao = window.kakao.maps;
 
-    overlaysRef.current.forEach((o) => {
-      try {
-        o.setMap(null);
-      } catch {
-        /* ignore */
-      }
-    });
-    overlaysRef.current = [];
+    clearOverlayList(overlaysRef);
+    clearOverlayList(segmentOverlaysRef);
     if (polylineRef.current) {
       try {
         polylineRef.current.setMap(null);
@@ -202,6 +197,39 @@ export default function CollectionCourseMap({ collectionPlaces }) {
         zIndex: 1,
       });
       polylineRef.current.setMap(map);
+
+      for (let i = 0; i < mapStops.length - 1; i += 1) {
+        const a = mapStops[i];
+        const b = mapStops[i + 1];
+        const minutes = walkingMinutesBetweenCoords(a, b);
+        const labelText = formatWalkingMinutes(minutes);
+        if (!labelText) continue;
+        const midPosition = new kakao.LatLng(
+          (a.lat + b.lat) / 2,
+          (a.lng + b.lng) / 2,
+        );
+        const node = document.createElement("div");
+        node.textContent = labelText;
+        node.style.cssText = [
+          "padding:3px 8px",
+          "background:rgba(17,17,17,0.86)",
+          "color:#fff;font-size:11px;font-weight:700",
+          "border-radius:999px;border:1px solid rgba(46,204,113,0.55)",
+          "white-space:nowrap;pointer-events:none",
+          "box-shadow:0 2px 6px rgba(0,0,0,0.35)",
+          "font-family:system-ui,sans-serif",
+          "transform:translateY(-1px)",
+        ].join(";");
+        const overlay = new kakao.CustomOverlay({
+          position: midPosition,
+          content: node,
+          yAnchor: 0.5,
+          xAnchor: 0.5,
+          zIndex: 2,
+        });
+        overlay.setMap(map);
+        segmentOverlaysRef.current.push(overlay);
+      }
     }
 
     if (mapStops.length >= 2) {
