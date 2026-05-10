@@ -23,8 +23,8 @@ import {
 import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
-import PlacePicksPublicList from "../../components/PlacePick/PlacePicksPublicList";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
+import StudioPicksSection from "./components/StudioPicksSection";
 import { isPlaceSaved } from "../../utils/storage";
 import {
   devLog,
@@ -4984,39 +4984,14 @@ export default function StudioHome() {
       )}
 
       {activeSection === "picks" && (
-        <div style={styles.studioSectionInner}>
-          <div
-            style={{
-              fontSize: "13px",
-              fontWeight: 700,
-              color: "#fff",
-              marginBottom: "8px",
-            }}
-          >
-            잔 픽
-          </div>
-          <p
-            style={{
-              fontSize: "12px",
-              color: "#999",
-              margin: "0 0 14px",
-              lineHeight: 1.45,
-            }}
-          >
-            공개 픽은 <strong style={{ color: "#fda4af" }}>place_picks</strong>에만
-            기록됩니다. 잔 올리기·<strong style={{ color: "#bdc3c7" }}>curator_places</strong>와
-            섞이지 않습니다.
-          </p>
-          <PlacePicksPublicList
-            rows={studioPlacePicks}
-            loading={studioPlacePicksLoading}
-            showCuratorPickBadge
-            onRowClick={(row) => {
-              const p = placePickJoinRowToDetailPlace(row);
-              if (p) setStudioPickDetailPlace(p);
-            }}
-          />
-        </div>
+        <StudioPicksSection
+          rows={studioPlacePicks}
+          loading={studioPlacePicksLoading}
+          onRowClick={(row) => {
+            const p = placePickJoinRowToDetailPlace(row);
+            if (p) setStudioPickDetailPlace(p);
+          }}
+        />
       )}
 
       {studioPickDetailPlace ? (
