@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { uploadCuratorProfileAvatarFile } from "../../utils/curatorPlacePhotos";
-import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
-import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -18,10 +15,7 @@ import StudioAddPlaceSection from "./components/StudioAddPlaceSection";
 import StudioTopChrome from "./components/StudioTopChrome";
 import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
-import {
-  devLog,
-  persistCuratorProfileImageToSupabase,
-} from "./studioHomeModule.js";
+import { devLog } from "./studioHomeModule.js";
 import { useStudioUnreadFollowerToast } from "./hooks/useStudioUnreadFollowerToast";
 import { useStudioPlacePicks } from "./hooks/useStudioPlacePicks";
 import { useStudioSavedFolders } from "./hooks/useStudioSavedFolders";
@@ -29,6 +23,7 @@ import { useStudioCuratorStats } from "./hooks/useStudioCuratorStats";
 import { useStudioPlaceActions } from "./hooks/useStudioPlaceActions";
 import { useStudioAddPlaceForm } from "./hooks/useStudioAddPlaceForm";
 import { useStudioInitialLoad } from "./hooks/useStudioInitialLoad";
+import { useStudioCuratorProfileEdit } from "./hooks/useStudioCuratorProfileEdit";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -429,6 +424,24 @@ export default function StudioHome() {
     setCuratorProfile,
   });
 
+  const {
+    handleEditProfile,
+    handleSaveProfile,
+    handleCancelEdit,
+    handleUsernameChange,
+    handleUpdateUsername,
+    handleProfileEditAvatarFile,
+  } = useStudioCuratorProfileEdit({
+    user,
+    showToast,
+    curatorProfile,
+    setCuratorProfile,
+    editProfile,
+    setEditProfile,
+    setIsEditingProfile,
+    setUsernameError,
+  });
+
   useEffect(() => {
     if (location.state?.openStudioList) {
       setActiveSection("list");
@@ -479,197 +492,6 @@ export default function StudioHome() {
       cancelled = true;
     };
   }, [user?.id, editingPlaceId]);
-
-  const handleEditProfile = () => {
-    setIsEditingProfile(true);
-    setEditProfile({
-      name: curatorProfile.displayName || curatorProfile.username,
-      username: curatorProfile.username,
-      displayName: curatorProfile.displayName,
-      bio: curatorProfile.bio || "",
-      image: curatorProfile.image || ""
-    });
-    setUsernameError("");
-  };
-
-  const handleSaveProfile = async () => {
-    try {
-      if (!user?.id) {
-        alert("로그인이 필요합니다.");
-        return;
-      }
-      
-      // username 중복 확인
-      if (editProfile.username !== curatorProfile.username) {
-        // 실제로는 서버 API 호출로 중복 확인
-        devLog("username 중복 확인 필요:", editProfile.username);
-      }
-      
-      // Supabase에 프로필 저장 (인증된 사용자와 연결)
-      const profileData = {
-        user_id: user.id, // 인증된 사용자 ID 연결
-        username: editProfile.username,
-        slug: editProfile.username, // slug 필드 추가
-        name: editProfile.displayName || editProfile.username, // name 필드 추가 (displayName 우선)
-        display_name: editProfile.displayName,
-        bio: editProfile.bio,
-        image: editProfile.image || null,
-        updated_at: new Date().toISOString()
-      };
-      
-      devLog("📝 프로필 DB 저장:", profileData);
-      
-      const { data, error } = await supabase
-        .from("curators")
-        .upsert([profileData], { onConflict: 'user_id' }) // user_id 기준으로 upsert
-        .select("username_changed_at");
-        
-      if (error) {
-        console.error("❌ 프로필 저장 오류:", error);
-        if (isUsernameChangeCooldownError(error)) {
-          alert(
-            error.message ||
-              "핸들(@고유이름)은 14일에 한 번만 바꿀 수 있습니다."
-          );
-        } else {
-          alert("프로필 저장에 실패했습니다: " + error.message);
-        }
-        return;
-      }
-      
-      devLog("✅ 프로필 DB 저장 성공:", data);
-      
-      // 로컬 상태 업데이트
-      setCuratorProfile(prev => ({
-        ...prev,
-        name: editProfile.displayName || editProfile.username,
-        username: editProfile.username,
-        displayName: editProfile.displayName,
-        bio: editProfile.bio,
-        image: editProfile.image,
-        username_changed_at:
-          data?.[0]?.username_changed_at ?? prev.username_changed_at,
-      }));
-      
-      setIsEditingProfile(false);
-      setUsernameError("");
-      devLog("프로필 업데이트 완료:", editProfile);
-      alert("프로필이 성공적으로 저장되었습니다!");
-      
-    } catch (error) {
-      console.error("❌ 프로필 저장 오류:", error);
-      alert("프로필 저장에 실패했습니다: " + error.message);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditingProfile(false);
-    setEditProfile({
-      name: "",
-      username: "",
-      displayName: "",
-      bio: "",
-      image: ""
-    });
-    setUsernameError("");
-  };
-
-  const validateUsername = (username) => {
-    // 영문 소문자, 숫자, 언더스코어만 허용
-    const usernameRegex = /^[a-z0-9_]+$/;
-    return usernameRegex.test(username);
-  };
-
-  const handleUsernameChange = (value) => {
-    const cleanUsername = value.toLowerCase().replace(/[^a-z0-9_]/g, '');
-    setEditProfile(prev => ({ ...prev, username: cleanUsername }));
-    
-    // 유효성 검사
-    if (cleanUsername && !validateUsername(cleanUsername)) {
-      setUsernameError("영문 소문자, 숫자, 언더스코어만 사용 가능합니다.");
-    } else if (cleanUsername && cleanUsername.length < 3) {
-      setUsernameError("최소 3자 이상 입력해주세요.");
-    } else if (cleanUsername && cleanUsername.length > 20) {
-      setUsernameError("최대 20자까지 가능합니다.");
-    } else {
-      setUsernameError("");
-    }
-  };
-
-  const generateUsername = (name) => {
-    // 이름에서 username 생성 (한글 제거, 영문만, 소문자, 언더스코어)
-    const baseName = name.toLowerCase()
-      .replace(/[^a-z0-9가-힣]/g, '') // 특수문자 제거
-      .replace(/\s+/g, '_') // 공백을 언더스코어로
-      .slice(0, 10); // 최대 10자
-    
-    // 랜덤 숫자 추가
-    const randomNum = Math.floor(Math.random() * 1000);
-    return `${baseName}_${randomNum}`;
-  };
-
-  const handleUpdateUsername = () => {
-    // 자동으로 username 생성
-    const base =
-      curatorProfile.displayName ||
-      curatorProfile.username ||
-      curatorProfile.name ||
-      "curator";
-    const newUsername = generateUsername(base);
-    setEditProfile(prev => ({ ...prev, username: newUsername }));
-    setUsernameError("");
-    devLog("자동 username 생성:", newUsername);
-  };
-
-  const handleProfileEditAvatarFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (!isAcceptableRasterImageFile(file)) {
-      showToast("이미지 파일만 업로드할 수 있어요.", "info", 3200);
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      showToast("파일은 5MB 이하 이미지만 업로드할 수 있어요.", "info", 3200);
-      return;
-    }
-    try {
-      if (!user?.id) {
-        showToast("로그인이 필요합니다.", "info", 3000);
-        return;
-      }
-      const publicUrl = await uploadCuratorProfileAvatarFile(file, user.id);
-      const { ok, error: saveErr } = await persistCuratorProfileImageToSupabase(
-        supabase,
-        user.id,
-        publicUrl
-      );
-      if (!ok) {
-        console.error("프로필 사진 저장 오류:", saveErr);
-        showToast(
-          "사진 주소 저장에 실패했습니다: " + (saveErr?.message || "알 수 없는 오류"),
-          "info",
-          4000
-        );
-        return;
-      }
-      await supabase.auth
-        .updateUser({
-          data: {
-            image: publicUrl,
-            avatar_url: publicUrl,
-            picture: publicUrl,
-          },
-        })
-        .catch(() => {});
-      setEditProfile((prev) => ({ ...prev, image: publicUrl }));
-      setCuratorProfile((prev) => (prev ? { ...prev, image: publicUrl } : prev));
-      showToast("프로필 사진을 저장했어요.", "success", 2500);
-    } catch (err) {
-      console.error(err);
-      showToast(err?.message || "사진 저장 중 오류가 났어요.", "info", 4000);
-    }
-  };
 
   const handleEditDraft = (draft) => {
     // 초안 수정 로직
