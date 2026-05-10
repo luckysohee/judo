@@ -446,6 +446,90 @@ export default function StudioHome() {
     return <StudioAccessDenied />;
   }
 
+  // 「잔 리스트」 섹션 prop 묶음
+  const listSectionProps =
+    activeSection === "list"
+      ? {
+          folders: {
+            savedByFolder,
+            savedFoldersLoadError,
+            savedFoldersLoading,
+            savedFolderKey,
+            setSavedFolderKey,
+            savedShowNewFolder,
+            setSavedShowNewFolder,
+            savedNewFolderName,
+            setSavedNewFolderName,
+            savedFolderSaving,
+            savedFoldersEditMode,
+            setSavedFoldersEditMode,
+            savedFolderMetaDeletingKey,
+            savedFolderEditName,
+            setSavedFolderEditName,
+            savedFolderEditColor,
+            setSavedFolderEditColor,
+            savedFolderEditIcon,
+            setSavedFolderEditIcon,
+            savedFolderMetaSaving,
+            savedFoldersListExpanded,
+            setSavedFoldersListExpanded,
+            sortedSavedFolders,
+            hasDeletableSavedFolders,
+            handleDeleteSavedFolder,
+            handleSaveSavedFolderMeta,
+            savedFolderPlaceIdSet,
+            handleAddSavedFolder,
+          },
+          places: {
+            myPlaces,
+            listSearchQuery,
+            setListSearchQuery,
+            filterType,
+            setFilterType,
+            handleEditPlace,
+            handleDeletePlace,
+            handleTogglePublic,
+          },
+        }
+      : null;
+
+  // 「잔 아카이브」 섹션 prop 묶음 — profile/live/metrics/insights 4개 그룹
+  const archiveSectionProps =
+    activeSection === "archive"
+      ? {
+          profile: {
+            curatorProfile,
+            isEditingProfile,
+            editProfile,
+            setEditProfile,
+            usernameError,
+            profileEditAvatarFileRef,
+            onProfileAvatarFileChange: handleProfileEditAvatarFile,
+            onUsernameChange: handleUsernameChange,
+            onUpdateUsername: handleUpdateUsername,
+            onSaveProfile: handleSaveProfile,
+            onCancelEdit: handleCancelEdit,
+            onEditProfile: handleEditProfile,
+          },
+          live: {
+            stats,
+            onEndLive: endLive,
+            onOpenLiveConfirm: () => setLiveStartConfirmOpen(true),
+          },
+          metrics: {
+            myPlacesCount: myPlaces.length,
+            curatorStats,
+            showOverlapPlacesList,
+            setShowOverlapPlacesList,
+            overlapSharedPlacesList,
+          },
+          insights: {
+            archiveExtInsights,
+            archiveInsightsError,
+          },
+        }
+      : null;
+
   // 「잔 올리기」 섹션 prop 묶음 — 다른 섹션일 땐 만들지 않는다.
   const addPlaceSectionProps =
     activeSection === "add"
@@ -545,49 +629,10 @@ export default function StudioHome() {
       )}
 
       {/* 잔 리스트 섹션 */}
-      {activeSection === "list" && (
+      {listSectionProps && (
         <StudioListSection
           sectionInnerStyle={styles.studioSectionInner}
-          folders={{
-            savedByFolder,
-            savedFoldersLoadError,
-            savedFoldersLoading,
-            savedFolderKey,
-            setSavedFolderKey,
-            savedShowNewFolder,
-            setSavedShowNewFolder,
-            savedNewFolderName,
-            setSavedNewFolderName,
-            savedFolderSaving,
-            savedFoldersEditMode,
-            setSavedFoldersEditMode,
-            savedFolderMetaDeletingKey,
-            savedFolderEditName,
-            setSavedFolderEditName,
-            savedFolderEditColor,
-            setSavedFolderEditColor,
-            savedFolderEditIcon,
-            setSavedFolderEditIcon,
-            savedFolderMetaSaving,
-            savedFoldersListExpanded,
-            setSavedFoldersListExpanded,
-            sortedSavedFolders,
-            hasDeletableSavedFolders,
-            handleDeleteSavedFolder,
-            handleSaveSavedFolderMeta,
-            savedFolderPlaceIdSet,
-            handleAddSavedFolder,
-          }}
-          places={{
-            myPlaces,
-            listSearchQuery,
-            setListSearchQuery,
-            filterType,
-            setFilterType,
-            handleEditPlace,
-            handleDeletePlace,
-            handleTogglePublic,
-          }}
+          {...listSectionProps}
         />
       )}
 
@@ -599,31 +644,10 @@ export default function StudioHome() {
         />
       )}
 
-      {activeSection === "archive" && (
+      {archiveSectionProps && (
         <StudioArchiveSection
           sectionInnerStyle={styles.studioSectionInner}
-          curatorProfile={curatorProfile}
-          isEditingProfile={isEditingProfile}
-          editProfile={editProfile}
-          setEditProfile={setEditProfile}
-          usernameError={usernameError}
-          profileEditAvatarFileRef={profileEditAvatarFileRef}
-          onProfileAvatarFileChange={handleProfileEditAvatarFile}
-          onUsernameChange={handleUsernameChange}
-          onUpdateUsername={handleUpdateUsername}
-          onSaveProfile={handleSaveProfile}
-          onCancelEdit={handleCancelEdit}
-          onEditProfile={handleEditProfile}
-          stats={stats}
-          onEndLive={endLive}
-          onOpenLiveConfirm={() => setLiveStartConfirmOpen(true)}
-          myPlacesCount={myPlaces.length}
-          curatorStats={curatorStats}
-          showOverlapPlacesList={showOverlapPlacesList}
-          setShowOverlapPlacesList={setShowOverlapPlacesList}
-          overlapSharedPlacesList={overlapSharedPlacesList}
-          archiveExtInsights={archiveExtInsights}
-          archiveInsightsError={archiveInsightsError}
+          {...archiveSectionProps}
         />
       )}
 

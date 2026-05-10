@@ -14,47 +14,26 @@ import { studioArchiveStatStyles } from "./studioArchiveStyles";
 export default function StudioArchiveSection({
   sectionInnerStyle,
   statStyles = studioArchiveStatStyles,
-  curatorProfile,
-  isEditingProfile,
-  editProfile,
-  setEditProfile,
-  usernameError,
-  profileEditAvatarFileRef,
-  onProfileAvatarFileChange,
-  onUsernameChange,
-  onUpdateUsername,
-  onSaveProfile,
-  onCancelEdit,
-  onEditProfile,
-  stats,
-  onEndLive,
-  onOpenLiveConfirm,
-  myPlacesCount,
-  curatorStats,
-  showOverlapPlacesList,
-  setShowOverlapPlacesList,
-  overlapSharedPlacesList,
-  archiveExtInsights,
-  archiveInsightsError,
+  profile,
+  live,
+  metrics,
+  insights,
 }) {
+  const {
+    myPlacesCount,
+    curatorStats,
+    showOverlapPlacesList,
+    setShowOverlapPlacesList,
+    overlapSharedPlacesList,
+  } = metrics;
+
   return (
     <div style={sectionInnerStyle}>
       <StudioArchiveProfileCard
-        curatorProfile={curatorProfile}
-        isEditingProfile={isEditingProfile}
-        editProfile={editProfile}
-        setEditProfile={setEditProfile}
-        usernameError={usernameError}
-        profileEditAvatarFileRef={profileEditAvatarFileRef}
-        onProfileAvatarFileChange={onProfileAvatarFileChange}
-        onUsernameChange={onUsernameChange}
-        onUpdateUsername={onUpdateUsername}
-        onSaveProfile={onSaveProfile}
-        onCancelEdit={onCancelEdit}
-        onEditProfile={onEditProfile}
-        stats={stats}
-        onEndLive={onEndLive}
-        onOpenLiveConfirm={onOpenLiveConfirm}
+        {...profile}
+        stats={live.stats}
+        onEndLive={live.onEndLive}
+        onOpenLiveConfirm={live.onOpenLiveConfirm}
       />
       <StudioArchiveStatsGrid
         statStyles={statStyles}
@@ -69,8 +48,8 @@ export default function StudioArchiveSection({
         overlapSharedPlaceCount={curatorStats.overlapSharedPlaceCount ?? 0}
       />
       <StudioArchiveInsightsSection
-        archiveExtInsights={archiveExtInsights}
-        archiveInsightsError={archiveInsightsError}
+        archiveExtInsights={insights.archiveExtInsights}
+        archiveInsightsError={insights.archiveInsightsError}
       />
       <StudioArchiveGrowthTrendCard curatorStats={curatorStats} />
     </div>
