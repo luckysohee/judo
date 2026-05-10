@@ -24,6 +24,7 @@ import { useStudioInitialLoad } from "./hooks/useStudioInitialLoad";
 import { useStudioCuratorProfileEdit } from "./hooks/useStudioCuratorProfileEdit";
 import { useStudioDraftActions } from "./hooks/useStudioDraftActions";
 import { useStudioLiveToggle } from "./hooks/useStudioLiveToggle";
+import { useStudioUnsavedTogglePrompt } from "./hooks/useStudioUnsavedTogglePrompt";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -50,85 +51,6 @@ export default function StudioHome() {
   /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
-  // 변경사항 감지 상태
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [previousSection, setPreviousSection] = useState("archive");
-  const [originalPlaceBeforeChange, setOriginalPlaceBeforeChange] = useState(null); // 변경 전 원본 데이터 저장
-  
-  // DB 저장 함수
-  const saveToDatabase = async (updatedPlace) => {
-    try {
-      if (!user?.id) {
-        alert("로그인이 필요합니다.");
-        return;
-      }
-      devLog("💾 curator_places 테이블 업데이트 시도:", updatedPlace.id);
-      
-      // is_public을 is_archived로 변환 (true=공개=false=archived, false=비공개=true=archived)
-      const isArchived = !updatedPlace.is_public;
-      
-      // curator_places: curator_id = curators.user_id (= auth uid) 만 본인 행 갱신
-      const { error } = await supabase
-        .from("curator_places")
-        .update({ is_archived: isArchived })
-        .eq("place_id", updatedPlace.id)
-        .eq("curator_id", user.id);
-      
-      if (error) {
-        console.error("❌ curator_places 저장 오류:", error);
-        alert("저장에 실패했습니다: " + error.message);
-      } else {
-        devLog("✅ curator_places 저장 성공:", { placeId: updatedPlace.id, is_archived: isArchived });
-        alert("공개/비공개 상태가 저장되었습니다!");
-      }
-    } catch (error) {
-      console.error("❌ 저장 중 오류:", error);
-      alert("저장에 실패했습니다: " + error.message);
-    }
-  };
-  
-  // 섹션 변경 감지 및 저장 확인
-  useEffect(() => {
-    const handleSectionChange = async () => {
-      if (activeSection !== previousSection && hasUnsavedChanges) {
-        const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
-        
-        if (shouldSave) {
-          devLog("✅ 저장 선택 - DB 저장 시작");
-          // 실제 DB 저장 로직
-          if (originalPlaceBeforeChange) {
-            const updatedPlace = myPlaces.find(p => p.id === originalPlaceBeforeChange.id);
-            if (updatedPlace) {
-              await saveToDatabase(updatedPlace);
-              devLog("✅ 저장 완료 - 상태 초기화");
-            }
-          }
-        } else {
-          devLog("❌ 저장 안 함 선택 - 원상복구");
-          // 변경사항 취소하고 원래 상태로 복원
-          if (originalPlaceBeforeChange) {
-            setMyPlaces(prevPlaces => 
-              prevPlaces.map(place => 
-                place.id === originalPlaceBeforeChange.id 
-                  ? { ...place, is_public: originalPlaceBeforeChange.is_public }
-                  : place
-              )
-            );
-            devLog("🔄 원상복구 완료:", originalPlaceBeforeChange);
-          }
-        }
-        
-        setHasUnsavedChanges(false);
-        setOriginalPlaceBeforeChange(null);
-      }
-      
-      setPreviousSection(activeSection);
-    };
-    
-    handleSectionChange();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- myPlaces/saveToDatabase 넣으면 저장 플로우 중 무한 재실행 위험
-  }, [activeSection, hasUnsavedChanges, previousSection, originalPlaceBeforeChange]);
-  
   // 지도 크기 새로고침
   useEffect(() => {
     if (mapRef.current && activeSection === "add") {
@@ -368,6 +290,14 @@ export default function StudioHome() {
     curatorProfileId: curatorProfile?.id ?? null,
     activeSection,
   });
+
+  const { setHasUnsavedChanges, setOriginalPlaceBeforeChange } =
+    useStudioUnsavedTogglePrompt({
+      user,
+      activeSection,
+      myPlaces,
+      setMyPlaces,
+    });
 
   const {
     handleAddPlace,
