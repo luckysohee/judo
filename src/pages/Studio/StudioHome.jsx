@@ -493,6 +493,63 @@ export default function StudioHome() {
     );
   }
 
+  // 「잔 올리기」 섹션 prop 묶음 — 다른 섹션일 땐 만들지 않는다.
+  const addPlaceSectionProps =
+    activeSection === "add"
+      ? {
+          place: {
+            formData,
+            setFormData,
+            mapCenter,
+            searchedPlaces,
+          },
+          search: {
+            searchSuggestions,
+            showSuggestions,
+            setShowSuggestions,
+            selectedSuggestionIndex,
+            setSelectedSuggestionIndex,
+            setSearchSuggestions,
+            handleInputChange,
+            handleKeyDown,
+            handleSearch,
+            handleSuggestionClick,
+            fetchSuggestions,
+          },
+          tags: {
+            frequentTags,
+            allTags,
+            allTagsList,
+            removeTag,
+            tagInputValue,
+            setTagInputValue,
+            tagSuggestions,
+            setTagSuggestions,
+            showAllTags,
+            setShowAllTags,
+            handleTagInputChange,
+            handleTagSuggestionClick,
+          },
+          folders: {
+            savedFoldersLoading,
+            savedFoldersLoadError,
+            sortedSavedFolders,
+            addPlaceSelectedFolders,
+            toggleAddPlaceFolder,
+            addPlaceShowNewFolder,
+            setAddPlaceShowNewFolder,
+            addPlaceNewFolderName,
+            setAddPlaceNewFolderName,
+            addPlaceNewFolderSaving,
+            handleAddPlaceCustomFolder,
+          },
+          photos: {
+            addPlacePhotoFiles,
+            setAddPlacePhotoFiles,
+          },
+        }
+      : null;
+
   return (
     <div style={styles.studioShell}>
       <StudioTopChrome
@@ -523,62 +580,13 @@ export default function StudioHome() {
       />
 
       {/* 잔 올리기 섹션 */}
-      {activeSection === "add" && (
+      {addPlaceSectionProps && (
         <StudioAddPlaceSection
           sectionInnerStyle={styles.studioSectionInner}
           mapRef={mapRef}
           activeSection={activeSection}
           defaultPlaces={defaultPlaces}
-          place={{
-            formData,
-            setFormData,
-            mapCenter,
-            searchedPlaces,
-          }}
-          search={{
-            searchSuggestions,
-            showSuggestions,
-            setShowSuggestions,
-            selectedSuggestionIndex,
-            setSelectedSuggestionIndex,
-            setSearchSuggestions,
-            handleInputChange,
-            handleKeyDown,
-            handleSearch,
-            handleSuggestionClick,
-            fetchSuggestions,
-          }}
-          tags={{
-            frequentTags,
-            allTags,
-            allTagsList,
-            removeTag,
-            tagInputValue,
-            setTagInputValue,
-            tagSuggestions,
-            setTagSuggestions,
-            showAllTags,
-            setShowAllTags,
-            handleTagInputChange,
-            handleTagSuggestionClick,
-          }}
-          folders={{
-            savedFoldersLoading,
-            savedFoldersLoadError,
-            sortedSavedFolders,
-            addPlaceSelectedFolders,
-            toggleAddPlaceFolder,
-            addPlaceShowNewFolder,
-            setAddPlaceShowNewFolder,
-            addPlaceNewFolderName,
-            setAddPlaceNewFolderName,
-            addPlaceNewFolderSaving,
-            handleAddPlaceCustomFolder,
-          }}
-          photos={{
-            addPlacePhotoFiles,
-            setAddPlacePhotoFiles,
-          }}
+          {...addPlaceSectionProps}
           onSubmit={handleAddPlace}
         />
       )}
