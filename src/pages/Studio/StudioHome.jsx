@@ -23,6 +23,7 @@ import StudioDraftsSection from "./components/StudioDraftsSection";
 import StudioArchiveSection from "./components/StudioArchiveSection";
 import StudioListSection from "./components/StudioListSection";
 import StudioAddPlaceSection from "./components/StudioAddPlaceSection";
+import StudioTopChrome from "./components/StudioTopChrome";
 import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
 import {
@@ -2099,129 +2100,34 @@ export default function StudioHome() {
     );
   }
 
-  const studioCornerButtonStyle = {
-    minHeight: "34px",
-    height: "34px",
-    padding: "0 14px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "600",
-    lineHeight: 1.2,
-    boxSizing: "border-box",
-    border: "none",
-    color: "white",
-    whiteSpace: "nowrap",
-  };
-
   return (
     <div style={styles.studioShell}>
-      {/* 좌측 상단: 홈 · 내 저장(폴더) — 스튜디오 잔 작업과 분리 */}
-      <div
-        style={{
-          position: "absolute",
-          top: "12px",
-          left: "12px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          maxWidth: "calc(100% - 24px)",
+      <StudioTopChrome
+        username={curatorProfile.username}
+        activeSection={activeSection}
+        chromeStyles={{
+          topBarWrap: styles.topBarWrap,
+          topBarButton: styles.topBarButton,
+          topBarButtonActive: styles.topBarButtonActive,
         }}
-      >
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          style={{
-            ...studioCornerButtonStyle,
-            backgroundColor: "#2ECC71",
-          }}
-        >
-          홈
-        </button>
-      </div>
-      
-      <header style={{ marginTop: "8px", marginBottom: "10px", padding: "0 8px" }}>
-        <div style={{ fontSize: "12px", fontWeight: 600, color: "rgba(255,255,255,0.7)", letterSpacing: "-0.02em" }}>
-          @{curatorProfile.username}님의
-        </div>
-        <h1 style={{ fontSize: "clamp(18px, 3.4vw, 22px)", fontWeight: 800, margin: "3px 0 0", lineHeight: 1.15, letterSpacing: "-0.03em" }}>
-          스튜디오
-        </h1>
-      </header>
-      
-      {/* 섹션 탭 — 한 줄 (좁으면 가로 스크롤) */}
-      <div style={styles.topBarWrap}>
-        <button
-          type="button"
-          title="잔 올리기"
-          onClick={() => {
-            setEditingDraftId(null);
-            setEditingPlaceId(null);
-            try {
-              localStorage.removeItem("editing_place_id");
-            } catch {
-              /* ignore */
-            }
-            setActiveSection("add");
-          }}
-          style={{
-            ...styles.topBarButton,
-            ...(activeSection === "add" ? styles.topBarButtonActive : {}),
-          }}
-        >
-          잔 올리기
-        </button>
-        <button
-          type="button"
-          title="잔 리스트"
-          onClick={() => setActiveSection("list")}
-          style={{
-            ...styles.topBarButton,
-            ...(activeSection === "list" ? styles.topBarButtonActive : {}),
-          }}
-        >
-          잔 리스트
-        </button>
-        <button
-          type="button"
-          title="잔 채우기"
-          onClick={() => setActiveSection("drafts")}
-          style={{
-            ...styles.topBarButton,
-            ...(activeSection === "drafts" ? styles.topBarButtonActive : {}),
-          }}
-        >
-          잔 채우기
-        </button>
-        <button
-          type="button"
-          title="잔 아카이브"
-          onClick={() => setActiveSection("archive")}
-          style={{
-            ...styles.topBarButton,
-            ...(activeSection === "archive" ? styles.topBarButtonActive : {}),
-          }}
-        >
-          잔 아카이브
-        </button>
-        <button
-          type="button"
-          title="잔 픽 (place_picks)"
-          onClick={() => {
-            setStudioPickDetailPlace(null);
-            setActiveSection("picks");
-          }}
-          style={{
-            ...styles.topBarButton,
-            ...(activeSection === "picks" ? styles.topBarButtonActive : {}),
-          }}
-        >
-          잔 픽
-        </button>
-      </div>
+        onSelectAdd={() => {
+          setEditingDraftId(null);
+          setEditingPlaceId(null);
+          try {
+            localStorage.removeItem("editing_place_id");
+          } catch {
+            /* ignore */
+          }
+          setActiveSection("add");
+        }}
+        onSelectList={() => setActiveSection("list")}
+        onSelectDrafts={() => setActiveSection("drafts")}
+        onSelectArchive={() => setActiveSection("archive")}
+        onSelectPicks={() => {
+          setStudioPickDetailPlace(null);
+          setActiveSection("picks");
+        }}
+      />
 
       {/* 잔 올리기 섹션 */}
       {activeSection === "add" && (
