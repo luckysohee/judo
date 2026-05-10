@@ -14,6 +14,7 @@ import { supabase } from "../../lib/supabase";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
+import AddToCollectionButton from "../Collections/AddToCollectionButton";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
@@ -1965,6 +1966,16 @@ export default function PlacePreviewCard({
                 onHanjanRecorded={refetchHanjanStats}
               />
             </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-start",
+              marginTop: 8,
+            }}
+          >
+            <AddToCollectionButton place={place} variant="pill" />
           </div>
         </div>
         {lightboxOpen && allPreviewUrls.length > 0 ? (

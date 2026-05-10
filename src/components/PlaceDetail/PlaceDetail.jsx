@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
 import CheckinButton from "../CheckinButton/CheckinButton";
+import AddToCollectionButton from "../Collections/AddToCollectionButton";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { checkinPlaceKeyFromPlace } from "../../utils/checkinPlaceKeyFromPlace";
@@ -241,6 +242,10 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
               </div>
             </div>
 
+            <div style={styles.detailCollectionRow}>
+              <AddToCollectionButton place={place} variant="darkRow" />
+            </div>
+
             <section style={styles.section}>
               <div style={styles.sectionTitle}>큐레이터 코멘트</div>
               <div style={styles.commentList}>
@@ -375,6 +380,10 @@ const styles = {
   detailHanjanWrap: {
     flex: 1,
     minWidth: 0,
+  },
+  detailCollectionRow: {
+    marginTop: 8,
+    display: "flex",
   },
   detailReasonLine: {
     marginTop: 8,
