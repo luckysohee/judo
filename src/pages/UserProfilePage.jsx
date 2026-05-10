@@ -224,6 +224,27 @@ export default function UserProfilePage() {
         onRelationshipChange={onRelationshipChange}
       />
 
+      {isSelf ? (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={() => navigate("/my-collections")}
+            style={{
+              border: "1px solid rgba(46,204,113,0.45)",
+              background: "rgba(46,204,113,0.12)",
+              color: "#9ad3a4",
+              padding: "10px 16px",
+              borderRadius: 999,
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            내 컬렉션 관리
+          </button>
+        </div>
+      ) : null}
+
       <PublicCollectionsGrid userId={targetId} />
     </div>
   );
