@@ -23,6 +23,7 @@ import { useStudioAddPlaceForm } from "./hooks/useStudioAddPlaceForm";
 import { useStudioInitialLoad } from "./hooks/useStudioInitialLoad";
 import { useStudioCuratorProfileEdit } from "./hooks/useStudioCuratorProfileEdit";
 import { useStudioDraftActions } from "./hooks/useStudioDraftActions";
+import { useStudioLiveToggle } from "./hooks/useStudioLiveToggle";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -321,17 +322,6 @@ export default function StudioHome() {
   ]);
 
 
-  // 잔 아카이브 상태
-  const [stats, setStats] = useState({
-    followerCount: 0,
-    savedByFollowers: 0,
-    totalPlaces: 0,
-    overlappingPlaces: 0,
-    isLive: false,
-    notificationSent: false
-  });
-  /** 네이티브 confirm 대신 — ×·배경·Esc 로 취소 */
-  const [liveStartConfirmOpen, setLiveStartConfirmOpen] = useState(false);
 
   // 큐레이터 프로필 수정 상태
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -451,6 +441,15 @@ export default function StudioHome() {
     setDrafts,
   });
 
+  const {
+    stats,
+    liveStartConfirmOpen,
+    setLiveStartConfirmOpen,
+    endLive,
+    handleLiveStartWithNotification,
+    handleLiveStartWithoutNotification,
+  } = useStudioLiveToggle();
+
   useEffect(() => {
     if (location.state?.openStudioList) {
       setActiveSection("list");
@@ -501,21 +500,6 @@ export default function StudioHome() {
       cancelled = true;
     };
   }, [user?.id, editingPlaceId]);
-
-  const endLive = () => {
-    setStats((prev) => ({ ...prev, isLive: false, notificationSent: false }));
-  };
-
-  const handleLiveStartWithNotification = () => {
-    devLog("알림 발송됨");
-    setStats((prev) => ({ ...prev, isLive: true, notificationSent: true }));
-    setLiveStartConfirmOpen(false);
-  };
-
-  const handleLiveStartWithoutNotification = () => {
-    setStats((prev) => ({ ...prev, isLive: true, notificationSent: false }));
-    setLiveStartConfirmOpen(false);
-  };
 
   if (loading) {
     return (
