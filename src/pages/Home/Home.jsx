@@ -7261,6 +7261,9 @@ const handleClearSearch = () => {
                 idleHintVisible={searchIdleHintVisible}
                 idleHintText={searchIdleHintText}
                 idleHintStyle={styles.searchIdleFloatingHint}
+                showCollectionsRail={
+                  !query.trim() && !isAiSearching && !mutualSearchPanelOpen
+                }
                 showSpotlight={
                   !query.trim() && !isAiSearching && !mutualSearchPanelOpen
                 }

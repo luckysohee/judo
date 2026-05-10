@@ -26,6 +26,14 @@ const COLLECTION_COLUMNS =
  */
 const COLLECTION_LIST_SELECT = `${COLLECTION_COLUMNS}, collection_places(count)`;
 
+/** 홈 레일용 — 장소·좋아요·저장 카운트를 한 번의 SELECT 로 묶는다. */
+const HOME_PUBLIC_COLLECTION_SELECT = `
+  ${COLLECTION_COLUMNS},
+  collection_places(count),
+  collection_likes(count),
+  collection_saves(count)
+`;
+
 const COLLECTION_PLACE_COLUMNS =
   "id, collection_id, place_id, order_index, memo, created_at";
 
@@ -62,6 +70,41 @@ function unwrapPlaceCount(row) {
   const count = nested.length > 0 ? Number(nested[0]?.count) || 0 : 0;
   const out = { ...row, place_count: count };
   delete out.collection_places;
+  return out;
+}
+
+/**
+ * 홈 레일용 행 평탄화 — `collection_places` / `collection_likes` / `collection_saves`
+ * 임베디드 `(count)` 배열을 숫자 필드로 옮긴다.
+ *
+ * @param {object} row
+ * @returns {object}
+ */
+function unwrapHomePublicCollectionRow(row) {
+  if (!row || typeof row !== "object") return row;
+  const out = { ...row };
+
+  const placesNested = Array.isArray(out.collection_places)
+    ? out.collection_places
+    : [];
+  out.place_count =
+    placesNested.length > 0 ? Number(placesNested[0]?.count) || 0 : 0;
+  delete out.collection_places;
+
+  const likesNested = Array.isArray(out.collection_likes)
+    ? out.collection_likes
+    : [];
+  out.like_count =
+    likesNested.length > 0 ? Number(likesNested[0]?.count) || 0 : 0;
+  delete out.collection_likes;
+
+  const savesNested = Array.isArray(out.collection_saves)
+    ? out.collection_saves
+    : [];
+  out.save_count =
+    savesNested.length > 0 ? Number(savesNested[0]?.count) || 0 : 0;
+  delete out.collection_saves;
+
   return out;
 }
 
@@ -118,6 +161,46 @@ export async function fetchPublicCollectionsByUser(userId) {
     throw new Error(error.message || "fetchPublicCollectionsByUser failed");
   }
   return (Array.isArray(data) ? data : []).map(unwrapPlaceCount);
+}
+
+/**
+ * 홈 상단 레일용 공개 컬렉션 목록. 비로그인 호출 가능(RLS).
+ *
+ * 최근 생성된 공개 컬렉션 풀을 한 번 가져온 뒤, 저장 수 → 좋아요 수 → 생성일
+ * 순으로 정렬해 상위 `limit` 건만 반환한다(저장·반응이 많은 코스가 오른쪽으로
+ * 올라오되, 전혀 노출되지 않는 오래된 행만 있는 경우를 줄이기 위해 최근 풀에서만 고른다).
+ *
+ * @param {{ limit?: number }} [opts] — 기본 8, 허용 범위 6~10
+ * @returns {Promise<object[]>} — 각 행에 `place_count`, `like_count`, `save_count` 포함
+ */
+export async function fetchHomePublicCollections({ limit = 8 } = {}) {
+  const lim = Math.min(Math.max(Math.floor(Number(limit) || 8), 6), 10);
+  const pool = Math.min(48, Math.max(lim * 5, 24));
+
+  const { data, error } = await supabase
+    .from("collections")
+    .select(HOME_PUBLIC_COLLECTION_SELECT)
+    .eq("visibility", "public")
+    .order("created_at", { ascending: false })
+    .limit(pool);
+
+  if (error) {
+    throw new Error(error.message || "fetchHomePublicCollections failed");
+  }
+
+  const rows = (Array.isArray(data) ? data : []).map(unwrapHomePublicCollectionRow);
+
+  rows.sort((a, b) => {
+    const ds = Number(b.save_count || 0) - Number(a.save_count || 0);
+    if (ds !== 0) return ds;
+    const dl = Number(b.like_count || 0) - Number(a.like_count || 0);
+    if (dl !== 0) return dl;
+    const bt = new Date(b.created_at || 0).getTime();
+    const at = new Date(a.created_at || 0).getTime();
+    return bt - at;
+  });
+
+  return rows.slice(0, lim);
 }
 
 /**
