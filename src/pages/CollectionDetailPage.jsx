@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCollectionDetail } from "../api/collections";
+import CollectionCourseMap from "../components/Collections/CollectionCourseMap";
 
 /**
- * 컬렉션 상세 — 제목/설명 + 포함 장소 리스트(`order_index` 정렬).
+ * 컬렉션 상세 — 제목/설명 + 코스 지도(번호 마커·Polyline) + 포함 장소 리스트(`order_index` 정렬).
  *
- * 지도/선 연결은 다음 단계에서 추가한다.
  * 비공개 컬렉션은 RLS 가 가리므로 본인 외에는 `null` 로 보이고 "찾을 수 없음" UI 가 노출된다.
  */
 export default function CollectionDetailPage() {
@@ -97,6 +97,10 @@ export default function CollectionDetailPage() {
           </span>
         </div>
       </header>
+
+      {places.length > 0 ? (
+        <CollectionCourseMap collectionPlaces={places} />
+      ) : null}
 
       <ol style={styles.list}>
         {places.length === 0 ? (
