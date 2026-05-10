@@ -11,6 +11,7 @@ import StudioArchiveSection from "./components/StudioArchiveSection";
 import StudioListSection from "./components/StudioListSection";
 import StudioAddPlaceSection from "./components/StudioAddPlaceSection";
 import StudioTopChrome from "./components/StudioTopChrome";
+import StudioAccessDenied from "./components/StudioAccessDenied";
 import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
 import { devLog } from "./studioHomeModule.js";
@@ -442,56 +443,7 @@ export default function StudioHome() {
 
   // 일반 사용자는 스튜디오 접근 불가
   if (!isCurator) {
-    return (
-      <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
-        <div style={{ marginTop: "100px", maxWidth: "600px", margin: "100px auto 0" }}>
-          <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "20px", color: "#e74c3c" }}>
-            접근 불가
-          </h1>
-          
-          <div style={{
-            backgroundColor: "rgba(231, 76, 60, 0.1)",
-            border: "1px solid rgba(231, 76, 60, 0.3)",
-            borderRadius: "12px",
-            padding: "30px",
-            marginBottom: "30px"
-          }}>
-            <h2 style={{ fontSize: "20px", fontWeight: "600", marginBottom: "15px", color: "#e74c3c" }}>
-              🚫 큐레이터 전용 페이지
-            </h2>
-            <p style={{ fontSize: "16px", lineHeight: "1.6", color: "#ccc", marginBottom: "20px" }}>
-              스튜디오는 큐레이터만 접근할 수 있습니다.<br/>
-              일반 사용자는 홈 화면에서 @아이디를 클릭하여<br/>
-              저장한 장소와 팔로우한 큐레이터를 확인할 수 있습니다.
-            </p>
-            
-            <button
-              onClick={() => navigate("/")}
-              style={{
-                width: "100%",
-                padding: "16px",
-                backgroundColor: "#3498DB",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "18px",
-                fontWeight: "bold",
-                cursor: "pointer",
-                transition: "background-color 0.2s ease"
-              }}
-              onMouseOver={(e) => e.target.style.backgroundColor = "#2980B9"}
-              onMouseOut={(e) => e.target.style.backgroundColor = "#3498DB"}
-            >
-              🏠 홈으로 가기
-            </button>
-          </div>
-          
-          <div style={{ textAlign: "center", color: "#666", fontSize: "14px" }}>
-            큐레이터가 되고 싶으신가요? <span style={{ color: "#3498DB", cursor: "pointer" }}>큐레이터 신청하기</span>
-          </div>
-        </div>
-      </div>
-    );
+    return <StudioAccessDenied />;
   }
 
   // 「잔 올리기」 섹션 prop 묶음 — 다른 섹션일 땐 만들지 않는다.
