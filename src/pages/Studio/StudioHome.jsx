@@ -25,6 +25,7 @@ import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLoc
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import StudioPicksSection from "./components/StudioPicksSection";
+import StudioDraftsSection from "./components/StudioDraftsSection";
 import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
 import {
@@ -3592,92 +3593,12 @@ export default function StudioHome() {
         </div>
       )}
 
-      {/* 잔 채우기 (임시저장) 섹션 */}
       {activeSection === "drafts" && (
-        <div style={styles.studioSectionInner}>
-          {/* 초안 리스트 */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {/* 임시로 예시 데이터 */}
-            {drafts.map(draft => (
-              <div key={draft.id} style={{
-                backgroundColor: "#222",
-                padding: "12px 14px",
-                borderRadius: "8px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center"
-              }}>
-                <div style={{ flex: 1 }}>
-                  <h3 style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: "bold" }}>
-                    {draft.basicInfo.name_address}
-                  </h3>
-                  <p style={{ margin: "0 0 4px 0", color: "#888", fontSize: "12px" }}>
-                    {draft.basicInfo.category} • {draft.createdAt}
-                  </p>
-                  <span style={{
-                    display: "inline-block",
-                    padding: "4px 8px",
-                    backgroundColor: "#F39C12",
-                    color: "white",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    fontWeight: "600"
-                  }}>
-                    초안
-                  </span>
-                </div>
-                
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                  {/* 수정 버튼 */}
-                  <button
-                    onClick={() => handleEditDraft(draft)}
-                    style={{
-                      padding: "6px 12px",
-                      backgroundColor: "#3498DB",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px"
-                    }}
-                  >
-                    수정
-                  </button>
-                  
-                  {/* 삭제 버튼 */}
-                  <button
-                    onClick={() => handleDeleteDraft(draft.id)}
-                    style={{
-                      padding: "6px 12px",
-                      backgroundColor: "#E74C3C",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px"
-                    }}
-                  >
-                    삭제
-                  </button>
-                </div>
-              </div>
-            ))}
-            
-            {/* 실제 데이터가 없을 때 */}
-            {drafts.length === 0 && (
-              <div style={{
-                textAlign: "center",
-                padding: "24px 16px",
-                backgroundColor: "#222",
-                borderRadius: "8px",
-                color: "#666",
-                fontSize: "13px",
-              }}>
-                임시저장된 초안이 없습니다.
-              </div>
-            )}
-          </div>
-        </div>
+        <StudioDraftsSection
+          drafts={drafts}
+          onEdit={handleEditDraft}
+          onDelete={handleDeleteDraft}
+        />
       )}
 
       {/* 잔 아카이브 섹션 */}
