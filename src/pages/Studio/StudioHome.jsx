@@ -3,8 +3,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
-import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
-import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import StudioPicksSection from "./components/StudioPicksSection";
@@ -24,6 +22,7 @@ import { useStudioPlaceActions } from "./hooks/useStudioPlaceActions";
 import { useStudioAddPlaceForm } from "./hooks/useStudioAddPlaceForm";
 import { useStudioInitialLoad } from "./hooks/useStudioInitialLoad";
 import { useStudioCuratorProfileEdit } from "./hooks/useStudioCuratorProfileEdit";
+import { useStudioDraftActions } from "./hooks/useStudioDraftActions";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -442,6 +441,16 @@ export default function StudioHome() {
     setUsernameError,
   });
 
+  const { handleEditDraft, handleDeleteDraft } = useStudioDraftActions({
+    user,
+    setMapCenter,
+    setActiveSection,
+    setEditingPlaceId,
+    setEditingDraftId,
+    setFormData,
+    setDrafts,
+  });
+
   useEffect(() => {
     if (location.state?.openStudioList) {
       setActiveSection("list");
@@ -492,88 +501,6 @@ export default function StudioHome() {
       cancelled = true;
     };
   }, [user?.id, editingPlaceId]);
-
-  const handleEditDraft = (draft) => {
-    // 초안 수정 로직
-    devLog("Edit draft:", draft);
-    devLog("🔍 임시저장된 데이터 상세:", {
-      name_address: draft.basicInfo?.name_address,
-      category: draft.basicInfo?.category,
-      alcohol_type: draft.alcohol_type,
-      atmosphere: draft.atmosphere,
-      latitude: draft.latitude,
-      longitude: draft.longitude,
-      is_public: draft.publishInfo?.is_public
-    });
-    
-    // 지도 중심 설정
-    if (draft.latitude && draft.longitude) {
-      setMapCenter({ lat: draft.latitude, lng: draft.longitude });
-      devLog("🗺️ 지도 중심 설정:", { lat: draft.latitude, lng: draft.longitude });
-    }
-    
-    // 잔 올리기 섹션으로 이동
-    setActiveSection("add");
-
-    // 잔 리스트에서 연 '장소 수정' 상태가 남아 있으면 임시저장 시 잘못된 행이 지워지거나 중복 저장될 수 있음
-    setEditingPlaceId(null);
-    try {
-      localStorage.removeItem("editing_place_id");
-    } catch {
-      /* ignore */
-    }
-
-    // 수정 중인 임시저장 ID 설정
-    setEditingDraftId(draft.id);
-    
-    // 섹션 이동 후 직접 폼 필드에 값 설정
-    setTimeout(() => {
-      // 직접 폼 필드에 값 설정
-      const nameInput = document.querySelector('input[type="text"]');
-      const categorySelect = document.querySelector('select');
-      const alcoholSelect = document.querySelectorAll('select')[1];
-      const atmosphereSelect = document.querySelectorAll('select')[2];
-      const reasonTextarea = document.querySelector('textarea');
-      
-      if (nameInput) nameInput.value = draft.basicInfo?.name_address || "";
-      if (categorySelect) categorySelect.value = draft.basicInfo?.category || "";
-      if (alcoholSelect) alcoholSelect.value = draft.alcohol_type || "";
-      if (atmosphereSelect) atmosphereSelect.value = draft.atmosphere || "";
-      if (reasonTextarea) reasonTextarea.value = draft.menu_reason || "";
-      
-      // React 상태도 업데이트
-      setFormData({
-        name_address: draft.basicInfo?.name_address || "",
-        category: draft.basicInfo?.category || "",
-        alcohol_type: draft.alcohol_type || "",
-        atmosphere: draft.atmosphere || "",
-        recommended_menu: draft.recommended_menu || "",
-        menu_reason: draft.menu_reason || "",
-        tags: filterPlaceTagsForDisplay(draft.tags || []),
-        latitude: draft.latitude || null,
-        longitude: draft.longitude || null,
-        is_public: draft.publishInfo?.is_public || true
-      });
-      
-      devLog("✅ 직접 폼 필드에 값 설정 완료");
-    }, 200);
-  };
-
-  const handleDeleteDraft = (draftId) => {
-    // 초안 삭제 로직
-    devLog("Delete draft:", draftId);
-    
-    // localStorage에서 삭제
-    const draftOwnerId = user?.id ?? null;
-    const existingDrafts = readStudioDrafts(draftOwnerId);
-    const updatedDrafts = existingDrafts.filter(draft => draft.id !== draftId);
-    writeStudioDrafts(draftOwnerId, updatedDrafts);
-    
-    // state에서도 삭제
-    setDrafts(prev => prev.filter(draft => draft.id !== draftId));
-    devLog("🗑️ 임시저장 삭제 완료 (localStorage):", draftId);
-  };
-
 
   const endLive = () => {
     setStats((prev) => ({ ...prev, isLive: false, notificationSent: false }));
