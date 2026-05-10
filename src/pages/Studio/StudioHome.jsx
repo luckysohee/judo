@@ -49,6 +49,17 @@ import PlacePicksPublicList from "../../components/PlacePick/PlacePicksPublicLis
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
 import { isPlaceSaved } from "../../utils/storage";
 
+/** 프로덕션 번들에서 호출되어도 출력 없음 — 실패 추적은 `console.error` 유지 */
+const _nativeConsole = globalThis.console;
+const _devConsoleLog = _nativeConsole.log.bind(_nativeConsole);
+const _devConsoleWarn = _nativeConsole.warn.bind(_nativeConsole);
+function devLog(...args) {
+  if (import.meta.env.DEV) _devConsoleLog(...args);
+}
+function devWarn(...args) {
+  if (import.meta.env.DEV) _devConsoleWarn(...args);
+}
+
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
   if (!error) return false;
@@ -203,7 +214,7 @@ async function upsertCuratorPlaceForStudio(
         .delete()
         .eq("id", d.id);
       if (delErr) {
-        console.warn("curator_places dedupe delete:", delErr);
+        devWarn("curator_places dedupe delete:", delErr);
       }
     }
 
@@ -225,7 +236,7 @@ async function upsertCuratorPlaceForStudio(
       }
     );
     if (rpcErr) {
-      console.warn(
+      devWarn(
         "studio_patch_curator_place_taxonomy (Supabase 마이그레이션 적용 필요):",
         rpcErr.message
       );
@@ -472,7 +483,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         return;
       }
 
-      console.log("curator 정보:", curator); // 디버깅용 로그
+      devLog("curator 정보:", curator); // 디버깅용 로그
 
       // 새 장소 데이터 생성
       const newPlace = {
@@ -497,7 +508,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         created_at: new Date().toISOString(),
       };
 
-      console.log("저장할 데이터:", newPlace); // 디버깅용 로그
+      devLog("저장할 데이터:", newPlace); // 디버깅용 로그
 
       // Supabase에 장소 저장
       const { data, error } = await supabase
@@ -548,7 +559,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
 
   // 섹션 변경 시 변경사항 확인
   const handleSectionChange = (newSection) => {
-    console.log("섹션 변경 시도:", { 
+    devLog("섹션 변경 시도:", { 
       currentSection: activeSection, 
       newSection, 
       hasUnsavedChanges 
@@ -559,11 +570,11 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
       const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
       
       if (shouldSave) {
-        console.log("저장 선택");
+        devLog("저장 선택");
         setHasUnsavedChanges(false);
         setActiveSection(newSection);
       } else {
-        console.log("저장 안 함 선택");
+        devLog("저장 안 함 선택");
         setHasUnsavedChanges(false);
         setActiveSection(newSection);
       }
@@ -571,16 +582,16 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
       const shouldSave = window.confirm("변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
       
       if (shouldSave) {
-        console.log("저장 선택");
+        devLog("저장 선택");
         setHasUnsavedChanges(false);
         setActiveSection(newSection);
       } else {
-        console.log("저장 안 함 선택");
+        devLog("저장 안 함 선택");
         setHasUnsavedChanges(false);
         setActiveSection(newSection);
       }
     } else {
-      console.log("변경사항 없음 - 바로 이동");
+      devLog("변경사항 없음 - 바로 이동");
       setActiveSection(newSection);
     }
   };
@@ -640,11 +651,11 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
 
   // 주소 검색 함수
   const searchAddress = async (query) => {
-    console.log("🔍 검색 시작:", query);
+    devLog("🔍 검색 시작:", query);
     
     const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
-    console.log("🔑 API 키 길이:", apiKey?.length || 0);
+    devLog("🔑 API 키 확인:", apiKey ? "있음" : "없음");
+    devLog("🔑 API 키 길이:", apiKey?.length || 0);
 
     if (!apiKey) {
       console.error("❌ 카카오 REST API 키가 없습니다.");
@@ -653,7 +664,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
     }
 
     try {
-      console.log("📍 주소 검색 시도...");
+      devLog("📍 주소 검색 시도...");
       // 주소 검색
       const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=1`, {
         headers: {
@@ -661,7 +672,7 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         }
       });
       
-      console.log("📋 주소 검색 응답 상태:", addressResponse.status);
+      devLog("📋 주소 검색 응답 상태:", addressResponse.status);
       
       if (!addressResponse.ok) {
         console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
@@ -669,14 +680,14 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
       }
 
       const addressData = await addressResponse.json();
-      console.log("📋 주소 검색 결과:", addressData);
+      devLog("📋 주소 검색 결과:", addressData);
 
       if (addressData.documents && addressData.documents.length > 0) {
         const firstResult = addressData.documents[0];
         const lat = parseFloat(firstResult.y);
         const lng = parseFloat(firstResult.x);
         
-        console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
+        devLog("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
         
         // 상태 업데이트
         setBasicInfo({
@@ -689,14 +700,14 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         moveMapToLocation(lat, lng);
       } else {
         // 키워드 검색 (장소명으로 검색)
-        console.log("🔍 키워드 검색 시도...");
+        devLog("🔍 키워드 검색 시도...");
         const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=1`, {
           headers: {
             "Authorization": `KakaoAK ${apiKey}`
           }
         });
         
-        console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
+        devLog("📋 키워드 검색 응답 상태:", keywordResponse.status);
         
         if (!keywordResponse.ok) {
           console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
@@ -704,14 +715,14 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         }
 
         const keywordData = await keywordResponse.json();
-        console.log("📋 키워드 검색 결과:", keywordData);
+        devLog("📋 키워드 검색 결과:", keywordData);
 
         if (keywordData.documents && keywordData.documents.length > 0) {
           const firstResult = keywordData.documents[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
-          console.log("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
+          devLog("✅ 키워드 찾음:", { lat, lng, place: firstResult.place_name });
           
           // 상태 업데이트
           setBasicInfo({
@@ -1609,7 +1620,7 @@ export default function StudioHome() {
         alert("로그인이 필요합니다.");
         return;
       }
-      console.log("💾 curator_places 테이블 업데이트 시도:", updatedPlace.id);
+      devLog("💾 curator_places 테이블 업데이트 시도:", updatedPlace.id);
       
       // is_public을 is_archived로 변환 (true=공개=false=archived, false=비공개=true=archived)
       const isArchived = !updatedPlace.is_public;
@@ -1625,7 +1636,7 @@ export default function StudioHome() {
         console.error("❌ curator_places 저장 오류:", error);
         alert("저장에 실패했습니다: " + error.message);
       } else {
-        console.log("✅ curator_places 저장 성공:", { placeId: updatedPlace.id, is_archived: isArchived });
+        devLog("✅ curator_places 저장 성공:", { placeId: updatedPlace.id, is_archived: isArchived });
         alert("공개/비공개 상태가 저장되었습니다!");
       }
     } catch (error) {
@@ -1641,17 +1652,17 @@ export default function StudioHome() {
         const shouldSave = window.confirm("공개/비공개 상태 변경사항이 있습니다. 저장하시겠습니까?\n\n확인: 저장하기\n취소: 저장하지 않음");
         
         if (shouldSave) {
-          console.log("✅ 저장 선택 - DB 저장 시작");
+          devLog("✅ 저장 선택 - DB 저장 시작");
           // 실제 DB 저장 로직
           if (originalPlaceBeforeChange) {
             const updatedPlace = myPlaces.find(p => p.id === originalPlaceBeforeChange.id);
             if (updatedPlace) {
               await saveToDatabase(updatedPlace);
-              console.log("✅ 저장 완료 - 상태 초기화");
+              devLog("✅ 저장 완료 - 상태 초기화");
             }
           }
         } else {
-          console.log("❌ 저장 안 함 선택 - 원상복구");
+          devLog("❌ 저장 안 함 선택 - 원상복구");
           // 변경사항 취소하고 원래 상태로 복원
           if (originalPlaceBeforeChange) {
             setMyPlaces(prevPlaces => 
@@ -1661,7 +1672,7 @@ export default function StudioHome() {
                   : place
               )
             );
-            console.log("🔄 원상복구 완료:", originalPlaceBeforeChange);
+            devLog("🔄 원상복구 완료:", originalPlaceBeforeChange);
           }
         }
         
@@ -1685,7 +1696,7 @@ export default function StudioHome() {
             try {
               window.kakao.maps.event.trigger(mapRef.current, 'resize');
             } catch (error) {
-              console.log("지도 리사이즈 실패:", error);
+              devLog("지도 리사이즈 실패:", error);
             }
           }
         }
@@ -1850,10 +1861,10 @@ export default function StudioHome() {
   
   // 해시태그 처리 함수
   const handleTagsChange = (value) => {
-    console.log("=== 태그 처리 시작 ==="); // 디버깅용
-    console.log("입력된 값:", value);
-    console.log("trim() 후:", value.trim());
-    console.log("기존 태그:", formData.tags);
+    devLog("=== 태그 처리 시작 ==="); // 디버깅용
+    devLog("입력된 값:", value);
+    devLog("trim() 후:", value.trim());
+    devLog("기존 태그:", formData.tags);
     
     // 엔터를 누르면 현재 입력값을 태그로 추가
     if (value.trim()) {
@@ -1862,51 +1873,51 @@ export default function StudioHome() {
       if (!newTag.startsWith('#')) {
         newTag = `#${newTag}`;
       }
-      console.log("최종 태그:", newTag);
-      console.log("중복 체크:", formData.tags.includes(newTag));
+      devLog("최종 태그:", newTag);
+      devLog("중복 체크:", formData.tags.includes(newTag));
       
       // 중복 태그 방지
       if (!formData.tags.includes(newTag)) {
         setFormData(prev => { 
-          console.log("태그 추가 전:", prev.tags);
+          devLog("태그 추가 전:", prev.tags);
           const newState = { 
             ...prev, 
             tags: [...prev.tags, newTag]
           };
-          console.log("태그 추가 후:", newState.tags);
+          devLog("태그 추가 후:", newState.tags);
           return newState;
         });
-        console.log("태그 추가됨"); // 디버깅용
+        devLog("태그 추가됨"); // 디버깅용
         // 지연시켜서 충돌 방지
         setTimeout(() => setTagInputValue(""), 0);
       } else {
-        console.log("중복 태그라서 추가 안함"); // 디버깅용
+        devLog("중복 태그라서 추가 안함"); // 디버깅용
         setTimeout(() => setTagInputValue(""), 0);
       }
     } else {
-      console.log("값이 비어있어서 태그 추가 안함"); // 디버깅용
+      devLog("값이 비어있어서 태그 추가 안함"); // 디버깅용
       setTimeout(() => setTagInputValue(""), 0);
     }
-    console.log("=== 태그 처리 끝 ==="); // 디버깅용
+    devLog("=== 태그 처리 끝 ==="); // 디버깅용
   };
 
   // 해시태그 입력 핸들러 - 오직 스페이스/엔터만 사용
   const handleTagKeyDown = (e) => {
-    console.log("=== 키 이벤트 ==="); // 디버깅용
-    console.log("키 누름:", e.key);
-    console.log("keyCode:", e.keyCode);
-    console.log("isComposing:", e.isComposing);
-    console.log("입력창 값:", e.target.value);
-    console.log("==============="); // 디버깅용
+    devLog("=== 키 이벤트 ==="); // 디버깅용
+    devLog("키 누름:", e.key);
+    devLog("keyCode:", e.keyCode);
+    devLog("isComposing:", e.isComposing);
+    devLog("입력창 값:", e.target.value);
+    devLog("==============="); // 디버깅용
     
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
       const value = e.target.value;
-      console.log("스페이스/엔터 감지, 처리할 값:", value); // 디버깅용
+      devLog("스페이스/엔터 감지, 처리할 값:", value); // 디버깅용
       if (value.trim()) {
         handleTagsChange(value);
       } else {
-        console.log("값이 비어있어서 처리 안함"); // 디버깅용
+        devLog("값이 비어있어서 처리 안함"); // 디버깅용
       }
     }
   };
@@ -1914,7 +1925,7 @@ export default function StudioHome() {
   // 한글 입력 처리를 위한 onInput 이벤트
   const handleTagInput = (e) => {
     const value = e.target.value;
-    console.log("입력 중:", value, "isComposing:", e.nativeEvent?.isComposing); // 디버깅용
+    devLog("입력 중:", value, "isComposing:", e.nativeEvent?.isComposing); // 디버깅용
     setTagInputValue(value);
   };
 
@@ -2337,9 +2348,9 @@ export default function StudioHome() {
           countStudioFollowingDistinct(supabase, userId),
         ]);
 
-      console.log("🔍 팔로워 데이터:", { followersData, followersError });
+      devLog("🔍 팔로워 데이터:", { followersData, followersError });
       const followerCount = followersError ? 0 : followersData?.length || 0;
-      console.log("🔍 팔로워 / 팔로잉 수:", followerCount, followingCount);
+      devLog("🔍 팔로워 / 팔로잉 수:", followerCount, followingCount);
 
       if (!followersError && followersData?.length) {
         for (const row of followersData) {
@@ -2379,7 +2390,7 @@ export default function StudioHome() {
           week_total_saves: Number(insightJson.week_total_saves) || 0,
         };
       } else if (insightErr) {
-        console.warn(
+        devWarn(
           "studio_week_save_insights (Supabase에 마이그레이션 적용 필요):",
           insightErr.message
         );
@@ -2390,7 +2401,7 @@ export default function StudioHome() {
       if (!overlapErr && overlapRaw != null) {
         overlapSharedPlaceCount = Number(overlapRaw) || 0;
       } else if (overlapErr) {
-        console.warn(
+        devWarn(
           "studio_curator_overlap_place_count (Supabase에 마이그레이션 적용 필요):",
           overlapErr.message
         );
@@ -2402,7 +2413,7 @@ export default function StudioHome() {
         setOverlapSharedPlacesList(overlapPlacesRaw);
       } else {
         if (overlapPlacesErr) {
-          console.warn(
+          devWarn(
             "studio_curator_overlap_places (Supabase에 마이그레이션 적용 필요):",
             overlapPlacesErr.message
           );
@@ -2416,7 +2427,7 @@ export default function StudioHome() {
         setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(extRaw));
       } else {
         if (extErr) {
-          console.warn(
+          devWarn(
             "studio_archive_extended_insights (Supabase에 마이그레이션 적용 필요):",
             extErr.message
           );
@@ -2455,7 +2466,7 @@ export default function StudioHome() {
         ...stats
       }));
 
-      console.log("✅ 실제 통계 데이터 로드 (다대다):", stats);
+      devLog("✅ 실제 통계 데이터 로드 (다대다):", stats);
     } catch (error) {
       console.error("stats load error:", error);
     }
@@ -2538,7 +2549,7 @@ export default function StudioHome() {
     try {
       setLoading(true);
       if (!user?.id) {
-        console.log("인증된 사용자 없음, 기본 프로필 사용");
+        devLog("인증된 사용자 없음, 기본 프로필 사용");
         // 인증되지 않은 경우 기본값 사용
         const defaultUser = {
           username: "nopokiller",
@@ -2555,7 +2566,7 @@ export default function StudioHome() {
           image: defaultUser.image
         }));
       } else {
-        console.log("✅ 인증된 사용자:", user.id);
+        devLog("✅ 인증된 사용자:", user.id);
         
         // 인증된 사용자의 프로필 가져오기
         const { data: profileData, error: profileError } = await supabase
@@ -2565,13 +2576,13 @@ export default function StudioHome() {
           .single();
           
         if (profileError && profileError.code !== 'PGRST116') {
-          console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+          devLog("프로필 데이터 없음, 기본값 사용:", profileError);
         }
         
         // 큐레이터 여부 확인
         const isUserCurator = profileData && !profileError;
         setIsCurator(isUserCurator);
-        console.log("🎭 큐레이터 여부:", isUserCurator);
+        devLog("🎭 큐레이터 여부:", isUserCurator);
         
         const currentUser = profileData || {
           user_id: user.id, // 인증된 사용자 ID 연결
@@ -2588,7 +2599,7 @@ export default function StudioHome() {
           warning_count: 0
         };
 
-        console.log("📂 프로필 데이터 로드:", currentUser);
+        devLog("📂 프로필 데이터 로드:", currentUser);
         
         setCuratorProfile(prev => ({
           ...prev,
@@ -2622,8 +2633,8 @@ export default function StudioHome() {
         await loadCuratorActivity(user.id);
       }
       
-      console.log("📂 스튜디오 데이터 로딩 시작...");
-      console.log("🔍 현재 사용자 ID:", user?.id);
+      devLog("📂 스튜디오 데이터 로딩 시작...");
+      devLog("🔍 현재 사용자 ID:", user?.id);
 
       if (!user?.id) {
         setMyPlaces([]);
@@ -2653,11 +2664,11 @@ export default function StudioHome() {
       // 장소 데이터 추출
       const placesData = curatorPlacesData?.map(cp => cp.places).filter(Boolean) || [];
 
-      console.log("🔍 큐레이터 추천 쿼리 결과:", { data: curatorPlacesData, error: placesError });
+      devLog("🔍 큐레이터 추천 쿼리 결과:", { data: curatorPlacesData, error: placesError });
 
       // 만약 데이터가 없다면, 기존 방식으로도 확인
       if (!placesData || placesData.length === 0) {
-        console.log("⚠️ 다대다 방식으로 장소 없음, 기존 방식으로 확인 중...");
+        devLog("⚠️ 다대다 방식으로 장소 없음, 기존 방식으로 확인 중...");
         
         // 기존 방식으로도 확인 (user_id 필드가 아직 있는 경우)
         const { data: oldWayData, error: oldWayError } = await supabase
@@ -2667,7 +2678,7 @@ export default function StudioHome() {
           .order("created_at", { ascending: false });
         
         if (oldWayData && oldWayData.length > 0) {
-          console.log("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
+          devLog("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
           
           // 기존 방식으로 데이터 변환
           const formattedPlaces = oldWayData.map((place) => ({
@@ -2688,33 +2699,33 @@ export default function StudioHome() {
           }));
           
           setMyPlaces(formattedPlaces);
-          console.log("✅ myPlaces 업데이트 완료 (기존 방식):", formattedPlaces);
+          devLog("✅ myPlaces 업데이트 완료 (기존 방식):", formattedPlaces);
           setLoading(false);
           return;
         }
         
         // 완전히 없는 경우
-        console.log("🔍 모든 장소 확인 중...");
+        devLog("🔍 모든 장소 확인 중...");
         const { data: allPlaces, error: allPlacesError } = await supabase
           .from("places")
           .select("*")
           .order("created_at", { ascending: false })
           .limit(10);
         
-        console.log("🔍 모든 장소 데이터:", allPlaces);
-        console.log("🔍 모든 장소 user_id:", allPlaces?.map(p => ({ id: p.id, name: p.name, user_id: p.user_id })));
+        devLog("🔍 모든 장소 데이터:", allPlaces);
+        devLog("🔍 모든 장소 user_id:", allPlaces?.map(p => ({ id: p.id, name: p.name, user_id: p.user_id })));
       }
 
       if (placesError) {
         console.error("❌ 장소 로딩 오류:", placesError);
       } else {
-        console.log("✅ 불러온 장소 데이터:", placesData);
+        devLog("✅ 불러온 장소 데이터:", placesData);
         
         const formattedPlaces =
           mapCuratorJoinRowsToMyPlaces(curatorPlacesData);
         
         setMyPlaces(formattedPlaces);
-        console.log("✅ myPlaces 업데이트 완료:", formattedPlaces);
+        devLog("✅ myPlaces 업데이트 완료:", formattedPlaces);
         
         // drafts는 별도로 관리 (myPlaces와 동기화하지 않음)
         // 임시저장된 데이터만 drafts에 표시됨
@@ -2722,7 +2733,7 @@ export default function StudioHome() {
         // localStorage에서 임시저장된 데이터 불러오기
         const savedDrafts = readStudioDrafts(user.id);
         setDrafts(savedDrafts);
-        console.log("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
+        devLog("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
       }
       
       setLoading(false);
@@ -2758,7 +2769,7 @@ export default function StudioHome() {
       if (!sfErr && sfRows?.length) {
         setSavedFolderDefs(sfRows);
       } else if (sfErr) {
-        console.warn("system_folders:", sfErr.message);
+        devWarn("system_folders:", sfErr.message);
       }
 
       if (savErr) {
@@ -2824,7 +2835,7 @@ export default function StudioHome() {
         if (!cancelled) setStudioPlacePicks(Array.isArray(rows) ? rows : []);
       })
       .catch((e) => {
-        console.warn("StudioHome place_picks:", e);
+        devWarn("StudioHome place_picks:", e);
         if (!cancelled) setStudioPlacePicks([]);
       })
       .finally(() => {
@@ -2863,7 +2874,7 @@ export default function StudioHome() {
     try {
       data = await fetchCuratorPlacesMergedWithPlaces(supabase, user.id);
     } catch (e) {
-      console.warn("reloadStudioMyPlaces:", e?.message || e);
+      devWarn("reloadStudioMyPlaces:", e?.message || e);
       return;
     }
     const deduped = dedupeCuratorPlacesByPlaceId(data);
@@ -3114,7 +3125,7 @@ export default function StudioHome() {
           writeStudioDrafts(draftOwnerId, nextDrafts);
           setDrafts(nextDrafts);
         } catch (e) {
-          console.warn("studio_drafts 정리(잔 올리기 저장 후):", e);
+          devWarn("studio_drafts 정리(잔 올리기 저장 후):", e);
         }
         setEditingDraftId(null);
       };
@@ -3131,11 +3142,11 @@ export default function StudioHome() {
         return;
       }
 
-      console.log("🔍 StudioHome 저장 시작:", { ...formData, isDraft });
+      devLog("🔍 StudioHome 저장 시작:", { ...formData, isDraft });
       
       if (!isDraft) {
         // 수정 모드가 아닐 경우 그대로 진행 (DB 중복 확인 제거)
-        console.log("📝 새 장소 저장 모드 (다른 큐레이터 장소도 저장 가능)");
+        devLog("📝 새 장소 저장 모드 (다른 큐레이터 장소도 저장 가능)");
         // 실제 저장인 경우 Supabase에 저장
         // 실제 인증된 사용자 ID 사용
         if (!user) {
@@ -3182,7 +3193,7 @@ export default function StudioHome() {
                 .neq("id", effectiveEditPlaceId)
                 .limit(1);
             if (kakaoConflictErr) {
-              console.warn("kakao_place_id 충돌 조회:", kakaoConflictErr);
+              devWarn("kakao_place_id 충돌 조회:", kakaoConflictErr);
             } else if (kakaoConflict?.length) {
               const other = kakaoConflict[0];
               delete updatePayload.kakao_place_id;
@@ -3194,7 +3205,7 @@ export default function StudioHome() {
             }
           }
 
-          console.log("📝 수정할 데이터:", updatePayload);
+          devLog("📝 수정할 데이터:", updatePayload);
 
           let { data, error } = await supabase
             .from("places")
@@ -3232,7 +3243,7 @@ export default function StudioHome() {
             return;
           }
 
-          console.log("✅ 장소 수정 성공:", data);
+          devLog("✅ 장소 수정 성공:", data);
 
           const savedRow = Array.isArray(data) && data[0] ? data[0] : null;
           const basisForList = savedRow
@@ -3269,7 +3280,7 @@ export default function StudioHome() {
             }
           );
           if (cpMergeErr) {
-            console.warn("curator_places 정리(수정 저장):", cpMergeErr);
+            devWarn("curator_places 정리(수정 저장):", cpMergeErr);
           } else if (user?.id) {
             void loadCuratorStats(user.id);
           }
@@ -3280,7 +3291,7 @@ export default function StudioHome() {
           );
           if (folderRes.ok) {
             void loadSavedFolders().catch((e) =>
-              console.warn("loadSavedFolders(수정 후):", e)
+              devWarn("loadSavedFolders(수정 후):", e)
             );
           }
           
@@ -3336,7 +3347,7 @@ export default function StudioHome() {
               .maybeSingle();
 
             if (exErr) {
-              console.warn("기존 장소(kakao_place_id) 조회:", exErr.message);
+              devWarn("기존 장소(kakao_place_id) 조회:", exErr.message);
             } else if (existingPlace) {
               const { data: updated, error: updErr } = await supabase
                 .from("places")
@@ -3356,7 +3367,7 @@ export default function StudioHome() {
                 .single();
 
               placeRow = updErr ? existingPlace : updated;
-              console.log("✅ 기존 places 행 재사용 (kakao_place_id):", kid);
+              devLog("✅ 기존 places 행 재사용 (kakao_place_id):", kid);
             }
           }
 
@@ -3372,7 +3383,7 @@ export default function StudioHome() {
               kakao_place_id: kid || null,
             };
 
-            console.log("📝 새 places INSERT:", newPlaceData);
+            devLog("📝 새 places INSERT:", newPlaceData);
             const { data: newPlace, error: placeError } = await supabase
               .from("places")
               .insert([newPlaceData])
@@ -3387,7 +3398,7 @@ export default function StudioHome() {
                   .maybeSingle();
                 if (!raceErr && racePlace) {
                   placeRow = racePlace;
-                  console.log("✅ INSERT 충돌 후 기존 행 사용:", kid);
+                  devLog("✅ INSERT 충돌 후 기존 행 사용:", kid);
                 }
               }
               if (!placeRow) {
@@ -3402,7 +3413,7 @@ export default function StudioHome() {
 
           const placeData = { data: placeRow ? [placeRow] : null };
 
-          console.log("✅ 장소 마스터 준비 완료:", placeData);
+          devLog("✅ 장소 마스터 준비 완료:", placeData);
           
           // 2. 큐레이터 추천에 저장
         if (placeData && placeData.data && placeData.data[0]) {
@@ -3413,7 +3424,7 @@ export default function StudioHome() {
             alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
             moods: formData.atmosphere ? [formData.atmosphere] : [],
           };
-            console.log("📝 저장할 curator_places 필드:", curatorFields);
+            devLog("📝 저장할 curator_places 필드:", curatorFields);
 
             const { data: curatorData, error: curatorError } =
               await upsertCuratorPlaceForStudio(
@@ -3434,7 +3445,7 @@ export default function StudioHome() {
               return;
             }
 
-            console.log("✅ curator_places 저장 성공:", curatorData);
+            devLog("✅ curator_places 저장 성공:", curatorData);
 
             const insertedRow = placeData.data[0];
             const insertedPlaceUuid = insertedRow?.id;
@@ -3445,7 +3456,7 @@ export default function StudioHome() {
             );
             if (folderRes.ok) {
               void loadSavedFolders().catch((e) =>
-                console.warn("loadSavedFolders(신규 저장 후):", e)
+                devWarn("loadSavedFolders(신규 저장 후):", e)
               );
             } else {
               alert(
@@ -3517,11 +3528,11 @@ export default function StudioHome() {
               places: placeData.data[0],
             };
             
-            console.log("📝 myPlaces에 추가할 데이터:", newPlaceForList);
+            devLog("📝 myPlaces에 추가할 데이터:", newPlaceForList);
             setMyPlaces((prev) => {
               const withoutDup = prev.filter((p) => p.id !== newPlaceForList.id);
               const updated = [newPlaceForList, ...withoutDup];
-              console.log("✅ myPlaces 업데이트 완료:", updated.length, "개");
+              devLog("✅ myPlaces 업데이트 완료:", updated.length, "개");
               return updated;
             });
 
@@ -3591,24 +3602,24 @@ export default function StudioHome() {
           updatedDrafts = existingDrafts.map(draft => 
             draft.id === editingDraftId ? draftData : draft
           );
-          console.log("📝 임시저장 업데이트:", editingDraftId);
+          devLog("📝 임시저장 업데이트:", editingDraftId);
           setEditingDraftId(null); // 수정 모드 종료
         } else {
           // 새로운 임시저장 추가
           updatedDrafts = [...existingDrafts, draftData];
-          console.log("📝 새 임시저장 추가:", draftData.id);
+          devLog("📝 새 임시저장 추가:", draftData.id);
         }
         
         writeStudioDrafts(draftOwnerId, updatedDrafts);
 
         // React 상태는 localStorage와 동일하게 유지 (기존: 항상 append 해서 수정 시 초안이 2개로 보임)
         setDrafts(updatedDrafts);
-        console.log("✅ 임시저장 완료 (localStorage):", draftData);
+        devLog("✅ 임시저장 완료 (localStorage):", draftData);
         
         // 수정 모드였다면 원본 장소를 잔 리스트에서 제거
         const currentEditingId = editingPlaceId || localStorage.getItem('editing_place_id');
         if (currentEditingId) {
-          console.log("🗑️ 수정 후 임시저장: 원본 장소 제거", currentEditingId);
+          devLog("🗑️ 수정 후 임시저장: 원본 장소 제거", currentEditingId);
           setMyPlaces(prev => prev.filter(place => place.id !== currentEditingId));
           
           // 수정 모드 종료
@@ -3632,7 +3643,7 @@ export default function StudioHome() {
     // 수정 모드인 경우 중복 확인 건너뛰기
     const currentEditingId = editingPlaceId || localStorage.getItem('editing_place_id');
     if (currentEditingId) {
-      console.log("✏️ 수정 모드: 중복 확인 건너뛰기", { editingPlaceId, localStorageId: localStorage.getItem('editing_place_id') });
+      devLog("✏️ 수정 모드: 중복 확인 건너뛰기", { editingPlaceId, localStorageId: localStorage.getItem('editing_place_id') });
       return false;
     }
     
@@ -3642,7 +3653,7 @@ export default function StudioHome() {
     );
     
     if (duplicate) {
-      console.log("⚠️ 중복된 장소 (내 장소):", duplicate.name);
+      devLog("⚠️ 중복된 장소 (내 장소):", duplicate.name);
       alert("이미 저장된 장소입니다.");
       return true;
     }
@@ -3652,13 +3663,13 @@ export default function StudioHome() {
 
   const handleTogglePublic = async (placeId) => {
     try {
-      console.log("🔄 공개/비공개 토글:", placeId);
+      devLog("🔄 공개/비공개 토글:", placeId);
       
       // 변경 전 원본 데이터 저장
       const originalPlace = myPlaces.find(p => p.id === placeId);
       if (originalPlace) {
         setOriginalPlaceBeforeChange(JSON.parse(JSON.stringify(originalPlace)));
-        console.log("💾 변경 전 원본 데이터 저장:", originalPlace);
+        devLog("💾 변경 전 원본 데이터 저장:", originalPlace);
       }
       
       // 1. 로컬 상태 업데이트
@@ -3672,11 +3683,11 @@ export default function StudioHome() {
       
       // 2. 변경사항 상태 설정
       setHasUnsavedChanges(true);
-      console.log("⚠️ 공개/비공개 상태 변경 - hasUnsavedChanges 설정");
+      devLog("⚠️ 공개/비공개 상태 변경 - hasUnsavedChanges 설정");
       
       // 3. DB 업데이트는 임시로 제외 (is_public 필드가 DB에 없음)
       // TODO: 나중에 is_public 필드를 DB에 추가하거나 별도 테이블로 관리
-      console.log("✅ 공개/비공개 상태가 로컬에서 변경되었습니다.");
+      devLog("✅ 공개/비공개 상태가 로컬에서 변경되었습니다.");
       
     } catch (error) {
       console.error("❌ 토글 오류:", error);
@@ -3689,7 +3700,7 @@ export default function StudioHome() {
       const confirmed = window.confirm("정말로 이 장소를 삭제하시겠습니까?");
       if (!confirmed) return;
       
-      console.log("🗑️ 장소 삭제:", placeId);
+      devLog("🗑️ 장소 삭제:", placeId);
       
       // 1. DB에서 삭제
       const { error } = await supabase
@@ -3709,7 +3720,7 @@ export default function StudioHome() {
       // 잔 채우기 목록에서도 삭제
       setDrafts(prevDrafts => prevDrafts.filter(draft => draft.id !== placeId));
       
-      console.log("✅ 장소 삭제 성공");
+      devLog("✅ 장소 삭제 성공");
       alert("장소가 삭제되었습니다.");
       
     } catch (error) {
@@ -3720,7 +3731,7 @@ export default function StudioHome() {
 
   const handleEditPlace = (place) => {
     try {
-      console.log("✏️ 장소 수정:", place);
+      devLog("✏️ 장소 수정:", place);
 
       setEditingDraftId(null);
 
@@ -3759,7 +3770,7 @@ export default function StudioHome() {
       // '잔 올리기' 탭으로 이동
       setActiveSection("add");
       
-      console.log("📝 폼 데이터 설정 완료:", {
+      devLog("📝 폼 데이터 설정 완료:", {
         name: place.name,
         category: place.category,
         alcohol_type: alcoholFromCp,
@@ -3797,7 +3808,7 @@ export default function StudioHome() {
       // username 중복 확인
       if (editProfile.username !== curatorProfile.username) {
         // 실제로는 서버 API 호출로 중복 확인
-        console.log("username 중복 확인 필요:", editProfile.username);
+        devLog("username 중복 확인 필요:", editProfile.username);
       }
       
       // Supabase에 프로필 저장 (인증된 사용자와 연결)
@@ -3812,7 +3823,7 @@ export default function StudioHome() {
         updated_at: new Date().toISOString()
       };
       
-      console.log("📝 프로필 DB 저장:", profileData);
+      devLog("📝 프로필 DB 저장:", profileData);
       
       const { data, error } = await supabase
         .from("curators")
@@ -3832,7 +3843,7 @@ export default function StudioHome() {
         return;
       }
       
-      console.log("✅ 프로필 DB 저장 성공:", data);
+      devLog("✅ 프로필 DB 저장 성공:", data);
       
       // 로컬 상태 업데이트
       setCuratorProfile(prev => ({
@@ -3848,7 +3859,7 @@ export default function StudioHome() {
       
       setIsEditingProfile(false);
       setUsernameError("");
-      console.log("프로필 업데이트 완료:", editProfile);
+      devLog("프로필 업데이트 완료:", editProfile);
       alert("프로필이 성공적으로 저장되었습니다!");
       
     } catch (error) {
@@ -3913,7 +3924,7 @@ export default function StudioHome() {
     const newUsername = generateUsername(base);
     setEditProfile(prev => ({ ...prev, username: newUsername }));
     setUsernameError("");
-    console.log("자동 username 생성:", newUsername);
+    devLog("자동 username 생성:", newUsername);
   };
 
   const handleProfileEditAvatarFile = async (e) => {
@@ -3968,8 +3979,8 @@ export default function StudioHome() {
 
   const handleEditDraft = (draft) => {
     // 초안 수정 로직
-    console.log("Edit draft:", draft);
-    console.log("🔍 임시저장된 데이터 상세:", {
+    devLog("Edit draft:", draft);
+    devLog("🔍 임시저장된 데이터 상세:", {
       name_address: draft.basicInfo?.name_address,
       category: draft.basicInfo?.category,
       alcohol_type: draft.alcohol_type,
@@ -3982,7 +3993,7 @@ export default function StudioHome() {
     // 지도 중심 설정
     if (draft.latitude && draft.longitude) {
       setMapCenter({ lat: draft.latitude, lng: draft.longitude });
-      console.log("🗺️ 지도 중심 설정:", { lat: draft.latitude, lng: draft.longitude });
+      devLog("🗺️ 지도 중심 설정:", { lat: draft.latitude, lng: draft.longitude });
     }
     
     // 잔 올리기 섹션으로 이동
@@ -4028,13 +4039,13 @@ export default function StudioHome() {
         is_public: draft.publishInfo?.is_public || true
       });
       
-      console.log("✅ 직접 폼 필드에 값 설정 완료");
+      devLog("✅ 직접 폼 필드에 값 설정 완료");
     }, 200);
   };
 
   const handleDeleteDraft = (draftId) => {
     // 초안 삭제 로직
-    console.log("Delete draft:", draftId);
+    devLog("Delete draft:", draftId);
     
     // localStorage에서 삭제
     const draftOwnerId = user?.id ?? null;
@@ -4044,7 +4055,7 @@ export default function StudioHome() {
     
     // state에서도 삭제
     setDrafts(prev => prev.filter(draft => draft.id !== draftId));
-    console.log("🗑️ 임시저장 삭제 완료 (localStorage):", draftId);
+    devLog("🗑️ 임시저장 삭제 완료 (localStorage):", draftId);
   };
 
   const handleSearch = async () => {
@@ -4053,10 +4064,10 @@ export default function StudioHome() {
       return;
     }
     
-    console.log("🔍 StudioHome 검색 시작:", formData.name_address);
+    devLog("🔍 StudioHome 검색 시작:", formData.name_address);
     
     const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
+    devLog("🔑 API 키 확인:", apiKey ? "있음" : "없음");
 
     if (!apiKey) {
       console.error("❌ 카카오 REST API 키가 없습니다.");
@@ -4075,14 +4086,14 @@ export default function StudioHome() {
       const skipAddressSearch = Boolean(preferredKakaoId);
 
       if (!skipAddressSearch) {
-        console.log("📍 주소 검색 시도...");
+        devLog("📍 주소 검색 시도...");
         const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
           headers: {
             "Authorization": `KakaoAK ${apiKey}`
           }
         });
         
-        console.log("📋 주소 검색 응답 상태:", addressResponse.status);
+        devLog("📋 주소 검색 응답 상태:", addressResponse.status);
         
         if (!addressResponse.ok) {
           console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
@@ -4090,14 +4101,14 @@ export default function StudioHome() {
         }
 
         const addressData = await addressResponse.json();
-        console.log("📋 주소 검색 결과:", addressData);
+        devLog("📋 주소 검색 결과:", addressData);
 
         if (addressData.documents && addressData.documents.length > 0) {
           const firstResult = addressData.documents[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
-          console.log("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
+          devLog("✅ 주소 찾음:", { lat, lng, address: firstResult.address_name });
           
           setFormData(prev => ({
             ...prev,
@@ -4126,14 +4137,14 @@ export default function StudioHome() {
       }
 
       // 키워드 검색 — size=1 이면 순위 1건만 와서 자동완성에서 고른 가게와 달라질 수 있음
-      console.log("🔍 키워드 검색 시도...");
+      devLog("🔍 키워드 검색 시도...");
       const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(formData.name_address)}&size=15`, {
         headers: {
           "Authorization": `KakaoAK ${apiKey}`
         }
       });
       
-      console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
+      devLog("📋 키워드 검색 응답 상태:", keywordResponse.status);
       
       if (!keywordResponse.ok) {
         console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
@@ -4141,7 +4152,7 @@ export default function StudioHome() {
       }
 
       const keywordData = await keywordResponse.json();
-      console.log("📋 키워드 검색 결과:", keywordData);
+      devLog("📋 키워드 검색 결과:", keywordData);
 
       const docs = keywordData.documents || [];
       let chosen =
@@ -4161,7 +4172,7 @@ export default function StudioHome() {
         const lat = Number(formData.latitude);
         const lng = Number(formData.longitude);
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          console.log("✅ 키워드 목록에 없음 — 자동완성에서 받은 좌표 유지:", preferredKakaoId);
+          devLog("✅ 키워드 목록에 없음 — 자동완성에서 받은 좌표 유지:", preferredKakaoId);
           setMapCenter({ lat, lng });
           setSearchedPlaces([
             {
@@ -4182,7 +4193,7 @@ export default function StudioHome() {
       }
 
       if (!chosen) {
-        console.warn("⚠️ 검색 결과 없음");
+        devWarn("⚠️ 검색 결과 없음");
         alert("검색 결과를 찾을 수 없습니다. 지도를 클릭하여 위치를 선택해주세요.");
         return;
       }
@@ -4190,7 +4201,7 @@ export default function StudioHome() {
       const lat = parseFloat(chosen.y);
       const lng = parseFloat(chosen.x);
       
-      console.log("✅ 키워드 찾음:", { lat, lng, place: chosen.place_name });
+      devLog("✅ 키워드 찾음:", { lat, lng, place: chosen.place_name });
       
       const kpId =
         chosen.id != null && /^\d+$/.test(String(chosen.id))
@@ -4214,7 +4225,7 @@ export default function StudioHome() {
         kakao_place_id: kpId,
       }];
       
-      console.log("🔍 검색 결과 데이터:", searchResult);
+      devLog("🔍 검색 결과 데이터:", searchResult);
       setSearchedPlaces(searchResult);
       try {
         mapRef.current?.moveToLocation?.(lat, lng);
@@ -4249,7 +4260,7 @@ export default function StudioHome() {
   };
 
   const handleLiveStartWithNotification = () => {
-    console.log("알림 발송됨");
+    devLog("알림 발송됨");
     setStats((prev) => ({ ...prev, isLive: true, notificationSent: true }));
     setLiveStartConfirmOpen(false);
   };
