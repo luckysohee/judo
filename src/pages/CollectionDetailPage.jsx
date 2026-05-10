@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCollectionDetail } from "../api/collections";
 import CollectionCourseMap from "../components/Collections/CollectionCourseMap";
 import CollectionSocialRow from "../components/Collections/CollectionSocialRow";
+import { useToast } from "../components/Toast/ToastProvider";
 import {
   formatWalkingMinutes,
   walkingMinutesBetweenPlaces,
@@ -88,7 +89,13 @@ export default function CollectionDetailPage() {
 
   return (
     <div style={styles.page}>
-      <BackButton onClick={() => navigate(-1)} />
+      <div style={styles.topBar}>
+        <BackButton onClick={() => navigate(-1)} />
+        <CollectionShareButton
+          collectionId={collection.id}
+          title={collection.title}
+        />
+      </div>
 
       <header style={styles.header}>
         <h1 style={styles.title}>{collection.title || "(제목 없음)"}</h1>
@@ -132,6 +139,84 @@ function BackButton({ onClick }) {
   return (
     <button type="button" onClick={onClick} style={styles.backBtn}>
       ← 뒤로
+    </button>
+  );
+}
+
+/**
+ * Web Share API 우선, 미지원·실패 시 클립보드로 공개 URL 복사.
+ *
+ * @param {{ collectionId: string, title?: string | null }} props
+ */
+function CollectionShareButton({ collectionId, title }) {
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const onShare = useCallback(async () => {
+    const id = String(collectionId ?? "").trim();
+    if (!id || busy) return;
+
+    const displayTitle =
+      String(title ?? "").trim() || "컬렉션";
+    const origin =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "";
+    const url = origin ? `${origin}/collection/${id}` : `/collection/${id}`;
+    const shareText = `「${displayTitle}」컬렉션 — 주도에서 코스를 확인해 보세요.\n${url}`;
+
+    setBusy(true);
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.share === "function"
+      ) {
+        try {
+          await navigator.share({
+            title: displayTitle,
+            text: shareText,
+            url,
+          });
+          return;
+        } catch (err) {
+          if (err?.name === "AbortError") return;
+        }
+      }
+
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard?.writeText
+      ) {
+        await navigator.clipboard.writeText(url);
+        showToast("컬렉션 링크를 복사했어요.", "success", 2800);
+        return;
+      }
+
+      showToast("이 환경에서는 공유를 지원하지 않습니다.", "error", 2800);
+    } catch (e) {
+      console.warn("CollectionShareButton:", e);
+      showToast(
+        e?.message || "링크를 복사하지 못했습니다.",
+        "error",
+        2800,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [collectionId, title, busy, showToast]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onShare()}
+      disabled={busy}
+      style={{
+        ...styles.shareBtn,
+        ...(busy ? styles.shareBtnBusy : null),
+      }}
+      aria-label="컬렉션 공유 또는 링크 복사"
+    >
+      {busy ? "…" : "공유"}
     </button>
   );
 }
@@ -203,14 +288,41 @@ const styles = {
     padding: 20,
     paddingBottom: 40,
   },
+  topBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 18,
+    flexWrap: "wrap",
+  },
   backBtn: {
     border: "1px solid #444",
     background: "#1a1a1a",
     color: "#fff",
-    padding: "8px 14px",
+    padding: "10px 14px",
     borderRadius: 999,
     fontWeight: 700,
-    marginBottom: 18,
+    minHeight: 44,
+    cursor: "pointer",
+  },
+  shareBtn: {
+    border: "1px solid rgba(46,204,113,0.45)",
+    background: "rgba(46,204,113,0.14)",
+    color: "#9ad3a4",
+    padding: "10px 18px",
+    borderRadius: 999,
+    fontWeight: 800,
+    fontSize: 14,
+    minHeight: 44,
+    minWidth: 72,
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "opacity 0.15s ease",
+  },
+  shareBtnBusy: {
+    opacity: 0.55,
+    cursor: "default",
   },
   header: {
     marginBottom: 18,
