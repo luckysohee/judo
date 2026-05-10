@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import PlacePicksPublicList from "../PlacePick/PlacePicksPublicList";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PickUserButton, { PickCountsRow } from "../PickUserButton/PickUserButton";
+import PublicCollectionsGrid from "../Collections/PublicCollectionsGrid";
 
 export default function CuratorPage({
   open,
@@ -181,6 +182,10 @@ export default function CuratorPage({
             if (p) onOpenPlaceDetail(p);
           }}
         />
+
+        {profileUserId ? (
+          <PublicCollectionsGrid userId={profileUserId} />
+        ) : null}
       </div>
     </div>
   );

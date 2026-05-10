@@ -21,6 +21,7 @@ import StudioFollowersPage from "./pages/Studio/StudioFollowersPage";
 import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
+import CollectionDetailPage from "./pages/CollectionDetailPage";
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
       <Route path="/" element={<Home />} />
       <Route path="/map" element={<MapView />} />
       <Route path="/place/:id" element={<PlaceDetailPage />} />
+      <Route path="/collection/:collectionId" element={<CollectionDetailPage />} />
       <Route path="/curator/:name" element={<CuratorPageScreen />} />
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
       <Route path="/u/:userId" element={<UserProfilePage />} />

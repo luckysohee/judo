@@ -20,6 +20,12 @@ const UUID_RE =
 const COLLECTION_COLUMNS =
   "id, user_id, title, description, visibility, created_at, updated_at";
 
+/**
+ * 카드 그리드용 — 컬렉션 컬럼 + `collection_places` 행 수.
+ * PostgREST 가 `collection_places: [{ count: N }]` 모양으로 반환하므로 `unwrapPlaceCount` 로 평탄화.
+ */
+const COLLECTION_LIST_SELECT = `${COLLECTION_COLUMNS}, collection_places(count)`;
+
 const COLLECTION_PLACE_COLUMNS =
   "id, collection_id, place_id, order_index, memo, created_at";
 
@@ -44,6 +50,21 @@ function trimText(v) {
   return t.length > 0 ? t : null;
 }
 
+/**
+ * 컬렉션 행에서 `collection_places(count)` 결과를 평탄화해 `place_count` 숫자 필드로 옮긴다.
+ *
+ * @param {object} row
+ * @returns {object}
+ */
+function unwrapPlaceCount(row) {
+  if (!row || typeof row !== "object") return row;
+  const nested = Array.isArray(row.collection_places) ? row.collection_places : [];
+  const count = nested.length > 0 ? Number(nested[0]?.count) || 0 : 0;
+  const out = { ...row, place_count: count };
+  delete out.collection_places;
+  return out;
+}
+
 async function getMyUid(label) {
   const {
     data: { user },
@@ -61,6 +82,7 @@ async function getMyUid(label) {
 
 /**
  * 로그인 사용자의 컬렉션 전체 목록(공개 + 비공개). 최신 생성순.
+ * 각 행에는 `place_count`(장소 수)가 함께 반환된다.
  *
  * @returns {Promise<object[]>}
  */
@@ -68,17 +90,18 @@ export async function fetchMyCollections() {
   const uid = await getMyUid("fetchMyCollections");
   const { data, error } = await supabase
     .from("collections")
-    .select(COLLECTION_COLUMNS)
+    .select(COLLECTION_LIST_SELECT)
     .eq("user_id", uid)
     .order("created_at", { ascending: false });
   if (error) {
     throw new Error(error.message || "fetchMyCollections failed");
   }
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : []).map(unwrapPlaceCount);
 }
 
 /**
  * 특정 사용자의 공개 컬렉션 목록(타인 프로필 노출용). 비로그인에서도 호출 가능.
+ * 각 행에는 `place_count` 가 함께 반환된다.
  *
  * @param {string} userId — `auth.users.id`
  * @returns {Promise<object[]>}
@@ -87,14 +110,14 @@ export async function fetchPublicCollectionsByUser(userId) {
   const uid = assertUuid(userId, "fetchPublicCollectionsByUser");
   const { data, error } = await supabase
     .from("collections")
-    .select(COLLECTION_COLUMNS)
+    .select(COLLECTION_LIST_SELECT)
     .eq("user_id", uid)
     .eq("visibility", "public")
     .order("created_at", { ascending: false });
   if (error) {
     throw new Error(error.message || "fetchPublicCollectionsByUser failed");
   }
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : []).map(unwrapPlaceCount);
 }
 
 /**

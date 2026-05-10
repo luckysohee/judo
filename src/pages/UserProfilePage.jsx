@@ -6,6 +6,7 @@ import { getPickCounts } from "../utils/userProfileFollows";
 import PickUserButton, {
   PickCountsRow,
 } from "../components/PickUserButton/PickUserButton";
+import PublicCollectionsGrid from "../components/Collections/PublicCollectionsGrid";
 
 export default function UserProfilePage() {
   const { userId: userIdParam } = useParams();
@@ -222,6 +223,8 @@ export default function UserProfilePage() {
         onPickCountsChange={onPickCountsChange}
         onRelationshipChange={onRelationshipChange}
       />
+
+      <PublicCollectionsGrid userId={targetId} />
     </div>
   );
 }
