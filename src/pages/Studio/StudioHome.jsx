@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -14,7 +13,6 @@ import StudioTopChrome from "./components/StudioTopChrome";
 import StudioAccessDenied from "./components/StudioAccessDenied";
 import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
-import { devLog } from "./studioHomeModule.js";
 import { useStudioUnreadFollowerToast } from "./hooks/useStudioUnreadFollowerToast";
 import { useStudioPlacePicks } from "./hooks/useStudioPlacePicks";
 import { useStudioSavedFolders } from "./hooks/useStudioSavedFolders";
@@ -26,6 +24,9 @@ import { useStudioCuratorProfileEdit } from "./hooks/useStudioCuratorProfileEdit
 import { useStudioDraftActions } from "./hooks/useStudioDraftActions";
 import { useStudioLiveToggle } from "./hooks/useStudioLiveToggle";
 import { useStudioUnsavedTogglePrompt } from "./hooks/useStudioUnsavedTogglePrompt";
+import { useStudioKakaoMapResizeOnAdd } from "./hooks/useStudioKakaoMapResizeOnAdd";
+import { useStudioAddFormReset } from "./hooks/useStudioAddFormReset";
+import { useStudioEditingPlaceFolderSync } from "./hooks/useStudioEditingPlaceFolderSync";
 import { studioHomeStyles as styles } from "./components/studioHomeStyles";
 
 export default function StudioHome() {
@@ -53,25 +54,7 @@ export default function StudioHome() {
   /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
-  // 지도 크기 새로고침
-  useEffect(() => {
-    if (mapRef.current && activeSection === "add") {
-      const timer = setTimeout(() => {
-        if (mapRef.current) {
-          // 카카오맵이 로드된 경우 강제로 리사이즈
-          if (window.kakao && window.kakao.maps) {
-            try {
-              window.kakao.maps.event.trigger(mapRef.current, 'resize');
-            } catch (error) {
-              devLog("지도 리사이즈 실패:", error);
-            }
-          }
-        }
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [activeSection]); // activeSection이 변경될 때만 실행
+  useStudioKakaoMapResizeOnAdd({ mapRef, activeSection });
 
   // 잔 올리기 폼 상태
   const [formData, setFormData] = useState({
@@ -180,47 +163,19 @@ export default function StudioHome() {
     insertCustomSystemFolderRow,
   });
 
-  // 탭 변경 시 폼 초기화 (잔 리스트→수정→잔 올리기 시에는 건너뜀 — 아니면 editingPlaceId가 지워져 신규 INSERT로 중복 저장됨)
-  useEffect(() => {
-    if (activeSection !== "add") return;
-    if (skipAddSectionResetRef.current) {
-      skipAddSectionResetRef.current = false;
-      return;
-    }
-    if (editingPlaceId) return;
-    setFormData({
-      name_address: "",
-      category: "",
-      alcohol_type: "",
-      atmosphere: "",
-      recommended_menu: "",
-      menu_reason: "",
-      tags: [],
-      latitude: null,
-      longitude: null,
-      kakao_place_id: null,
-      is_public: true,
-    });
-    setAddPlacePhotoFiles([]);
-
-    setSearchSuggestions([]);
-    setShowSuggestions(false);
-    setSelectedSuggestionIndex(-1);
-    setSearchedPlaces([]);
-    setMapCenter({ lat: 37.5665, lng: 126.9780 });
-    setEditingPlaceId(null);
-    try {
-      localStorage.removeItem("editing_place_id");
-    } catch {
-      /* ignore */
-    }
-  }, [
+  useStudioAddFormReset({
     activeSection,
     editingPlaceId,
+    skipAddSectionResetRef,
+    setFormData,
+    setAddPlacePhotoFiles,
     setSearchSuggestions,
     setShowSuggestions,
     setSelectedSuggestionIndex,
-  ]);
+    setSearchedPlaces,
+    setMapCenter,
+    setEditingPlaceId,
+  });
 
   // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
   const [drafts, setDrafts] = useState([]);
@@ -395,43 +350,11 @@ export default function StudioHome() {
     activeSection,
   });
 
-  useEffect(() => {
-    if (!user?.id || !editingPlaceId) return;
-    let cancelled = false;
-    (async () => {
-      const { data: curRow } = await supabase
-        .from("curators")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      const curPk = curRow?.id ?? null;
-      let req = supabase
-        .from("user_saved_places")
-        .select(`id, user_saved_place_folders ( folder_key )`)
-        .eq("place_id", editingPlaceId);
-      if (curPk && String(curPk) !== String(user.id)) {
-        req = req.or(`user_id.eq.${user.id},user_id.eq.${curPk}`);
-      } else {
-        req = req.eq("user_id", user.id);
-      }
-      const { data: rows, error } = await req;
-      if (cancelled) return;
-      if (error || !rows?.length) {
-        setAddPlaceSelectedFolders([]);
-        return;
-      }
-      const keySet = new Set();
-      for (const row of rows) {
-        for (const l of row.user_saved_place_folders || []) {
-          if (l.folder_key) keySet.add(l.folder_key);
-        }
-      }
-      setAddPlaceSelectedFolders([...keySet]);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, editingPlaceId]);
+  useStudioEditingPlaceFolderSync({
+    user,
+    editingPlaceId,
+    setAddPlaceSelectedFolders,
+  });
 
   if (loading) {
     return (
