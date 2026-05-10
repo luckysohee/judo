@@ -26,16 +26,16 @@ import {
 /**
  * 스튜디오 잔 리스트 / 잔 올리기에서 쓰는 카카오 「저장」 폴더(system_folders + user_saved_places).
  *
- * @param {{ user: object | null, activeSection: string, setMyPlaces: function, setAddPlaceSelectedFolders: function, getCuratorRowId: () => unknown }} args
- * `getCuratorRowId`는 부모에서 `curators` 행 PK를 ref로 동기화해 두고 읽도록 한다
- * (큐레이터 프로필 state가 이 훅보다 아래에 선언되는 경우).
+ * @param {{ user: object | null, activeSection: string, setMyPlaces: function, setAddPlaceSelectedFolders: function, curatorRowId: unknown }} args
+ * `curatorRowId`는 `curators` 행 PK — `deleteOwnCustomSystemFolder` 힌트에 쓰인다.
+ * (`handleDeleteSavedFolder`는 useCallback으로 감싸지지 않아 매 렌더 최신 값을 캡처한다.)
  */
 export function useStudioSavedFolders({
   user,
   activeSection,
   setMyPlaces,
   setAddPlaceSelectedFolders,
-  getCuratorRowId,
+  curatorRowId,
 }) {
   const prevActiveSectionForListFolderRef = useRef(null);
 
@@ -198,7 +198,7 @@ export function useStudioSavedFolders({
       const hint = {
         savedPlaceIds: hintSavedIds,
         placeIds: hintPlaceIds,
-        curatorRowId: getCuratorRowId?.() ?? null,
+        curatorRowId: curatorRowId ?? null,
       };
 
       const { error } = await deleteOwnCustomSystemFolder(

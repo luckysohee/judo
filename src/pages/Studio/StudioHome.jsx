@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast/ToastProvider";
@@ -27,7 +27,22 @@ import { useStudioUnsavedTogglePrompt } from "./hooks/useStudioUnsavedToggleProm
 import { useStudioKakaoMapResizeOnAdd } from "./hooks/useStudioKakaoMapResizeOnAdd";
 import { useStudioAddFormReset } from "./hooks/useStudioAddFormReset";
 import { useStudioEditingPlaceFolderSync } from "./hooks/useStudioEditingPlaceFolderSync";
+import { useStudioOpenListFromLocation } from "./hooks/useStudioOpenListFromLocation";
 import { studioHomeStyles as styles } from "./components/studioHomeStyles";
+
+// 지도 기본 장소 (초기 표시용) — 변하지 않으므로 모듈 상수로 둔다.
+const STUDIO_DEFAULT_PLACES = [
+  {
+    id: "default1",
+    name: "서울시청",
+    address: "서울특별시 중구 태평로1가",
+    latitude: 37.5665,
+    longitude: 126.9780,
+    category: "관공서",
+    is_public: true,
+    created_at: new Date().toISOString().split("T")[0],
+  },
+];
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -37,9 +52,6 @@ export default function StudioHome() {
   const mapRef = useRef(null); // 지도 ref 다시 추가
   /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
   const skipAddSectionResetRef = useRef(false);
-  /** deleteOwnCustomSystemFolder 힌트용 curators PK — 프로필 state보다 위에서 폴더 훅을 두므로 매 렌더 동기화 */
-  const curatorRowIdForFoldersRef = useRef(null);
-  /** 잔 아카이브 프로필 박스 — 보기 모드에서 사진만 바로 저장 */
   /** 프로필 수정 모드에서만 사용 — 원 밖 「사진 올리기」 */
   const profileEditAvatarFileRef = useRef(null);
 
@@ -83,6 +95,41 @@ export default function StudioHome() {
   const [editingPlaceId, setEditingPlaceId] = useState(null);
   const [editingDraftId, setEditingDraftId] = useState(null); // 수정 중인 임시저장 ID
 
+  // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
+  const [drafts, setDrafts] = useState([]);
+
+  // 검색 결과 상태
+  const [searchedPlaces, setSearchedPlaces] = useState([]);
+
+  // 지도 중심 상태
+  const [mapCenter, setMapCenter] = useState({ lat: 37.5665, lng: 126.9780 }); // 서울시청
+
+  // 큐레이터 프로필 — 폴더 훅이 `curatorRowId`(= curators PK)를 필요로 해서 위쪽에 둔다.
+  const [curatorProfile, setCuratorProfile] = useState({
+    name: "노포킬러", // 검색용 표시 이름
+    username: "nopokiller", // @고유이름 (개인 주소)
+    displayName: "노포킬러", // 홈에서 표시될 이름
+    bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
+    instagram: "", // 인스타그램 연동
+    grade: "bronze", // 등급: bronze, silver, gold, platinum, diamond
+    status: "active", // 상태: active, warning, suspended, inactive
+    total_places: 0, // 등록 장소 수
+    total_likes: 0, // 총 좋아요 수
+    warning_count: 0, // 경고 횟수
+    created_at: new Date().toISOString(), // 큐레이터 시작일
+    username_changed_at: null,
+  });
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editProfile, setEditProfile] = useState({
+    name: "",
+    username: "",
+    displayName: "",
+    bio: "",
+    instagram: "",
+    image: null,
+  });
+  const [usernameError, setUsernameError] = useState("");
+
   const {
     savedByFolder,
     savedFoldersLoadError,
@@ -120,7 +167,7 @@ export default function StudioHome() {
     activeSection,
     setMyPlaces,
     setAddPlaceSelectedFolders,
-    getCuratorRowId: () => curatorRowIdForFoldersRef.current,
+    curatorRowId: curatorProfile?.id ?? null,
   });
 
   const {
@@ -176,60 +223,6 @@ export default function StudioHome() {
     setMapCenter,
     setEditingPlaceId,
   });
-
-  // 잔 채우기 (임시저장) 상태 - 실제 장소 데이터 사용
-  const [drafts, setDrafts] = useState([]);
-
-  // 검색 결과 상태
-  const [searchedPlaces, setSearchedPlaces] = useState([]);
-
-  // 지도 중심 상태
-  const [mapCenter, setMapCenter] = useState({ lat: 37.5665, lng: 126.9780 }); // 서울시청
-
-  // 지도 기본 장소 (초기 표시용)
-  const [defaultPlaces] = useState([
-    {
-      id: "default1",
-      name: "서울시청",
-      address: "서울특별시 중구 태평로1가",
-      latitude: 37.5665,
-      longitude: 126.9780,
-      category: "관공서",
-      is_public: true,
-      created_at: new Date().toISOString().split('T')[0]
-    }
-  ]);
-
-
-
-  // 큐레이터 프로필 수정 상태
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editProfile, setEditProfile] = useState({
-    name: "",
-    username: "",
-    displayName: "",
-    bio: "",
-    instagram: "",
-    image: null
-  });
-  const [usernameError, setUsernameError] = useState("");
-
-  // 큐레이터 프로필 상태
-  const [curatorProfile, setCuratorProfile] = useState({
-    name: "노포킬러", // 검색용 표시 이름
-    username: "nopokiller", // @고유이름 (개인 주소)
-    displayName: "노포킬러", // 홈에서 표시될 이름
-    bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
-    instagram: "", // 인스타그램 연동
-    grade: "bronze", // 등급: bronze, silver, gold, platinum, diamond
-    status: "active", // 상태: active, warning, suspended, inactive
-    total_places: 0, // 등록 장소 수
-    total_likes: 0, // 총 좋아요 수
-    warning_count: 0, // 경고 횟수
-    created_at: new Date().toISOString(), // 큐레이터 시작일
-    username_changed_at: null,
-  });
-  curatorRowIdForFoldersRef.current = curatorProfile?.id ?? null;
 
   useStudioUnreadFollowerToast({ user, showToast });
 
@@ -337,13 +330,7 @@ export default function StudioHome() {
     handleLiveStartWithoutNotification,
   } = useStudioLiveToggle();
 
-  useEffect(() => {
-    if (location.state?.openStudioList) {
-      setActiveSection("list");
-      navigate("/studio", { replace: true, state: {} });
-    }
-  }, [location.state?.openStudioList, navigate]);
-
+  useStudioOpenListFromLocation({ location, navigate, setActiveSection });
 
   const { studioPlacePicks, studioPlacePicksLoading } = useStudioPlacePicks({
     user,
@@ -545,7 +532,7 @@ export default function StudioHome() {
           sectionInnerStyle={styles.studioSectionInner}
           mapRef={mapRef}
           activeSection={activeSection}
-          defaultPlaces={defaultPlaces}
+          defaultPlaces={STUDIO_DEFAULT_PLACES}
           {...addPlaceSectionProps}
           onSubmit={handleAddPlace}
         />
