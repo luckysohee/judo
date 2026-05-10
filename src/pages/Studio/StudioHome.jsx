@@ -30,7 +30,6 @@ import {
 } from "../../utils/placeTaxonomy.js";
 import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
-import { fetchUserPickedPlaces } from "../../api/placePicks";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlacePicksPublicList from "../../components/PlacePick/PlacePicksPublicList";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -51,6 +50,7 @@ import {
   persistCuratorProfileImageToSupabase,
 } from "./studioHomeModule.js";
 import { useStudioUnreadFollowerToast } from "./hooks/useStudioUnreadFollowerToast";
+import { useStudioPlacePicks } from "./hooks/useStudioPlacePicks";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -77,8 +77,6 @@ export default function StudioHome() {
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
 
   /** 스튜디오「잔 픽」— `place_picks` 만 (curator_places 와 무관) */
-  const [studioPlacePicks, setStudioPlacePicks] = useState([]);
-  const [studioPlacePicksLoading, setStudioPlacePicksLoading] = useState(false);
   const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
   /** 잔 리스트 상단 — 카카오 「저장」 폴더 (system_folders + user_saved_places) */
@@ -1136,25 +1134,10 @@ export default function StudioHome() {
     prevActiveSectionForListFolderRef.current = activeSection;
   }, [activeSection]);
 
-  useEffect(() => {
-    if (activeSection !== "picks" || !user?.id) return undefined;
-    let cancelled = false;
-    setStudioPlacePicksLoading(true);
-    fetchUserPickedPlaces(user.id, { limit: 200 })
-      .then((rows) => {
-        if (!cancelled) setStudioPlacePicks(Array.isArray(rows) ? rows : []);
-      })
-      .catch((e) => {
-        devWarn("StudioHome place_picks:", e);
-        if (!cancelled) setStudioPlacePicks([]);
-      })
-      .finally(() => {
-        if (!cancelled) setStudioPlacePicksLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, user?.id]);
+  const { studioPlacePicks, studioPlacePicksLoading } = useStudioPlacePicks({
+    user,
+    activeSection,
+  });
 
   const sortedSavedFolders = useMemo(() => {
     return [...savedFolderDefs].sort(
