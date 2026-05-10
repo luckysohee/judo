@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCollectionDetail } from "../api/collections";
 import CollectionCourseMap from "../components/Collections/CollectionCourseMap";
+import CollectionSocialRow from "../components/Collections/CollectionSocialRow";
 import {
   formatWalkingMinutes,
   walkingMinutesBetweenPlaces,
@@ -101,6 +102,8 @@ export default function CollectionDetailPage() {
           </span>
         </div>
       </header>
+
+      <CollectionSocialRow collectionId={collection.id} />
 
       {places.length > 0 ? (
         <CollectionCourseMap collectionPlaces={places} />

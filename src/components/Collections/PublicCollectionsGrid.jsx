@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchPublicCollectionsByUser } from "../../api/collections";
+import { fetchCollectionSocialState } from "../../api/collectionSocial";
 
 /**
  * 특정 사용자의 공개 컬렉션을 카드 그리드로 노출.
@@ -19,6 +20,17 @@ export default function PublicCollectionsGrid({
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [socialById, setSocialById] = useState({});
+
+  const itemIdsKey = useMemo(
+    () =>
+      items
+        .map((c) => String(c?.id ?? "").trim())
+        .filter(Boolean)
+        .sort()
+        .join("|"),
+    [items],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +61,39 @@ export default function PublicCollectionsGrid({
       cancelled = true;
     };
   }, [userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!itemIdsKey) {
+        if (!cancelled) setSocialById({});
+        return;
+      }
+      const ids = itemIdsKey.split("|").filter(Boolean);
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const s = await fetchCollectionSocialState(id);
+            return [
+              id,
+              {
+                like_count: s.like_count,
+                save_count: s.save_count,
+              },
+            ];
+          } catch {
+            return [id, { like_count: 0, save_count: 0 }];
+          }
+        }),
+      );
+      if (!cancelled) {
+        setSocialById(Object.fromEntries(results));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemIdsKey]);
 
   if (loading) {
     return (
@@ -88,6 +133,9 @@ export default function PublicCollectionsGrid({
           <CollectionCard
             key={c.id}
             collection={c}
+            socialSummary={
+              socialById[c.id] ?? { like_count: 0, save_count: 0 }
+            }
             onClick={() => navigate(`/collection/${c.id}`)}
           />
         ))}
@@ -96,7 +144,10 @@ export default function PublicCollectionsGrid({
   );
 }
 
-function CollectionCard({ collection, onClick }) {
+function CollectionCard({ collection, socialSummary, onClick }) {
+  const [hover, setHover] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
   const placeCount = Number.isFinite(collection?.place_count)
     ? collection.place_count
     : 0;
@@ -105,8 +156,32 @@ function CollectionCard({ collection, onClick }) {
       ? collection.description.trim()
       : "";
 
+  const likes = Number.isFinite(socialSummary?.like_count)
+    ? socialSummary.like_count
+    : 0;
+  const saves = Number.isFinite(socialSummary?.save_count)
+    ? socialSummary.save_count
+    : 0;
+
   return (
-    <button type="button" onClick={onClick} style={styles.card}>
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setPressed(false);
+      }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      style={{
+        ...styles.card,
+        ...(hover ? styles.cardHover : null),
+        ...(pressed ? styles.cardPressed : null),
+      }}
+    >
       <div style={styles.cover} aria-hidden="true">
         <span style={styles.coverInitial}>
           {(collection?.title || "").trim().charAt(0) || "·"}
@@ -120,6 +195,10 @@ function CollectionCard({ collection, onClick }) {
         <div style={styles.cardMetaRow}>
           <span style={styles.cardCountChip}>장소 {placeCount}</span>
           <span style={styles.cardPublicChip}>공개</span>
+        </div>
+        <div style={styles.cardSocialSummary} aria-hidden="true">
+          <span style={styles.cardSocialItem}>❤️ {likes}</span>
+          <span style={styles.cardSocialItem}>📁 {saves}</span>
         </div>
       </div>
     </button>
@@ -166,7 +245,17 @@ const styles = {
     overflow: "hidden",
     cursor: "pointer",
     color: "#fff",
-    transition: "border-color 0.15s ease, transform 0.15s ease",
+    transition:
+      "border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease",
+  },
+  cardHover: {
+    borderColor: "rgba(255,255,255,0.14)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+    transform: "translateY(-1px)",
+  },
+  cardPressed: {
+    transform: "translateY(0) scale(0.985)",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
   },
   cover: {
     position: "relative",
@@ -231,5 +320,19 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.12)",
     borderRadius: 999,
     padding: "2px 8px",
+  },
+  cardSocialSummary: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#bdbdbd",
+  },
+  cardSocialItem: {
+    letterSpacing: "-0.02em",
   },
 };
