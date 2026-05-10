@@ -7,8 +7,6 @@ import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { isUsernameChangeCooldownError } from "../../utils/usernameCooldown";
-import { normalizeStudioPlaceCategory } from "../../utils/placeTaxonomy.js";
-import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
 import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
@@ -22,8 +20,6 @@ import LiveStartConfirmModal from "./components/LiveStartConfirmModal";
 import { isPlaceSaved } from "../../utils/storage";
 import {
   devLog,
-  dedupeCuratorPlacesByPlaceId,
-  mapCuratorJoinRowsToMyPlaces,
   persistCuratorProfileImageToSupabase,
 } from "./studioHomeModule.js";
 import { useStudioUnreadFollowerToast } from "./hooks/useStudioUnreadFollowerToast";
@@ -32,6 +28,7 @@ import { useStudioSavedFolders } from "./hooks/useStudioSavedFolders";
 import { useStudioCuratorStats } from "./hooks/useStudioCuratorStats";
 import { useStudioPlaceActions } from "./hooks/useStudioPlaceActions";
 import { useStudioAddPlaceForm } from "./hooks/useStudioAddPlaceForm";
+import { useStudioInitialLoad } from "./hooks/useStudioInitialLoad";
 
 export default function StudioHome() {
   const navigate = useNavigate();
@@ -422,11 +419,15 @@ export default function StudioHome() {
     persistUserSavedPlaceFolders,
   });
 
-  useEffect(() => {
-    if (authLoading) return;
-    loadStudioData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- auth/user만 반응, loadStudioData deps 넣으면 반복 호출
-  }, [authLoading, user?.id]);
+  useStudioInitialLoad({
+    user,
+    authLoading,
+    setLoading,
+    setMyPlaces,
+    setDrafts,
+    setIsCurator,
+    setCuratorProfile,
+  });
 
   useEffect(() => {
     if (location.state?.openStudioList) {
@@ -435,241 +436,6 @@ export default function StudioHome() {
     }
   }, [location.state?.openStudioList, navigate]);
 
-
-  const loadCuratorActivity = async (userId) => {
-    try {
-      // 등록된 장소 수 (연결 테이블 통해 조회)
-      const { data: placeCuratorsData, error: placesError } = await supabase
-        .from("curator_places")
-        .select("place_id")
-        .eq("curator_id", userId);
-
-      if (placesError) {
-        console.error("places load error:", placesError);
-        return;
-      }
-      
-      const totalPlaces = placeCuratorsData?.length || 0;
-      const totalLikes = 0; // likes 필드가 없으므로 0
-      
-      // 큐레이터 테이블 업데이트
-      await supabase
-        .from("curators")
-        .update({ 
-          total_places: totalPlaces,
-          total_likes: totalLikes,
-          last_activity_at: new Date().toISOString()
-        })
-        .eq("user_id", userId);
-      
-      // 로컬 상태 업데이트
-      setCuratorProfile(prev => ({
-        ...prev,
-        total_places: totalPlaces,
-        total_likes: totalLikes
-      }));
-    } catch (error) {
-      console.error("activity load error:", error);
-    }
-  };
-
-  const loadStudioData = async () => {
-    try {
-      setLoading(true);
-      if (!user?.id) {
-        devLog("인증된 사용자 없음, 기본 프로필 사용");
-        // 인증되지 않은 경우 기본값 사용
-        const defaultUser = {
-          username: "nopokiller",
-          display_name: "노포킬러",
-          bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
-          image: null
-        };
-        
-        setCuratorProfile(prev => ({
-          ...prev,
-          username: defaultUser.username,
-          displayName: defaultUser.display_name,
-          bio: defaultUser.bio,
-          image: defaultUser.image
-        }));
-      } else {
-        devLog("✅ 인증된 사용자:", user.id);
-        
-        // 인증된 사용자의 프로필 가져오기
-        const { data: profileData, error: profileError } = await supabase
-          .from("curators")
-          .select("*")
-          .eq("user_id", user.id) // user_id로 연결
-          .single();
-          
-        if (profileError && profileError.code !== 'PGRST116') {
-          devLog("프로필 데이터 없음, 기본값 사용:", profileError);
-        }
-        
-        // 큐레이터 여부 확인
-        const isUserCurator = profileData && !profileError;
-        setIsCurator(isUserCurator);
-        devLog("🎭 큐레이터 여부:", isUserCurator);
-        
-        const currentUser = profileData || {
-          user_id: user.id, // 인증된 사용자 ID 연결
-          slug: user.user_metadata?.username || user.email?.split('@')[0],
-          username: user.user_metadata?.username || user.email?.split('@')[0],
-          name: user.user_metadata?.display_name || "큐레이터",
-          display_name: user.user_metadata?.display_name || "큐레이터",
-          bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
-          image: null,
-          grade: "bronze",
-          status: "active",
-          total_places: 0,
-          total_likes: 0,
-          warning_count: 0
-        };
-
-        devLog("📂 프로필 데이터 로드:", currentUser);
-        
-        setCuratorProfile(prev => ({
-          ...prev,
-          id: currentUser.id, // ID 필드 추가
-          user_id: currentUser.user_id || user.id,
-          username:
-            String(currentUser.slug || currentUser.username || "").trim(),
-          displayName:
-            String(
-              currentUser.name ||
-                currentUser.display_name ||
-                currentUser.slug ||
-                currentUser.username ||
-                ""
-            ).trim() || "큐레이터",
-          bio: currentUser.bio,
-          image:
-            currentUser.avatar_url ??
-            currentUser.avatar ??
-            currentUser.image ??
-            null,
-          grade: currentUser.grade || "bronze",
-          status: currentUser.status || "active",
-          total_places: currentUser.total_places || 0,
-          total_likes: currentUser.total_likes || 0,
-          warning_count: currentUser.warning_count || 0,
-          created_at: currentUser.created_at || prev.created_at,
-          username_changed_at: currentUser.username_changed_at ?? null,
-        }));
-
-        await loadCuratorActivity(user.id);
-      }
-      
-      devLog("📂 스튜디오 데이터 로딩 시작...");
-      devLog("🔍 현재 사용자 ID:", user?.id);
-
-      if (!user?.id) {
-        setMyPlaces([]);
-        const savedDraftsGuest = readStudioDrafts(null);
-        setDrafts(savedDraftsGuest);
-        setLoading(false);
-        return;
-      }
-      
-      // curator_places.curator_id = auth.uid() (= curators.user_id)
-      // 임베드 places(*) 대신 병합 로드 — jsonb tags 등으로 임베드가 비는 행이 있어도 리스트에 포함
-      let curatorPlacesRaw = [];
-      let placesError = null;
-      try {
-        curatorPlacesRaw = await fetchCuratorPlacesMergedWithPlaces(
-          supabase,
-          user.id
-        );
-      } catch (e) {
-        placesError = e;
-      }
-
-      const curatorPlacesData = dedupeCuratorPlacesByPlaceId(
-        curatorPlacesRaw
-      );
-
-      // 장소 데이터 추출
-      const placesData = curatorPlacesData?.map(cp => cp.places).filter(Boolean) || [];
-
-      devLog("🔍 큐레이터 추천 쿼리 결과:", { data: curatorPlacesData, error: placesError });
-
-      // 만약 데이터가 없다면, 기존 방식으로도 확인
-      if (!placesData || placesData.length === 0) {
-        devLog("⚠️ 다대다 방식으로 장소 없음, 기존 방식으로 확인 중...");
-        
-        // 기존 방식으로도 확인 (user_id 필드가 아직 있는 경우)
-        const { data: oldWayData, error: _oldWayError } = await supabase
-          .from("places")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-        
-        if (oldWayData && oldWayData.length > 0) {
-          devLog("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
-          
-          // 기존 방식으로 데이터 변환
-          const formattedPlaces = oldWayData.map((place) => ({
-            id: place.id,
-            name: place.name,
-            address: place.address || place.name,
-            latitude: place.lat,
-            longitude: place.lng,
-            category:
-              normalizeStudioPlaceCategory(place.category || "") || "미분류",
-            alcohol_type: place.alcohol_type || "",
-            atmosphere: place.atmosphere || "",
-            recommended_menu: place.recommended_menu || "",
-            menu_reason: place.menu_reason || "",
-            tags: place.tags || [],
-            is_public: place.is_public,
-            created_at: place.created_at ? new Date(place.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-          }));
-          
-          setMyPlaces(formattedPlaces);
-          devLog("✅ myPlaces 업데이트 완료 (기존 방식):", formattedPlaces);
-          setLoading(false);
-          return;
-        }
-        
-        // 완전히 없는 경우
-        devLog("🔍 모든 장소 확인 중...");
-        const { data: allPlaces, error: _allPlacesError } = await supabase
-          .from("places")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(10);
-        
-        devLog("🔍 모든 장소 데이터:", allPlaces);
-        devLog("🔍 모든 장소 user_id:", allPlaces?.map(p => ({ id: p.id, name: p.name, user_id: p.user_id })));
-      }
-
-      if (placesError) {
-        console.error("❌ 장소 로딩 오류:", placesError);
-      } else {
-        devLog("✅ 불러온 장소 데이터:", placesData);
-        
-        const formattedPlaces =
-          mapCuratorJoinRowsToMyPlaces(curatorPlacesData);
-        
-        setMyPlaces(formattedPlaces);
-        devLog("✅ myPlaces 업데이트 완료:", formattedPlaces);
-        
-        // drafts는 별도로 관리 (myPlaces와 동기화하지 않음)
-        // 임시저장된 데이터만 drafts에 표시됨
-        
-        // localStorage에서 임시저장된 데이터 불러오기
-        const savedDrafts = readStudioDrafts(user.id);
-        setDrafts(savedDrafts);
-        devLog("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error("❌ Studio data loading error:", error);
-      setLoading(false);
-    }
-  };
 
   const { studioPlacePicks, studioPlacePicksLoading } = useStudioPlacePicks({
     user,
