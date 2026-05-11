@@ -7,6 +7,7 @@ import PickUserButton, {
   PickCountsRow,
 } from "../components/PickUserButton/PickUserButton";
 import PublicCollectionsGrid from "../components/Collections/PublicCollectionsGrid";
+import UserTasteProfileBanner from "../components/UserProfile/UserTasteProfileBanner";
 
 export default function UserProfilePage() {
   const { userId: userIdParam } = useParams();
@@ -223,6 +224,8 @@ export default function UserProfilePage() {
         onPickCountsChange={onPickCountsChange}
         onRelationshipChange={onRelationshipChange}
       />
+
+      <UserTasteProfileBanner targetUserId={targetId} isSelf={isSelf} />
 
       {isSelf ? (
         <div style={{ marginTop: 16 }}>

@@ -10,8 +10,6 @@ export default function SavedPlaces({
   onClose,
   onOpenPlaceDetail,
 }) {
-  if (!open) return null;
-
   const safeFolders = Array.isArray(folders) ? folders : [];
 
   const COLOR_OPTIONS = useMemo(
@@ -70,6 +68,8 @@ export default function SavedPlaces({
       setErrorMessage(e?.message || "폴더 삭제에 실패했습니다.");
     }
   };
+
+  if (!open) return null;
 
   return (
     <div style={styles.overlay} onClick={onClose}>

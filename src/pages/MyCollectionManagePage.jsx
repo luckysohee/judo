@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import CollectionAddPlaceSearchSheet from "../components/Collections/CollectionAddPlaceSearchSheet";
+import CollectionCompletionCard from "../components/Collections/CollectionCompletionCard";
+import CollectionPublishPanel from "../components/Collections/CollectionPublishPanel";
+import CollectionStepLabelEditor from "../components/Collections/CollectionStepLabelEditor";
+import CollectionTagsEditor from "../components/Collections/CollectionTagsEditor";
 import {
-  addPlaceToCollection,
   fetchCollectionDetail,
   removePlaceFromCollection,
   reorderCollectionPlaces,
   updateCollection,
+  updateCollectionPlaceStepLabel,
 } from "../api/collections";
+import { generateVibeCaptionSuggestions } from "../utils/generateVibeCaptionSuggestions";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,16 +41,56 @@ export default function MyCollectionManagePage() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editVisibility, setEditVisibility] = useState("public");
+  const [editCoverImageUrl, setEditCoverImageUrl] = useState("");
+  const [editVibeCaption, setEditVibeCaption] = useState("");
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState("");
+  /** @type {[string[], React.Dispatch<React.SetStateAction<string[]>>]} */
+  const [vibeSuggestions, setVibeSuggestions] = useState([]);
+  /** @type {["idle" | "shown" | "empty", React.Dispatch<React.SetStateAction<"idle" | "shown" | "empty">>]} */
+  const [vibeSuggestState, setVibeSuggestState] = useState("idle");
+  const [vibeAppliedNote, setVibeAppliedNote] = useState("");
 
   const [placeBusy, setPlaceBusy] = useState(false);
   const [placeError, setPlaceError] = useState("");
-
-  const [newPlaceId, setNewPlaceId] = useState("");
-  const [addingPlace, setAddingPlace] = useState(false);
+  const [addPlaceSheetOpen, setAddPlaceSheetOpen] = useState(false);
 
   const cid = collectionId ? String(collectionId).trim() : "";
+
+  // 완성도 카드의 부족 요소 클릭 시 해당 입력으로 스크롤·포커스 하기 위한 ref들.
+  const titleInputRef = useRef(null);
+  const descInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const vibeInputRef = useRef(null);
+  const tagsSectionRef = useRef(null);
+  const placesSectionRef = useRef(null);
+
+  const onCompletionSuggestionClick = useCallback((key) => {
+    /** @type {Record<string, React.RefObject<HTMLElement>>} */
+    const map = {
+      title: titleInputRef,
+      desc: descInputRef,
+      cover: coverInputRef,
+      vibe: vibeInputRef,
+      tags: tagsSectionRef,
+      step: placesSectionRef,
+      place: placesSectionRef,
+    };
+    const target = map[key]?.current;
+    if (!target) return;
+    try {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (typeof target.focus === "function") {
+        try {
+          target.focus({ preventScroll: true });
+        } catch {
+          target.focus();
+        }
+      }
+    } catch {
+      /* JSDOM 등 scrollIntoView 미지원 환경 무시 */
+    }
+  }, []);
 
   const reload = useCallback(async () => {
     if (!UUID_RE.test(cid)) {
@@ -73,6 +119,12 @@ export default function MyCollectionManagePage() {
         typeof row.description === "string" ? row.description : "",
       );
       setEditVisibility(row.visibility === "private" ? "private" : "public");
+      setEditCoverImageUrl(
+        typeof row.cover_image_url === "string" ? row.cover_image_url : "",
+      );
+      setEditVibeCaption(
+        typeof row.vibe_caption === "string" ? row.vibe_caption : "",
+      );
     } catch (e) {
       console.error("MyCollectionManagePage load:", e);
       setLoadError(e?.message || "불러오지 못했습니다.");
@@ -107,6 +159,35 @@ export default function MyCollectionManagePage() {
     [orderedRows],
   );
 
+  const onSuggestVibeCaption = useCallback(() => {
+    const list = generateVibeCaptionSuggestions({
+      tags: collection?.tags,
+      collectionPlaces: orderedRows,
+    });
+    setVibeAppliedNote("");
+    if (!Array.isArray(list) || list.length === 0) {
+      setVibeSuggestions([]);
+      setVibeSuggestState("empty");
+      return;
+    }
+    setVibeSuggestions(list);
+    setVibeSuggestState("shown");
+  }, [collection?.tags, orderedRows]);
+
+  const onApplyVibeSuggestion = useCallback((text) => {
+    const clean = String(text ?? "").trim();
+    if (!clean) return;
+    setEditVibeCaption(clean);
+    setVibeAppliedNote("추천 문구를 넣었어요. 필요하면 고치고 저장하세요.");
+    window.requestAnimationFrame(() => {
+      try {
+        vibeInputRef.current?.focus?.({ preventScroll: true });
+      } catch {
+        vibeInputRef.current?.focus?.();
+      }
+    });
+  }, []);
+
   const onSaveMeta = async (e) => {
     e.preventDefault();
     if (!UUID_RE.test(cid)) return;
@@ -117,6 +198,8 @@ export default function MyCollectionManagePage() {
         title: editTitle,
         description: editDescription.trim() || null,
         visibility: editVisibility,
+        cover_image_url: editCoverImageUrl.trim() || null,
+        vibe_caption: editVibeCaption.trim() || null,
       });
       if (error) {
         setMetaError(error.message || "저장에 실패했습니다.");
@@ -149,21 +232,48 @@ export default function MyCollectionManagePage() {
   };
 
   const moveUp = async (index) => {
-    if (index <= 0 || placeBusy || addingPlace) return;
+    if (index <= 0 || placeBusy) return;
     const next = [...orderedPlaceIds];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
     await applyReorder(next);
   };
 
   const moveDown = async (index) => {
-    if (index >= orderedPlaceIds.length - 1 || placeBusy || addingPlace) return;
+    if (index >= orderedPlaceIds.length - 1 || placeBusy) return;
     const next = [...orderedPlaceIds];
     [next[index], next[index + 1]] = [next[index + 1], next[index]];
     await applyReorder(next);
   };
 
+  const saveStepLabel = useCallback(
+    async (placeId, nextLabel) => {
+      const pid = String(placeId || "").trim();
+      if (!UUID_RE.test(cid) || !UUID_RE.test(pid)) {
+        throw new Error("잘못된 ID 입니다.");
+      }
+      setPlaceError("");
+      const { data, error } = await updateCollectionPlaceStepLabel(
+        cid,
+        pid,
+        nextLabel,
+      );
+      if (error) {
+        const msg = error.message || "스텝 라벨 저장에 실패했습니다.";
+        setPlaceError(msg);
+        throw new Error(msg);
+      }
+      if (!data) {
+        const msg = "수정 권한이 없거나 행을 찾지 못했습니다.";
+        setPlaceError(msg);
+        throw new Error(msg);
+      }
+      await reload();
+    },
+    [cid, reload],
+  );
+
   const removePlace = async (placeId) => {
-    if (!UUID_RE.test(cid) || !UUID_RE.test(placeId) || placeBusy || addingPlace) return;
+    if (!UUID_RE.test(cid) || !UUID_RE.test(placeId) || placeBusy) return;
     if (!window.confirm("이 장소를 컬렉션에서 제거할까요?")) return;
     setPlaceError("");
     setPlaceBusy(true);
@@ -180,34 +290,6 @@ export default function MyCollectionManagePage() {
       await reload();
     } finally {
       setPlaceBusy(false);
-    }
-  };
-
-  const addPlace = async (e) => {
-    e.preventDefault();
-    const pid = newPlaceId.trim();
-    if (!UUID_RE.test(cid) || !UUID_RE.test(pid) || placeBusy || addingPlace) return;
-    setPlaceError("");
-    setAddingPlace(true);
-    try {
-      const { data, error } = await addPlaceToCollection(cid, pid, null);
-      if (error) {
-        const msg = error.message || String(error);
-        if (/duplicate|unique|23505/i.test(msg)) {
-          setPlaceError("이미 이 컬렉션에 포함된 장소입니다.");
-        } else {
-          setPlaceError(msg || "추가에 실패했습니다.");
-        }
-        return;
-      }
-      if (!data) {
-        setPlaceError("추가에 실패했습니다.");
-        return;
-      }
-      setNewPlaceId("");
-      await reload();
-    } finally {
-      setAddingPlace(false);
     }
   };
 
@@ -264,12 +346,20 @@ export default function MyCollectionManagePage() {
 
       <h1 style={styles.h1}>컬렉션 편집</h1>
 
+      <CollectionCompletionCard
+        collection={collection}
+        onSuggestionClick={onCompletionSuggestionClick}
+      />
+
+      <CollectionPublishPanel collection={collection} onChanged={reload} />
+
       <section style={styles.card}>
         <h2 style={styles.h2}>정보</h2>
         <form onSubmit={onSaveMeta} style={styles.form}>
           <label style={styles.label}>
             제목
             <input
+              ref={titleInputRef}
               type="text"
               value={editTitle}
               onChange={(ev) => setEditTitle(ev.target.value)}
@@ -279,13 +369,96 @@ export default function MyCollectionManagePage() {
             />
           </label>
           <label style={styles.label}>
+            이 코스는 어떤 분위기인가요?
+            <input
+              ref={vibeInputRef}
+              type="text"
+              value={editVibeCaption}
+              onChange={(ev) => {
+                setEditVibeCaption(ev.target.value);
+                if (vibeAppliedNote) setVibeAppliedNote("");
+              }}
+              style={styles.input}
+              maxLength={80}
+              placeholder="예) 비 오는 날 천천히 걷는 을지로"
+              autoComplete="off"
+            />
+            <span style={styles.subHint}>
+              한 줄 무드. 카드 제목 아래 그대로 보입니다 (최대 80자).
+            </span>
+            <div style={styles.vibeSuggestRow}>
+              <button
+                type="button"
+                onClick={onSuggestVibeCaption}
+                style={styles.btnSuggestVibe}
+                aria-expanded={vibeSuggestState === "shown"}
+                aria-controls="vibe-suggestions"
+              >
+                분위기 추천받기
+              </button>
+              {vibeAppliedNote ? (
+                <span style={styles.vibeSuggestOk} role="status">
+                  {vibeAppliedNote}
+                </span>
+              ) : null}
+            </div>
+            {vibeSuggestState === "empty" ? (
+              <div
+                id="vibe-suggestions"
+                style={styles.vibeSuggestEmpty}
+                role="status"
+              >
+                아직 추천할 분위기가 부족해요. 태그·스텝 라벨·장소를 조금 더
+                채우면 자동으로 후보가 만들어져요.
+              </div>
+            ) : null}
+            {vibeSuggestState === "shown" && vibeSuggestions.length > 0 ? (
+              <div
+                id="vibe-suggestions"
+                style={styles.vibeSuggestList}
+                role="group"
+                aria-label="vibe 추천 문구"
+              >
+                {vibeSuggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => onApplyVibeSuggestion(s)}
+                    style={styles.vibeSuggestChip}
+                    title="이 문구를 분위기 입력에 넣기"
+                  >
+                    <span aria-hidden="true" style={styles.vibeSuggestChipIcon}>
+                      ✨
+                    </span>
+                    <span style={styles.vibeSuggestChipText}>{s}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </label>
+          <label style={styles.label}>
             설명
             <textarea
+              ref={descInputRef}
               value={editDescription}
               onChange={(ev) => setEditDescription(ev.target.value)}
               style={{ ...styles.input, minHeight: 80, resize: "vertical" }}
               rows={4}
               maxLength={2000}
+            />
+          </label>
+          <label style={styles.label}>
+            커버 이미지 URL
+            <input
+              ref={coverInputRef}
+              type="url"
+              value={editCoverImageUrl}
+              onChange={(ev) => setEditCoverImageUrl(ev.target.value)}
+              placeholder="https://…"
+              style={styles.input}
+              maxLength={2048}
+              autoComplete="off"
+              spellCheck={false}
             />
           </label>
           <label style={styles.label}>
@@ -306,33 +479,39 @@ export default function MyCollectionManagePage() {
         </form>
       </section>
 
-      <section style={{ ...styles.card, marginTop: 16 }}>
+      <div style={{ marginTop: 16 }} ref={tagsSectionRef} tabIndex={-1}>
+        <CollectionTagsEditor
+          collectionId={cid}
+          tags={collection?.tags}
+          onChanged={reload}
+        />
+      </div>
+
+      <section
+        style={{ ...styles.card, marginTop: 16 }}
+        ref={placesSectionRef}
+        tabIndex={-1}
+      >
         <h2 style={styles.h2}>장소</h2>
-        <form onSubmit={addPlace} style={{ ...styles.form, marginBottom: 14 }}>
-          <label style={styles.label}>
-            장소 추가 (places.id UUID)
-            <input
-              type="text"
-              value={newPlaceId}
-              onChange={(ev) => setNewPlaceId(ev.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              style={styles.input}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
+        <div style={{ marginBottom: 14 }}>
           <button
-            type="submit"
-            disabled={
-              addingPlace ||
-              placeBusy ||
-              !UUID_RE.test(newPlaceId.trim())
-            }
+            type="button"
+            disabled={placeBusy}
+            onClick={() => setAddPlaceSheetOpen(true)}
             style={styles.btnSecondary}
           >
-            {addingPlace ? "추가 중…" : "추가"}
+            장소 추가
           </button>
-        </form>
+        </div>
+        {addPlaceSheetOpen ? (
+          <CollectionAddPlaceSearchSheet
+            collectionId={cid}
+            existingPlaceIds={orderedPlaceIds}
+            onClose={() => setAddPlaceSheetOpen(false)}
+            onAdded={reload}
+            setPlaceBusy={setPlaceBusy}
+          />
+        ) : null}
         <p style={styles.hint}>
           순서는 아래 ↑↓ 로 바꿉니다. 같은 장소는 한 번만 담을 수 있습니다.
         </p>
@@ -348,6 +527,13 @@ export default function MyCollectionManagePage() {
                   <div style={styles.liOrder}>{idx + 1}</div>
                   <div style={styles.liBody}>
                     <div style={styles.liTitle}>{placeLabel(row)}</div>
+                    <div style={styles.liStep}>
+                      <CollectionStepLabelEditor
+                        value={row.step_label}
+                        disabled={placeBusy || !UUID_RE.test(pid)}
+                        onSave={(next) => saveStepLabel(pid, next)}
+                      />
+                    </div>
                     {pid ? (
                       <Link to={`/place/${pid}`} style={styles.placeLink}>
                         장소 페이지
@@ -357,7 +543,7 @@ export default function MyCollectionManagePage() {
                   <div style={styles.liBtns}>
                     <button
                       type="button"
-                      disabled={placeBusy || addingPlace || idx === 0}
+                      disabled={placeBusy || idx === 0}
                       onClick={() => moveUp(idx)}
                       style={styles.iconBtn}
                       aria-label="위로"
@@ -367,7 +553,7 @@ export default function MyCollectionManagePage() {
                     <button
                       type="button"
                       disabled={
-                        placeBusy || addingPlace || idx === orderedRows.length - 1
+                        placeBusy || idx === orderedRows.length - 1
                       }
                       onClick={() => moveDown(idx)}
                       style={styles.iconBtn}
@@ -377,7 +563,7 @@ export default function MyCollectionManagePage() {
                     </button>
                     <button
                       type="button"
-                      disabled={placeBusy || addingPlace || !UUID_RE.test(pid)}
+                      disabled={placeBusy || !UUID_RE.test(pid)}
                       onClick={() => removePlace(pid)}
                       style={styles.dangerBtn}
                     >
@@ -466,6 +652,83 @@ const styles = {
     textDecoration: "none",
   },
   hint: { fontSize: 12, color: "#888", margin: "0 0 12px", lineHeight: 1.45 },
+  subHint: { fontSize: 11, color: "#888", lineHeight: 1.45, marginTop: -2 },
+  vibeSuggestRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+  btnSuggestVibe: {
+    alignSelf: "flex-start",
+    borderRadius: 10,
+    border: "1px solid rgba(155,89,182,0.55)",
+    background: "rgba(155,89,182,0.14)",
+    color: "#dcc6ff",
+    padding: "8px 12px",
+    fontWeight: 800,
+    fontSize: 13,
+    cursor: "pointer",
+    minHeight: 40,
+  },
+  vibeSuggestOk: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#9ad3a4",
+    lineHeight: 1.45,
+    maxWidth: "100%",
+  },
+  vibeSuggestEmpty: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#bdbdbd",
+    lineHeight: 1.5,
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: "rgba(155,89,182,0.08)",
+    border: "1px dashed rgba(155,89,182,0.35)",
+  },
+  vibeSuggestList: {
+    marginTop: 10,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    padding: "10px 10px 12px",
+    borderRadius: 12,
+    background:
+      "linear-gradient(135deg, rgba(155,89,182,0.08), rgba(46,204,113,0.06))",
+    border: "1px solid rgba(155,89,182,0.28)",
+  },
+  vibeSuggestChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%",
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(155,89,182,0.45)",
+    background: "rgba(155,89,182,0.16)",
+    color: "#ecdcff",
+    fontSize: 12.5,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    cursor: "pointer",
+    textAlign: "left",
+    transition: "background 120ms ease, transform 120ms ease",
+  },
+  vibeSuggestChipIcon: {
+    fontSize: 12,
+    lineHeight: 1,
+    opacity: 0.85,
+  },
+  vibeSuggestChipText: {
+    display: "inline-block",
+    maxWidth: "100%",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
   err: { color: "#e74c3c", marginTop: 16 },
   errBox: {
     fontSize: 13,
@@ -500,8 +763,9 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
   },
-  liBody: { flex: 1, minWidth: 0 },
+  liBody: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 },
   liTitle: { fontWeight: 700, fontSize: 14, color: "#fff" },
+  liStep: { display: "flex", flexWrap: "wrap" },
   placeLink: {
     display: "inline-block",
     marginTop: 4,

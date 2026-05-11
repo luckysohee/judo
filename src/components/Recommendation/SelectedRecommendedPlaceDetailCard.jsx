@@ -28,7 +28,7 @@ export function SelectedRecommendedPlaceDetailCard({
   onViewOnMap,
   canCheckIn = true,
 }) {
-  if (!selectedRecommendedPlace && !matchedMapPlace) return null;
+  const hasPlace = Boolean(selectedRecommendedPlace || matchedMapPlace);
 
   const name =
     selectedRecommendedPlace?.name ??
@@ -103,6 +103,8 @@ export function SelectedRecommendedPlaceDetailCard({
         if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
       });
   }, [checkinKey]);
+
+  if (!hasPlace) return null;
 
   return (
     <div

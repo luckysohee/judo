@@ -1,9 +1,21 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import {
+  COLLECTION_INTERACTION_EVENT,
+  COLLECTION_INTERACTION_SOURCE_SECTION,
+  logCollectionInteraction,
+} from "../api/collectionInteractionLogs";
 import { fetchCollectionDetail } from "../api/collections";
+import { dedupeAndNormalizeCollectionTags } from "../utils/collectionTags";
+import CollectionCoverMedia from "../components/Collections/CollectionCoverMedia";
 import CollectionCourseMap from "../components/Collections/CollectionCourseMap";
+import CollectionDuplicateCtaButton from "../components/Collections/CollectionDuplicateCtaButton";
+import CollectionLineageRow from "../components/Collections/CollectionLineageRow";
+import CollectionRecommendationsSection from "../components/Collections/CollectionRecommendationsSection";
+import CollectionRemixChildrenSection from "../components/Collections/CollectionRemixChildrenSection";
 import CollectionSocialRow from "../components/Collections/CollectionSocialRow";
 import { useToast } from "../components/Toast/ToastProvider";
+import { useAuth } from "../context/AuthContext";
 import {
   formatWalkingMinutes,
   walkingMinutesBetweenPlaces,
@@ -17,6 +29,7 @@ import {
 export default function CollectionDetailPage() {
   const { collectionId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [collection, setCollection] = useState(null);
@@ -86,6 +99,10 @@ export default function CollectionDetailPage() {
   const places = Array.isArray(collection.collection_places)
     ? collection.collection_places
     : [];
+  const displayTags = dedupeAndNormalizeCollectionTags(collection.tags);
+  const showRemixCta =
+    collection.visibility === "public" &&
+    (!user?.id || collection.user_id !== user.id);
 
   return (
     <div style={styles.page}>
@@ -97,8 +114,23 @@ export default function CollectionDetailPage() {
         />
       </div>
 
+      <CollectionCoverMedia
+        url={collection.cover_image_url}
+        collectionId={collection.id}
+        letter={(collection.title || "").trim().charAt(0) || "·"}
+        imgLoading="eager"
+        tags={collection.tags}
+        stepLabels={collection.collection_places}
+        wrapperStyle={styles.heroCover}
+        letterTextStyle={styles.heroCoverLetter}
+      />
+
       <header style={styles.header}>
         <h1 style={styles.title}>{collection.title || "(제목 없음)"}</h1>
+        {typeof collection.vibe_caption === "string" &&
+        collection.vibe_caption.trim() ? (
+          <p style={styles.vibe}>{collection.vibe_caption.trim()}</p>
+        ) : null}
         {description ? (
           <p style={styles.desc}>{description}</p>
         ) : null}
@@ -108,7 +140,21 @@ export default function CollectionDetailPage() {
             {collection.visibility === "public" ? "공개" : "비공개"}
           </span>
         </div>
+        {displayTags.length > 0 ? (
+          <div style={styles.tagRow} aria-label="컬렉션 태그">
+            {displayTags.map((t) => (
+              <span key={t.toLowerCase()} style={styles.tagChip}>
+                #{t}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </header>
+
+      <CollectionLineageRow
+        collectionId={collection.id}
+        remixedFromCollectionId={collection.remixed_from_collection_id}
+      />
 
       <CollectionSocialRow collectionId={collection.id} />
 
@@ -131,6 +177,17 @@ export default function CollectionDetailPage() {
           })
         )}
       </ol>
+
+      <CollectionRecommendationsSection collectionId={collection.id} />
+
+      <CollectionRemixChildrenSection collectionId={collection.id} />
+
+      {showRemixCta ? (
+        <CollectionDuplicateCtaButton
+          sourceCollectionId={collection.id}
+          sourceTitle={collection.title}
+        />
+      ) : null}
     </div>
   );
 }
@@ -177,6 +234,12 @@ function CollectionShareButton({ collectionId, title }) {
             text: shareText,
             url,
           });
+          logCollectionInteraction({
+            eventType: COLLECTION_INTERACTION_EVENT.COLLECTION_SHARE_SUCCESS,
+            sourceSection:
+              COLLECTION_INTERACTION_SOURCE_SECTION.COLLECTION_DETAIL_SHARE,
+            collectionId: id,
+          });
           return;
         } catch (err) {
           if (err?.name === "AbortError") return;
@@ -189,6 +252,12 @@ function CollectionShareButton({ collectionId, title }) {
       ) {
         await navigator.clipboard.writeText(url);
         showToast("컬렉션 링크를 복사했어요.", "success", 2800);
+        logCollectionInteraction({
+          eventType: COLLECTION_INTERACTION_EVENT.COLLECTION_SHARE_SUCCESS,
+          sourceSection:
+            COLLECTION_INTERACTION_SOURCE_SECTION.COLLECTION_DETAIL_SHARE,
+          collectionId: id,
+        });
         return;
       }
 
@@ -244,6 +313,8 @@ function WalkingDivider({ from, to }) {
 function PlaceRow({ order, row }) {
   const place = row?.places || {};
   const memo = typeof row?.memo === "string" ? row.memo.trim() : "";
+  const stepLabel =
+    typeof row?.step_label === "string" ? row.step_label.trim() : "";
   const name =
     String(place.name || place.display_name || "이름 없음").trim() || "이름 없음";
   const address = String(place.address || place.road_address_name || "").trim();
@@ -252,7 +323,14 @@ function PlaceRow({ order, row }) {
 
   return (
     <li style={styles.row}>
-      <div style={styles.rowOrder}>{order}</div>
+      <div style={styles.rowOrderWrap}>
+        <div style={styles.rowOrder}>{order}</div>
+        {stepLabel ? (
+          <div style={styles.rowStepLabel} title={stepLabel}>
+            {stepLabel}
+          </div>
+        ) : null}
+      </div>
       <div style={styles.rowThumb} aria-hidden="true">
         {image ? (
           <img
@@ -296,6 +374,21 @@ const styles = {
     marginBottom: 18,
     flexWrap: "wrap",
   },
+  heroCover: {
+    width: "100%",
+    maxWidth: "100%",
+    aspectRatio: "16 / 9",
+    borderRadius: 12,
+    border: "1px solid #262626",
+    marginBottom: 18,
+    boxSizing: "border-box",
+  },
+  heroCoverLetter: {
+    fontSize: 40,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.88)",
+    letterSpacing: "-0.03em",
+  },
   backBtn: {
     border: "1px solid #444",
     background: "#1a1a1a",
@@ -334,6 +427,15 @@ const styles = {
     color: "#fff",
     lineHeight: 1.25,
   },
+  vibe: {
+    margin: "0 0 10px",
+    color: "#9ad3a4",
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.45,
+    letterSpacing: "-0.01em",
+    fontStyle: "italic",
+  },
   desc: {
     margin: "0 0 10px",
     color: "#bdbdbd",
@@ -364,6 +466,22 @@ const styles = {
     borderRadius: 999,
     padding: "3px 10px",
   },
+  tagRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  tagChip: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "#d4f4dd",
+    background: "rgba(46,204,113,0.14)",
+    border: "1px solid rgba(46,204,113,0.42)",
+    borderRadius: 999,
+    padding: "3px 10px",
+    letterSpacing: "-0.01em",
+  },
   list: {
     listStyle: "none",
     margin: 0,
@@ -381,8 +499,15 @@ const styles = {
     borderRadius: 12,
     padding: 12,
   },
-  rowOrder: {
+  rowOrderWrap: {
     flexShrink: 0,
+    width: 44,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+  },
+  rowOrder: {
     width: 26,
     height: 26,
     borderRadius: "50%",
@@ -394,6 +519,21 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+  },
+  rowStepLabel: {
+    maxWidth: 60,
+    fontSize: 10,
+    fontWeight: 800,
+    color: "#9ad3a4",
+    background: "rgba(46,204,113,0.12)",
+    border: "1px solid rgba(46,204,113,0.45)",
+    borderRadius: 6,
+    padding: "1px 6px",
+    textAlign: "center",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    lineHeight: 1.3,
   },
   rowThumb: {
     flexShrink: 0,

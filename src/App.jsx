@@ -12,6 +12,7 @@ import SavedPlacesPage from "./pages/SavedPlacesPage";
 import AdminHubPage from "./pages/AdminHubPage";
 import AdminApplicationsPage from "./pages/AdminApplicationsPage";
 import SearchInsightsPage from "./pages/SearchInsightsPage";
+import CollectionInsightsPage from "./pages/CollectionInsightsPage";
 import CuratorManagementPage from "./pages/CuratorManagementPage";
 import AdminCuratorsAuditPage from "./pages/AdminCuratorsAuditPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
@@ -22,6 +23,8 @@ import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
 import CollectionDetailPage from "./pages/CollectionDetailPage";
+import CollectionsByTagPage from "./pages/CollectionsByTagPage";
+import CollectionsSearchPage from "./pages/CollectionsSearchPage";
 import MyCollectionsPage from "./pages/MyCollectionsPage";
 import MyCollectionManagePage from "./pages/MyCollectionManagePage";
 
@@ -35,6 +38,8 @@ function App() {
       <Route path="/map" element={<MapView />} />
       <Route path="/place/:id" element={<PlaceDetailPage />} />
       <Route path="/collection/:collectionId" element={<CollectionDetailPage />} />
+      <Route path="/collections/tag/:tag" element={<CollectionsByTagPage />} />
+      <Route path="/collections/search" element={<CollectionsSearchPage />} />
       <Route path="/my-collections" element={<MyCollectionsPage />} />
       <Route path="/my-collections/:collectionId" element={<MyCollectionManagePage />} />
       <Route path="/curator/:name" element={<CuratorPageScreen />} />
@@ -45,6 +50,10 @@ function App() {
         <Route index element={<AdminHubPage />} />
         <Route path="applications" element={<AdminApplicationsPage />} />
         <Route path="search-insights" element={<SearchInsightsPage />} />
+        <Route
+          path="collection-insights"
+          element={<CollectionInsightsPage />}
+        />
         <Route path="curators" element={<AdminCuratorsAuditPage />} />
         <Route path="curator/:userId" element={<CuratorManagementPage />} />
       </Route>

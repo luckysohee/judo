@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  COLLECTION_INTERACTION_EVENT,
+  COLLECTION_INTERACTION_SOURCE_SECTION,
+  logCollectionInteraction,
+} from "../../api/collectionInteractionLogs";
 import { fetchPublicCollectionsByUser } from "../../api/collections";
 import { fetchCollectionSocialState } from "../../api/collectionSocial";
+import CollectionCoverMedia from "./CollectionCoverMedia";
+import CollectionVibeCaption from "./CollectionVibeCaption";
 
 /**
  * 특정 사용자의 공개 컬렉션을 카드 그리드로 노출.
@@ -129,14 +136,23 @@ export default function PublicCollectionsGrid({
         <span style={styles.headingCount}>{items.length}</span>
       </div>
       <div style={styles.grid}>
-        {items.map((c) => (
+        {items.map((c, idx) => (
           <CollectionCard
             key={c.id}
             collection={c}
             socialSummary={
               socialById[c.id] ?? { like_count: 0, save_count: 0 }
             }
-            onClick={() => navigate(`/collection/${c.id}`)}
+            onClick={() => {
+              navigate(`/collection/${c.id}`);
+              logCollectionInteraction({
+                eventType: COLLECTION_INTERACTION_EVENT.COLLECTION_OPEN,
+                sourceSection:
+                  COLLECTION_INTERACTION_SOURCE_SECTION.PUBLIC_COLLECTIONS_GRID,
+                collectionId: c.id,
+                clickedRank: idx + 1,
+              });
+            }}
           />
         ))}
       </div>
@@ -182,13 +198,20 @@ function CollectionCard({ collection, socialSummary, onClick }) {
         ...(pressed ? styles.cardPressed : null),
       }}
     >
-      <div style={styles.cover} aria-hidden="true">
-        <span style={styles.coverInitial}>
-          {(collection?.title || "").trim().charAt(0) || "·"}
-        </span>
-      </div>
+      <CollectionCoverMedia
+        url={collection?.cover_image_url}
+        collectionId={collection?.id}
+        letter={(collection?.title || "").trim().charAt(0) || "·"}
+        tags={collection?.tags}
+        wrapperStyle={styles.cover}
+        letterTextStyle={styles.coverInitial}
+      />
       <div style={styles.cardBody}>
         <div style={styles.cardTitle}>{collection?.title || "(제목 없음)"}</div>
+        <CollectionVibeCaption
+          value={collection?.vibe_caption}
+          variant="card"
+        />
         {description ? (
           <div style={styles.cardDesc}>{description}</div>
         ) : null}
@@ -258,13 +281,8 @@ const styles = {
     boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
   },
   cover: {
-    position: "relative",
+    width: "100%",
     aspectRatio: "16 / 10",
-    background:
-      "linear-gradient(135deg, rgba(46,204,113,0.35) 0%, rgba(52,152,219,0.35) 50%, rgba(155,89,182,0.35) 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
   },
   coverInitial: {
     fontSize: 28,

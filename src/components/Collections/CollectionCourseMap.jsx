@@ -47,10 +47,13 @@ export default function CollectionCourseMap({ collectionPlaces }) {
       const title =
         String(place.name || place.display_name || "이름 없음").trim() ||
         "이름 없음";
+      const stepLabel =
+        typeof row?.step_label === "string" ? row.step_label.trim() : "";
       out.push({
         rowKey: row?.id ?? `${idx}-${place?.id ?? "p"}`,
         orderLabel: idx + 1,
         title,
+        stepLabel,
         lat: coords.lat,
         lng: coords.lng,
       });
@@ -159,6 +162,28 @@ export default function CollectionCourseMap({ collectionPlaces }) {
         "font-family:system-ui,sans-serif",
       ].join(";");
 
+      wrap.appendChild(badge);
+
+      if (stop.stepLabel) {
+        const stepChip = document.createElement("div");
+        const shortStep =
+          stop.stepLabel.length > 8
+            ? `${stop.stepLabel.slice(0, 7)}…`
+            : stop.stepLabel;
+        stepChip.textContent = shortStep;
+        stepChip.title = stop.stepLabel;
+        stepChip.style.cssText = [
+          "margin-top:4px;max-width:120px;padding:1px 6px",
+          "background:rgba(46,204,113,0.18)",
+          "color:#9ad3a4;font-size:10px;font-weight:800",
+          "border-radius:5px;border:1px solid rgba(46,204,113,0.55)",
+          "white-space:nowrap;overflow:hidden;text-overflow:ellipsis",
+          "font-family:system-ui,sans-serif",
+          "letter-spacing:0.2px",
+        ].join(";");
+        wrap.appendChild(stepChip);
+      }
+
       const label = document.createElement("div");
       const short =
         stop.title.length > 10 ? `${stop.title.slice(0, 9)}…` : stop.title;
@@ -172,7 +197,6 @@ export default function CollectionCourseMap({ collectionPlaces }) {
         "font-family:system-ui,sans-serif",
       ].join(";");
 
-      wrap.appendChild(badge);
       wrap.appendChild(label);
 
       const overlay = new kakao.CustomOverlay({

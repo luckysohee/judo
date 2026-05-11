@@ -15,6 +15,16 @@ export async function followUser(client, followingUserId) {
     p_following_id: followingUserId,
   });
   if (error) throw error;
+  // first session activation: 첫 픽(팔로우)로 activation 완료
+  try {
+    const { markActivationEvent, completeActivation } = await import(
+      "./activationState"
+    );
+    markActivationEvent("first_follow_curator");
+    completeActivation("follow");
+  } catch {
+    /* activation best-effort */
+  }
 }
 
 /**

@@ -1,13 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../Toast/ToastProvider";
-import {
-  fetchCollectionSocialState,
-  likeCollection,
-  unlikeCollection,
-  saveCollection,
-  unsaveCollection,
-} from "../../api/collectionSocial";
+import { useCollectionSocial } from "../../hooks/useCollectionSocial";
 
 /**
  * 컬렉션 상세용 좋아요·저장 소셜 행 (카운트 + 로그인 시 토글).
@@ -18,116 +13,23 @@ export default function CollectionSocialRow({ collectionId }) {
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  const [social, setSocial] = useState(null);
-  const [loadErr, setLoadErr] = useState("");
-  const [busyLike, setBusyLike] = useState(false);
-  const [busySave, setBusySave] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoadErr("");
-      try {
-        const row = await fetchCollectionSocialState(collectionId);
-        if (!cancelled) setSocial(row);
-      } catch (e) {
-        if (!cancelled) {
-          console.warn("CollectionSocialRow load:", e);
-          setLoadErr(e?.message || "반응 수를 불러오지 못했습니다.");
-          setSocial({
-            collection_id: collectionId,
-            like_count: 0,
-            save_count: 0,
-            liked_by_me: false,
-            saved_by_me: false,
-          });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [collectionId, user?.id]);
-
-  const onToggleLike = useCallback(async () => {
-    if (!social) return;
-    if (!user?.id) {
-      showToast("좋아요하려면 로그인해 주세요.", "info", 2800);
-      return;
-    }
-    if (busyLike || busySave) return;
-
-    const turningOn = !social.liked_by_me;
-    const prev = social;
-    const delta = turningOn ? 1 : -1;
-    setSocial({
-      ...prev,
-      liked_by_me: turningOn,
-      like_count: Math.max(0, prev.like_count + delta),
-    });
-
-    setBusyLike(true);
-    try {
-      const { error } = turningOn
-        ? await likeCollection(collectionId)
-        : await unlikeCollection(collectionId);
-      if (error) throw error;
-      const fresh = await fetchCollectionSocialState(collectionId);
-      setSocial(fresh);
-    } catch (e) {
-      setSocial(prev);
-      showToast(e?.message || "좋아요 처리에 실패했습니다.", "error", 2800);
-    } finally {
-      setBusyLike(false);
-    }
-  }, [
+  const {
     social,
-    user?.id,
+    loadErr,
     busyLike,
     busySave,
-    collectionId,
-    showToast,
-  ]);
+    showCreateCta,
+    runToggleLike,
+    runToggleSave,
+  } = useCollectionSocial(collectionId);
 
-  const onToggleSave = useCallback(async () => {
-    if (!social) return;
-    if (!user?.id) {
-      showToast("저장하려면 로그인해 주세요.", "info", 2800);
-      return;
-    }
-    if (busyLike || busySave) return;
+  const onToggleLike = useCallback(() => {
+    runToggleLike({ showToast });
+  }, [runToggleLike, showToast]);
 
-    const turningOn = !social.saved_by_me;
-    const prev = social;
-    const delta = turningOn ? 1 : -1;
-    setSocial({
-      ...prev,
-      saved_by_me: turningOn,
-      save_count: Math.max(0, prev.save_count + delta),
-    });
-
-    setBusySave(true);
-    try {
-      const { error } = turningOn
-        ? await saveCollection(collectionId)
-        : await unsaveCollection(collectionId);
-      if (error) throw error;
-      const fresh = await fetchCollectionSocialState(collectionId);
-      setSocial(fresh);
-    } catch (e) {
-      setSocial(prev);
-      showToast(e?.message || "저장 처리에 실패했습니다.", "error", 2800);
-    } finally {
-      setBusySave(false);
-    }
-  }, [
-    social,
-    user?.id,
-    busyLike,
-    busySave,
-    collectionId,
-    showToast,
-  ]);
+  const onToggleSave = useCallback(() => {
+    runToggleSave({ showToast });
+  }, [runToggleSave, showToast]);
 
   if (!social) {
     return (
@@ -184,6 +86,17 @@ export default function CollectionSocialRow({ collectionId }) {
           저장 {social.save_count}
         </button>
       </div>
+
+      {showCreateCta && saveActive && user?.id ? (
+        <div style={styles.cta} role="status">
+          <div style={styles.ctaText}>
+            나만의 코스도 만들어볼까요? 1차 → 2차 루트로 묶어보세요.
+          </div>
+          <Link to="/my-collections" style={styles.ctaLink}>
+            내 컬렉션 만들기 →
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -241,5 +154,37 @@ const styles = {
   emoji: {
     fontSize: 15,
     lineHeight: 1,
+  },
+  cta: {
+    marginTop: 10,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "rgba(46,204,113,0.1)",
+    border: "1px solid rgba(46,204,113,0.4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  ctaText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#d4f4dd",
+    lineHeight: 1.4,
+    wordBreak: "keep-all",
+  },
+  ctaLink: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "#fff",
+    textDecoration: "none",
+    background: "rgba(46,204,113,0.25)",
+    border: "1px solid rgba(46,204,113,0.55)",
+    borderRadius: 999,
+    padding: "6px 12px",
+    flexShrink: 0,
   },
 };

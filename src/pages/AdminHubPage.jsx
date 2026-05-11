@@ -274,6 +274,25 @@ export default function AdminHubPage() {
 
         <button
           type="button"
+          style={{ ...styles.card, display: "block" }}
+          onClick={() => navigate("/admin/collection-insights")}
+          onMouseOver={(e) => {
+            e.currentTarget.style.borderColor = "rgba(155, 89, 182, 0.4)";
+            e.currentTarget.style.backgroundColor = "#1d1a26";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.borderColor = "#2a2a2a";
+            e.currentTarget.style.backgroundColor = "#171717";
+          }}
+        >
+          <div style={styles.cardTitle}>컬렉션 인사이트</div>
+          <div style={styles.cardDesc}>
+            홈 섹션별 클릭·공유·저장 (collection_interaction_logs · collection_saves)
+          </div>
+        </button>
+
+        <button
+          type="button"
           style={styles.card}
           onClick={() => navigate("/admin/curators")}
           onMouseOver={(e) => {
