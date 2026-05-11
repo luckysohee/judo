@@ -160,12 +160,16 @@ function HomeSituationCollectionsSection({
 
   useEffect(() => {
     let cancelled = false;
+    let deferTimer = null;
     (async () => {
       setProbing(true);
       try {
         // 동시 8개 fetch를 한 번에 쏘지 않고, 첫 진입 페인트 이후로 미루기.
         // (intersection mount 와 함께 동작하면 초기 체감이 훨씬 가벼워진다.)
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => {
+          deferTimer = setTimeout(r, 0);
+        });
+        if (cancelled) return;
         const resolved = await Promise.all(
           SITUATION_TAGS.map(async (tag) => {
             try {
@@ -187,6 +191,7 @@ function HomeSituationCollectionsSection({
     })();
     return () => {
       cancelled = true;
+      if (deferTimer) clearTimeout(deferTimer);
     };
   }, [timeContext]);
 
@@ -233,8 +238,6 @@ function HomeSituationCollectionsSection({
     user?.id,
   ]);
 
-  if (!probing && availableTags.length === 0) return null;
-
   const subCopy =
     TIME_CONTEXT_COPY[timeContext.bucket] ||
     "탭을 골라 같은 높이에서 코스만 바꿔 볼 수 있어요";
@@ -271,7 +274,17 @@ function HomeSituationCollectionsSection({
       </div>
 
       {probing ? (
-        <div style={styles.probeLoading}>상황 코스 확인 중…</div>
+        <div style={styles.probeLoading}>불러오는 중…</div>
+      ) : availableTags.length === 0 ? (
+        <div style={styles.emptyState}>
+          <div style={styles.emptyTitle}>분위기 태그를 둘러보며 시작해보세요</div>
+          <div style={styles.emptySub}>
+            지금 막 새로운 코스들이 올라오고 있어요. 검색에서 먼저 코스를 저장해도 좋아요.
+          </div>
+          <Link to="/collections/search" style={styles.emptyLink}>
+            코스 검색 열기 →
+          </Link>
+        </div>
       ) : (
         <>
           <div
@@ -355,6 +368,36 @@ const styles = {
     fontSize: 12,
     fontWeight: 600,
     color: "rgba(255,255,255,0.45)",
+  },
+  emptyState: {
+    padding: "12px 8px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.05)",
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.4,
+  },
+  emptyLink: {
+    display: "inline-flex",
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: 800,
+    color: "rgba(155,89,182,0.95)",
+    textDecoration: "none",
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(155,89,182,0.32)",
+    background: "rgba(155,89,182,0.08)",
   },
   chipRow: {
     display: "flex",

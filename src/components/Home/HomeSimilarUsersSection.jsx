@@ -20,7 +20,10 @@ const cacheByViewerId = new Map();
  * - 카드는 avatar · display_name · 공통 tag · reason 한 줄 + 픽 버튼.
  * - 검색·지도·`useCourseSearch` 와 무관하게 단독 fetch.
  */
-function HomeSimilarUsersSection({ experimentBucket = null } = {}) {
+function HomeSimilarUsersSection({
+  experimentBucket = null,
+  hideHeader = false,
+} = {}) {
   const { user, loading: authLoading } = useAuth();
   const viewerId = user?.id || null;
   const loggedIn = Boolean(viewerId);
@@ -104,26 +107,34 @@ function HomeSimilarUsersSection({ experimentBucket = null } = {}) {
 
   if (authLoading) return null;
   if (!viewerId) return null;
-  if (!loading && items.length === 0) return null;
 
   return (
     <section ref={sectionRef} style={styles.section} aria-label="취향이 비슷한 사람">
-      <div style={styles.headRow}>
-        <div style={styles.headText}>
-          <div style={styles.titleRow}>
-            <span aria-hidden="true">🤝</span>
-            <span>취향이 비슷한 사람</span>
-          </div>
-          <div style={styles.sub}>
-            내가 저장한 코스를 같이 저장한 사람들 · 픽해두면 활동 피드에 빠르게
-            올라와요
+      {!hideHeader ? (
+        <div style={styles.headRow}>
+          <div style={styles.headText}>
+            <div style={styles.titleRow}>
+              <span aria-hidden="true">🤝</span>
+              <span>취향이 비슷한 사람</span>
+            </div>
+            <div style={styles.sub}>
+              내가 저장한 코스를 같이 저장한 사람들 · 픽해두면 활동 피드에 빠르게
+              올라와요
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div style={styles.scroller}>
         {loading ? (
-          <div style={styles.loadingChip}>비슷한 취향 찾는 중…</div>
+          <div style={styles.loadingChip}>불러오는 중…</div>
+        ) : items.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <div style={styles.emptyTitle}>첫 코스를 저장하면 취향 추천이 시작돼요</div>
+            <div style={styles.emptySub}>
+              저장이 쌓이면 비슷한 취향 사용자와 큐레이터를 더 잘 찾아줘요.
+            </div>
+          </div>
         ) : (
           items.map((u) => {
             const justPicked = pickedSet.has(u.user_id);
@@ -287,6 +298,26 @@ const styles = {
     color: "rgba(255,255,255,0.55)",
     fontSize: 12,
     fontWeight: 600,
+  },
+  emptyCard: {
+    flexShrink: 0,
+    width: "min(320px, 92vw)",
+    padding: "14px 16px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.05)",
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.4,
   },
   card: {
     flex: "0 0 auto",

@@ -17,11 +17,41 @@ export async function followUser(client, followingUserId) {
   if (error) throw error;
   // first session activation: 첫 픽(팔로우)로 activation 완료
   try {
-    const { markActivationEvent, completeActivation } = await import(
+    const { readActivationState, markActivationEvent, completeActivation } = await import(
       "./activationState"
     );
-    markActivationEvent("first_follow_curator");
-    completeActivation("follow");
+    const { ACTIVATION_EVENT, logActivationFunnelEvent } = await import(
+      "../api/activationFunnelLogs"
+    );
+    const before = readActivationState();
+    const hadFirst = Boolean(before?.events?.first_follow_curator);
+    if (!hadFirst) {
+      markActivationEvent("first_follow_curator");
+      completeActivation("follow");
+      logActivationFunnelEvent({
+        eventName: ACTIVATION_EVENT.FIRST_FOLLOW_CURATOR,
+        experimentBucket: null,
+        activationCtaBucket: null,
+        appEnv: import.meta.env.MODE,
+        source: "follow_user",
+      });
+      logActivationFunnelEvent({
+        eventName: ACTIVATION_EVENT.ACTIVATION_COMPLETED,
+        completedBy: "follow",
+        experimentBucket: null,
+        activationCtaBucket: null,
+        appEnv: import.meta.env.MODE,
+        source: "activation_completed",
+      });
+    } else {
+      logActivationFunnelEvent({
+        eventName: ACTIVATION_EVENT.SECOND_FOLLOW,
+        experimentBucket: null,
+        activationCtaBucket: null,
+        appEnv: import.meta.env.MODE,
+        source: "second_follow",
+      });
+    }
   } catch {
     /* activation best-effort */
   }

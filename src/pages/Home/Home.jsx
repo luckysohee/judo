@@ -7278,6 +7278,23 @@ const handleClearSearch = () => {
                     mapRef.current.moveToLocation(place.lat, place.lng);
                   }
                 }}
+                onPickSituationSearchPreset={(presetKey) => {
+                  const situationPresetMap = {
+                    firstMeal: SITUATION_FOLDER.firstMeal,
+                    secondRound: SITUATION_FOLDER.secondRound,
+                    vibe: SITUATION_FOLDER.vibe,
+                  };
+                  const folder = situationPresetMap[presetKey];
+                  if (!folder) return;
+                  const presetQuery =
+                    DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY[folder];
+                  if (!presetQuery) return;
+                  void handleSearchSubmit(presetQuery, {
+                    skipCourseRecommendation: true,
+                    mapViewportChipSearch: true,
+                    chipResultProfile: folder,
+                  });
+                }}
               />
               <SearchBar
                 query={query}

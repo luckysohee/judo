@@ -79,12 +79,18 @@ export default function HomeCollectionTagRail({
   }, [items.length, loading, onItemCount]);
 
   if (!cleanTag) return null;
-  if (!loading && items.length === 0) return null;
 
   const rail = (
     <div style={styles.scroller}>
       {loading ? (
-        <div style={styles.loadingChip}>컬렉션 불러오는 중…</div>
+        <div style={styles.loadingChip}>불러오는 중…</div>
+      ) : items.length === 0 ? (
+        <div style={styles.emptyCard}>
+          <div style={styles.emptyTitle}>지금 막 새로운 코스들이 올라오고 있어요</div>
+          <div style={styles.emptySub}>
+            #{cleanTag} 대신 다른 분위기 태그도 둘러보며 시작해보세요.
+          </div>
+        </div>
       ) : (
         items.map((c, idx) => (
           <button
@@ -225,6 +231,26 @@ const styles = {
     color: "rgba(255,255,255,0.55)",
     fontSize: 12,
     fontWeight: 600,
+  },
+  emptyCard: {
+    flexShrink: 0,
+    width: "min(280px, 86vw)",
+    padding: "12px 14px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.05)",
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.4,
   },
   card: {
     flex: "0 0 auto",

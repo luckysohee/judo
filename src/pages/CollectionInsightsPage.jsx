@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminFeaturedCollectionsPanel from "../components/Admin/AdminFeaturedCollectionsPanel";
 import { isFeaturedActive, setCollectionFeatured } from "../api/collections";
@@ -67,7 +67,7 @@ const EVENT_OPEN = "collection_open";
 const EVENT_SHARE = "collection_share_success";
 
 const RECENT_WINDOW_DAYS = 7;
-const FETCH_LIMIT = 5000;
+const FETCH_LIMIT = 3000;
 const TOP_LIMIT = 10;
 const EXPERIMENT_MIN_IMPRESSIONS = 100;
 
@@ -301,6 +301,267 @@ function buildBucketGuardrails(logRows, impressionRows) {
   };
 }
 
+function buildActivationFunnelByBucket(rows) {
+  const expectedBuckets = HOME_LAYOUT_BUCKETS;
+  const homeViewsByBucket = new Map();
+  const saveByBucket = new Map();
+  const followByBucket = new Map();
+  const createByBucket = new Map();
+  const convertersByBucket = new Map(); // bucket -> Set(subjectKey)
+
+  let totalRelevant = 0;
+  let missingBucket = 0;
+
+  const allBuckets = new Set(expectedBuckets);
+
+  const subjectKeyForRow = (r) => {
+    const uid = String(r?.user_id || "").trim();
+    if (uid) return `u:${uid}`;
+    const sid = String(r?.session_id || "").trim();
+    if (sid) return `s:${sid}`;
+    return "";
+  };
+
+  const bucketKeyForRow = (r) => {
+    totalRelevant += 1;
+    const b = typeof r?.experiment_bucket === "string" ? r.experiment_bucket.trim() : "";
+    if (!b) missingBucket += 1;
+    return b || "unbucketed";
+  };
+
+  for (const r of rows || []) {
+    const ev = String(r?.event_name || "").trim();
+    if (!ev) continue;
+    const b = bucketKeyForRow(r);
+    allBuckets.add(b);
+
+    if (ev === "first_home_view") {
+      homeViewsByBucket.set(b, (homeViewsByBucket.get(b) || 0) + 1);
+      continue;
+    }
+
+    if (ev === "first_collection_save") {
+      saveByBucket.set(b, (saveByBucket.get(b) || 0) + 1);
+    } else if (ev === "first_follow_curator") {
+      followByBucket.set(b, (followByBucket.get(b) || 0) + 1);
+    } else if (ev === "first_collection_create") {
+      createByBucket.set(b, (createByBucket.get(b) || 0) + 1);
+    } else {
+      continue;
+    }
+
+    const sk = subjectKeyForRow(r);
+    if (!sk) continue;
+    if (!convertersByBucket.has(b)) convertersByBucket.set(b, new Set());
+    convertersByBucket.get(b).add(sk);
+  }
+
+  const buckets = Array.from(allBuckets).sort((a, b) => {
+    const ai = expectedBuckets.indexOf(a);
+    const bi = expectedBuckets.indexOf(b);
+    if (ai !== -1 || bi !== -1) {
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    }
+    return a.localeCompare(b);
+  });
+
+  const bucketRows = buckets.map((b) => {
+    const home = homeViewsByBucket.get(b) || 0;
+    const converters = convertersByBucket.get(b)?.size || 0;
+    const saves = saveByBucket.get(b) || 0;
+    const follows = followByBucket.get(b) || 0;
+    const creates = createByBucket.get(b) || 0;
+    return {
+      bucket: b,
+      home_views: home,
+      converters,
+      conversion_rate: home > 0 ? converters / home : 0,
+      saves,
+      follows,
+      creates,
+      expected: expectedBuckets.includes(b),
+    };
+  });
+
+  return {
+    rows: bucketRows,
+    missingBucket,
+    totalRelevant,
+    missingBucketRatio: totalRelevant > 0 ? missingBucket / totalRelevant : 0,
+  };
+}
+
+function buildActivationCtaByBucket(rows) {
+  const imprBy = new Map();
+  const clickBy = new Map();
+  const homeBy = new Map();
+  const saveBy = new Map();
+  const followBy = new Map();
+  const createBy = new Map();
+  const convertersBy = new Map(); // cta -> Set(subjectKey)
+
+  let totalRelevant = 0;
+  let missingBucket = 0;
+
+  const subjectKeyForRow = (r) => {
+    const uid = String(r?.user_id || "").trim();
+    if (uid) return `u:${uid}`;
+    const sid = String(r?.session_id || "").trim();
+    if (sid) return `s:${sid}`;
+    return "";
+  };
+
+  const ctaKeyForRow = (r) => {
+    totalRelevant += 1;
+    const b =
+      typeof r?.activation_cta_bucket === "string"
+        ? r.activation_cta_bucket.trim()
+        : "";
+    if (!b) missingBucket += 1;
+    return b || "unbucketed";
+  };
+
+  for (const r of rows || []) {
+    const ev = String(r?.event_name || "").trim();
+    if (!ev) continue;
+    const b = ctaKeyForRow(r);
+
+    if (ev === "activation_onboarding_impression") {
+      imprBy.set(b, (imprBy.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "activation_onboarding_click") {
+      clickBy.set(b, (clickBy.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "first_home_view") {
+      homeBy.set(b, (homeBy.get(b) || 0) + 1);
+      continue;
+    }
+
+    if (ev === "first_collection_save") saveBy.set(b, (saveBy.get(b) || 0) + 1);
+    else if (ev === "first_follow_curator") followBy.set(b, (followBy.get(b) || 0) + 1);
+    else if (ev === "first_collection_create") createBy.set(b, (createBy.get(b) || 0) + 1);
+    else continue;
+
+    const sk = subjectKeyForRow(r);
+    if (!sk) continue;
+    if (!convertersBy.has(b)) convertersBy.set(b, new Set());
+    convertersBy.get(b).add(sk);
+  }
+
+  const buckets = Array.from(
+    new Set([
+      ...Array.from(imprBy.keys()),
+      ...Array.from(clickBy.keys()),
+      ...Array.from(homeBy.keys()),
+      ...Array.from(saveBy.keys()),
+      ...Array.from(followBy.keys()),
+      ...Array.from(createBy.keys()),
+    ]),
+  ).sort();
+
+  return {
+    rows: buckets.map((b) => {
+      const home = homeBy.get(b) || 0;
+      const converters = convertersBy.get(b)?.size || 0;
+      return {
+        cta_bucket: b,
+        impressions: imprBy.get(b) || 0,
+        clicks: clickBy.get(b) || 0,
+        first_home_view: home,
+        converters,
+        conversion_rate: home > 0 ? converters / home : 0,
+        first_collection_save: saveBy.get(b) || 0,
+        first_follow_curator: followBy.get(b) || 0,
+        first_collection_create: createBy.get(b) || 0,
+      };
+    }),
+    missingBucket,
+    totalRelevant,
+    missingBucketRatio: totalRelevant > 0 ? missingBucket / totalRelevant : 0,
+  };
+}
+
+function buildOutcomeQualityByCtaBucket(rows) {
+  const completedBy = new Map(); // cta -> completed count
+  const d1By = new Map();
+  const d7By = new Map();
+  const secondSaveBy = new Map();
+  const secondFollowBy = new Map();
+  const secondCreateBy = new Map();
+
+  const buckets = new Set();
+
+  const ctaKey = (r) => {
+    const b =
+      typeof r?.activation_cta_bucket === "string"
+        ? r.activation_cta_bucket.trim()
+        : "";
+    return b || "unbucketed";
+  };
+
+  for (const r of rows || []) {
+    const ev = String(r?.event_name || "").trim();
+    if (!ev) continue;
+    const b = ctaKey(r);
+    buckets.add(b);
+
+    if (ev === "activation_completed") {
+      completedBy.set(b, (completedBy.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "retention_d1_revisit") {
+      d1By.set(b, (d1By.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "retention_d7_revisit") {
+      d7By.set(b, (d7By.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "second_collection_save") {
+      secondSaveBy.set(b, (secondSaveBy.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "second_follow_curator") {
+      secondFollowBy.set(b, (secondFollowBy.get(b) || 0) + 1);
+      continue;
+    }
+    if (ev === "second_collection_create") {
+      secondCreateBy.set(b, (secondCreateBy.get(b) || 0) + 1);
+      continue;
+    }
+  }
+
+  const list = Array.from(buckets).sort();
+  return {
+    rows: list.map((b) => {
+      const completed = completedBy.get(b) || 0;
+      const d1 = d1By.get(b) || 0;
+      const d7 = d7By.get(b) || 0;
+      const s2 = secondSaveBy.get(b) || 0;
+      const f2 = secondFollowBy.get(b) || 0;
+      const c2 = secondCreateBy.get(b) || 0;
+      return {
+        cta_bucket: b,
+        activation_completed: completed,
+        d1_revisit: d1,
+        d7_revisit: d7,
+        second_save: s2,
+        second_follow: f2,
+        second_create: c2,
+        d1_rate: completed > 0 ? d1 / completed : 0,
+        d7_rate: completed > 0 ? d7 / completed : 0,
+        second_save_rate: completed > 0 ? s2 / completed : 0,
+        second_follow_rate: completed > 0 ? f2 / completed : 0,
+        second_create_rate: completed > 0 ? c2 / completed : 0,
+      };
+    }),
+  };
+}
+
 export default function CollectionInsightsPage() {
   const navigate = useNavigate();
   const { loading: authLoading } = useAuth();
@@ -308,20 +569,27 @@ export default function CollectionInsightsPage() {
   const [logRows, setLogRows] = useState([]);
   const [saveRows, setSaveRows] = useState([]);
   const [impressionRows, setImpressionRows] = useState([]);
+  const [activationRows, setActivationRows] = useState([]);
   const [titleById, setTitleById] = useState({});
   const [logError, setLogError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [impressionError, setImpressionError] = useState("");
+  const [activationError, setActivationError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [busyTopFeatureId, setBusyTopFeatureId] = useState(null);
   const [topFeatureError, setTopFeatureError] = useState("");
+  const fetchSeqRef = useRef(0);
 
   const triggerReload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
     if (authLoading) return;
     let cancelled = false;
-    (async () => {
+    const seq = ++fetchSeqRef.current;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      // 최근 요청만 유효하게 처리해 admin reload 연타 시 stale overwrite를 막는다.
+      if (seq !== fetchSeqRef.current) return;
       setLoading(true);
       const since = new Date(
         Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
@@ -330,6 +598,7 @@ export default function CollectionInsightsPage() {
       let safeLogRows = [];
       let safeSaveRows = [];
       let safeImpressionRows = [];
+      let safeActivationRows = [];
 
       try {
         const { data, error } = await supabase
@@ -373,6 +642,29 @@ export default function CollectionInsightsPage() {
             isSchemaError(e)
               ? "schema"
               : e?.message || "노출 로그를 불러오지 못했습니다.",
+          );
+        }
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("activation_funnel_logs")
+          .select(
+            "event_name, user_id, session_id, experiment_bucket, activation_cta_bucket, completed_by, app_env, source, created_at",
+          )
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(FETCH_LIMIT);
+        if (error) throw error;
+        safeActivationRows = Array.isArray(data) ? data : [];
+        if (!cancelled) setActivationError("");
+      } catch (e) {
+        console.warn("CollectionInsightsPage activation logs:", e);
+        if (!cancelled) {
+          setActivationError(
+            isSchemaError(e)
+              ? "schema"
+              : e?.message || "activation 로그를 불러오지 못했습니다.",
           );
         }
       }
@@ -426,16 +718,18 @@ export default function CollectionInsightsPage() {
         }
       }
 
-      if (!cancelled) {
+      if (!cancelled && seq === fetchSeqRef.current) {
         setLogRows(safeLogRows);
         setSaveRows(safeSaveRows);
         setImpressionRows(safeImpressionRows);
+        setActivationRows(safeActivationRows);
         setTitleById(titles);
         setLoading(false);
       }
-    })();
+    }, 120);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [authLoading, reloadKey]);
 
@@ -480,6 +774,34 @@ export default function CollectionInsightsPage() {
     () => buildBucketGuardrails(logRows, impressionRows),
     [logRows, impressionRows],
   );
+  const activationFunnel = useMemo(
+    () => buildActivationFunnelByBucket(activationRows),
+    [activationRows],
+  );
+  const activationCta = useMemo(
+    () => buildActivationCtaByBucket(activationRows),
+    [activationRows],
+  );
+  const outcomeQuality = useMemo(
+    () => buildOutcomeQualityByCtaBucket(activationRows),
+    [activationRows],
+  );
+  const activationTotals = useMemo(() => {
+    const rows = activationFunnel?.rows || [];
+    const homeViews = rows.reduce((s, r) => s + (Number(r.home_views) || 0), 0);
+    const converters = rows.reduce((s, r) => s + (Number(r.converters) || 0), 0);
+    const saves = rows.reduce((s, r) => s + (Number(r.saves) || 0), 0);
+    const follows = rows.reduce((s, r) => s + (Number(r.follows) || 0), 0);
+    const creates = rows.reduce((s, r) => s + (Number(r.creates) || 0), 0);
+    return {
+      homeViews,
+      converters,
+      conversionRate: homeViews > 0 ? converters / homeViews : 0,
+      saves,
+      follows,
+      creates,
+    };
+  }, [activationFunnel]);
   const totalOpenClicks = useMemo(
     () => sectionAgg.sectionRows.reduce((s, r) => s + r.clicks, 0),
     [sectionAgg],
@@ -973,6 +1295,379 @@ export default function CollectionInsightsPage() {
                             </td>
                             <td style={{ padding: 10, fontSize: 13 }}>
                               {row.impressions > 0 ? `${pct}%` : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ height: 12 }} />
+
+                <h3 style={{ fontSize: 14, margin: "10px 0 8px" }}>
+                  Outcome quality (CTA bucket)
+                </h3>
+                <p style={{ fontSize: 13, opacity: 0.72, marginBottom: 12 }}>
+                  분모는 <code style={{ fontSize: 12 }}>activation_completed</code> 입니다.
+                </p>
+
+                <div
+                  style={{
+                    border: "1px solid #2a2f38",
+                    borderRadius: 12,
+                    overflow: "auto",
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      minWidth: 980,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: "#1a1d23", textAlign: "left" }}>
+                        <th style={{ padding: 10, fontSize: 12 }}>
+                          activation_cta_bucket
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 150 }}>
+                          activation_completed
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          D1 revisit
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          D7 revisit
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          second_save
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          second_follow
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          second_create
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outcomeQuality.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            style={{ padding: 14, fontSize: 12, opacity: 0.65 }}
+                          >
+                            아직 outcome quality 표본이 없습니다. activation 완료/재방문 로그가 쌓이면
+                            비교가 시작됩니다.
+                          </td>
+                        </tr>
+                      ) : outcomeQuality.rows.map((row) => {
+                        const d1 = Math.round(row.d1_rate * 1000) / 10;
+                        const d7 = Math.round(row.d7_rate * 1000) / 10;
+                        const s2 = Math.round(row.second_save_rate * 1000) / 10;
+                        const f2 = Math.round(row.second_follow_rate * 1000) / 10;
+                        const c2 = Math.round(row.second_create_rate * 1000) / 10;
+                        return (
+                          <tr
+                            key={`outq-${row.cta_bucket}`}
+                            style={{ borderTop: "1px solid #2a2f38" }}
+                          >
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              <code style={{ fontSize: 12 }}>{row.cta_bucket}</code>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed > 0 ? `${d1}%` : "—"}{" "}
+                              <span style={{ opacity: 0.6 }}>
+                                ({row.d1_revisit})
+                              </span>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed > 0 ? `${d7}%` : "—"}{" "}
+                              <span style={{ opacity: 0.6 }}>
+                                ({row.d7_revisit})
+                              </span>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed > 0 ? `${s2}%` : "—"}{" "}
+                              <span style={{ opacity: 0.6 }}>
+                                ({row.second_save})
+                              </span>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed > 0 ? `${f2}%` : "—"}{" "}
+                              <span style={{ opacity: 0.6 }}>
+                                ({row.second_follow})
+                              </span>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.activation_completed > 0 ? `${c2}%` : "—"}{" "}
+                              <span style={{ opacity: 0.6 }}>
+                                ({row.second_create})
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section style={{ marginBottom: 28 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 8 }}>
+              Activation funnel (최근 {RECENT_WINDOW_DAYS}일)
+            </h2>
+            {activationError === "schema" ? (
+              <p style={{ fontSize: 13, opacity: 0.75, marginBottom: 12 }}>
+                <strong>activation_funnel_logs</strong> 테이블이 아직 없어서 전환율을 계산할 수
+                없습니다.
+              </p>
+            ) : (
+              <p
+                style={{
+                  fontSize: 13,
+                  opacity: 0.72,
+                  marginBottom: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                분모는 <code style={{ fontSize: 12 }}>first_home_view</code>, 분자는{" "}
+                <code style={{ fontSize: 12 }}>first_collection_save</code> /{" "}
+                <code style={{ fontSize: 12 }}>first_follow_curator</code> /{" "}
+                <code style={{ fontSize: 12 }}>first_collection_create</code> 중 1개 이상입니다.
+              </p>
+            )}
+
+            {activationError === "schema" ? null : (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <SummaryCard
+                    title="전체 전환율"
+                    value={`${Math.round(activationTotals.conversionRate * 1000) / 10}%`}
+                    hint={`${activationTotals.converters}/${activationTotals.homeViews} users`}
+                  />
+                  <SummaryCard
+                    title="저장/픽/생성 비율"
+                    value={`${activationTotals.saves}/${activationTotals.follows}/${activationTotals.creates}`}
+                    hint="events count"
+                  />
+                  <SummaryCard
+                    title="bucket 누락 로그 비율"
+                    value={`${Math.round(activationFunnel.missingBucketRatio * 1000) / 10}%`}
+                    hint={`${activationFunnel.missingBucket}/${activationFunnel.totalRelevant} logs`}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid #2a2f38",
+                    borderRadius: 12,
+                    overflow: "auto",
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      minWidth: 860,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: "#1a1d23", textAlign: "left" }}>
+                        <th style={{ padding: 10, fontSize: 12 }}>bucket</th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          first_home_view
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 120 }}>
+                          converters
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          conv%
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          save
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          follow
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          create
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activationFunnel.rows.map((row) => {
+                        const pct =
+                          row.home_views > 0
+                            ? Math.round(row.conversion_rate * 1000) / 10
+                            : 0;
+                        return (
+                          <tr
+                            key={`act-${row.bucket}`}
+                            style={{ borderTop: "1px solid #2a2f38" }}
+                          >
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              <code style={{ fontSize: 12 }}>{row.bucket}</code>
+                              {!row.expected ? (
+                                <span style={guardrailStyles.warnBadge}>unexpected</span>
+                              ) : null}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.home_views}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.converters}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.home_views > 0 ? `${pct}%` : "—"}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.saves}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.follows}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.creates}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ height: 12 }} />
+
+                <h3 style={{ fontSize: 14, margin: "10px 0 8px" }}>
+                  Activation CTA bucket 비교
+                </h3>
+                <p style={{ fontSize: 13, opacity: 0.72, marginBottom: 12 }}>
+                  <code style={{ fontSize: 12 }}>activation_onboarding_impression</code> /
+                  <code style={{ fontSize: 12 }}>activation_onboarding_click</code> 과
+                  first action 이벤트를 CTA bucket 별로 비교합니다.
+                </p>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <SummaryCard
+                    title="CTA bucket 누락 비율"
+                    value={`${Math.round(activationCta.missingBucketRatio * 1000) / 10}%`}
+                    hint={`${activationCta.missingBucket}/${activationCta.totalRelevant} logs`}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid #2a2f38",
+                    borderRadius: 12,
+                    overflow: "auto",
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      minWidth: 980,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: "#1a1d23", textAlign: "left" }}>
+                        <th style={{ padding: 10, fontSize: 12 }}>
+                          activation_cta_bucket
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 120 }}>
+                          impression
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 120 }}>
+                          click
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          first_home_view
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 120 }}>
+                          converters
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 110 }}>
+                          conv%
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          first_save
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          first_follow
+                        </th>
+                        <th style={{ padding: 10, fontSize: 12, width: 140 }}>
+                          first_create
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activationCta.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            style={{ padding: 14, fontSize: 12, opacity: 0.65 }}
+                          >
+                            CTA bucket 표본이 아직 부족합니다. onboarding impression/click 로그가 쌓이면
+                            자동으로 비교됩니다.
+                          </td>
+                        </tr>
+                      ) : activationCta.rows.map((row) => {
+                        const pct =
+                          row.first_home_view > 0
+                            ? Math.round(row.conversion_rate * 1000) / 10
+                            : 0;
+                        return (
+                          <tr
+                            key={`actcta-${row.cta_bucket}`}
+                            style={{ borderTop: "1px solid #2a2f38" }}
+                          >
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              <code style={{ fontSize: 12 }}>{row.cta_bucket}</code>
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.impressions}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.clicks}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.first_home_view}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.converters}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.first_home_view > 0 ? `${pct}%` : "—"}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.first_collection_save}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.first_follow_curator}
+                            </td>
+                            <td style={{ padding: 10, fontSize: 13 }}>
+                              {row.first_collection_create}
                             </td>
                           </tr>
                         );

@@ -21,6 +21,9 @@ import {
  *  3) `featured_new`
  *      - `is_featured=true` & `featured_until` 미래 & `created_at > lastSeenAt`
  *        공개 컬렉션. (운영 큐레이션이 새로 떠올랐는지 보여 주는 용도)
+ *  4) `remix_new`
+ *      - 내가 저장한 컬렉션이 `remixed_from_collection_id` 로 참조된 새 컬렉션이 있는지
+ *        카운트/샘플링. (저장한 코스에 새 리믹스가 생겼는지)
  *
  * 모든 보조 fetch 는 best-effort — 한 줄이 실패해도 다른 줄은 그대로 진행된다.
  */
@@ -33,6 +36,7 @@ const TAG_NEW_LIMIT = 12;
 const FOLLOW_NEW_POOL = 60;
 const FOLLOW_NEW_DISPLAY = 12;
 const FEATURED_NEW_LIMIT = 12;
+const REMIX_NEW_LIMIT = 12;
 
 function safeIso(input) {
   if (typeof input === "string" && input) {
@@ -47,7 +51,7 @@ function safeIso(input) {
 
 /**
  * @typedef {{
- *   kind: 'tag_new' | 'follow_new' | 'featured_new',
+ *   kind: 'tag_new' | 'follow_new' | 'featured_new' | 'remix_new',
  *   message: string,
  *   count: number,
  *   tag?: string,
@@ -300,11 +304,68 @@ export async function fetchHomeRevisitSignals(viewerUserId, opts = {}) {
     }
   }
 
+  // 4) remix_new — 내가 저장한 코스를 remixed_from 으로 삼은 신작.
+  if (uid) {
+    try {
+      const { data: saves, error: sErr } = await supabase
+        .from("collection_saves")
+        .select("collection_id")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(RECENT_SAVES_FOR_TAG);
+      if (sErr) throw sErr;
+      const savedIds = [
+        ...new Set(
+          (Array.isArray(saves) ? saves : [])
+            .map((r) => String(r?.collection_id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (savedIds.length > 0) {
+        const { data, error } = await supabase
+          .from("collections")
+          .select("id, title, cover_image_url, created_at, remixed_from_collection_id, user_id")
+          .eq("visibility", "public")
+          .in("remixed_from_collection_id", savedIds)
+          .gt("created_at", lastSeenIso)
+          .order("created_at", { ascending: false })
+          .limit(REMIX_NEW_LIMIT);
+        if (error) throw error;
+        const rows = (Array.isArray(data) ? data : []).filter(
+          (r) => !uid || String(r?.user_id ?? "") !== uid,
+        );
+        if (rows.length > 0) {
+          const sample = rows[0];
+          const message =
+            rows.length === 1
+              ? "저장한 코스에 새 리믹스가 생겼어요"
+              : `저장한 코스에 새 리믹스 ${rows.length}개가 생겼어요`;
+          signals.push({
+            kind: "remix_new",
+            message,
+            count: rows.length,
+            sample: sample
+              ? {
+                  id: String(sample.id),
+                  title: sample.title ?? null,
+                  cover_image_url: sample.cover_image_url ?? null,
+                }
+              : null,
+          });
+        }
+      }
+    } catch (e) {
+      if (import.meta?.env?.DEV) {
+        console.warn("fetchHomeRevisitSignals remix_new:", e?.message || e);
+      }
+    }
+  }
+
   // 동일 sample collection_id 가 여러 시그널에 걸리면 follow_new > tag_new > featured_new
   // 우선순위로 한 번씩만 노출.
   const dedupedById = [];
   const seenSampleIds = new Set();
-  const order = ["follow_new", "tag_new", "featured_new"];
+  const order = ["remix_new", "follow_new", "tag_new", "featured_new"];
   for (const k of order) {
     for (const s of signals) {
       if (s.kind !== k) continue;

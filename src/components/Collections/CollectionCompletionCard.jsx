@@ -100,6 +100,33 @@ export default function CollectionCompletionCard({
     summaryBits.push(`반응 ${stats.reaction_total}`);
   }
 
+  const sectionGuides = [
+    {
+      key: "place",
+      title: `장소 ${stats.place_count}`,
+      hint: "3곳 이상이면 코스 흐름이 잘 보여요",
+    },
+    {
+      key: "step",
+      title: `라벨 ${stats.step_label_count}`,
+      hint: "1차/2차 같은 흐름 라벨을 붙여보세요",
+    },
+    {
+      key: "tags",
+      title: `태그 ${stats.tag_count}`,
+      hint: "야장/노포 같은 상황 태그가 좋아요",
+    },
+    {
+      key: "cover",
+      title: stats.has_cover
+        ? "커버 있음"
+        : stats.has_auto_mood
+          ? "자동 무드 커버"
+          : "커버 없음",
+      hint: "대표 이미지를 넣으면 완성도가 빨리 올라요",
+    },
+  ];
+
   return (
     <section
       style={{ ...styles.section, ...(style || null) }}
@@ -119,8 +146,8 @@ export default function CollectionCompletionCard({
             </div>
             <div style={styles.sub}>
               {isPublic
-                ? "공개된 코스 — 정성을 들이면 추천 카드에서도 더 잘 보여요"
-                : "공개 전이라도 완성도를 올려두면 첫 노출이 자연스러워져요"}
+                ? "공개 코스는 기본 요소를 채울수록 탐색 노출이 안정돼요"
+                : "한 번에 다 채우지 말고 항목별로 나눠서 채워보세요"}
             </div>
           </div>
         </div>
@@ -145,6 +172,15 @@ export default function CollectionCompletionCard({
         />
       </div>
 
+      <div style={styles.guideGrid}>
+        {sectionGuides.map((item) => (
+          <div key={item.key} style={styles.guideCard}>
+            <div style={styles.guideTitle}>{item.title}</div>
+            <div style={styles.guideHint}>{item.hint}</div>
+          </div>
+        ))}
+      </div>
+
       <div style={styles.summaryRow}>
         {summaryBits.map((b, i) => (
           <span key={`s-${i}`} style={styles.summaryChip}>
@@ -153,35 +189,9 @@ export default function CollectionCompletionCard({
         ))}
       </div>
 
-      {suggestions.length > 0 ? (
-        <ul style={styles.suggList} aria-label="완성도를 올릴 수 있는 항목">
-          {suggestions.slice(0, 4).map((s) => (
-            <li key={s.key} style={styles.suggItem}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (typeof onSuggestionClick === "function") {
-                    onSuggestionClick(s.key);
-                  }
-                }}
-                style={{
-                  ...styles.suggBtn,
-                  ...(typeof onSuggestionClick === "function"
-                    ? styles.suggBtnClickable
-                    : null),
-                }}
-              >
-                <span aria-hidden="true" style={styles.suggDot}>
-                  +
-                </span>
-                <span style={styles.suggText}>{s.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
+      {suggestions.length === 0 ? (
         <div style={styles.allDone}>모든 기본 항목이 채워졌어요</div>
-      )}
+      ) : null}
 
       <details style={styles.details}>
         <summary style={styles.summaryToggle}>점수 구성 자세히</summary>
@@ -333,6 +343,31 @@ const styles = {
     flexWrap: "wrap",
     gap: 6,
   },
+  guideGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 6,
+  },
+  guideCard: {
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.04)",
+    padding: "7px 8px",
+    minWidth: 0,
+  },
+  guideTitle: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.88)",
+    letterSpacing: "-0.01em",
+  },
+  guideHint: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.35,
+  },
   summaryChip: {
     fontSize: 10,
     fontWeight: 800,
@@ -342,55 +377,6 @@ const styles = {
     borderRadius: 999,
     padding: "2px 8px",
     letterSpacing: "-0.01em",
-  },
-  suggList: {
-    listStyle: "none",
-    margin: 0,
-    padding: 0,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  suggItem: { margin: 0, padding: 0 },
-  suggBtn: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(46,204,113,0.32)",
-    background: "rgba(46,204,113,0.08)",
-    color: "#d4f4dd",
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: "-0.01em",
-    textAlign: "left",
-    cursor: "default",
-    WebkitTapHighlightColor: "transparent",
-  },
-  suggBtnClickable: {
-    cursor: "pointer",
-  },
-  suggDot: {
-    flexShrink: 0,
-    width: 18,
-    height: 18,
-    borderRadius: "50%",
-    background: "rgba(46,204,113,0.22)",
-    border: "1px solid rgba(46,204,113,0.55)",
-    color: "#d4f4dd",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 12,
-    fontWeight: 900,
-    lineHeight: 1,
-  },
-  suggText: {
-    flex: 1,
-    minWidth: 0,
-    lineHeight: 1.4,
   },
   allDone: {
     fontSize: 12,

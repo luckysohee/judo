@@ -4,12 +4,28 @@ import {
   markActivationEvent,
   readActivationState,
 } from "../../utils/activationState";
+import {
+  ACTIVATION_EVENT,
+  logActivationFunnelEvent,
+} from "../../api/activationFunnelLogs";
+import {
+  ACTIVATION_CTA_BUCKET,
+  ACTIVATION_CTA_BUCKETS,
+  ACTIVATION_CTA_EXPERIMENT_KEY,
+  getOrAssignExperimentBucket,
+} from "../../utils/experiments";
 
 const TAGS = [
   { key: "야장", label: "야장" },
   { key: "노포", label: "노포" },
   { key: "분위기", label: "분위기" },
 ];
+
+const SECTION_ARIA = {
+  HOT: "지금 뜨는 코스",
+  SITUATION: "오늘 어울리는 컬렉션 코스",
+  SIMILAR_USERS: "취향이 비슷한 사람",
+};
 
 function scrollIntoAria(label) {
   const q = String(label || "").trim();
@@ -37,27 +53,65 @@ function scrollIntoAria(label) {
  * - 모달 없이 copy + 상황 chip + CTA
  * - activation 완료되면 자동 숨김
  */
-export default function HomeFirstSessionActivationBlock() {
+export default function HomeFirstSessionActivationBlock({
+  experimentBucket = null,
+  appEnv = null,
+} = {}) {
   const [state, setState] = useState(() => readActivationState());
+  const [ctaBucket] = useState(() =>
+    getOrAssignExperimentBucket(
+      ACTIVATION_CTA_EXPERIMENT_KEY,
+      ACTIVATION_CTA_BUCKETS,
+      ACTIVATION_CTA_BUCKET.SAVE,
+    ),
+  );
 
   const completed = useMemo(() => isActivationCompleted(state), [state]);
 
   const onPickTag = useCallback((tag) => {
     // score 로직은 건드리지 않고, 상황 rail 섹션으로 이동만 한다.
-    scrollIntoAria("오늘 어울리는 컬렉션 코스");
+    scrollIntoAria(SECTION_ARIA.SITUATION);
     // (향후) 선택된 탭까지 강제하려면 HomeSituationCollectionsSection에 제어 prop 추가 고려
     void tag;
   }, []);
 
   const onCta = useCallback(() => {
-    // 저장 유도: 우선 "지금 뜨는 코스" 섹션으로 이동
-    scrollIntoAria("지금 뜨는 코스");
-  }, []);
+    // score 로직은 건드리지 않고, 섹션으로 이동만 한다.
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.VIBE) {
+      scrollIntoAria(SECTION_ARIA.SITUATION);
+      return;
+    }
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.FOLLOW) {
+      scrollIntoAria(SECTION_ARIA.SIMILAR_USERS);
+      return;
+    }
+    scrollIntoAria(SECTION_ARIA.HOT);
+  }, [ctaBucket]);
+
+  const ctaCopy = useMemo(() => {
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.VIBE) return "오늘 분위기로 코스 찾기 →";
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.FOLLOW) return "취향 맞는 큐레이터 픽하기 →";
+    return "코스 1개 저장해보기 →";
+  }, [ctaBucket]);
+
+  const ctaAria = useMemo(() => {
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.VIBE) return "오늘 분위기로 코스 찾기";
+    if (ctaBucket === ACTIVATION_CTA_BUCKET.FOLLOW) return "취향 맞는 큐레이터 픽하기";
+    return "코스 1개 저장해보기";
+  }, [ctaBucket]);
 
   useEffect(() => {
     // first_home_view: 블록이 실제로 렌더된 순간을 최소 기준으로 기록
-    if (!completed) markActivationEvent("first_home_view");
-  }, [completed]);
+    if (completed) return;
+    markActivationEvent("first_home_view");
+    logActivationFunnelEvent({
+      eventName: ACTIVATION_EVENT.ONBOARDING_IMPRESSION,
+      experimentBucket,
+      activationCtaBucket: ctaBucket,
+      appEnv,
+      source: "home_activation_block",
+    });
+  }, [appEnv, completed, ctaBucket, experimentBucket]);
 
   useEffect(() => {
     const onChange = () => setState(readActivationState());
@@ -83,7 +137,16 @@ export default function HomeFirstSessionActivationBlock() {
           <button
             key={t.key}
             type="button"
-            onClick={() => onPickTag(t.key)}
+            onClick={() => {
+              logActivationFunnelEvent({
+                eventName: ACTIVATION_EVENT.ONBOARDING_CLICK,
+                experimentBucket,
+                activationCtaBucket: ctaBucket,
+                appEnv,
+                source: `home_activation_block_chip:${t.key}`,
+              });
+              onPickTag(t.key);
+            }}
             style={styles.chip}
             aria-label={`${t.label} 코스 보기`}
           >
@@ -92,8 +155,22 @@ export default function HomeFirstSessionActivationBlock() {
         ))}
       </div>
 
-      <button type="button" onClick={onCta} style={styles.cta} aria-label="코스 하나 저장해보기">
-        코스 하나 저장해보기 →
+      <button
+        type="button"
+        onClick={() => {
+          logActivationFunnelEvent({
+            eventName: ACTIVATION_EVENT.ONBOARDING_CLICK,
+            experimentBucket,
+            activationCtaBucket: ctaBucket,
+            appEnv,
+            source: `home_activation_block_cta:${ctaBucket}`,
+          });
+          onCta();
+        }}
+        style={styles.cta}
+        aria-label={ctaAria}
+      >
+        {ctaCopy}
       </button>
     </div>
   );

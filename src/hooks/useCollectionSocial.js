@@ -8,6 +8,11 @@ import {
 } from "../api/collectionSocial";
 import { useAuth } from "../context/AuthContext";
 import { completeActivation, markActivationEvent } from "../utils/activationState";
+import {
+  ACTIVATION_EVENT,
+  logActivationFunnelEvent,
+} from "../api/activationFunnelLogs";
+import { readActivationState } from "../utils/activationState";
 
 /**
  * 컬렉션 좋아요·저장 토글 로직 — `CollectionSocialRow` 와 검색 카드 등에서 공유.
@@ -140,8 +145,38 @@ export function useCollectionSocial(
         if (turningOn) {
           // first session activation: 첫 저장 시 activation 완료
           try {
-            markActivationEvent("first_collection_save");
-            completeActivation("save");
+            const before = readActivationState();
+            const hadFirst = Boolean(before?.events?.first_collection_save);
+
+            if (!hadFirst) {
+              markActivationEvent("first_collection_save");
+              completeActivation("save");
+              logActivationFunnelEvent({
+                eventName: ACTIVATION_EVENT.ACTIVATION_COMPLETED,
+                completedBy: "save",
+                experimentBucket: null,
+                activationCtaBucket: null,
+                appEnv: import.meta.env.MODE,
+                source: "activation_completed",
+              });
+            } else {
+              logActivationFunnelEvent({
+                eventName: ACTIVATION_EVENT.SECOND_SAVE,
+                experimentBucket: null,
+                activationCtaBucket: null,
+                appEnv: import.meta.env.MODE,
+                source: "second_save",
+              });
+            }
+            if (!hadFirst) {
+              logActivationFunnelEvent({
+                eventName: ACTIVATION_EVENT.FIRST_COLLECTION_SAVE,
+                experimentBucket: null,
+                activationCtaBucket: null,
+                appEnv: import.meta.env.MODE,
+                source: "collection_save",
+              });
+            }
           } catch {
             /* ignore */
           }

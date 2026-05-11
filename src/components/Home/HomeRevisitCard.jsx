@@ -6,11 +6,16 @@ import {
   logCollectionInteraction,
 } from "../../api/collectionInteractionLogs";
 import { fetchHomeRevisitSignals } from "../../api/homeRevisitSignals";
+import {
+  ACTIVATION_EVENT,
+  logActivationFunnelEvent,
+} from "../../api/activationFunnelLogs";
 import { useAuth } from "../../context/AuthContext";
 import {
   readHomeLastSeen,
   writeHomeLastSeenNow,
 } from "../../utils/homeLastSeen";
+import { isActivationCompleted, readActivationState } from "../../utils/activationState";
 import CollectionCoverMedia from "../Collections/CollectionCoverMedia";
 
 /**
@@ -33,6 +38,11 @@ export default function HomeRevisitCard() {
   const [loading, setLoading] = useState(true);
 
   const uid = user?.id ?? null;
+  const activationCompleted = useMemo(() => {
+    if (authLoading) return false;
+    const s = readActivationState();
+    return isActivationCompleted(s);
+  }, [authLoading]);
 
   const lastSeen = useMemo(() => {
     if (authLoading) return null;
@@ -41,6 +51,11 @@ export default function HomeRevisitCard() {
 
   useEffect(() => {
     if (authLoading || !lastSeen) return undefined;
+    if (!activationCompleted) {
+      setLoading(false);
+      setSignals([]);
+      return undefined;
+    }
     let cancelled = false;
     setLoading(true);
     setHidden(false);
@@ -63,12 +78,34 @@ export default function HomeRevisitCard() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, lastSeen, uid]);
+  }, [activationCompleted, authLoading, lastSeen, uid]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!activationCompleted) return;
+    if (loading) return;
+    if (hidden) return;
+    if (!signals || signals.length === 0) return;
+    logActivationFunnelEvent({
+      eventName: ACTIVATION_EVENT.REENGAGEMENT_BANNER_IMPRESSION,
+      experimentBucket: null,
+      activationCtaBucket: null,
+      appEnv: import.meta.env.MODE,
+      source: "home_revisit_card",
+    });
+  }, [activationCompleted, authLoading, hidden, loading, signals]);
 
   const onOpenSample = useCallback(
     (signal, idx) => {
       const sample = signal?.sample;
       if (!sample?.id) return;
+      logActivationFunnelEvent({
+        eventName: ACTIVATION_EVENT.REENGAGEMENT_BANNER_CLICK,
+        experimentBucket: null,
+        activationCtaBucket: null,
+        appEnv: import.meta.env.MODE,
+        source: `home_revisit_card:${String(signal?.kind || "").trim() || "unknown"}`,
+      });
       logCollectionInteraction({
         eventType: COLLECTION_INTERACTION_EVENT.COLLECTION_OPEN,
         sourceSection: COLLECTION_INTERACTION_SOURCE_SECTION.HOME_REVISIT_CARD,
@@ -82,6 +119,13 @@ export default function HomeRevisitCard() {
   );
 
   const onDismiss = useCallback(() => {
+    logActivationFunnelEvent({
+      eventName: ACTIVATION_EVENT.REENGAGEMENT_BANNER_DISMISS,
+      experimentBucket: null,
+      activationCtaBucket: null,
+      appEnv: import.meta.env.MODE,
+      source: "home_revisit_card",
+    });
     writeHomeLastSeenNow(uid);
     setHidden(true);
   }, [uid]);
@@ -89,7 +133,8 @@ export default function HomeRevisitCard() {
   if (authLoading) return null;
   if (loading) return null;
   if (hidden) return null;
-  if (!signals || signals.length === 0) return null;
+  if (!activationCompleted) return null;
+  const showEmpty = !signals || signals.length === 0;
 
   return (
     <section style={styles.section} aria-label="다시 들어올 만한 새 소식">
@@ -111,6 +156,14 @@ export default function HomeRevisitCard() {
           닫기
         </button>
       </div>
+      {showEmpty ? (
+        <div style={styles.emptyHint}>
+          <div style={styles.emptyTitle}>지금은 조용해요. 곧 새 신호가 도착해요</div>
+          <div style={styles.emptySub}>
+            저장한 코스의 새 리믹스, 픽한 큐레이터 신작, 비슷한 분위기 코스를 여기서 알려드릴게요.
+          </div>
+        </div>
+      ) : (
       <ul style={styles.list}>
         {signals.map((s, idx) => {
           const cover = s.sample?.cover_image_url ?? null;
@@ -168,11 +221,24 @@ export default function HomeRevisitCard() {
           );
         })}
       </ul>
+      )}
     </section>
   );
 }
 
 function kindBadgeStyle(kind) {
+  if (kind === "remix_new") {
+    return {
+      label: "새 리믹스",
+      badge: {
+        background: "rgba(236,72,153,0.16)",
+        border: "1px solid rgba(236,72,153,0.45)",
+        color: "#ffd0ea",
+      },
+      coverBg:
+        "linear-gradient(135deg, rgba(236,72,153,0.5), rgba(59,130,246,0.28))",
+    };
+  }
   if (kind === "follow_new") {
     return {
       label: "픽한 사람",
@@ -265,6 +331,24 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 6,
+  },
+  emptyHint: {
+    padding: "10px 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.04)",
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.4,
   },
   item: {
     margin: 0,

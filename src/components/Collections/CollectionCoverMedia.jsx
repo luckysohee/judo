@@ -123,6 +123,12 @@ export default function CollectionCoverMedia({
 
   const effectiveUrl = trimmed || autoUrl;
   const usingAuto = !trimmed && Boolean(autoUrl);
+
+  useEffect(() => {
+    // URL이 바뀌면 이전 실패 상태를 초기화해 새 이미지를 다시 시도한다.
+    setFailedForUrl("");
+  }, [effectiveUrl]);
+
   const showImg = Boolean(effectiveUrl && failedForUrl !== effectiveUrl);
   const initial =
     String(letter || "·").trim().charAt(0).toUpperCase() || "·";

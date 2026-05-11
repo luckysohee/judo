@@ -76,3 +76,20 @@ export const HOME_LAYOUT_BUCKETS = [
   HOME_LAYOUT_BUCKET.V2,
 ];
 
+/**
+ * Activation CTA 실험 (minimal): 어떤 CTA가 첫 행동을 잘 만드는지 비교
+ */
+export const ACTIVATION_CTA_EXPERIMENT_NAME = "activation_cta";
+export const ACTIVATION_CTA_EXPERIMENT_VERSION = "1";
+export const ACTIVATION_CTA_EXPERIMENT_KEY = `${ACTIVATION_CTA_EXPERIMENT_NAME}_v${ACTIVATION_CTA_EXPERIMENT_VERSION}`;
+export const ACTIVATION_CTA_BUCKET = {
+  SAVE: "activation_cta_save",
+  VIBE: "activation_cta_vibe",
+  FOLLOW: "activation_cta_follow",
+};
+export const ACTIVATION_CTA_BUCKETS = [
+  ACTIVATION_CTA_BUCKET.SAVE,
+  ACTIVATION_CTA_BUCKET.VIBE,
+  ACTIVATION_CTA_BUCKET.FOLLOW,
+];
+

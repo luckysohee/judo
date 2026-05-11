@@ -797,11 +797,41 @@ export async function createCollection({
   // first session activation: 첫 컬렉션 생성으로 activation 완료 (best-effort)
   if (!error && data?.id) {
     try {
-      const { markActivationEvent, completeActivation } = await import(
+      const { readActivationState, markActivationEvent, completeActivation } = await import(
         "../utils/activationState"
       );
-      markActivationEvent("first_collection_create");
-      completeActivation("create");
+      const { ACTIVATION_EVENT, logActivationFunnelEvent } = await import(
+        "./activationFunnelLogs"
+      );
+      const before = readActivationState();
+      const hadFirst = Boolean(before?.events?.first_collection_create);
+      if (!hadFirst) {
+        markActivationEvent("first_collection_create");
+        completeActivation("create");
+        logActivationFunnelEvent({
+          eventName: ACTIVATION_EVENT.FIRST_COLLECTION_CREATE,
+          experimentBucket: null,
+          activationCtaBucket: null,
+          appEnv: import.meta.env.MODE,
+          source: "create_collection",
+        });
+        logActivationFunnelEvent({
+          eventName: ACTIVATION_EVENT.ACTIVATION_COMPLETED,
+          completedBy: "create",
+          experimentBucket: null,
+          activationCtaBucket: null,
+          appEnv: import.meta.env.MODE,
+          source: "activation_completed",
+        });
+      } else {
+        logActivationFunnelEvent({
+          eventName: ACTIVATION_EVENT.SECOND_COLLECTION_CREATE,
+          experimentBucket: null,
+          activationCtaBucket: null,
+          appEnv: import.meta.env.MODE,
+          source: "second_create_collection",
+        });
+      }
     } catch {
       /* ignore */
     }

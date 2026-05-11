@@ -10,6 +10,12 @@ export const HOME_SECTION_NAME = {
 };
 
 const _sessionDedup = new Set();
+const SESSION_DEDUP_MAX = 256;
+
+function markSessionDedup(key) {
+  _sessionDedup.add(key);
+  if (_sessionDedup.size > SESSION_DEDUP_MAX) _sessionDedup.clear();
+}
 
 function isSchemaColumnError(err) {
   const msg = String(err?.message || err || "").toLowerCase();
@@ -45,7 +51,7 @@ export function logHomeSectionImpression({
   const exp = typeof experimentBucket === "string" ? experimentBucket.trim() : "";
   const dedupKey = `${key}::${exp || "-"}`;
   if (_sessionDedup.has(dedupKey)) return;
-  _sessionDedup.add(dedupKey);
+  markSessionDedup(dedupKey);
 
   void (async () => {
     try {

@@ -172,6 +172,7 @@ function mergeUniqueByKey(primary, secondary, max) {
 function HomeCuratorActivityFeed({
   forcedScope = null,
   experimentBucket = null,
+  hideHeader = false,
 } = {}) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -314,58 +315,65 @@ function HomeCuratorActivityFeed({
     viewerId,
   ]);
 
-  if (!loading && list.length === 0) return null;
-
   return (
     <section ref={sectionRef} style={styles.section} aria-label="큐레이터 활동 피드">
-      <div style={styles.headRow}>
-        <div style={styles.headText}>
-          <div style={styles.titleRow}>
-            <span aria-hidden="true">✨</span>
-            <span>지금 큐레이터들 활동</span>
+      {!hideHeader ? (
+        <div style={styles.headRow}>
+          <div style={styles.headText}>
+            <div style={styles.titleRow}>
+              <span aria-hidden="true">✨</span>
+              <span>지금 큐레이터들 활동</span>
+            </div>
+            <div style={styles.sub}>
+              {effectiveTab === TAB_FOLLOWED
+                ? augmentedFromAll
+                  ? "내가 픽한 사람들 활동이 적어서 전체 공개 활동도 함께 보여드려요"
+                  : "내가 픽한 사람들 우선 · 최근 컬렉션 만들기·업데이트·인기 저장"
+                : "최근 컬렉션 만들기·업데이트·인기 저장 라이브"}
+            </div>
           </div>
-          <div style={styles.sub}>
-            {effectiveTab === TAB_FOLLOWED
-              ? augmentedFromAll
-                ? "내가 픽한 사람들 활동이 적어서 전체 공개 활동도 함께 보여드려요"
-                : "내가 픽한 사람들 우선 · 최근 컬렉션 만들기·업데이트·인기 저장"
-              : "최근 컬렉션 만들기·업데이트·인기 저장 라이브"}
-          </div>
+          {showTabs ? (
+            <div style={styles.tabs} role="tablist" aria-label="활동 범위">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={effectiveTab === TAB_FOLLOWED}
+                onClick={() => setTab(TAB_FOLLOWED)}
+                style={{
+                  ...styles.tabBtn,
+                  ...(effectiveTab === TAB_FOLLOWED
+                    ? styles.tabBtnActive
+                    : null),
+                }}
+              >
+                내가 픽한 사람들
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={effectiveTab === TAB_ALL}
+                onClick={() => setTab(TAB_ALL)}
+                style={{
+                  ...styles.tabBtn,
+                  ...(effectiveTab === TAB_ALL ? styles.tabBtnActive : null),
+                }}
+              >
+                전체 활동
+              </button>
+            </div>
+          ) : null}
         </div>
-        {showTabs ? (
-          <div style={styles.tabs} role="tablist" aria-label="활동 범위">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={effectiveTab === TAB_FOLLOWED}
-              onClick={() => setTab(TAB_FOLLOWED)}
-              style={{
-                ...styles.tabBtn,
-                ...(effectiveTab === TAB_FOLLOWED
-                  ? styles.tabBtnActive
-                  : null),
-              }}
-            >
-              내가 픽한 사람들
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={effectiveTab === TAB_ALL}
-              onClick={() => setTab(TAB_ALL)}
-              style={{
-                ...styles.tabBtn,
-                ...(effectiveTab === TAB_ALL ? styles.tabBtnActive : null),
-              }}
-            >
-              전체 활동
-            </button>
-          </div>
-        ) : null}
-      </div>
+      ) : null}
 
       {loading ? (
-        <div style={styles.loadingChip}>활동 모으는 중…</div>
+        <div style={styles.loadingChip}>불러오는 중…</div>
+      ) : list.length === 0 ? (
+        <div style={styles.emptyCard}>
+          <div style={styles.emptyTitle}>아직 공개된 활동이 많지 않아요</div>
+          <div style={styles.emptySub}>
+            픽한 큐레이터가 새 코스를 올리면 여기서 바로 볼 수 있어요.
+          </div>
+        </div>
       ) : (
         <ul style={styles.list}>
           {list.map((item, idx) => {
@@ -498,6 +506,24 @@ const styles = {
     color: "rgba(255,255,255,0.55)",
     fontSize: 12,
     fontWeight: 600,
+  },
+  emptyCard: {
+    padding: "12px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.05)",
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+  },
+  emptySub: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.4,
   },
   list: {
     listStyle: "none",
