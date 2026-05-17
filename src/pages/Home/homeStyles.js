@@ -1,4 +1,4 @@
-import { homeDrinksSituationStripBottomCss } from "../utils/homeHotStripLayout.js";
+import { homeDrinksSituationStripBottomCss } from "../../utils/homeHotStripLayout.js";
 
 const glassWhiteStrong = "rgba(255, 255, 255, 0.9)";
 const glassBorder = "1px solid rgba(255, 255, 255, 0.55)";
