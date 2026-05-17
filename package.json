@@ -8,6 +8,7 @@
     "dev:server": "npm --prefix server run dev",
     "build": "vite build",
     "test": "vitest run",
+    "verify:course-staging": "node --env-file=server/.env scripts/verify-course-staging.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

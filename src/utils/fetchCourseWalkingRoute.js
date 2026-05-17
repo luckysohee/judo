@@ -86,13 +86,31 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
   let merged = [];
   let distanceMeters = 0;
   let durationSeconds = 0;
-  for (const route of routes) {
-    if (!route?.ok || !Array.isArray(route.path) || route.path.length < 2) {
-      return null;
+  let routedLegCount = 0;
+  for (let i = 0; i < routes.length; i++) {
+    const route = routes[i];
+    const a = waypoints[i];
+    const b = waypoints[i + 1];
+    if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
+      merged = appendWalkingPathSegment(merged, route.path);
+      distanceMeters += Number(route.distanceMeters) || 0;
+      durationSeconds += Number(route.durationSeconds) || 0;
+      routedLegCount += 1;
+      continue;
     }
-    merged = appendWalkingPathSegment(merged, route.path);
-    distanceMeters += Number(route.distanceMeters) || 0;
-    durationSeconds += Number(route.durationSeconds) || 0;
+    if (
+      a &&
+      b &&
+      Number.isFinite(Number(a.lat)) &&
+      Number.isFinite(Number(a.lng)) &&
+      Number.isFinite(Number(b.lat)) &&
+      Number.isFinite(Number(b.lng))
+    ) {
+      merged = appendWalkingPathSegment(merged, [
+        { lat: Number(a.lat), lng: Number(a.lng) },
+        { lat: Number(b.lat), lng: Number(b.lng) },
+      ]);
+    }
   }
   if (merged.length < 2) return null;
   return {
@@ -100,5 +118,7 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
     path: merged,
     distanceMeters,
     durationSeconds,
+    routedLegCount,
+    totalLegs: routes.length,
   };
 }

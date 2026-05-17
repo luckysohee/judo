@@ -98,7 +98,12 @@ import {
 } from "../../utils/searchPlaceFeedback";
 import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
 import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
-import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
+import HotCheckinStrip, {
+  TAB_COURSES as HOT_STRIP_TAB_COURSES,
+} from "../../components/Home/HotCheckinStrip";
+import HomeCourseFollowQuickButton from "../../components/Home/HomeCourseFollowQuickButton";
+import HomeRailCourseBottomSheet from "../../components/Home/HomeRailCourseBottomSheet";
+import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
@@ -138,6 +143,28 @@ import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCurato
 import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
 import { debounce } from "../../utils/debounce";
 import { getLimitByZoom } from "../../api/places";
+import { fetchCuratorCourseById } from "../../api/curatorCourses";
+import {
+  fetchMyCoursePlaceStamps,
+  fetchCourseStampSteps,
+  areAllCourseStepsStamped,
+  resetCourseStampsForReplay,
+  resolveCourseGuideStepIndex,
+} from "../../api/coursePlaceStamps";
+import { hasUserCompletedCourseInLogs } from "../../api/completedCourseLogs";
+import {
+  getMyActiveCourseSession,
+  startCourseSession,
+} from "../../api/courseSessions";
+import { curatorCourseRowToDrivingMap } from "../../utils/curatorCourseHomeMap";
+import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
+import {
+  enrichDrivingMapWithStepThumbs,
+} from "../../utils/courseStepThumb";
+import {
+  homeRailCourseMapFitPadding,
+  homeRailCourseSheetHeightPx,
+} from "../../utils/homeRailCourseUi";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   isWalkingRouteReasonable,
@@ -155,6 +182,7 @@ import { collectReasonEvidence } from "../../utils/reasonEvidence.js";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useCourseSearch } from "../../hooks/useCourseSearch";
+import { saveHomeRecommendedCourseDraft } from "../../utils/saveHomeRecommendedCourseDraft";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useRecommendation } from "../../hooks/useRecommendation";
 import { useSelectedRecommendedPlace } from "../../hooks/useSelectedRecommendedPlace";
@@ -173,6 +201,10 @@ import {
   fetchChainedCourseWalkingRoutes,
 } from "../../utils/fetchCourseWalkingRoute.js";
 import { fetchRegionOutline } from "../../utils/fetchRegionOutline.js";
+import {
+  courseDriveWaypoints,
+  courseRouteLabelPosition,
+} from "../../utils/courseDriveWaypoints";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
 import {
   courseOptionsToMapPlaces,
@@ -1601,6 +1633,52 @@ export default function Home() {
     courseQueryParsed,
   } = useCourseSearch();
 
+  const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
+
+  const handleSaveSelectedCourseAsDraft = useCallback(async () => {
+    if (!user?.id) {
+      window.alert("로그인이 필요합니다.");
+      return;
+    }
+    if (!selectedCourse?.steps?.length) return;
+    setSavingRecommendedDraft(true);
+    try {
+      const r = await saveHomeRecommendedCourseDraft({
+        curatorUserId: user.id,
+        course: selectedCourse,
+        courseQueryParsed,
+        rawSearchQuery: query,
+      });
+      let msg =
+        "내 코스로 저장했어요. 제목과 설명을 수정해보세요.";
+      if (r.skippedSteps > 0) {
+        msg += ` 일부 장소 ${r.skippedSteps}곳은 주도 DB에 없어 제외했어요.`;
+      }
+      window.alert(msg);
+      navigate(
+        `/studio/courses/${encodeURIComponent(r.courseId)}/edit`
+      );
+    } catch (e) {
+      const code = e?.code;
+      if (code === "NOT_CURATOR") {
+        window.alert(
+          e?.message || "큐레이터 계정에서만 내 코스로 저장할 수 있어요."
+        );
+      } else if (code === "INSUFFICIENT_DB_PLACES") {
+        window.alert(
+          e?.message ||
+            "저장할 수 있는 장소가 부족합니다."
+        );
+      } else if (code === "NOT_AUTHENTICATED") {
+        window.alert(e?.message || "로그인이 필요합니다.");
+      } else {
+        window.alert(e?.message || "저장하지 못했습니다.");
+      }
+    } finally {
+      setSavingRecommendedDraft(false);
+    }
+  }, [user?.id, selectedCourse, courseQueryParsed, query, navigate]);
+
   const {
     recommendation: curatorImportRecommendation,
     setRecommendation: setCuratorImportRecommendation,
@@ -1658,6 +1736,484 @@ export default function Home() {
   }, [closeRecommendedPlaceDetail, setCuratorImportRecommendation]);
 
   const [courseMapOverlay, setCourseMapOverlay] = useState(null);
+  /** 홈 「지금 뜨는 코스」 탭에서 고른 공개 코스 — 검색 코스 모드와 별도 */
+  const [homeRailCourseDrive, setHomeRailCourseDrive] = useState(null);
+  const [homeRailStampPlaceIds, setHomeRailStampPlaceIds] = useState(
+    () => new Set()
+  );
+  const [homeRailActiveSession, setHomeRailActiveSession] = useState(null);
+  const [homeRailCourseCompleted, setHomeRailCourseCompleted] = useState(false);
+  /** 완주 로그에 한 번이라도 남은 코스 — 다시 모으기 버튼용 */
+  const [homeRailEverCompleted, setHomeRailEverCompleted] = useState(false);
+  const [homeRailReplayBusy, setHomeRailReplayBusy] = useState(false);
+  const [homeRailFollowBusy, setHomeRailFollowBusy] = useState(false);
+  /** 지도 미리보기 닫아도 따라가기·도장 유지 */
+  const [homeCourseStampDock, setHomeCourseStampDock] = useState(null);
+  /** 따라가기 세션 — 홈 빠른가기 FAB용 (코스 시트 없을 때도 유지) */
+  const [homeGlobalFollowSession, setHomeGlobalFollowSession] = useState(null);
+  /** 숨기기 후에만 우측 빠른가기 FAB 표시 */
+  const [homeCourseFollowMinimized, setHomeCourseFollowMinimized] =
+    useState(false);
+  /** `HotCheckinStrip` 현재 탭 — 코스 탭일 때 검색바·술 칩 숨김 */
+  const [hotStripActiveTab, setHotStripActiveTab] = useState("hot");
+  const handleHotStripActiveTabChange = useCallback((tab) => {
+    setHotStripActiveTab((prev) => (prev === tab ? prev : tab));
+  }, []);
+  const isHotStripCoursesTab = hotStripActiveTab === HOT_STRIP_TAB_COURSES;
+  const hideHomeMapChromeForCourses =
+    isHotStripCoursesTab || Boolean(homeRailCourseDrive);
+  const [homeViewportH, setHomeViewportH] = useState(() =>
+    typeof window !== "undefined" ? window.innerHeight : 800
+  );
+  const kakaoPlacesBeforeHomeRailRef = useRef(null);
+  const kakaoPlacesRef = useRef([]);
+
+  /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
+  const coursePathDismissedForCourseKeyRef = useRef(null);
+
+  useEffect(() => {
+    kakaoPlacesRef.current = kakaoPlaces;
+  }, [kakaoPlaces]);
+
+  const refreshHomeGlobalFollowSession = useCallback(async () => {
+    if (!user?.id) {
+      setHomeGlobalFollowSession(null);
+      return null;
+    }
+    try {
+      const s = await getMyActiveCourseSession();
+      setHomeGlobalFollowSession(s);
+      return s;
+    } catch {
+      setHomeGlobalFollowSession(null);
+      return null;
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setHomeGlobalFollowSession(null);
+      return undefined;
+    }
+    void refreshHomeGlobalFollowSession();
+    const onFocus = () => void refreshHomeGlobalFollowSession();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [user?.id, refreshHomeGlobalFollowSession]);
+
+  const refreshHomeRailCourseStampState = useCallback(async (courseId) => {
+    const cid = String(courseId || "").trim();
+    if (!cid) {
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailEverCompleted(false);
+      setHomeRailCourseCompleted(false);
+      return;
+    }
+    try {
+      const [stamps, session, everCompleted, steps] = await Promise.all([
+        fetchMyCoursePlaceStamps(cid),
+        getMyActiveCourseSession(),
+        hasUserCompletedCourseInLogs(cid),
+        fetchCourseStampSteps(cid),
+      ]);
+      setHomeRailStampPlaceIds(stamps.stampedPlaceIds);
+      const fol =
+        session && String(session.course_id || "") === cid ? session : null;
+      setHomeRailActiveSession(fol);
+      setHomeRailEverCompleted(everCompleted);
+      setHomeRailCourseCompleted(
+        areAllCourseStepsStamped(steps, stamps.stampedPlaceIds)
+      );
+    } catch {
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailEverCompleted(false);
+      setHomeRailCourseCompleted(false);
+    }
+  }, []);
+
+  const homeFollowCourseId = useMemo(
+    () =>
+      String(
+        homeGlobalFollowSession?.course_id ||
+          homeRailActiveSession?.course_id ||
+          ""
+      ).trim(),
+    [homeGlobalFollowSession?.course_id, homeRailActiveSession?.course_id]
+  );
+
+  const dismissHomeRailCourseMap = useCallback(async () => {
+    const cid = String(homeRailCourseDrive?.courseId || "").trim();
+    const followId = homeFollowCourseId;
+    const previewingOtherWhileFollowing =
+      Boolean(followId) && Boolean(cid) && followId !== cid;
+
+    setHomeRailCourseDrive(null);
+    coursePathDismissedForCourseKeyRef.current = null;
+    setCourseMapOverlay(null);
+    setCourseWalkStrollHint("");
+    if (kakaoPlacesBeforeHomeRailRef.current != null) {
+      setKakaoPlaces(kakaoPlacesBeforeHomeRailRef.current);
+      kakaoPlacesBeforeHomeRailRef.current = null;
+    }
+
+    /** 따라가기 중 다른 코스만 지도에서 내림 — 세션·도장은 유지 */
+    if (previewingOtherWhileFollowing) {
+      void refreshHomeRailCourseStampState(followId);
+      return;
+    }
+
+    let keepFollow = Boolean(followId && cid && followId === cid);
+    if (!keepFollow && cid && user?.id) {
+      try {
+        const s = await getMyActiveCourseSession();
+        keepFollow = Boolean(
+          s && String(s.course_id || "").trim() === cid
+        );
+      } catch {
+        keepFollow = false;
+      }
+    }
+
+    setHomeCourseStampDock(null);
+    if (keepFollow && cid) {
+      void refreshHomeRailCourseStampState(cid);
+    } else {
+      setHomeCourseFollowMinimized(false);
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailCourseCompleted(false);
+    }
+  }, [
+    setKakaoPlaces,
+    homeRailCourseDrive,
+    homeFollowCourseId,
+    user?.id,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  const showHomeRailCourseOnMap = useCallback(
+    async (courseId) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      try {
+        const row = await fetchCuratorCourseById(id);
+        let drive = curatorCourseRowToDrivingMap(row);
+        if (!drive) {
+          showToast(
+            "지도에 표시할 좌표가 있는 장소가 2곳 이상 필요해요.",
+            "info",
+            3200
+          );
+          return;
+        }
+        drive = await enrichDrivingMapWithStepThumbs(drive);
+        setSelectedPlace(null);
+        clearImportRecommendationOverlay();
+        if (kakaoPlacesBeforeHomeRailRef.current == null) {
+          kakaoPlacesBeforeHomeRailRef.current = kakaoPlacesRef.current;
+        }
+        coursePathDismissedForCourseKeyRef.current = null;
+        setCourseMapOverlay(null);
+        setCourseWalkStrollHint("");
+        setHomeRailCourseDrive(drive);
+        setHomeCourseStampDock(null);
+        setHomeCourseFollowMinimized(false);
+        setKakaoPlaces(courseOptionsToMapPlaces([drive]));
+        void refreshHomeRailCourseStampState(id);
+      } catch (e) {
+        showToast(
+          e?.message || "코스를 지도에 불러오지 못했어요.",
+          "warning",
+          3200
+        );
+      }
+    },
+    [clearImportRecommendationOverlay, showToast, setKakaoPlaces, refreshHomeRailCourseStampState]
+  );
+
+  useEffect(() => {
+    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
+    const stampCourseId = previewId || homeFollowCourseId;
+    if (!stampCourseId) {
+      setHomeRailStampPlaceIds(new Set());
+      if (!homeFollowCourseId) {
+        setHomeRailActiveSession(null);
+        setHomeRailCourseCompleted(false);
+      }
+      return undefined;
+    }
+    void refreshHomeRailCourseStampState(stampCourseId);
+    return undefined;
+  }, [
+    homeRailCourseDrive?.courseId,
+    homeFollowCourseId,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  /** 지도 시트에 띄운 코스(미리보기) */
+  const homeRailActiveCourseId = useMemo(
+    () => String(homeRailCourseDrive?.courseId || "").trim(),
+    [homeRailCourseDrive?.courseId]
+  );
+
+  const homeRailGuideStepIndex = useMemo(() => {
+    if (!homeRailCourseDrive) return 0;
+    const sheetSteps = sheetStepsFromDrivingMap(homeRailCourseDrive).slice(0, 3);
+    return resolveCourseGuideStepIndex(
+      sheetSteps.length,
+      homeRailStampPlaceIds,
+      sheetSteps.map((s, i) => ({ place_id: s.place_id, order_index: i }))
+    );
+  }, [homeRailCourseDrive, homeRailStampPlaceIds]);
+
+  const homeRailFollowingThisCourse = useMemo(
+    () =>
+      Boolean(
+        homeFollowCourseId &&
+          homeRailActiveCourseId &&
+          homeFollowCourseId === homeRailActiveCourseId
+      ),
+    [homeFollowCourseId, homeRailActiveCourseId]
+  );
+
+  const handleHomeRailStartFollow = useCallback(async () => {
+    const id = homeRailActiveCourseId || homeFollowCourseId;
+    if (!id) return;
+    if (!user?.id) {
+      showToast("로그인하면 코스를 따라갈 수 있어요.", "info", 3200);
+      return;
+    }
+    setHomeRailFollowBusy(true);
+    try {
+      const s = await startCourseSession(id, { replaceExisting: false });
+      setHomeRailActiveSession(s);
+      setHomeGlobalFollowSession(s);
+      setHomeCourseFollowMinimized(false);
+      showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
+    } catch (e) {
+      if (e?.code === "ACTIVE_SESSION_EXISTS") {
+        if (
+          !window.confirm(
+            "현재 진행 중인 코스를 종료하고 이 코스를 시작할까요?"
+          )
+        ) {
+          return;
+        }
+        const s = await startCourseSession(id, { replaceExisting: true });
+        setHomeRailActiveSession(s);
+        setHomeGlobalFollowSession(s);
+        setHomeCourseFollowMinimized(false);
+        showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
+      } else {
+        showToast(e?.message || "시작하지 못했어요.", "warning", 3200);
+      }
+    } finally {
+      setHomeRailFollowBusy(false);
+      void refreshHomeRailCourseStampState(id);
+      void refreshHomeGlobalFollowSession();
+    }
+  }, [
+    homeRailActiveCourseId,
+    user?.id,
+    showToast,
+    refreshHomeRailCourseStampState,
+    refreshHomeGlobalFollowSession,
+  ]);
+
+  const dismissHomeCourseStampDock = useCallback(() => {
+    setHomeCourseStampDock(null);
+    setHomeCourseFollowMinimized(false);
+    setHomeRailStampPlaceIds(new Set());
+    setHomeRailActiveSession(null);
+    setHomeRailEverCompleted(false);
+    setHomeRailCourseCompleted(false);
+  }, []);
+
+  const handleHomeRailReplayStamps = useCallback(
+    async (courseId) => {
+      const id = String(
+        courseId || homeRailActiveCourseId || ""
+      ).trim();
+      if (!id) return;
+      if (!user?.id) {
+        showToast("로그인하면 다시 모을 수 있어요.", "info", 3200);
+        return;
+      }
+      if (
+        !window.confirm(
+          "도장을 모두 지우고 처음부터 다시 모을까요? 완주 기록은 그대로 남아요."
+        )
+      ) {
+        return;
+      }
+      setHomeRailReplayBusy(true);
+      try {
+        const r = await resetCourseStampsForReplay(id);
+        if (!r?.ok) {
+          const msg =
+            r?.reason === "delete_blocked"
+              ? "도장을 지울 수 없어요. DB에 삭제 권한 마이그레이션을 적용했는지 확인해 주세요."
+              : "다시 모으기에 실패했어요.";
+          showToast(msg, "warning", 3200);
+          return;
+        }
+        setHomeRailStampPlaceIds(new Set());
+        setHomeRailCourseCompleted(false);
+        showToast("도장을 다시 모을 수 있어요.", "success", 2800);
+        await refreshHomeRailCourseStampState(id);
+      } catch {
+        showToast("다시 모으기에 실패했어요.", "warning", 2800);
+      } finally {
+        setHomeRailReplayBusy(false);
+      }
+    },
+    [
+      homeRailActiveCourseId,
+      user?.id,
+      showToast,
+      refreshHomeRailCourseStampState,
+      refreshHomeGlobalFollowSession,
+    ]
+  );
+
+  const showHomeCourseFollowQuick = useMemo(() => {
+    if (!homeFollowCourseId) return false;
+    if (isCourseMode) return false;
+    if (selectedPlace) return false;
+    if (String(query || "").trim()) return false;
+    if (isAiSearching) return false;
+    if (mutualSearchPanelOpen) return false;
+    if (homeCourseFollowMinimized) return true;
+    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
+    return Boolean(previewId && previewId !== homeFollowCourseId);
+  }, [
+    homeFollowCourseId,
+    homeCourseFollowMinimized,
+    homeRailCourseDrive?.courseId,
+    isCourseMode,
+    selectedPlace,
+    query,
+    isAiSearching,
+    mutualSearchPanelOpen,
+  ]);
+
+  const homeCourseFollowQuickTitle = useMemo(() => {
+    const t =
+      homeGlobalFollowSession?.course?.title ||
+      homeRailActiveSession?.course?.title ||
+      homeCourseStampDock?.title ||
+      homeRailCourseDrive?.title ||
+      "";
+    return String(t).trim() || "코스 따라가기";
+  }, [
+    homeGlobalFollowSession?.course?.title,
+    homeRailActiveSession?.course?.title,
+    homeCourseStampDock?.title,
+    homeRailCourseDrive?.title,
+  ]);
+
+  const homeCourseFollowQuickActive = Boolean(homeFollowCourseId);
+
+  const handleHideCourseFollow = useCallback(() => {
+    const cid = homeFollowCourseId;
+    if (!cid) return;
+    const title =
+      String(
+        homeRailCourseDrive?.title ||
+          homeGlobalFollowSession?.course?.title ||
+          homeRailActiveSession?.course?.title ||
+          homeCourseStampDock?.title ||
+          "코스"
+      ).trim() || "코스";
+    setHomeCourseFollowMinimized(true);
+    setHomeCourseStampDock({ courseId: cid, title });
+    setHomeRailCourseDrive(null);
+    coursePathDismissedForCourseKeyRef.current = null;
+    setCourseMapOverlay(null);
+    setCourseWalkStrollHint("");
+    if (kakaoPlacesBeforeHomeRailRef.current != null) {
+      setKakaoPlaces(kakaoPlacesBeforeHomeRailRef.current);
+      kakaoPlacesBeforeHomeRailRef.current = null;
+    }
+    void refreshHomeRailCourseStampState(cid);
+  }, [
+    homeFollowCourseId,
+    homeRailCourseDrive?.title,
+    homeGlobalFollowSession?.course?.title,
+    homeRailActiveSession?.course?.title,
+    homeCourseStampDock?.title,
+    setKakaoPlaces,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  const handleRailCourseSheetDismiss = useCallback(() => {
+    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
+    if (
+      homeFollowCourseId &&
+      previewId &&
+      homeFollowCourseId === previewId
+    ) {
+      handleHideCourseFollow();
+      return;
+    }
+    void dismissHomeRailCourseMap();
+  }, [
+    homeRailCourseDrive?.courseId,
+    homeFollowCourseId,
+    handleHideCourseFollow,
+    dismissHomeRailCourseMap,
+  ]);
+
+  const handleOpenCourseFollowQuick = useCallback(async () => {
+    let session = homeGlobalFollowSession || homeRailActiveSession;
+    if (!session?.course_id && user?.id) {
+      session = await refreshHomeGlobalFollowSession();
+    }
+    const cid = String(session?.course_id || homeFollowCourseId || "").trim();
+    if (!cid) return;
+
+    setHomeCourseFollowMinimized(false);
+    setHomeCourseStampDock(null);
+    await showHomeRailCourseOnMap(cid);
+  }, [
+    homeGlobalFollowSession,
+    homeRailActiveSession,
+    homeFollowCourseId,
+    user?.id,
+    refreshHomeGlobalFollowSession,
+    showHomeRailCourseOnMap,
+  ]);
+
+  const homeRailCourseSheetPx = useMemo(
+    () => homeRailCourseSheetHeightPx(homeViewportH, false, false),
+    [homeViewportH]
+  );
+
+  useEffect(() => {
+    if (!homeRailCourseDrive) return undefined;
+    const onResize = () => setHomeViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [homeRailCourseDrive]);
+
+  useEffect(() => {
+    if (!homeRailCourseDrive || isCourseMode) return undefined;
+    const pins = courseOptionsToMapPlaces([homeRailCourseDrive]);
+    if (!pins.length || !mapRef.current?.fitToPlaces) return undefined;
+    const sheetPx = homeRailCourseSheetHeightPx(
+      typeof window !== "undefined" ? window.innerHeight : homeViewportH,
+      false,
+      false
+    );
+    const padding = homeRailCourseMapFitPadding(sheetPx);
+    const t = window.setTimeout(() => {
+      mapRef.current?.fitToPlaces?.(pins, padding);
+    }, 180);
+    return () => window.clearTimeout(t);
+  }, [homeRailCourseDrive, isCourseMode, homeViewportH]);
+
   /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */
   const [courseWalkStrollHint, setCourseWalkStrollHint] = useState("");
   /** 미리보기 「도착 길찾기」: 내 위치 → 선택 장소 (지도 주황 폴리라인) */
@@ -1678,8 +2234,6 @@ export default function Home() {
     useState(false);
   /** 칩 세션 동안 `searchMapBars`에 항상 현재 지도 bounds 사용(키워드에 `구`/`로` 있어도 전국 검색 안 함) */
   const situationChipMapSearchViewportRef = useRef(false);
-  /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
-  const coursePathDismissedForCourseKeyRef = useRef(null);
   const [mapCourseFirstBusy, setMapCourseFirstBusy] = useState(false);
   /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 「2차는 여기로」 */
   const [courseSecondPickMode, setCourseSecondPickMode] = useState(false);
@@ -1955,6 +2509,16 @@ export default function Home() {
 
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
+    if (
+      homeRailCourseDrive &&
+      !isCourseMode &&
+      typeof window !== "undefined"
+    ) {
+      return homeRailCourseSheetHeightPx(
+        homeViewportH,
+        false
+      );
+    }
     if (!isCourseMode || !String(query || "").trim() || isAiSearching) return 0;
     if (typeof window === "undefined") return 360;
     const h = window.innerHeight;
@@ -1962,7 +2526,19 @@ export default function Home() {
       return Math.min(Math.round(h * 0.58) + 52, 560);
     }
     return Math.min(Math.round(h * 0.17) + 56, 180);
-  }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
+  }, [isCourseMode, query, isAiSearching, aiSheetOpen, homeRailCourseDrive, homeViewportH]);
+
+  const mapOverlayCourseDrive = isCourseMode
+    ? courseDrivingMap
+    : homeRailCourseDrive;
+
+  /** rising curator / 코스 검색 모드 진입 시 홈 레일 코스 미리보기 정리 */
+  useEffect(() => {
+    if (!isCourseMode && !homeRailCourseDrive) return;
+    if (isCourseMode && homeRailCourseDrive) {
+      dismissHomeRailCourseMap();
+    }
+  }, [isCourseMode, homeRailCourseDrive, dismissHomeRailCourseMap]);
 
   /** 코스/도보 경로·2차 UI가 지도에 있을 때 — 술 상황 칩(z~88)이 폴리라인보다 위에 깔려 경로를 가리는 것 방지 */
   const hideSituationFolderStripForMapCourseUi = useMemo(
@@ -2026,13 +2602,23 @@ export default function Home() {
 
   /** 검색 문장은 두고 코스만 비움 — 경로 오버레이만 닫기 */
   const dismissCourseMapPath = useCallback(() => {
+    if (!isCourseMode && homeRailCourseDrive) {
+      dismissHomeRailCourseMap();
+      return;
+    }
     const k = String(courseDrivingMap?.key ?? "");
     if (k) coursePathDismissedForCourseKeyRef.current = k;
     setCourseMapOverlay(null);
     setCourseWalkStrollHint("");
     /** 경로 × — 2차 후보 펄스·후보 마커도 같이 종료 */
     clearCourseSecondPickPulse();
-  }, [courseDrivingMap?.key, clearCourseSecondPickPulse]);
+  }, [
+    courseDrivingMap?.key,
+    clearCourseSecondPickPulse,
+    dismissHomeRailCourseMap,
+    homeRailCourseDrive,
+    isCourseMode,
+  ]);
 
   const handleResetCoursePickWithSavePrompt = useCallback(() => {
     const course = selectedCourse;
@@ -2189,7 +2775,7 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setCourseWalkStrollHint("");
-    const myKey = String(courseDrivingMap?.key ?? "");
+    const myKey = String(mapOverlayCourseDrive?.key ?? "");
     const dismissed = coursePathDismissedForCourseKeyRef.current;
     if (dismissed != null && dismissed !== myKey) {
       coursePathDismissedForCourseKeyRef.current = null;
@@ -2204,27 +2790,13 @@ export default function Home() {
       };
     }
 
-    const base = buildCourseMapData(courseDrivingMap);
+    const base = buildCourseMapData(mapOverlayCourseDrive);
     if (!base?.polylinePath?.length) {
       setCourseMapOverlay(null);
       return undefined;
     }
 
-    const steps = courseDrivingMap?.steps || [];
-    const wgsThree =
-      Array.isArray(steps) && steps.length >= 3
-        ? [
-            resolvePlaceWgs84(steps[0]?.place),
-            resolvePlaceWgs84(steps[1]?.place),
-            resolvePlaceWgs84(steps[2]?.place),
-          ]
-        : null;
-    const useChainedRoute = Boolean(
-      wgsThree?.[0] && wgsThree[1] && wgsThree[2]
-    );
-
-    const a = base.polylinePath[0];
-    const b = base.polylinePath[base.polylinePath.length - 1];
+    const waypoints = courseDriveWaypoints(mapOverlayCourseDrive);
 
     if (!skipDismissed()) {
       setCourseMapOverlay({
@@ -2235,7 +2807,7 @@ export default function Home() {
       });
     }
 
-    const straightM = getCourseLegMeters(courseDrivingMap);
+    const straightM = getCourseLegMeters(mapOverlayCourseDrive);
     const fallbackStraight = () => {
       if (skipDismissed()) return;
       setCourseWalkStrollHint("");
@@ -2247,7 +2819,7 @@ export default function Home() {
       });
     };
 
-    const applyWalkingRouteToOverlay = (route, labelPosition) => {
+    const applyWalkingRouteToOverlay = (route) => {
       if (cancelled || skipDismissed()) return;
       if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
         const dm = Number(route.distanceMeters) || 0;
@@ -2283,15 +2855,7 @@ export default function Home() {
           legLabel = base.legLabel;
         }
         setCourseWalkStrollHint(strollHint || "");
-        let lp = labelPosition;
-        if (
-          !lp ||
-          !Number.isFinite(Number(lp.lat)) ||
-          !Number.isFinite(Number(lp.lng))
-        ) {
-          const mid = route.path[Math.floor(route.path.length / 2)];
-          lp = { lat: Number(mid.lat), lng: Number(mid.lng) };
-        }
+        const lp = courseRouteLabelPosition(waypoints, route.path);
         if (skipDismissed()) return;
         setCourseMapOverlay({
           polylinePath: route.path,
@@ -2304,30 +2868,17 @@ export default function Home() {
       }
     };
 
-    if (useChainedRoute) {
-      fetchChainedCourseWalkingRoutes(wgsThree).then((route) => {
+    if (waypoints.length >= 2) {
+      fetchChainedCourseWalkingRoutes(waypoints).then((route) => {
         if (cancelled || skipDismissed()) return;
-        const cafeMid = {
-          lat: Number(wgsThree[1].lat),
-          lng: Number(wgsThree[1].lng),
-        };
-        applyWalkingRouteToOverlay(route, cafeMid);
-      });
-    } else {
-      fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
-        if (cancelled || skipDismissed()) return;
-        const mid = route?.path?.[Math.floor((route.path?.length ?? 0) / 2)];
-        const lp = mid
-          ? { lat: Number(mid.lat), lng: Number(mid.lng) }
-          : null;
-        applyWalkingRouteToOverlay(route, lp);
+        applyWalkingRouteToOverlay(route);
       });
     }
 
     return () => {
       cancelled = true;
     };
-  }, [courseDrivingMap]);
+  }, [mapOverlayCourseDrive]);
 
   const previewPlaceRouteKey = useMemo(() => {
     if (!selectedPlace) return "";
@@ -3923,6 +4474,20 @@ export default function Home() {
       );
     }
 
+    /** 홈 「지금 뜨는 코스」 탭 미리보기 — 검색 코스 모드와 동일하게 코스 핀만 */
+    if (homeRailCourseDrive && !isCourseMode) {
+      const railPins = courseOptionsToMapPlaces([homeRailCourseDrive]);
+      return appendSelectedPlacePinIfMissing(
+        applySituation(
+          applyLegendCategoryFilter(
+            dedupeMapPlacesByKakaoId(railPins),
+            legendCategory
+          )
+        ),
+        selectedPlace
+      );
+    }
+
     // 코스 모드: 코스 핀만(없으면 빈 지도 — 일반 검색 마커와 섞이지 않게)
     if (isCourseMode) {
       if (!courseError && Array.isArray(courseOptions) && courseOptions.length > 0) {
@@ -4055,6 +4620,7 @@ export default function Home() {
     isAiSearching,
     searchExpandUX,
     preserveMapViewportSituationChip,
+    homeRailCourseDrive,
   ]);
 
   const hotStripPlaceRows = useMemo(() => {
@@ -6836,6 +7402,10 @@ const handleClearSearch = () => {
           }}
           onMutualSearchOpenChange={setMutualSearchPanelOpen}
           hideWhenPreviewOpen={Boolean(selectedPlace) || aiSheetOpen}
+          previewCourseId={homeRailActiveCourseId}
+          courseFollowing={homeRailFollowingThisCourse}
+          courseFollowBusy={homeRailFollowBusy}
+          onStartCourseFollow={() => void handleHomeRailStartFollow()}
           hideWhenSearchActive={
             Boolean(String(query || "").trim()) || isAiSearching
           }
@@ -6843,6 +7413,11 @@ const handleClearSearch = () => {
             setSelectedPlaceWithAnalytics(place, "hot_strip")
           }
           onPickCurator={handleRisingCuratorPick}
+          courseDiscoveryHostVisible={
+            !mutualSearchPanelOpen && !hideSituationFolderStripForMapCourseUi
+          }
+          onPreviewPublicCourse={showHomeRailCourseOnMap}
+          onActiveTabChange={handleHotStripActiveTabChange}
         />
 
         <div
@@ -6857,7 +7432,8 @@ const handleClearSearch = () => {
           !String(query || "").trim() &&
           !isAiSearching &&
           !mutualSearchPanelOpen &&
-          !hideSituationFolderStripForMapCourseUi ? (
+          !hideSituationFolderStripForMapCourseUi &&
+          !hideHomeMapChromeForCourses ? (
             <>
               <div style={styles.drinksSituationStripWrapper}>
                 <div
@@ -7028,6 +7604,70 @@ const handleClearSearch = () => {
               const p = recommendHighlightedMapPlaces[0];
               if (p) setSelectedPlaceWithAnalytics(p, "recommend_overlay");
             }}
+          />
+          <HomeRailCourseBottomSheet
+            visible={
+              Boolean(homeRailCourseDrive) &&
+              !homeCourseFollowMinimized &&
+              !isCourseMode &&
+              !String(query || "").trim() &&
+              !isAiSearching &&
+              !mutualSearchPanelOpen
+            }
+            drive={homeRailCourseDrive}
+            onDismiss={handleRailCourseSheetDismiss}
+            minimizeOnDismiss={homeRailFollowingThisCourse}
+            onOpenDetail={() => {
+              const id = String(homeRailCourseDrive?.courseId || "").trim();
+              if (!id) return;
+              navigate(`/courses/${encodeURIComponent(id)}`);
+            }}
+            courseId={String(homeRailCourseDrive?.courseId || "").trim()}
+            user={user}
+            following={homeRailFollowingThisCourse}
+            followBusy={homeRailFollowBusy}
+            onStartFollow={() => void handleHomeRailStartFollow()}
+            stampedPlaceIds={homeRailStampPlaceIds}
+            guideStepIndex={homeRailGuideStepIndex}
+            courseCompleted={homeRailCourseCompleted}
+            replayBusy={homeRailReplayBusy}
+            onReplayStamps={() =>
+              void handleHomeRailReplayStamps(homeRailCourseDrive?.courseId)
+            }
+            onStampStateRefresh={() =>
+              void refreshHomeRailCourseStampState(
+                homeRailCourseDrive?.courseId
+              )
+            }
+          />
+          <HomeCourseFollowStampDock
+            visible={
+              Boolean(homeCourseStampDock) &&
+              !homeCourseFollowMinimized &&
+              !homeRailCourseDrive &&
+              !isCourseMode &&
+              !String(query || "").trim() &&
+              !isAiSearching &&
+              !mutualSearchPanelOpen
+            }
+            courseId={homeCourseStampDock?.courseId}
+            courseTitle={homeCourseStampDock?.title}
+            stampedPlaceIds={homeRailStampPlaceIds}
+            guideStepIndex={homeRailGuideStepIndex}
+            following={homeRailFollowingThisCourse}
+            followBusy={homeRailFollowBusy}
+            courseCompleted={homeRailCourseCompleted}
+            everCompleted={homeRailEverCompleted}
+            replayBusy={homeRailReplayBusy}
+            onReplayStamps={() =>
+              void handleHomeRailReplayStamps(homeCourseStampDock?.courseId)
+            }
+            user={user}
+            onStartFollow={() => void handleHomeRailStartFollow()}
+            onStampStateRefresh={() =>
+              void refreshHomeRailCourseStampState(homeCourseStampDock?.courseId)
+            }
+            onDismiss={dismissHomeCourseStampDock}
           />
           {String(query || "").trim() && !isCourseMode ? (
             <button
@@ -7252,9 +7892,15 @@ const handleClearSearch = () => {
             myLocationButtonStyle={styles.legendMyLocationButton}
             myLocationSpinnerStyle={styles.legendMyLocationSpinner}
           />
+          <HomeCourseFollowQuickButton
+            visible={showHomeCourseFollowQuick}
+            active={homeCourseFollowQuickActive}
+            title={homeCourseFollowQuickTitle}
+            onClick={() => void handleOpenCourseFollowQuick()}
+          />
         </div>
 
-        {!selectedPlace && !mutualSearchPanelOpen ? (
+        {!selectedPlace && !mutualSearchPanelOpen && !hideHomeMapChromeForCourses ? (
           <div style={styles.bottomBarContainer}>
             <div style={styles.searchWrapper}>
               <HomeSearchAboveStrip
@@ -7512,6 +8158,8 @@ const handleClearSearch = () => {
               isRefreshingCourses={isRefreshingCourses}
               isRegeneratingSecond={isRegeneratingSecond}
               isRegeneratingFirst={isRegeneratingFirst}
+              onSaveSelectedCourseAsDraft={handleSaveSelectedCourseAsDraft}
+              saveSelectedCourseDraftBusy={savingRecommendedDraft}
             />
 
           ) : (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&

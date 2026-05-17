@@ -1557,6 +1557,11 @@ export function courseOptionsToMapPlaces(options = []) {
         isCoursePin: true,
         courseMapCaption: mapCaption,
         courseStepIndex: stepNum,
+        courseStepThumbUrl:
+          p.courseStepThumbUrl ||
+          p.step_image_url ||
+          p.image_url ||
+          null,
       });
     }
   }

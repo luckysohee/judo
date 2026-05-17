@@ -62,7 +62,12 @@ export default function HomeCourseMergedSheet({
   isRefreshingCourses,
   isRegeneratingSecond,
   isRegeneratingFirst,
+  onSaveSelectedCourseAsDraft,
+  saveSelectedCourseDraftBusy = false,
 }) {
+  const courseChipBusy =
+    isRefreshingCourses || isRegeneratingSecond || isRegeneratingFirst;
+
   return (
             <div style={styles.courseMergedShell}>
               <div ref={courseMergedHeaderRef} style={styles.courseMergedHeader}>
@@ -1043,10 +1048,6 @@ export default function HomeCourseMergedSheet({
                           지도 선은 길을 따라 표시됩니다.
                         </div>
                         {(() => {
-                          const courseChipBusy =
-                            isRefreshingCourses ||
-                            isRegeneratingSecond ||
-                            isRegeneratingFirst;
                           const neutralChip = {
                             border: "1px solid rgba(92, 64, 51, 0.18)",
                             borderRadius: 999,
@@ -1111,6 +1112,66 @@ export default function HomeCourseMergedSheet({
                             </>
                           );
                         })()}
+                        <div
+                          style={{
+                            width: "100%",
+                            marginTop: "10px",
+                            paddingTop: "8px",
+                            borderTop: "1px solid rgba(124, 58, 237, 0.15)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            disabled={
+                              Boolean(saveSelectedCourseDraftBusy) ||
+                              Boolean(courseChipBusy)
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "10px 14px",
+                              borderRadius: 12,
+                              border: "1px solid rgba(46, 204, 113, 0.45)",
+                              background: "rgba(236, 253, 245, 0.98)",
+                              fontSize: 13,
+                              fontWeight: 800,
+                              color: "#166534",
+                              cursor:
+                                saveSelectedCourseDraftBusy || courseChipBusy
+                                  ? "wait"
+                                  : "pointer",
+                              opacity:
+                                saveSelectedCourseDraftBusy || courseChipBusy
+                                  ? 0.65
+                                  : 1,
+                              letterSpacing: "-0.02em",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (
+                                saveSelectedCourseDraftBusy ||
+                                courseChipBusy
+                              ) {
+                                return;
+                              }
+                              void onSaveSelectedCourseAsDraft?.();
+                            }}
+                          >
+                            {saveSelectedCourseDraftBusy
+                              ? "내 코스로 저장 중…"
+                              : "내 코스로 저장"}
+                          </button>
+                          <p
+                            style={{
+                              margin: "6px 0 0",
+                              fontSize: 10,
+                              lineHeight: 1.35,
+                              color: "#78716c",
+                            }}
+                          >
+                            주도에 등록된 장소만 저장됩니다. 초안으로 만들어진 뒤
+                            편집 화면으로 이동해요.
+                          </p>
+                        </div>
                       </div>
                     ) : null}
                     {altFirstCourses.length > 0 ? (

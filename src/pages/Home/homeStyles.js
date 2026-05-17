@@ -1,3 +1,5 @@
+import { homeDrinksSituationStripBottomCss } from "../utils/homeHotStripLayout.js";
+
 const glassWhiteStrong = "rgba(255, 255, 255, 0.9)";
 const glassBorder = "1px solid rgba(255, 255, 255, 0.55)";
 const floatingShadow = "0 10px 30px rgba(0, 0, 0, 0.16)";
@@ -77,10 +79,9 @@ export const styles = {
     position: "absolute",
     left: "50%",
     transform: "translateX(-50%)",
-    bottom: "calc(188px + env(safe-area-inset-bottom, 0px))",
-    /** 아래 HotCheckinStrip 래퍼와 폭 기준 통일(튀어나옴 방지) */
+    bottom: homeDrinksSituationStripBottomCss(),
     width: "min(720px, calc(100% - 32px))",
-    zIndex: 88,
+    zIndex: 170,
     pointerEvents: "auto",
     boxSizing: "border-box",
   },

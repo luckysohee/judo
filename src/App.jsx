@@ -18,6 +18,10 @@ import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
 import StudioHome from "./pages/Studio/StudioHome";
 import StudioFollowersPage from "./pages/Studio/StudioFollowersPage";
+import StudioCourseEditor from "./pages/Studio/StudioCourseEditor";
+import CourseDetailPage from "./pages/Courses/CourseDetailPage";
+import CompletedCoursesPage from "./pages/CompletedCoursesPage";
+import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay";
 import NewPlace from "./pages/Studio/NewPlace";
 import EditPlace from "./pages/Studio/EditPlace";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
@@ -25,12 +29,15 @@ import EntrySplash from "./components/SplashScreen/EntrySplash";
 function App() {
   return (
     <ToastProvider>
+    <CourseCompletionOverlay />
     <EntrySplash />
     <PostLoginAdminRedirect />
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/map" element={<MapView />} />
       <Route path="/place/:id" element={<PlaceDetailPage />} />
+      <Route path="/courses/:courseId" element={<CourseDetailPage />} />
+      <Route path="/completed-courses" element={<CompletedCoursesPage />} />
       <Route path="/curator/:name" element={<CuratorPageScreen />} />
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
       <Route path="/u/:userId" element={<UserProfilePage />} />
@@ -46,6 +53,17 @@ function App() {
       <Route path="/test-checkin" element={<CheckinTest />} />
       {/* 스튜디오 라우트 */}
       <Route path="/studio" element={<StudioHome />} />
+      <Route
+        path="/studio/courses"
+        element={
+          <Navigate to="/studio" replace state={{ openStudioCourses: true }} />
+        }
+      />
+      <Route path="/studio/courses/new" element={<StudioCourseEditor />} />
+      <Route
+        path="/studio/courses/:courseId/edit"
+        element={<StudioCourseEditor />}
+      />
       <Route path="/studio/followers" element={<StudioFollowersPage />} />
       <Route
         path="/studio/my-saves"

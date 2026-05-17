@@ -711,11 +711,15 @@ export default function MutualCheckinsHomeSection({
     },
     stripWrap: {
       width: "100%",
-      minHeight: compact ? "28px" : "32px",
+      /** `HotCheckinStrip` contentSlot(76px)과 동일 — 탭 전환 시 높이·탭 위치 통일 */
+      minHeight: compact ? "76px" : "32px",
+      height: compact ? "76px" : "auto",
+      maxHeight: compact ? "76px" : "none",
       display: "flex",
       alignItems: "center",
       gap: 6,
       overflowX: "auto",
+      overflowY: "hidden",
       scrollbarWidth: "thin",
       boxSizing: "border-box",
     },
@@ -769,7 +773,15 @@ export default function MutualCheckinsHomeSection({
 
   if (stripMode) {
     return (
-      <div style={{ position: "relative" }}>
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: compact ? "76px" : "auto",
+          minHeight: compact ? "76px" : 0,
+          boxSizing: "border-box",
+        }}
+      >
         <div style={styles.stripWrap}>
           <div
             style={{

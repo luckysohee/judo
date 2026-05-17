@@ -166,6 +166,7 @@ import {
 import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
 import { handlePlacesInBounds } from "./placesInBounds.js";
 import { handlePlaceDetail } from "./placeDetail.js";
+import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
 
 const app = express();
 app.use(cors());
@@ -2756,8 +2757,9 @@ app.post("/api/kakao/place-details", async (req, res) => {
       mergedDocs.push(...pageDocs);
       const hit = pageDocs.find((d) => d && String(d.id) === pid);
       if (hit) {
+        const enriched = await enrichKakaoPlaceDocWithOgImage(hit);
         return res.json({
-          documents: [hit],
+          documents: enriched ? [enriched] : [],
           meta: response.data?.meta,
         });
       }
@@ -2788,8 +2790,12 @@ app.post("/api/kakao/place-details", async (req, res) => {
       chosen = sorted[0];
     }
 
+    const enrichedChosen = chosen
+      ? await enrichKakaoPlaceDocWithOgImage(chosen)
+      : null;
+
     res.json({
-      documents: chosen ? [chosen] : [],
+      documents: enrichedChosen ? [enrichedChosen] : [],
       meta: lastResponse?.data?.meta,
     });
   } catch (error) {

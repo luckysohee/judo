@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "../Toast/ToastProvider";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { supabase } from "../../lib/supabase";
@@ -8,6 +8,14 @@ import {
   JUDO_DAY_SIDE_STRIP_HINT,
 } from "../../utils/judoOperationMode";
 import MutualCheckinsHomeSection from "./MutualCheckinsHomeSection";
+import HomeCourseRail from "./HomeCourseRail";
+import {
+  HOME_HOT_STRIP_CONTENT_SLOT_PX,
+  HOME_HOT_STRIP_NAV_CLEARANCE_PX,
+  HOME_HOT_STRIP_TAB_ROW_PX,
+  homeHotStripCoursesWrapBottomCss,
+  homeHotStripWrapTopCss,
+} from "../../utils/homeHotStripLayout";
 
 function placeMatchesRankId(place, rankPlaceId) {
   const rid = String(rankPlaceId);
@@ -23,16 +31,22 @@ function placeMatchesRankId(place, rankPlaceId) {
 }
 
 const TAB_HOT = "hot";
+const TAB_COURSES = "courses";
 const TAB_CURATORS = "curators";
 const TAB_MUTUAL = "mutual";
 
-/** 한 줄 칩·탭 행 기준 — 낮은 쪽(핫 TOP)에 맞춤 */
-const STRIP_ROW_PX = 28;
+export { TAB_COURSES };
+
+/** 한 줄 칩·탭 행 / 콘텐츠 슬롯 — `homeHotStripLayout`과 동기화 */
+const STRIP_ROW_PX = HOME_HOT_STRIP_TAB_ROW_PX;
+const STRIP_CONTENT_SLOT_H = HOME_HOT_STRIP_CONTENT_SLOT_PX;
+const STRIP_WRAP_TOP_CSS = homeHotStripWrapTopCss();
+const STRIP_COURSES_WRAP_BOTTOM_CSS = homeHotStripCoursesWrapBottomCss();
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 지도 위 가로 스트립: 탭 — 오늘 한잔 랭킹(24h) / 떠오르는 큐레이터(7일)
+ * 지도 위 가로 스트립: 탭 — 오늘 한잔 TOP(24h) / 지금 뜨는 코스 / 떠오르는 큐레이터(7일) / 아는 사람
  */
 export default function HotCheckinStrip({
   rankingTop5 = [],
@@ -49,6 +63,19 @@ export default function HotCheckinStrip({
   /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
   hideWhenSearchActive = false,
   judoMode = null,
+  /** 공개 코스 탭·데이터 노출(기본 true). false면 코스 탭 자체를 숨김 */
+  showPublicCoursesTab = true,
+  /** 맞피 패널·코스 동선 UI 등으로 상단 코스 레일을 끌 때 false */
+  courseDiscoveryHostVisible = true,
+  /** 공개 코스 탭 카드 탭 → 홈 지도 미리보기 */
+  onPreviewPublicCourse,
+  /** 지도에 띄운 공개 코스 id — 따라가기 CTA 동기화 */
+  previewCourseId = "",
+  courseFollowing = false,
+  courseFollowBusy = false,
+  onStartCourseFollow,
+  /** 탭 전환 시 상위(검색바·술 칩 숨김 등) */
+  onActiveTabChange,
 }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState(TAB_HOT);
@@ -63,12 +90,37 @@ export default function HotCheckinStrip({
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
   const showMutualTab = Boolean(user?.id);
 
+  const mayShowCoursesTab =
+    showPublicCoursesTab !== false && courseDiscoveryHostVisible !== false;
   const showStrip =
     !hideWhenPreviewOpen &&
     !hideWhenSearchActive &&
-    (topFive.length > 0 || curators.length > 0 || showMutualTab);
+    (topFive.length > 0 ||
+      curators.length > 0 ||
+      showMutualTab ||
+      mayShowCoursesTab);
+
+  useEffect(() => {
+    if (!mayShowCoursesTab && tab === TAB_COURSES) {
+      setTab(TAB_HOT);
+    }
+  }, [mayShowCoursesTab, tab]);
+
+  useEffect(() => {
+    if (typeof onActiveTabChange !== "function") return;
+    onActiveTabChange(tab);
+    // tab만 구독 — 콜백은 setState 등 안정 참조 전제
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   if (!showStrip) return null;
+
+  const isCoursesTab = tab === TAB_COURSES;
+  const coursesRailVisible =
+    isCoursesTab &&
+    mayShowCoursesTab &&
+    !hideWhenPreviewOpen &&
+    !hideWhenSearchActive;
 
   const styles = {
     wrap: {
@@ -76,23 +128,71 @@ export default function HotCheckinStrip({
       left: "50%",
       transform: "translateX(-50%)",
       width: "min(720px, calc(100% - 32px))",
-      bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
-      zIndex: 85,
+      zIndex: isCoursesTab ? 120 : 85,
       pointerEvents: "auto",
       boxSizing: "border-box",
+      ...(isCoursesTab
+        ? {
+            top: STRIP_WRAP_TOP_CSS,
+            bottom: STRIP_COURSES_WRAP_BOTTOM_CSS,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }
+        : {
+            bottom: `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + env(safe-area-inset-bottom, 0px))`,
+          }),
     },
     bar: {
       display: "flex",
       flexDirection: "column",
+      alignItems: "stretch",
       gap: 6,
       padding: "6px 8px",
       borderRadius: 14,
-      background: "rgba(255,255,255,0.4)",
-      boxShadow:
-        "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
-      border: "1px solid rgba(255,255,255,0.82)",
+      background: isCoursesTab
+        ? "rgba(255,255,255,0.97)"
+        : "rgba(255,255,255,0.4)",
+      boxShadow: isCoursesTab
+        ? "0 -4px 32px rgba(15,23,42,0.14), 0 12px 40px rgba(15,23,42,0.08)"
+        : "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
+      border: isCoursesTab
+        ? "1px solid rgba(99,102,241,0.18)"
+        : "1px solid rgba(255,255,255,0.82)",
       backdropFilter: "blur(24px) saturate(200%)",
       WebkitBackdropFilter: "blur(24px) saturate(200%)",
+      boxSizing: "border-box",
+      ...(isCoursesTab
+        ? {
+            position: "relative",
+            flex: "1 1 auto",
+            height: "100%",
+            minHeight: 0,
+            overflow: "hidden",
+          }
+        : {}),
+    },
+    /** 탭 아래 — 칩·아는 사람(76px) */
+    contentSlot: {
+      width: "100%",
+      minHeight: STRIP_CONTENT_SLOT_H,
+      height: STRIP_CONTENT_SLOT_H,
+      maxHeight: STRIP_CONTENT_SLOT_H,
+      display: "flex",
+      alignItems: "stretch",
+      overflow: "hidden",
+      flexShrink: 0,
+      boxSizing: "border-box",
+    },
+    /** 코스 탭 — 탭 아래로만 확장 */
+    contentSlotCourses: {
+      width: "100%",
+      flex: "1 1 auto",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+      minHeight: 0,
+      boxSizing: "border-box",
     },
     tabRow: {
       display: "flex",
@@ -126,12 +226,14 @@ export default function HotCheckinStrip({
       display: "flex",
       gap: 6,
       overflowX: "auto",
-      flex: 1,
+      width: "100%",
       minWidth: 0,
       paddingBottom: 0,
       scrollbarWidth: "thin",
       minHeight: STRIP_ROW_PX,
+      maxHeight: STRIP_CONTENT_SLOT_H,
       alignItems: "center",
+      alignSelf: "stretch",
       boxSizing: "border-box",
     },
     chipHot: {
@@ -285,6 +387,18 @@ export default function HotCheckinStrip({
           >
             🔥 오늘 한잔 TOP
           </button>
+          {mayShowCoursesTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === TAB_COURSES}
+              style={styles.tabBtn(tab === TAB_COURSES)}
+              onClick={() => setTab(TAB_COURSES)}
+              title="지금 뜨는 코스"
+            >
+              🗺️ 지금 뜨는 코스
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
@@ -308,18 +422,39 @@ export default function HotCheckinStrip({
             </button>
           ) : null}
         </div>
-        {tab === TAB_MUTUAL && showMutualTab ? (
-          <MutualCheckinsHomeSection
-            compact
-            stripMode
-            user={user}
-            judoMode={judoMode}
-            onOpenPlaceDetail={onOpenMutualPlaceDetail}
-            onPickUserFromSearch={onPickMutualUser}
-            onSearchOpenChange={onMutualSearchOpenChange}
-          />
-        ) : (
-          <div style={styles.scroll} role="tabpanel">
+        {isCoursesTab ? (
+          <div
+            style={styles.contentSlotCourses}
+            role="tabpanel"
+            aria-label="지금 뜨는 코스"
+          >
+            <HomeCourseRail
+              visible={coursesRailVisible}
+              embedInHotStrip
+              embedDockExtension
+              onPreviewCourse={onPreviewPublicCourse}
+              previewCourseId={previewCourseId}
+              following={courseFollowing}
+              followBusy={courseFollowBusy}
+              onStartFollow={onStartCourseFollow}
+              user={user}
+            />
+          </div>
+        ) : tab === TAB_MUTUAL && showMutualTab ? (
+          <div style={styles.contentSlot} role="tabpanel" aria-label="아는 사람 활동">
+            <MutualCheckinsHomeSection
+              compact
+              stripMode
+              user={user}
+              judoMode={judoMode}
+              onOpenPlaceDetail={onOpenMutualPlaceDetail}
+              onPickUserFromSearch={onPickMutualUser}
+              onSearchOpenChange={onMutualSearchOpenChange}
+            />
+          </div>
+        ) : !isCoursesTab ? (
+          <div style={styles.contentSlot} role="tabpanel">
+            <div style={styles.scroll}>
             {tab === TAB_HOT ? (
               topFive.length === 0 ? (
                 <div style={styles.empty}>
@@ -389,8 +524,9 @@ export default function HotCheckinStrip({
                 );
               })
             )}
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

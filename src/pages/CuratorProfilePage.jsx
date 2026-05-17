@@ -12,6 +12,10 @@ import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
 import { isPlaceSaved } from "../utils/storage";
 import { getPickCounts } from "../utils/userProfileFollows";
+import {
+  getCuratorArchiveStats,
+  buildCuratorArchiveVibes,
+} from "../api/courseCompletionStats";
 
 export default function CuratorProfilePage() {
   const { slug } = useParams();
@@ -28,6 +32,10 @@ export default function CuratorProfilePage() {
   const [receivedPickCount, setReceivedPickCount] = useState(0);
   const [outgoingPickCount, setOutgoingPickCount] = useState(0);
   const [mutual, setMutual] = useState(false);
+  const [routeArchiveVibe, setRouteArchiveVibe] = useState({
+    headline: null,
+    whisper: null,
+  });
 
   const profileUserId = curator?.user_id ?? null;
   const isSelf = Boolean(user?.id && profileUserId && user.id === profileUserId);
@@ -93,6 +101,22 @@ export default function CuratorProfilePage() {
   }, [curator?.user_id]);
 
   useEffect(() => {
+    const uid = curator?.user_id;
+    if (!uid) {
+      setRouteArchiveVibe({ headline: null, whisper: null });
+      return undefined;
+    }
+    let cancelled = false;
+    void getCuratorArchiveStats(uid).then((stats) => {
+      if (cancelled) return;
+      setRouteArchiveVibe(buildCuratorArchiveVibes(stats));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
+
+  useEffect(() => {
     let cancelled = false;
     const uid = curator?.user_id;
     if (!uid) {
@@ -152,6 +176,21 @@ export default function CuratorProfilePage() {
         <div style={styles.profile}>
           <div style={styles.name}>{curator.display_name}</div>
           <div style={styles.bio}>{curator.bio || "주도 큐레이터입니다."}</div>
+
+          {routeArchiveVibe.headline || routeArchiveVibe.whisper ? (
+            <div style={styles.routeArchive}>
+              {routeArchiveVibe.headline ? (
+                <p style={styles.routeArchiveHeadline}>
+                  {routeArchiveVibe.headline}
+                </p>
+              ) : null}
+              {routeArchiveVibe.whisper ? (
+                <p style={styles.routeArchiveWhisper}>
+                  {routeArchiveVibe.whisper}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <PickCountsRow
             profileUserId={profileUserId}
@@ -248,6 +287,31 @@ const styles = {
     color: "#bdbdbd",
     marginBottom: "16px",
     lineHeight: 1.5,
+  },
+  routeArchive: {
+    maxWidth: "420px",
+    margin: "0 auto 18px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    background:
+      "linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(26,26,30,0.95) 100%)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+  routeArchiveHeadline: {
+    margin: "0 0 6px",
+    fontSize: "14px",
+    fontWeight: 750,
+    lineHeight: 1.45,
+    color: "rgba(250,250,255,0.92)",
+    letterSpacing: "-0.02em",
+  },
+  routeArchiveWhisper: {
+    margin: 0,
+    fontSize: "12px",
+    fontWeight: 600,
+    lineHeight: 1.45,
+    color: "rgba(255,255,255,0.45)",
+    letterSpacing: "-0.01em",
   },
   picksSection: {
     marginTop: "28px",

@@ -1922,7 +1922,7 @@ export default function PlacePreviewCard({
                   title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
                   aria-label="스튜디오 잔 채우기, 내 폴더만"
                 >
-                  {quickSavePicked ? "🗂️" : "📁 잔채우기"}
+                  {quickSavePicked ? "🗂️" : "📁 잔 채우기"}
                 </button>
               ) : (
                 <button
