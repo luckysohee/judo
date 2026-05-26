@@ -1,4 +1,8 @@
-import { homeDrinksSituationStripBottomCss } from "../../utils/homeHotStripLayout.js";
+import {
+  homeDrinksSituationStripBottomCss,
+  homeSearchBarStackBottomCss,
+  HOME_UI_DOCK_RADIUS_PX,
+} from "../../utils/homeHotStripLayout.js";
 
 const glassWhiteStrong = "rgba(255, 255, 255, 0.9)";
 const glassBorder = "1px solid rgba(255, 255, 255, 0.55)";
@@ -7,7 +11,8 @@ const floatingShadow = "0 10px 30px rgba(0, 0, 0, 0.16)";
 export const styles = {
   page: {
     width: "100%",
-    height: "100vh",
+    height: "100dvh",
+    minHeight: "100vh",
     overflow: "hidden",
     backgroundColor: "#000",
   },
@@ -16,6 +21,18 @@ export const styles = {
     position: "relative",
     width: "100%",
     height: "100%",
+    minHeight: 0,
+  },
+
+  /** MapView — main 안에서 전체 화면 (모바일 Safari 100% 높이 붕괴 방지) */
+  mapViewportLayer: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 1,
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+    overflow: "hidden",
   },
   /** 첫 진입만 — 지도 영역 정중앙, 먼지처럼 흩어지며 사라짐 */
   homeDustIntroOverlay: {
@@ -305,6 +322,94 @@ export const styles = {
     display: "inline-block",
   },
 
+  /** 지도 우측 — 내 위치 아래 「코스」(아이콘 위 · 라벨 아래) */
+  legendCoursesEntryButton: {
+    pointerEvents: "auto",
+    width: "32px",
+    minHeight: "38px",
+    padding: "5px 4px 4px",
+    gap: "3px",
+    borderRadius: "9px",
+    border: "1px solid rgba(196,181,253,0.72)",
+    background:
+      "linear-gradient(135deg, rgba(91,33,182,0.58) 0%, rgba(79,70,229,0.5) 100%)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.22), 0 4px 16px rgba(91,33,182,0.38)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#faf5ff",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
+  },
+
+  legendCoursesEntryButtonActive: {
+    border: "1px solid rgba(233,213,255,0.9)",
+    background:
+      "linear-gradient(135deg, rgba(109,40,217,0.72) 0%, rgba(67,56,202,0.68) 100%)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.28), 0 6px 20px rgba(91,33,182,0.48)",
+    transform: "scale(1.04)",
+  },
+
+  legendCoursesEntryLabel: {
+    fontSize: "8px",
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+  },
+
+  /** 코스 칩 + 도장 이어찍기 칩 세로 묶음 */
+  legendCoursesChipStack: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: "6px",
+    flexShrink: 0,
+  },
+
+  /** 코스 버튼 바로 아래 — 숨겨 둔 도장 시트 다시 열기 */
+  legendCourseStampResumeButton: {
+    pointerEvents: "auto",
+    width: "32px",
+    minHeight: "38px",
+    padding: "5px 4px 4px",
+    gap: "3px",
+    borderRadius: "9px",
+    border: "1px solid rgba(251,191,36,0.72)",
+    background:
+      "linear-gradient(135deg, rgba(180,83,9,0.62) 0%, rgba(146,64,14,0.55) 100%)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.2), 0 4px 16px rgba(180,83,9,0.35)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fffbeb",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
+  },
+
+  legendCourseStampResumeLabel: {
+    fontSize: "8px",
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+  },
+
   bottomBarContainer: {
     position: "absolute",
     left: "50%",
@@ -325,32 +430,15 @@ export const styles = {
     flex: 1,
     minWidth: 0,
     minHeight: "54px",
-    borderRadius: "18px",
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px`,
     background: "transparent",
     overflow: "visible",
   },
 
-  /** 검색바 보조 — 세션 1~2회만, 자동 사라짐 */
-  searchIdleFloatingHint: {
-    position: "absolute",
-    left: "50%",
-    bottom: "100%",
-    transform: "translateX(-50%)",
-    marginBottom: 8,
-    maxWidth: "min(340px, calc(100vw - 48px))",
-    padding: "8px 12px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 650,
-    lineHeight: 1.35,
-    letterSpacing: "-0.02em",
-    color: "#1e293b",
-    textAlign: "center",
-    background: "rgba(255,255,255,0.94)",
-    border: "1px solid rgba(148,163,184,0.35)",
-    boxShadow: "0 8px 28px rgba(0,0,0,0.12)",
-    zIndex: 12,
-    pointerEvents: "none",
+  /** 맞춤 추천 시트 바로 위 — 상단 직각·하단만 둥글게(시트와 한 덩어리) */
+  searchWrapperSheetDocked: {
+    borderRadius: `0 0 ${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px`,
+    overflow: "hidden",
   },
 
   authRowInline: {
@@ -695,7 +783,7 @@ export const styles = {
     right: "auto",
     transform: "translateX(-50%)",
     width: "min(720px, calc(100% - 32px))",
-    bottom: "100px",
+    bottom: homeSearchBarStackBottomCss(),
     zIndex: 40,
     pointerEvents: "none",
     /** 코스·AI 카드: 내용을 오버레이 하단(검색바 쪽)에 붙여 지도가 위로 넓게 보이게 */
@@ -703,6 +791,7 @@ export const styles = {
     flexDirection: "column",
     justifyContent: "flex-end",
     alignItems: "center",
+    gap: 0,
   },
 
   expandSearchWrap: {
@@ -809,17 +898,117 @@ export const styles = {
     width: "100%",
     border: "none",
     borderRadius: "18px",
-    padding: "14px 16px",
+    padding: "10px 16px 14px",
     background: "rgba(17,17,17,0.82)",
     color: "#fff",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: "column",
+    alignItems: "stretch",
     boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
     backdropFilter: "blur(16px)",
     WebkitBackdropFilter: "blur(16px)",
     pointerEvents: "auto",
     cursor: "pointer",
+    touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  },
+
+  aiPeekBarRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    minWidth: 0,
+  },
+
+  /** 맞춤 추천 — 통합 바텀시트(헤더+리스트) */
+  aiRecommendSheetCluster: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    pointerEvents: "auto",
+  },
+
+  aiRecommendMergedShell: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    backdropFilter: "blur(18px)",
+    WebkitBackdropFilter: "blur(18px)",
+  },
+
+  aiRecommendMergedShellCollapsed: {
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`,
+    marginBottom: 0,
+    /** 검색바와 붙일 때 아래 그림자가 빈 틈처럼 보이지 않게 */
+    boxShadow: "0 -4px 20px rgba(0,0,0,0.14)",
+  },
+
+  aiRecommendMergedShellExpanded: {
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`,
+    height: "min(66vh, 720px)",
+    maxHeight: "min(66vh, 720px)",
+    marginBottom: 0,
+    boxShadow:
+      "0 -4px 24px rgba(0,0,0,0.14), 0 12px 32px rgba(0,0,0,0.16)",
+  },
+
+  /** 손잡이 + 헤더 — 당겨 닫기 */
+  aiRecommendSheetChrome: {
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    background: "rgba(17,17,17,0.9)",
+    touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  },
+
+  aiRecommendSheetChromeDragging: {
+    cursor: "grabbing",
+  },
+
+  aiRecommendSheetPullStrip: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "12px",
+    paddingTop: "8px",
+    cursor: "grab",
+  },
+
+  aiRecommendSheetHandle: {
+    width: "40px",
+    height: "4px",
+    borderRadius: "999px",
+    background: "rgba(255,255,255,0.32)",
+    flexShrink: 0,
+  },
+
+  aiRecommendSheetHeaderRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "0 12px 14px 16px",
+    flexShrink: 0,
+  },
+
+  aiRecommendSheetHeader: {
+    flex: 1,
+    minWidth: 0,
+    border: "none",
+    margin: 0,
+    padding: "2px 0 0",
+    background: "transparent",
+    color: "#fff",
+    display: "block",
+    textAlign: "left",
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
   },
 
   /** 코스 모드 피크 바 — 얇게 */
@@ -1022,10 +1211,23 @@ export const styles = {
     marginLeft: "6px",
   },
 
+  /** 맞춤 추천 — 펼침 리스트 영역 (헤더와 한 셸) */
+  aiRecommendSheetBody: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    background: "rgba(255,255,255,0.94)",
+    borderTop: "1px solid rgba(255,255,255,0.1)",
+    pointerEvents: "auto",
+  },
+
+  /** @deprecated 코스 등 — 맞춤 추천은 aiRecommendSheetBody */
   aiBottomSheet: {
     marginTop: 0,
     width: "100%",
-    /** 카테고리 버튼 탭 시 바로 펼치는 메인 시트 — 화면의 약 2/3 높이 */
     height: "min(66vh, 720px)",
     maxHeight: "min(66vh, 720px)",
     borderRadius: "24px 24px 0 0",
@@ -1039,7 +1241,6 @@ export const styles = {
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
-    /** 부모 mapCardOverlay가 스트립보다 올라간 뒤에도 시트가 피크바 위에 보이도록 */
     zIndex: 2,
   },
 
@@ -1090,6 +1291,27 @@ export const styles = {
     fontWeight: 700,
     cursor: "pointer",
     flexShrink: 0,
+  },
+
+  /** 맞춤 추천 리스트 시트 — 닫기(×), 펼침 영역 밝은 배경용 */
+  aiRecommendSheetCloseButton: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
+    minWidth: "28px",
+    padding: 0,
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(17,17,17,0.08)",
+    color: "#111",
+    fontSize: "18px",
+    lineHeight: 1,
+    fontWeight: 400,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
   },
 
   aiSheetCloseBtadminChip: {

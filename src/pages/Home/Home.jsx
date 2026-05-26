@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
 import SearchBar from "../../components/SearchBar/SearchBar";
@@ -21,6 +21,8 @@ import CourseSecondFindModal from "../../components/Home/CourseSecondFindModal";
 import HomeMapLegendBar from "../../components/Home/HomeMapLegendBar";
 import HomeCourseMergedSheet from "../../components/Home/HomeCourseMergedSheet";
 import HomeAiBottomSheetCluster from "../../components/Home/HomeAiBottomSheetCluster";
+import HomeSearchOverlay from "../../components/Home/HomeSearchOverlay";
+import KakaoPlaceSuggestPanel from "../../components/Home/KakaoPlaceSuggestPanel";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
 import HomeBottomModalStack from "../../components/Home/HomeBottomModalStack";
@@ -74,6 +76,9 @@ import {
   buildAiParseMapFallbackQueries,
   filterPlacesForUnifiedMapBackupRestore,
   filterMapSearchPlacesByRegionProximity,
+  mapSearchMaxDistanceKmForLocation,
+  resolveParsedRegionsFromQuery,
+  queryUsesUnmappedMapAnchor,
   queryWantsSeafoodFocus,
   isObviousNonSeafoodKakaoPlace,
   queryWantsYajangFocus,
@@ -98,11 +103,11 @@ import {
 } from "../../utils/searchPlaceFeedback";
 import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
 import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
-import HotCheckinStrip, {
-  TAB_COURSES as HOT_STRIP_TAB_COURSES,
-} from "../../components/Home/HotCheckinStrip";
-import HomeCourseFollowQuickButton from "../../components/Home/HomeCourseFollowQuickButton";
-import HomeRailCourseBottomSheet from "../../components/Home/HomeRailCourseBottomSheet";
+import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
+import HomeCoursesDiscoveryPanel, {
+  HomeCourseStampResumeChip,
+  HomeCoursesEntryChip,
+} from "../../components/Home/HomeCoursesDiscovery";
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
@@ -153,10 +158,15 @@ import {
 } from "../../api/coursePlaceStamps";
 import { hasUserCompletedCourseInLogs } from "../../api/completedCourseLogs";
 import {
+  abandonCourseSession,
   getMyActiveCourseSession,
   startCourseSession,
 } from "../../api/courseSessions";
 import { curatorCourseRowToDrivingMap } from "../../utils/curatorCourseHomeMap";
+import {
+  enrichBrowseDetailWithStepThumbs,
+  normalizeHomeCourseBrowseDetail,
+} from "../../utils/homeCourseBrowseDetail";
 import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
 import {
   enrichDrivingMapWithStepThumbs,
@@ -165,9 +175,10 @@ import {
   homeRailCourseMapFitPadding,
   homeRailCourseSheetHeightPx,
 } from "../../utils/homeRailCourseUi";
+import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStripLayout";
+import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
-  isWalkingRouteReasonable,
   walkingRouteDisplayMinutes,
   getCourseLongWalkStrollHint,
 } from "../../utils/courseWalkingRouteQuality.js";
@@ -205,6 +216,13 @@ import {
   courseDriveWaypoints,
   courseRouteLabelPosition,
 } from "../../utils/courseDriveWaypoints";
+import {
+  buildRoutedCourseLegLabels,
+  buildStraightCourseLegLabels,
+  filterCourseRouteOverlayForStamps,
+  remainingCourseLegIndices,
+  stepLabelsFromCourseDrive,
+} from "../../utils/courseRouteLegLabels";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
 import {
   courseOptionsToMapPlaces,
@@ -268,7 +286,6 @@ import {
 import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
 import { useKakaoSearchPlaces } from "./hooks/useKakaoSearchPlaces";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
-import { useSearchIdleHint } from "./hooks/useSearchIdleHint";
 import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
 import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
 import { useViewportWidth } from "./hooks/useViewportWidth";
@@ -276,6 +293,15 @@ import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
 import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
 import { orderPlacesByImportFirst } from "../../utils/orderPlacesByImportFirst";
+import { formatKakaoKeywordHitsForMap } from "../../utils/formatKakaoKeywordHitsForMap";
+import {
+  loadHomeSearchHistory,
+  recordHomeSearchHistory,
+  removeHomeSearchHistoryEntry,
+  clearHomeSearchHistory,
+} from "../../utils/homeSearchHistory";
+import { useHomeSearchMode } from "../../hooks/useHomeSearchMode";
+import { useKakaoPlaceSuggest } from "../../hooks/useKakaoPlaceSuggest";
 
 /** 프로덕션 번들에서 호출되어도 출력 없음 — 실패 추적은 `console.error` 유지 */
 const _nativeConsole = globalThis.console;
@@ -290,6 +316,7 @@ function devWarn(...args) {
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const mapRef = useRef(null);
   const { showToast } = useToast();
 
@@ -311,6 +338,7 @@ export default function Home() {
   const {
     isAdmin,
     isCurator,
+    rolesLoading,
     curatorProfile,
     dbCurators,
     mapUserProfile,
@@ -816,7 +844,16 @@ export default function Home() {
     const wantWalkable =
       /걸어|도보|근처|가까운|걸어서|걸어가|걸어갈|walking/i.test(kwSc);
     const wantQuiet = /조용|차분|한적|quiet/i.test(kwSc);
-    const parsedFacets = parseSearchQuery(keyword);
+    const parsedFacetsBase = parseSearchQuery(keyword);
+    const pinnedRegions = resolveParsedRegionsFromQuery(
+      keyword,
+      parsedFacetsBase
+    );
+    const parsedFacets = {
+      ...parsedFacetsBase,
+      regions: pinnedRegions,
+      region: pinnedRegions[0] ?? parsedFacetsBase.region ?? null,
+    };
     const wantsSeafood = queryWantsSeafoodFocus(keyword, parsedFacets);
     const wantsYajang = queryWantsYajangFocus(keyword, parsedFacets);
     const wantsDayDrink = queryWantsDayDrinkFocus(keyword);
@@ -853,9 +890,12 @@ export default function Home() {
         .filter((s) => s.length >= 2 && !KW_OVERLAP_STOP.has(s));
       let add = 0;
       for (const p of parts) {
-        if (p && textLower.includes(p)) add += 8;
+        if (!p || !textLower.includes(p)) continue;
+        if (p === "야장" || p === "야장술집") add += 22;
+        else if (p === "데이트") add += 5;
+        else add += 8;
       }
-      return Math.min(add, 44);
+      return Math.min(add, 52);
     };
 
     const distanceRankPenalty = (distM) => {
@@ -1010,9 +1050,17 @@ export default function Home() {
         if (!curatorHit && catalogHit) {
           curatorHit = placeSignalsYajangCuratorMeta(catalogHit);
         }
-        if (textHit) score += 34;
-        if (curatorHit) score += 30;
-        if (!textHit && !curatorHit) score -= 26;
+        const dateAlso = /데이트|소개팅|맞선/i.test(kwSc);
+        const yajangTextBoost = dateAlso ? 44 : 34;
+        const yajangCuratorBoost = dateAlso ? 36 : 30;
+        const yajangMissPenalty = dateAlso ? -34 : -26;
+        if (textHit) score += yajangTextBoost;
+        if (curatorHit) score += yajangCuratorBoost;
+        if (!textHit && !curatorHit) score += yajangMissPenalty;
+        if (dateAlso && /와인바|wine\s*bar/i.test(catLower) && !textHit) {
+          score -= 22;
+          aiScoreSignals.penalty_date_wine_over_yajang = -22;
+        }
       }
 
       if (wantsDayDrink) {
@@ -1054,7 +1102,11 @@ export default function Home() {
         else if (/회식/i.test(cat) && !wantsSeafood) score += 12;
         if (party >= 5) score += 5;
       }
-      if (party === 2 && (kwSc.includes("데이트") || barHit)) {
+      if (
+        !wantsYajang &&
+        party === 2 &&
+        (kwSc.includes("데이트") || barHit)
+      ) {
         if (/바|와인|라운지|펍/i.test(cat)) score += 8;
       }
 
@@ -1222,7 +1274,6 @@ export default function Home() {
   const situationFolderFilterRef = useRef(null);
 
   const [query, setQuery] = useState("");
-  const [searchTargetMode, setSearchTargetMode] = useState("place");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
   /** placeholder KST 구간 갱신(분 단위) */
   const searchPlaceholderTick = useMinuteTick();
@@ -1272,18 +1323,6 @@ export default function Home() {
   const homeSearchInputRef = useRef(null);
 
   /** 인트로 질문에 답하도록 검색창 포커스 (동네·1차 시작 입력) */
-  const handleHomeDustIntroTapToAnswer = useCallback(() => {
-    finishHomeDustIntro();
-    setSearchTargetMode("place");
-    window.requestAnimationFrame(() => {
-      try {
-        homeSearchInputRef.current?.focus?.();
-      } catch {
-        // ignore
-      }
-    });
-  }, [finishHomeDustIntro]);
-
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
   const loadDbPlacesForViewport = useCallback(
     async ({ boundsRaw, mapLevel }) => {
@@ -1502,13 +1541,10 @@ export default function Home() {
   situationFolderFilterRef.current = situationFolderFilter;
 
   const homeSearchPlaceholderText = useMemo(
-    () =>
-      searchTargetMode === "user"
-        ? "@유저 핸들을 검색해 보세요"
-        : getHomeSearchPlaceholderKst("auto"),
+    () => getHomeSearchPlaceholderKst("auto"),
     /** searchPlaceholderTick은 시간 흐름에 따른 강제 재계산용. KST에 따라 placeholder가 바뀜 */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [searchPlaceholderTick, searchTargetMode]
+    [searchPlaceholderTick]
   );
   const judoMode = useMemo(() => getJudoOperationMode(now), [now]);
   const judoCopy = useMemo(() => getJudoModeCopy(judoMode), [judoMode]);
@@ -1527,17 +1563,6 @@ export default function Home() {
     if (!judoMode.isDayMode) return "";
     return `${judoCopy.sub} (${dayModeRemainingClock})`;
   }, [judoCopy.sub, judoMode.isDayMode, dayModeRemainingClock]);
-
-  const {
-    visible: searchIdleHintVisible,
-    text: searchIdleHintText,
-    dismiss: dismissSearchIdleHint,
-  } = useSearchIdleHint({
-    query,
-    selectedPlace,
-    isAiSearching,
-    homeDustIntroDismissed,
-  });
 
   useEffect(() => {
     if (String(query || "").trim()) {
@@ -1632,6 +1657,40 @@ export default function Home() {
     applySecondStepPick,
     courseQueryParsed,
   } = useCourseSearch();
+
+  const homeSearchMode = useHomeSearchMode({
+    shouldForceClose:
+      Boolean(selectedPlace) ||
+      mutualSearchPanelOpen ||
+      isCourseMode ||
+      (aiRecommendedIds.length > 0 &&
+        Boolean(String(query || "").trim()) &&
+        !simpleMapSearchMarkersOnly),
+    onClose: () => {
+      setKakaoTypingPreviewPlaces([]);
+    },
+  });
+
+  const [homeSearchHistoryList, setHomeSearchHistoryList] = useState(() =>
+    loadHomeSearchHistory(null)
+  );
+  const [homeSearchHistoryChip, setHomeSearchHistoryChip] = useState("recent");
+
+  useEffect(() => {
+    setHomeSearchHistoryList(loadHomeSearchHistory(user?.id));
+  }, [user?.id]);
+
+  const handleHomeDustIntroTapToAnswer = useCallback(() => {
+    finishHomeDustIntro();
+    homeSearchMode.open();
+    window.requestAnimationFrame(() => {
+      try {
+        homeSearchInputRef.current?.focus?.();
+      } catch {
+        // ignore
+      }
+    });
+  }, [finishHomeDustIntro, homeSearchMode]);
 
   const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
 
@@ -1735,6 +1794,22 @@ export default function Home() {
     setCuratorImportRecommendation(null);
   }, [closeRecommendedPlaceDetail, setCuratorImportRecommendation]);
 
+  /** 맞춤 추천 리스트 시트 닫기 — 검색어는 유지, 추천·지도 마커만 정리 */
+  const handleDismissRecommendSheet = useCallback(() => {
+    setAiSheetOpen(false);
+    setAiSheetPage(0);
+    setAiError("");
+    setAiSummary("");
+    setAiReasons([]);
+    setAiRecommendedIds([]);
+    aiRecommendExclusiveRef.current = false;
+    setExternalPlaces([]);
+    setExternalPlacesPool([]);
+    setYajangFallbackBanner(null);
+    resetKakaoSearchPlaces();
+    clearImportRecommendationOverlay();
+  }, [clearImportRecommendationOverlay, resetKakaoSearchPlaces]);
+
   const [courseMapOverlay, setCourseMapOverlay] = useState(null);
   /** 홈 「지금 뜨는 코스」 탭에서 고른 공개 코스 — 검색 코스 모드와 별도 */
   const [homeRailCourseDrive, setHomeRailCourseDrive] = useState(null);
@@ -1754,14 +1829,37 @@ export default function Home() {
   /** 숨기기 후에만 우측 빠른가기 FAB 표시 */
   const [homeCourseFollowMinimized, setHomeCourseFollowMinimized] =
     useState(false);
-  /** `HotCheckinStrip` 현재 탭 — 코스 탭일 때 검색바·술 칩 숨김 */
-  const [hotStripActiveTab, setHotStripActiveTab] = useState("hot");
-  const handleHotStripActiveTabChange = useCallback((tab) => {
-    setHotStripActiveTab((prev) => (prev === tab ? prev : tab));
+  /** 「지금 뜨는 코스」 도킹 패널 — 핫 스트립 탭과 분리 */
+  const [homeCoursesPanelOpen, setHomeCoursesPanelOpen] = useState(false);
+  /** 코스 시트 드래그 스냅 — 접힘·최소일 때 지도 「코스」 칩 숨김 */
+  const [homeCoursesSheetSnap, setHomeCoursesSheetSnap] = useState("closed");
+  /** 패널 안 코스 상세(지도 전) */
+  const [homeCourseBrowse, setHomeCourseBrowse] = useState(null);
+  const [homeCourseBrowseLoading, setHomeCourseBrowseLoading] = useState(false);
+  /** 도장 시트 → 코스 목록 레일(따라가기·지도는 유지) */
+  const [homeCourseStampBackedToRail, setHomeCourseStampBackedToRail] =
+    useState(false);
+  /** 미리보기 도장 행 — DB 반영 후 재조회 */
+  const [homeCourseStampStateVersion, setHomeCourseStampStateVersion] =
+    useState(0);
+  const closeHomeCoursesPanel = useCallback(() => {
+    setHomeCoursesPanelOpen(false);
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    setHomeCourseStampBackedToRail(false);
+    setHomeCoursesSheetSnap("closed");
   }, []);
-  const isHotStripCoursesTab = hotStripActiveTab === HOT_STRIP_TAB_COURSES;
-  const hideHomeMapChromeForCourses =
-    isHotStripCoursesTab || Boolean(homeRailCourseDrive);
+
+  /** 코스 칩으로 열 때 — 항상 「지금 뜨는 코스」 목록·펼침 시트 */
+  const [homeCoursesSheetResetKey, setHomeCoursesSheetResetKey] = useState(0);
+  const openHomeCoursesListPanel = useCallback(() => {
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    setHomeCourseStampBackedToRail(false);
+    setHomeCoursesPanelOpen(true);
+    setHomeCoursesSheetSnap("expanded");
+    setHomeCoursesSheetResetKey((n) => n + 1);
+  }, []);
   const [homeViewportH, setHomeViewportH] = useState(() =>
     typeof window !== "undefined" ? window.innerHeight : 800
   );
@@ -1770,6 +1868,11 @@ export default function Home() {
 
   /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
   const coursePathDismissedForCourseKeyRef = useRef(null);
+  /** 도장 시 재요청 없이 남은 구간만 그리기 — OSRM 연쇄 경로 캐시 */
+  const homeCourseWalkingRouteCacheRef = useRef(null);
+  const courseWalkingOverlayReqIdRef = useRef(0);
+  const homeRailStampPlaceIdsRef = useRef(homeRailStampPlaceIds);
+  homeRailStampPlaceIdsRef.current = homeRailStampPlaceIds;
 
   useEffect(() => {
     kakaoPlacesRef.current = kakaoPlaces;
@@ -1880,6 +1983,9 @@ export default function Home() {
     if (keepFollow && cid) {
       void refreshHomeRailCourseStampState(cid);
     } else {
+      setHomeCoursesPanelOpen(false);
+      setHomeCourseBrowse(null);
+      setHomeCourseBrowseLoading(false);
       setHomeCourseFollowMinimized(false);
       setHomeRailStampPlaceIds(new Set());
       setHomeRailActiveSession(null);
@@ -1893,10 +1999,35 @@ export default function Home() {
     refreshHomeRailCourseStampState,
   ]);
 
+  /** 시트 ×·맨 아래 드래그·지도 탭 — 패널 닫기 + (따라가기 미리보기 제외) 지도 코스 미리보기 해제 */
+  const dismissHomeCoursesDiscovery = useCallback(() => {
+    const followId = String(homeFollowCourseId || "").trim();
+    const following = Boolean(followId);
+    const previewOpen =
+      homeCourseBrowseLoading || Boolean(homeCourseBrowse);
+
+    closeHomeCoursesPanel();
+
+    if (following && previewOpen) {
+      return;
+    }
+    if (homeRailCourseDrive) {
+      void dismissHomeRailCourseMap();
+    }
+  }, [
+    homeFollowCourseId,
+    homeCourseBrowse,
+    homeCourseBrowseLoading,
+    homeRailCourseDrive,
+    closeHomeCoursesPanel,
+    dismissHomeRailCourseMap,
+  ]);
+
   const showHomeRailCourseOnMap = useCallback(
-    async (courseId) => {
+    async (courseId, options = {}) => {
       const id = String(courseId || "").trim();
       if (!id) return;
+      const forBrowsePreview = Boolean(options.forBrowsePreview);
       try {
         const row = await fetchCuratorCourseById(id);
         let drive = curatorCourseRowToDrivingMap(row);
@@ -1918,10 +2049,18 @@ export default function Home() {
         setCourseMapOverlay(null);
         setCourseWalkStrollHint("");
         setHomeRailCourseDrive(drive);
-        setHomeCourseStampDock(null);
-        setHomeCourseFollowMinimized(false);
+        if (!forBrowsePreview) {
+          setHomeCourseStampDock(null);
+          const followId = String(homeFollowCourseId || "").trim();
+          if (!followId || followId === id) {
+            setHomeCourseFollowMinimized(false);
+            setHomeCourseStampBackedToRail(false);
+          }
+        }
+        setHomeCoursesPanelOpen(true);
         setKakaoPlaces(courseOptionsToMapPlaces([drive]));
         void refreshHomeRailCourseStampState(id);
+        /** `homeCourseBrowse` 유지 — 지도에서 보기 후에도 미리보기 시트 그대로 */
       } catch (e) {
         showToast(
           e?.message || "코스를 지도에 불러오지 못했어요.",
@@ -1930,8 +2069,70 @@ export default function Home() {
         );
       }
     },
-    [clearImportRecommendationOverlay, showToast, setKakaoPlaces, refreshHomeRailCourseStampState]
+    [
+      clearImportRecommendationOverlay,
+      showToast,
+      setKakaoPlaces,
+      refreshHomeRailCourseStampState,
+      homeFollowCourseId,
+    ]
   );
+
+  /** 코스 카드 탭 — 미리보기 시트 + 지도(따라가기·도장 중이어도 미리보기 우선) */
+  const selectHomeCourseInPanel = useCallback(
+    async (courseId) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      setHomeCourseStampBackedToRail(true);
+      setHomeCoursesPanelOpen(true);
+      setHomeCourseBrowseLoading(true);
+      try {
+        const row = await fetchCuratorCourseById(id);
+        let detail = normalizeHomeCourseBrowseDetail(row);
+        if (!detail) {
+          showToast("코스 정보를 불러오지 못했어요.", "warning", 3200);
+          setHomeCourseBrowse(null);
+          return;
+        }
+        detail = await enrichBrowseDetailWithStepThumbs(detail);
+        setHomeCourseBrowse(detail);
+        await showHomeRailCourseOnMap(id, { forBrowsePreview: true });
+        void refreshHomeRailCourseStampState(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+      } catch (e) {
+        showToast(
+          e?.message || "코스를 불러오지 못했어요.",
+          "warning",
+          3200
+        );
+        setHomeCourseBrowse(null);
+      } finally {
+        setHomeCourseBrowseLoading(false);
+      }
+    },
+    [showToast, showHomeRailCourseOnMap, refreshHomeRailCourseStampState]
+  );
+
+  const clearHomeCourseBrowse = useCallback(() => {
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    /** 미리보기 ← 목록 — 따라가기 중이면 도장 시트가 아니라 코스 레일 */
+    setHomeCourseStampBackedToRail(true);
+    const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+    const followingThis =
+      Boolean(homeFollowCourseId) &&
+      browseId &&
+      homeFollowCourseId === browseId;
+    if (browseId && mapId === browseId && !followingThis) {
+      void dismissHomeRailCourseMap();
+    }
+  }, [
+    homeCourseBrowse?.courseId,
+    homeRailCourseDrive?.courseId,
+    homeFollowCourseId,
+    dismissHomeRailCourseMap,
+  ]);
 
   useEffect(() => {
     const previewId = String(homeRailCourseDrive?.courseId || "").trim();
@@ -1960,7 +2161,7 @@ export default function Home() {
 
   const homeRailGuideStepIndex = useMemo(() => {
     if (!homeRailCourseDrive) return 0;
-    const sheetSteps = sheetStepsFromDrivingMap(homeRailCourseDrive).slice(0, 3);
+    const sheetSteps = sheetStepsFromDrivingMap(homeRailCourseDrive);
     return resolveCourseGuideStepIndex(
       sheetSteps.length,
       homeRailStampPlaceIds,
@@ -1978,19 +2179,28 @@ export default function Home() {
     [homeFollowCourseId, homeRailActiveCourseId]
   );
 
-  const handleHomeRailStartFollow = useCallback(async () => {
-    const id = homeRailActiveCourseId || homeFollowCourseId;
+  const handleHomeRailStartFollow = useCallback(async (courseIdOverride) => {
+    const id = String(
+      courseIdOverride ||
+        homeRailActiveCourseId ||
+        homeFollowCourseId ||
+        homeCourseBrowse?.courseId ||
+        ""
+    ).trim();
     if (!id) return;
     if (!user?.id) {
       showToast("로그인하면 코스를 따라갈 수 있어요.", "info", 3200);
       return;
     }
     setHomeRailFollowBusy(true);
+    let sessionStarted = false;
     try {
       const s = await startCourseSession(id, { replaceExisting: false });
       setHomeRailActiveSession(s);
       setHomeGlobalFollowSession(s);
       setHomeCourseFollowMinimized(false);
+      setHomeCourseStampBackedToRail(false);
+      sessionStarted = true;
       showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
     } catch (e) {
       if (e?.code === "ACTIVE_SESSION_EXISTS") {
@@ -2005,22 +2215,120 @@ export default function Home() {
         setHomeRailActiveSession(s);
         setHomeGlobalFollowSession(s);
         setHomeCourseFollowMinimized(false);
+        setHomeCourseStampBackedToRail(false);
+        sessionStarted = true;
         showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
       } else {
         showToast(e?.message || "시작하지 못했어요.", "warning", 3200);
       }
     } finally {
       setHomeRailFollowBusy(false);
-      void refreshHomeRailCourseStampState(id);
-      void refreshHomeGlobalFollowSession();
+      if (sessionStarted) {
+        void refreshHomeRailCourseStampState(id);
+        void refreshHomeGlobalFollowSession();
+      }
+    }
+
+    if (!sessionStarted) return;
+
+    setHomeCoursesPanelOpen(true);
+    setHomeCoursesSheetSnap("expanded");
+
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    if (browseId !== id) {
+      await selectHomeCourseInPanel(id);
+      return;
+    }
+    const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+    if (mapId !== id) {
+      await showHomeRailCourseOnMap(id, { forBrowsePreview: true });
     }
   }, [
     homeRailActiveCourseId,
+    homeFollowCourseId,
+    homeCourseBrowse?.courseId,
+    homeRailCourseDrive?.courseId,
     user?.id,
     showToast,
     refreshHomeRailCourseStampState,
     refreshHomeGlobalFollowSession,
+    selectHomeCourseInPanel,
+    showHomeRailCourseOnMap,
   ]);
+
+  /** 코스 상세(스튜디오 보기 등) → 「코스 따라가기」로 홈 진입 */
+  useEffect(() => {
+    const courseId = readHomeStartCourseFollowId(location.state);
+    if (!courseId) return;
+
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: {} }
+    );
+
+    void handleHomeRailStartFollow(courseId);
+  }, [
+    location.state,
+    location.pathname,
+    location.search,
+    navigate,
+    handleHomeRailStartFollow,
+  ]);
+
+  const handleBrowseToggleFollow = useCallback(
+    async (enabled) => {
+      const id = String(homeCourseBrowse?.courseId || "").trim();
+      if (!id) return;
+      if (!user?.id) {
+        showToast("로그인하면 코스를 따라갈 수 있어요.", "info", 3200);
+        return;
+      }
+      if (enabled) {
+        await handleHomeRailStartFollow(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+        return;
+      }
+      const session = homeGlobalFollowSession || homeRailActiveSession;
+      const sid = String(session?.course_id || "").trim();
+      if (session?.id && sid === id) {
+        await abandonCourseSession(session.id);
+        await refreshHomeGlobalFollowSession();
+      }
+      await refreshHomeRailCourseStampState(id);
+      setHomeCourseStampStateVersion((v) => v + 1);
+    },
+    [
+      homeCourseBrowse?.courseId,
+      user?.id,
+      showToast,
+      handleHomeRailStartFollow,
+      homeGlobalFollowSession,
+      homeRailActiveSession,
+      refreshHomeGlobalFollowSession,
+      refreshHomeRailCourseStampState,
+    ]
+  );
+
+  const bumpHomeCourseStampState = useCallback(() => {
+    const id = String(
+      homeCourseBrowse?.courseId || homeFollowCourseId || ""
+    ).trim();
+    if (id) void refreshHomeRailCourseStampState(id);
+    setHomeCourseStampStateVersion((v) => v + 1);
+  }, [
+    homeCourseBrowse?.courseId,
+    homeFollowCourseId,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  const homeCheckinCourseIdHint = useMemo(
+    () => String(homeFollowCourseId || "").trim(),
+    [homeFollowCourseId]
+  );
+
+  const handleHomeCheckinCourseStampProgress = useCallback(() => {
+    bumpHomeCourseStampState();
+  }, [bumpHomeCourseStampState]);
 
   const dismissHomeCourseStampDock = useCallback(() => {
     setHomeCourseStampDock(null);
@@ -2055,14 +2363,33 @@ export default function Home() {
           const msg =
             r?.reason === "delete_blocked"
               ? "도장을 지울 수 없어요. DB에 삭제 권한 마이그레이션을 적용했는지 확인해 주세요."
-              : "다시 모으기에 실패했어요.";
+              : r?.reason === "session_reopen_failed"
+                ? "따라가기 세션을 다시 열지 못했어요. 잠시 후 다시 시도해 주세요."
+                : "다시 모으기에 실패했어요.";
           showToast(msg, "warning", 3200);
           return;
         }
         setHomeRailStampPlaceIds(new Set());
         setHomeRailCourseCompleted(false);
-        showToast("도장을 다시 모을 수 있어요.", "success", 2800);
+        setHomeCourseFollowMinimized(false);
+        setHomeCourseStampDock(null);
+
+        if (r.session) {
+          setHomeRailActiveSession(r.session);
+          setHomeGlobalFollowSession(r.session);
+        }
+
+        const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+        if (mapId !== id) {
+          await showHomeRailCourseOnMap(id);
+        } else {
+          setHomeCoursesPanelOpen(true);
+        }
+
+        showToast("도장을 처음부터 다시 모을 수 있어요.", "success", 2800);
         await refreshHomeRailCourseStampState(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+        void refreshHomeGlobalFollowSession();
       } catch {
         showToast("다시 모으기에 실패했어요.", "warning", 2800);
       } finally {
@@ -2071,33 +2398,14 @@ export default function Home() {
     },
     [
       homeRailActiveCourseId,
+      homeRailCourseDrive?.courseId,
       user?.id,
       showToast,
       refreshHomeRailCourseStampState,
       refreshHomeGlobalFollowSession,
+      showHomeRailCourseOnMap,
     ]
   );
-
-  const showHomeCourseFollowQuick = useMemo(() => {
-    if (!homeFollowCourseId) return false;
-    if (isCourseMode) return false;
-    if (selectedPlace) return false;
-    if (String(query || "").trim()) return false;
-    if (isAiSearching) return false;
-    if (mutualSearchPanelOpen) return false;
-    if (homeCourseFollowMinimized) return true;
-    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
-    return Boolean(previewId && previewId !== homeFollowCourseId);
-  }, [
-    homeFollowCourseId,
-    homeCourseFollowMinimized,
-    homeRailCourseDrive?.courseId,
-    isCourseMode,
-    selectedPlace,
-    query,
-    isAiSearching,
-    mutualSearchPanelOpen,
-  ]);
 
   const homeCourseFollowQuickTitle = useMemo(() => {
     const t =
@@ -2114,10 +2422,19 @@ export default function Home() {
     homeRailCourseDrive?.title,
   ]);
 
-  const homeCourseFollowQuickActive = Boolean(homeFollowCourseId);
+  /** 도장 시트에서 코스 목록 레일로 — 지도·따라가기 유지(숨기기와 달리 패널·이어찍기 칩 유지) */
+  const handleBackFromStampSheetToRail = useCallback(() => {
+    setHomeCourseStampBackedToRail(true);
+    setHomeCoursesPanelOpen(true);
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+  }, []);
 
-  const handleHideCourseFollow = useCallback(() => {
-    const cid = homeFollowCourseId;
+  /** 도장 시트만 접기 — 지도 코스·따라가기 세션은 유지 */
+  const handleMinimizeStampSheet = useCallback((opts = {}) => {
+    const cid = String(
+      homeFollowCourseId || homeRailCourseDrive?.courseId || ""
+    ).trim();
     if (!cid) return;
     const title =
       String(
@@ -2128,42 +2445,33 @@ export default function Home() {
           "코스"
       ).trim() || "코스";
     setHomeCourseFollowMinimized(true);
-    setHomeCourseStampDock({ courseId: cid, title });
-    setHomeRailCourseDrive(null);
-    coursePathDismissedForCourseKeyRef.current = null;
-    setCourseMapOverlay(null);
-    setCourseWalkStrollHint("");
-    if (kakaoPlacesBeforeHomeRailRef.current != null) {
-      setKakaoPlaces(kakaoPlacesBeforeHomeRailRef.current);
-      kakaoPlacesBeforeHomeRailRef.current = null;
+    if (!opts.keepBrowsePanel) {
+      setHomeCoursesPanelOpen(false);
+      setHomeCourseBrowse(null);
+      setHomeCourseBrowseLoading(false);
     }
+    setHomeCourseStampDock({ courseId: cid, title });
     void refreshHomeRailCourseStampState(cid);
   }, [
     homeFollowCourseId,
+    homeRailCourseDrive?.courseId,
     homeRailCourseDrive?.title,
     homeGlobalFollowSession?.course?.title,
     homeRailActiveSession?.course?.title,
     homeCourseStampDock?.title,
-    setKakaoPlaces,
     refreshHomeRailCourseStampState,
   ]);
 
-  const handleRailCourseSheetDismiss = useCallback(() => {
-    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
-    if (
-      homeFollowCourseId &&
-      previewId &&
-      homeFollowCourseId === previewId
-    ) {
-      handleHideCourseFollow();
+  const toggleHomeCoursesPanel = useCallback(() => {
+    if (!homeCoursesPanelOpen) {
+      openHomeCoursesListPanel();
       return;
     }
-    void dismissHomeRailCourseMap();
+    dismissHomeCoursesDiscovery();
   }, [
-    homeRailCourseDrive?.courseId,
-    homeFollowCourseId,
-    handleHideCourseFollow,
-    dismissHomeRailCourseMap,
+    homeCoursesPanelOpen,
+    openHomeCoursesListPanel,
+    dismissHomeCoursesDiscovery,
   ]);
 
   const handleOpenCourseFollowQuick = useCallback(async () => {
@@ -2171,25 +2479,62 @@ export default function Home() {
     if (!session?.course_id && user?.id) {
       session = await refreshHomeGlobalFollowSession();
     }
-    const cid = String(session?.course_id || homeFollowCourseId || "").trim();
+    const cid = String(
+      session?.course_id ||
+        homeFollowCourseId ||
+        homeCourseStampDock?.courseId ||
+        ""
+    ).trim();
     if (!cid) return;
 
     setHomeCourseFollowMinimized(false);
     setHomeCourseStampDock(null);
-    await showHomeRailCourseOnMap(cid);
+    setHomeCourseStampBackedToRail(false);
+
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    if (browseId !== cid) {
+      await selectHomeCourseInPanel(cid);
+      return;
+    }
+    setHomeCoursesPanelOpen(true);
   }, [
     homeGlobalFollowSession,
     homeRailActiveSession,
     homeFollowCourseId,
+    homeCourseStampDock?.courseId,
+    homeCourseBrowse?.courseId,
     user?.id,
     refreshHomeGlobalFollowSession,
-    showHomeRailCourseOnMap,
+    selectHomeCourseInPanel,
   ]);
 
   const homeRailCourseSheetPx = useMemo(
     () => homeRailCourseSheetHeightPx(homeViewportH, false, false),
     [homeViewportH]
   );
+
+  const homeCoursesBrowseActive =
+    homeCourseBrowseLoading || Boolean(homeCourseBrowse);
+
+  /** 미리보기 시트 안 도장 UI(별도 도장 시트 없음) */
+  const homeCoursesBrowseFollowActive = useMemo(() => {
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    const followId = String(homeFollowCourseId || "").trim();
+    return (
+      homeCoursesBrowseActive &&
+      Boolean(browseId) &&
+      Boolean(followId) &&
+      browseId === followId &&
+      !homeCourseFollowMinimized
+    );
+  }, [
+    homeCoursesBrowseActive,
+    homeCourseBrowse?.courseId,
+    homeFollowCourseId,
+    homeCourseFollowMinimized,
+  ]);
+
+  const homeCoursesStampSheetActive = homeCoursesBrowseFollowActive;
 
   useEffect(() => {
     if (!homeRailCourseDrive) return undefined;
@@ -2202,17 +2547,31 @@ export default function Home() {
     if (!homeRailCourseDrive || isCourseMode) return undefined;
     const pins = courseOptionsToMapPlaces([homeRailCourseDrive]);
     if (!pins.length || !mapRef.current?.fitToPlaces) return undefined;
-    const sheetPx = homeRailCourseSheetHeightPx(
-      typeof window !== "undefined" ? window.innerHeight : homeViewportH,
-      false,
-      false
-    );
+    const browseStampUi =
+      homeCoursesBrowseFollowActive && homeRailCourseDrive;
+    const sheetPx = browseStampUi
+      ? homeCoursesDiscoveryStampSheetHeightPx(
+          sheetStepsFromDrivingMap(homeRailCourseDrive).length,
+          { completed: homeRailCourseCompleted }
+        )
+      : homeRailCourseSheetHeightPx(
+          typeof window !== "undefined" ? window.innerHeight : homeViewportH,
+          false,
+          false
+        );
     const padding = homeRailCourseMapFitPadding(sheetPx);
     const t = window.setTimeout(() => {
       mapRef.current?.fitToPlaces?.(pins, padding);
     }, 180);
     return () => window.clearTimeout(t);
-  }, [homeRailCourseDrive, isCourseMode, homeViewportH]);
+  }, [
+    homeRailCourseDrive,
+    isCourseMode,
+    homeViewportH,
+    homeCoursesBrowseFollowActive,
+    homeCourseFollowMinimized,
+    homeRailCourseCompleted,
+  ]);
 
   /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */
   const [courseWalkStrollHint, setCourseWalkStrollHint] = useState("");
@@ -2514,10 +2873,16 @@ export default function Home() {
       !isCourseMode &&
       typeof window !== "undefined"
     ) {
-      return homeRailCourseSheetHeightPx(
-        homeViewportH,
-        false
-      );
+      if (
+        homeRailFollowingThisCourse &&
+        !homeCourseFollowMinimized
+      ) {
+        return homeCoursesDiscoveryStampSheetHeightPx(
+          sheetStepsFromDrivingMap(homeRailCourseDrive).length,
+          { completed: homeRailCourseCompleted }
+        );
+      }
+      return homeRailCourseSheetHeightPx(homeViewportH, false);
     }
     if (!isCourseMode || !String(query || "").trim() || isAiSearching) return 0;
     if (typeof window === "undefined") return 360;
@@ -2526,7 +2891,17 @@ export default function Home() {
       return Math.min(Math.round(h * 0.58) + 52, 560);
     }
     return Math.min(Math.round(h * 0.17) + 56, 180);
-  }, [isCourseMode, query, isAiSearching, aiSheetOpen, homeRailCourseDrive, homeViewportH]);
+  }, [
+    isCourseMode,
+    query,
+    isAiSearching,
+    aiSheetOpen,
+    homeRailCourseDrive,
+    homeViewportH,
+    homeRailFollowingThisCourse,
+    homeCourseFollowMinimized,
+    homeRailCourseCompleted,
+  ]);
 
   const mapOverlayCourseDrive = isCourseMode
     ? courseDrivingMap
@@ -2540,20 +2915,128 @@ export default function Home() {
     }
   }, [isCourseMode, homeRailCourseDrive, dismissHomeRailCourseMap]);
 
-  /** 코스/도보 경로·2차 UI가 지도에 있을 때 — 술 상황 칩(z~88)이 폴리라인보다 위에 깔려 경로를 가리는 것 방지 */
-  const hideSituationFolderStripForMapCourseUi = useMemo(
-    () =>
-      Boolean(courseMapOverlay) ||
+  /** 도장 시트 ← 목록 — 따라가기 중 코스 레일을 볼 때도 패널 유지 */
+  const homeCourseStampRailOpen =
+    Boolean(homeFollowCourseId) &&
+    homeCourseStampBackedToRail &&
+    homeCoursesPanelOpen;
+
+  /**
+   * 코스/도보 경로·2차 UI가 지도에 있을 때 — 술 상황 칩이 폴리라인에 가리지 않게 숨김.
+   * 미리보기·도장 시트 중에는 `courseMapOverlay` 가 있어도 discovery 패널 유지.
+   */
+  const hideSituationFolderStripForMapCourseUi = useMemo(() => {
+    const keepDiscoveryPanel =
+      Boolean(homeRailCourseDrive) &&
+      !isCourseMode &&
+      (homeCoursesBrowseActive ||
+        homeCoursesStampSheetActive ||
+        homeCourseFollowMinimized ||
+        homeCourseStampRailOpen);
+    const pathOverlayHidesChrome =
+      Boolean(courseMapOverlay) && !keepDiscoveryPanel;
+    return (
+      pathOverlayHidesChrome ||
       Boolean(arrivalWalkingOverlay) ||
       courseSecondPickMode ||
-      courseSecondFindModalOpen,
-    [
-      courseMapOverlay,
-      arrivalWalkingOverlay,
-      courseSecondPickMode,
-      courseSecondFindModalOpen,
-    ]
-  );
+      courseSecondFindModalOpen
+    );
+  }, [
+    courseMapOverlay,
+    arrivalWalkingOverlay,
+    courseSecondPickMode,
+    courseSecondFindModalOpen,
+    homeCoursesBrowseActive,
+    homeCoursesStampSheetActive,
+    homeCourseFollowMinimized,
+    homeCourseStampBackedToRail,
+    homeCoursesPanelOpen,
+    homeFollowCourseId,
+    homeRailCourseDrive,
+    isCourseMode,
+    homeCourseStampRailOpen,
+  ]);
+
+  const homeCoursesDiscoveryHostVisible =
+    !mutualSearchPanelOpen && !hideSituationFolderStripForMapCourseUi;
+  const homeCoursesSheetChromeOk =
+    !isCourseMode &&
+    !Boolean(selectedPlace) &&
+    !String(query || "").trim() &&
+    !isAiSearching &&
+    homeCoursesDiscoveryHostVisible;
+  const homeCoursesSheetOpen = useMemo(() => {
+    if (Boolean(selectedPlace)) return false;
+    if (homeCourseFollowMinimized) {
+      return (
+        (homeCoursesPanelOpen || homeCoursesBrowseActive) &&
+        !mutualSearchPanelOpen &&
+        !isCourseMode &&
+        homeCoursesSheetChromeOk
+      );
+    }
+    return (
+      (homeCoursesBrowseActive && !mutualSearchPanelOpen && !isCourseMode) ||
+      (homeCoursesSheetChromeOk &&
+        (homeCoursesPanelOpen ||
+          homeCoursesStampSheetActive ||
+          homeCoursesBrowseActive))
+    );
+  }, [
+    homeCourseFollowMinimized,
+    homeCoursesBrowseActive,
+    mutualSearchPanelOpen,
+    isCourseMode,
+    homeCoursesSheetChromeOk,
+    homeCoursesPanelOpen,
+    homeCoursesStampSheetActive,
+    homeCourseStampRailOpen,
+    homeFollowCourseId,
+    homeCourseStampBackedToRail,
+    homeCoursesPanelOpen,
+    selectedPlace,
+  ]);
+  const hideHomeMapChromeForCourses = homeCoursesSheetOpen;
+  /** 코스 시트 중간·최소 — 핫 스트립 등 홈 하단 시트 겹침 제거 */
+  const hideHomeMapChromeForDockedCourseSheet =
+    homeCoursesSheetOpen && homeCoursesSheetSnap !== "expanded";
+  const homeCoursesEntryChipOpen =
+    homeCoursesPanelOpen &&
+    homeCoursesSheetOpen &&
+    !homeCoursesStampSheetActive;
+  const homeCoursesEntryVisible =
+    homeCoursesSheetChromeOk &&
+    (!homeCoursesSheetOpen || homeCoursesStampSheetActive) &&
+    (!homeCoursesSheetOpen || homeCoursesSheetSnap === "expanded");
+
+  const showHomeCourseStampResume = useMemo(() => {
+    if (!homeCourseFollowMinimized) return false;
+    const canResume = Boolean(
+      homeFollowCourseId || homeCourseStampDock?.courseId
+    );
+    if (!canResume) return false;
+    if (isCourseMode) return false;
+    if (mutualSearchPanelOpen) return false;
+    return true;
+  }, [
+    homeFollowCourseId,
+    homeCourseStampDock?.courseId,
+    homeCourseFollowMinimized,
+    isCourseMode,
+    mutualSearchPanelOpen,
+  ]);
+
+  const homeCoursesRailVisible =
+    homeCoursesSheetOpen &&
+    !homeCoursesStampSheetActive &&
+    !homeCoursesBrowseActive;
+
+  const handleHomeMapBackgroundClick = useCallback(() => {
+    setMarkerGuideMapCloseTick((t) => t + 1);
+    if (homeCoursesSheetOpen) {
+      dismissHomeCoursesDiscovery();
+    }
+  }, [homeCoursesSheetOpen, dismissHomeCoursesDiscovery]);
 
   /** 일반 검색 마커 setBounds — 헤더·하단 검색바에 가리지 않게 */
   const mapSearchPlacesFitPadding = useMemo(() => {
@@ -2600,24 +3083,27 @@ export default function Home() {
     return Boolean(steps[0]?.place && steps[1]?.place);
   }, [selectedCourse]);
 
-  /** 검색 문장은 두고 코스만 비움 — 경로 오버레이만 닫기 */
+  /** 경로 × — 도보 루트·1·2차 마커·펄스 등 지도 코스 UI 전부 내림 */
   const dismissCourseMapPath = useCallback(() => {
+    clearCourseSecondPickPulse();
     if (!isCourseMode && homeRailCourseDrive) {
-      dismissHomeRailCourseMap();
+      void dismissHomeRailCourseMap();
       return;
     }
     const k = String(courseDrivingMap?.key ?? "");
     if (k) coursePathDismissedForCourseKeyRef.current = k;
     setCourseMapOverlay(null);
     setCourseWalkStrollHint("");
-    /** 경로 × — 2차 후보 펄스·후보 마커도 같이 종료 */
-    clearCourseSecondPickPulse();
+    if (isCourseMode) {
+      setKakaoPlaces([]);
+    }
   }, [
     courseDrivingMap?.key,
     clearCourseSecondPickPulse,
     dismissHomeRailCourseMap,
     homeRailCourseDrive,
     isCourseMode,
+    setKakaoPlaces,
   ]);
 
   const handleResetCoursePickWithSavePrompt = useCallback(() => {
@@ -2774,6 +3260,7 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    const reqId = ++courseWalkingOverlayReqIdRef.current;
     setCourseWalkStrollHint("");
     const myKey = String(mapOverlayCourseDrive?.key ?? "");
     const dismissed = coursePathDismissedForCourseKeyRef.current;
@@ -2797,88 +3284,170 @@ export default function Home() {
     }
 
     const waypoints = courseDriveWaypoints(mapOverlayCourseDrive);
-
-    if (!skipDismissed()) {
-      setCourseMapOverlay({
-        polylinePath: base.polylinePath,
-        legLabel: base.legLabel,
-        labelPosition: base.labelPosition,
-        key: `${myKey}-straight`,
-      });
-    }
-
+    const stepLabels = stepLabelsFromCourseDrive(mapOverlayCourseDrive);
     const straightM = getCourseLegMeters(mapOverlayCourseDrive);
-    const fallbackStraight = () => {
+    const overlayCourseId = String(mapOverlayCourseDrive?.courseId || "").trim();
+    const followId = String(homeFollowCourseId || "").trim();
+    const stampedIdsForRoute =
+      overlayCourseId &&
+      (overlayCourseId === homeRailActiveCourseId ||
+        (followId && overlayCourseId === followId))
+        ? homeRailStampPlaceIdsRef.current
+        : new Set();
+    const stampKeyPart = [...stampedIdsForRoute].sort().join("|");
+
+    const applyCourseMapOverlay = (polylinePath, legLabelEntries, keySuffix, strollHint) => {
+      if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
       if (skipDismissed()) return;
-      setCourseWalkStrollHint("");
+      setCourseWalkStrollHint(strollHint || "");
       setCourseMapOverlay({
-        polylinePath: base.polylinePath,
-        legLabel: base.legLabel,
-        labelPosition: base.labelPosition,
-        key: `${myKey}-straight`,
+        polylinePath,
+        legLabels: legLabelEntries,
+        key: `${myKey}-${keySuffix}-st${stampKeyPart || "0"}`,
       });
     };
 
+    const applyFilteredOverlay = (
+      rawPath,
+      legLabelEntries,
+      keySuffix,
+      strollHint,
+      routeForFilter = null
+    ) => {
+      const { path, legLabels } = filterCourseRouteOverlayForStamps(
+        mapOverlayCourseDrive,
+        {
+          path: rawPath,
+          legLabels: legLabelEntries,
+          route: routeForFilter,
+          waypoints,
+          stepLabels,
+        },
+        stampedIdsForRoute
+      );
+      if (!path || path.length < 2) {
+        const remaining = remainingCourseLegIndices(
+          mapOverlayCourseDrive,
+          stampedIdsForRoute
+        );
+        const allStamped =
+          remaining.length === 0 && stampedIdsForRoute.size > 0;
+        if (allStamped) {
+          if (
+            !cancelled &&
+            reqId === courseWalkingOverlayReqIdRef.current &&
+            !skipDismissed()
+          ) {
+            setCourseMapOverlay(null);
+            setCourseWalkStrollHint("");
+          }
+          return;
+        }
+        const fallbackPath = base?.polylinePath;
+        const fallbackLabels = buildStraightCourseLegLabels(
+          waypoints,
+          stepLabels
+        );
+        if (
+          Array.isArray(fallbackPath) &&
+          fallbackPath.length >= 2 &&
+          !cancelled &&
+          reqId === courseWalkingOverlayReqIdRef.current &&
+          !skipDismissed()
+        ) {
+          applyCourseMapOverlay(
+            fallbackPath,
+            fallbackLabels,
+            `${keySuffix}-fallback`,
+            strollHint
+          );
+        } else if (
+          !cancelled &&
+          reqId === courseWalkingOverlayReqIdRef.current &&
+          !skipDismissed()
+        ) {
+          setCourseMapOverlay(null);
+          setCourseWalkStrollHint("");
+        }
+        return;
+      }
+      applyCourseMapOverlay(path, legLabels, keySuffix, strollHint);
+    };
+
+    if (!skipDismissed()) {
+      applyFilteredOverlay(
+        base.polylinePath,
+        buildStraightCourseLegLabels(waypoints, stepLabels),
+        "straight",
+        "",
+        null
+      );
+    }
+
+    const fallbackStraight = () => {
+      if (skipDismissed()) return;
+      applyFilteredOverlay(
+        base.polylinePath,
+        buildStraightCourseLegLabels(waypoints, stepLabels),
+        "straight",
+        "",
+        null
+      );
+    };
+
     const applyWalkingRouteToOverlay = (route) => {
-      if (cancelled || skipDismissed()) return;
+      if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
+      if (skipDismissed()) return;
       if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
-        const reasonable = isWalkingRouteReasonable({
+        const walkMin = walkingRouteDisplayMinutes(dm, ds);
+        const strollHint = getCourseLongWalkStrollHint({
           routedMeters: dm,
           straightMeters: straightM,
-          durationSeconds: ds,
+          walkDisplayMinutes: walkMin,
         });
-        let legLabel;
-        let strollHint = "";
-        if (reasonable && dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `길 따라 ${distStr} · 도보 약 ${walkMin}분`;
-          strollHint = getCourseLongWalkStrollHint({
-            routedMeters: dm,
-            straightMeters: straightM,
-            walkDisplayMinutes: walkMin,
-          });
-        } else if (dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `보행 경로 ${distStr} · 도보 약 ${walkMin}분`;
-          strollHint = getCourseLongWalkStrollHint({
-            routedMeters: dm,
-            straightMeters: straightM,
-            walkDisplayMinutes: walkMin,
-          });
-        } else {
-          legLabel = base.legLabel;
-        }
-        setCourseWalkStrollHint(strollHint || "");
-        const lp = courseRouteLabelPosition(waypoints, route.path);
-        if (skipDismissed()) return;
-        setCourseMapOverlay({
-          polylinePath: route.path,
-          legLabel,
-          labelPosition: lp,
-          key: `${myKey}-routed`,
-        });
+        const legLabelEntries = buildRoutedCourseLegLabels(
+          route,
+          waypoints,
+          stepLabels
+        );
+        applyFilteredOverlay(
+          route.path,
+          legLabelEntries,
+          "routed",
+          strollHint,
+          route
+        );
       } else {
         fallbackStraight();
       }
     };
 
     if (waypoints.length >= 2) {
-      fetchChainedCourseWalkingRoutes(waypoints).then((route) => {
-        if (cancelled || skipDismissed()) return;
-        applyWalkingRouteToOverlay(route);
-      });
+      const cached = homeCourseWalkingRouteCacheRef.current;
+      if (cached?.key === myKey && cached.route) {
+        applyWalkingRouteToOverlay(cached.route);
+      } else {
+        fetchChainedCourseWalkingRoutes(waypoints).then((route) => {
+          if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
+          if (skipDismissed()) return;
+          homeCourseWalkingRouteCacheRef.current = { key: myKey, route };
+          applyWalkingRouteToOverlay(route);
+        });
+      }
     }
 
     return () => {
       cancelled = true;
     };
-  }, [mapOverlayCourseDrive]);
+  }, [
+    mapOverlayCourseDrive,
+    homeCourseStampStateVersion,
+    homeRailActiveCourseId,
+    homeFollowCourseId,
+    homeRailCourseDrive?.key,
+  ]);
 
   const previewPlaceRouteKey = useMemo(() => {
     if (!selectedPlace) return "";
@@ -2929,15 +3498,11 @@ export default function Home() {
           ? `약 ${(straightM / 1000).toFixed(1)}km`
           : `약 ${Math.round(straightM)}m`;
       const walkStraightMin = Math.max(1, Math.round(straightM / 70));
-      const mid = {
-        lat: (a.lat + b.lat) / 2,
-        lng: (a.lng + b.lng) / 2,
-      };
       const reqId = ++arrivalWalkReqIdRef.current;
       setArrivalWalkingOverlay({
         polylinePath: straightPath,
         legLabel: `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`,
-        labelPosition: mid,
+        labelPosition: courseRouteLabelPosition(straightPath, straightPath),
         key: `${reqId}-straight`,
       });
 
@@ -2949,7 +3514,7 @@ export default function Home() {
           setArrivalWalkingOverlay({
             polylinePath: straightPath,
             legLabel: `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`,
-            labelPosition: mid,
+            labelPosition: courseRouteLabelPosition(straightPath, straightPath),
             key: `${reqId}-straight`,
           });
         };
@@ -2960,29 +3525,18 @@ export default function Home() {
         }
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
-        const routeMid = route.path[Math.floor(route.path.length / 2)];
-        const lp = {
-          lat: Number(routeMid.lat),
-          lng: Number(routeMid.lng),
-        };
-        const reasonable = isWalkingRouteReasonable({
-          routedMeters: dm,
-          straightMeters: straightM,
-          durationSeconds: ds,
-        });
+        const lp = courseRouteLabelPosition(straightPath, route.path);
+        const walkMin = walkingRouteDisplayMinutes(
+          dm > 0 ? dm : straightM,
+          ds
+        );
         let legLabel;
-        if (reasonable && dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
+        if (dm > 0) {
           const distStr2 =
             dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
           legLabel = `내 위치 → 도착 · 길 따라 ${distStr2} · 도보 약 ${walkMin}분`;
-        } else if (dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr2 =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `내 위치 → 도착 · 보행 ${distStr2} · 도보 약 ${walkMin}분`;
         } else {
-          legLabel = `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`;
+          legLabel = `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkMin}분`;
         }
         if (reqId !== arrivalWalkReqIdRef.current) return;
         setArrivalWalkingOverlay({
@@ -3011,12 +3565,7 @@ export default function Home() {
       driveKey &&
       coursePathDismissedForCourseKeyRef.current === driveKey
     ) {
-      const pickDismissed = courseDrivingMap ?? courseOptions[0];
-      if (pickDismissed?.steps?.some((s) => s?.place)) {
-        setKakaoPlaces(courseOptionsToMapPlaces([pickDismissed]));
-      } else {
-        setKakaoPlaces([]);
-      }
+      setKakaoPlaces([]);
       return;
     }
     const pick = courseDrivingMap ?? courseOptions[0];
@@ -3029,6 +3578,30 @@ export default function Home() {
 
   // 현재 위치 상태
   const [currentLocation, setCurrentLocation] = useState(null);
+
+  const overlayKakaoSuggest = useKakaoPlaceSuggest({
+    query,
+    enabled: homeSearchMode.isOpen,
+    userLocation: currentLocation,
+    mapRef,
+  });
+
+  useEffect(() => {
+    if (!homeSearchMode.isOpen) return;
+    if (!String(query || "").trim() || !overlayKakaoSuggest.hasResults) {
+      setKakaoTypingPreviewPlaces([]);
+      return;
+    }
+    setKakaoTypingPreviewPlaces(
+      formatKakaoKeywordHitsForMap(overlayKakaoSuggest.results)
+    );
+  }, [
+    homeSearchMode.isOpen,
+    query,
+    overlayKakaoSuggest.hasResults,
+    overlayKakaoSuggest.results,
+  ]);
+
   const [mapLocationLoading, setMapLocationLoading] = useState(false);
   const [mapViewportCenterFromUser, setMapViewportCenterFromUser] =
     useState(null);
@@ -4198,6 +4771,45 @@ export default function Home() {
     curatorImportPlacesOrPool.length > 0 &&
     !aiSheetUsesDisplayedPlaces;
 
+  /** 맞춤 추천 시트 ↔ 검색바 한 덩어리(모서리 radius 맞춤) */
+  const recommendSheetDocked = useMemo(
+    () =>
+      (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
+      Boolean(String(query || "").trim()) &&
+      !simpleMapSearchMarkersOnly &&
+      !selectedPlace &&
+      !mutualSearchPanelOpen,
+    [
+      aiRecommendedIds.length,
+      useImportRecPlacesForAiSheet,
+      query,
+      simpleMapSearchMarkersOnly,
+      selectedPlace,
+      mutualSearchPanelOpen,
+    ]
+  );
+
+  /** 낮 모드 상단 바(z≈24980)가 맞춤·코스 추천 시트(≈320) 위를 가리지 않게 */
+  const showJudoDayNoticeBar = useMemo(() => {
+    if (!judoMode.isDayMode) return false;
+    if (isAiSearching) return false;
+    if (Boolean(selectedPlace)) return false;
+    const q = String(query || "").trim();
+    if (q && (aiRecommendedIds.length > 0 || recommendSheetDocked)) return false;
+    if (q && isCourseMode) return false;
+    if (useImportRecPlacesForAiSheet) return false;
+    return true;
+  }, [
+    judoMode.isDayMode,
+    isAiSearching,
+    selectedPlace,
+    query,
+    aiRecommendedIds.length,
+    recommendSheetDocked,
+    isCourseMode,
+    useImportRecPlacesForAiSheet,
+  ]);
+
   const aiBottomSheetPlaces = useMemo(() => {
     const importPlaces = curatorImportPlacesOrPool;
     const looksKeywordLikeTitle = (name) => {
@@ -4387,7 +4999,10 @@ export default function Home() {
     aiSheetPhotoViewerSuppressOpenUntilRef,
     aiSheetPhotoViewerItems,
     closeAiSheetPhotoViewer,
-  } = useAiSheetUiState({ aiSheetOpen, aiBottomSheetPlaces });
+  } = useAiSheetUiState({
+    aiSheetOpen: aiSheetOpen || recommendSheetDocked,
+    aiBottomSheetPlaces,
+  });
 
   /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
   const courseSecondPulsePlacesForMap = useMemo(() => {
@@ -4995,76 +5610,11 @@ const handleClearSearch = () => {
 
   const handleSearchSubmit = async (value, options = {}) => {
     const nextQuery = normalizeHangulSearchCompounds(value.trim());
-    const submitTargetMode =
-      options?.targetMode === "user" ? "user" : searchTargetMode;
     const skipCourseRecommendation = Boolean(options?.skipCourseRecommendation);
     const omitSearchBarText = Boolean(options?.omitSearchBarText);
     const chipResultProfile = String(options?.chipResultProfile || "").trim();
-    homeSearchSkipCoursePreviewRef.current =
-      skipCourseRecommendation && submitTargetMode !== "user";
+    homeSearchSkipCoursePreviewRef.current = skipCourseRecommendation;
 
-    if (submitTargetMode === "user") {
-      const handleQuery = String(nextQuery || "").replace(/^@+/, "").trim();
-      setQuery(nextQuery);
-      if (!handleQuery) {
-        showToast("@유저 핸들을 입력해 주세요.", "info", 2400);
-        return;
-      }
-      try {
-        setIsAiSearching(true);
-        setSearchLoadingLabel("유저 찾는 중…");
-        const escaped = handleQuery.replace(/[%_]/g, "\\$&");
-        const [usernameRes, displayRes] = await Promise.all([
-          supabase
-            .from("profiles")
-            .select("id, username, display_name")
-            .ilike("username", `%${escaped}%`)
-            .limit(8),
-          supabase
-            .from("profiles")
-            .select("id, username, display_name")
-            .ilike("display_name", `%${escaped}%`)
-            .limit(8),
-        ]);
-        if (usernameRes.error) throw usernameRes.error;
-        if (displayRes.error) throw displayRes.error;
-
-        const merged = [...(usernameRes.data || []), ...(displayRes.data || [])];
-        const seen = new Set();
-        const rows = merged.filter((row) => {
-          const id = String(row?.id || "");
-          if (!id || seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        });
-        const exact = rows.find(
-          (row) =>
-            String(row?.username || "").trim().toLowerCase() ===
-            handleQuery.toLowerCase()
-        );
-        const best = exact || (rows.length === 1 ? rows[0] : null);
-
-        if (!best?.id) {
-          if (rows.length > 1) {
-            showToast(
-              `유저가 ${rows.length}명 보여요. @핸들을 더 정확히 입력해 주세요.`,
-              "info",
-              2800
-            );
-          } else {
-            showToast("일치하는 유저를 찾지 못했어요.", "info", 2600);
-          }
-          return;
-        }
-        navigate(`/u/${best.id}`);
-      } catch (err) {
-        devWarn("user handle search:", err?.message || err);
-        showToast("유저 검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
-      } finally {
-        setIsAiSearching(false);
-      }
-      return;
-    }
     const naturalQ = parseNaturalQuery(nextQuery);
     /** 칩 단발: GPS·내 위치 핀 무시하고 **현재 지도 화면** 기준 검색만 */
     const chipAnchorsMapViewport = Boolean(options?.mapViewportChipSearch);
@@ -5440,15 +5990,17 @@ const handleClearSearch = () => {
           const stepCount = res.options?.[0]?.steps?.length ?? 0;
           const stageLabel =
             stepCount >= 3 ? "3단계(쩜오차 포함)" : "2단계";
+          const summaryFromAssist = String(res.composeSummary || "").trim();
           setAiSummary(
-            res.options?.length
-              ? courseSearchOriginKind === "named_area"
-                ? `「${namedLocationForCourse}」 일대를 기준으로 짠 ${stageLabel} 코스예요.`
-                : courseLoadOpts?.userOrigin &&
-                    courseSearchOriginKind === "gps"
-                  ? `내 위치 기준 ${COURSE_GPS_DEFAULT_RADIUS_M / 1000}km 안에서 짠 ${stageLabel} 코스예요.`
-                  : `큐레이터·태그·거리 기준으로 짠 ${stageLabel} 코스예요.`
-              : ""
+            summaryFromAssist ||
+              (res.options?.length
+                ? courseSearchOriginKind === "named_area"
+                  ? `「${namedLocationForCourse}」 일대를 기준으로 짠 ${stageLabel} 코스예요.`
+                  : courseLoadOpts?.userOrigin &&
+                      courseSearchOriginKind === "gps"
+                    ? `내 위치 기준 ${COURSE_GPS_DEFAULT_RADIUS_M / 1000}km 안에서 짠 ${stageLabel} 코스예요.`
+                    : `큐레이터·태그·거리 기준으로 짠 ${stageLabel} 코스예요.`
+                : "")
           );
         }
         return;
@@ -6043,6 +6595,13 @@ const handleClearSearch = () => {
             ? DRINKS_SITUATION_CHIP_UNIFIED_PHRASES[chipResultProfile]
             : null;
 
+        /** 사전에 없는 지명 — 통합·AI 전국 검색 대신 카카오 「지역+와인바」 키워드만 신뢰 */
+        const kakaoGeographicOnly =
+          queryUsesUnmappedMapAnchor(nextQuery) &&
+          Boolean(String(locationName || "").trim()) &&
+          !chipAnchorsMapViewport &&
+          !situationChipUnifiedPhrases?.length;
+
         let searchKeyword;
         if (locationName) {
           if (moodPreserveMap && tailAfterLocationMap) {
@@ -6135,6 +6694,20 @@ const handleClearSearch = () => {
           /** 의도 보조 힌트(`지역 포차` 등)·자연어 폴백 없이 칩 전용 phrase만 사용 */
           mapQuery = situationChipUnifiedPhrases[0];
           mapFallbackQueries = situationChipUnifiedPhrases.slice(1);
+        } else if (kakaoGeographicOnly) {
+          mapQuery = clientMapQuery;
+          mapFallbackQueries = buildAiParseMapFallbackQueries(
+            nextQuery,
+            locationName,
+            facetsForFilter
+          ).filter((q) => q && q !== mapQuery);
+          if (import.meta.env.DEV) {
+            devLog("[map-search] kakao geographic only", {
+              locationName,
+              mapQuery,
+              fallbacks: mapFallbackQueries,
+            });
+          }
         } else {
           mapQuery = lockKw
             ? clientMapQuery
@@ -6294,13 +6867,28 @@ const handleClearSearch = () => {
           });
         };
 
+        const mapIntentFilterOpts = {
+          curatorCatalogForYajang: curatorPlaceCatalogForMerge,
+          ...(String(locationName || "").trim()
+            ? {
+                sortOrigin,
+                maxDistanceKm:
+                  mapSearchMaxDistanceKmForLocation(locationName),
+              }
+            : {}),
+        };
+
         let mapPlaces = [];
         /** 뷰포트/의도 필터로 0이 됐을 때 통합 API 후보를 버리지 않기 위한 스냅샷 */
         let unifiedMapPlacesBackup = [];
         let unifiedBlogFromServer = [];
         let unifiedApiRespondedOk = false;
-        /** 상황 칩은 현재 지도 bounds만 — 통합 API는 전국 편향·지연만 키우므로 건너뜀 */
-        if (!useBasicSearchPipeline && !chipAnchorsMapViewport) {
+        /** 상황 칩·사전 미등록 지명: 통합 API 전국 편향 — 카카오 SDK 「지역+업종」만 */
+        if (
+          !useBasicSearchPipeline &&
+          !chipAnchorsMapViewport &&
+          !kakaoGeographicOnly
+        ) {
           try {
             const unified = await fetchUnifiedMapSearch(
               {
@@ -6420,6 +7008,7 @@ const handleClearSearch = () => {
           mapPlaces,
           facetsForFilter,
           nextQuery,
+          mapIntentFilterOpts
         );
         if (
           chipAnchorsMapViewport &&
@@ -6451,7 +7040,7 @@ const handleClearSearch = () => {
             {
               sortOrigin,
               locationName: locationName || "",
-              maxDistanceKm: 12,
+              maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
             }
           );
           if (import.meta.env.DEV && gated.checks?.length) {
@@ -6463,6 +7052,7 @@ const handleClearSearch = () => {
             gated.kept,
             facetsForFilter,
             nextQuery,
+            mapIntentFilterOpts
           );
           if (import.meta.env.DEV) {
             devLog(
@@ -6482,7 +7072,8 @@ const handleClearSearch = () => {
             const withIntent = filterPlacesByParsedIntent(
               sdkChip,
               facetsForFilter,
-              nextQuery
+              nextQuery,
+              mapIntentFilterOpts
             );
             mapPlaces = withIntent.length > 0 ? withIntent : sdkChip;
             if (import.meta.env.DEV) {
@@ -6563,6 +7154,7 @@ const handleClearSearch = () => {
               mpViewport,
               facetsForFilter,
               nextQuery,
+              mapIntentFilterOpts
             );
             const sp = calculateLocalAIScores(
               mpFiltered,
@@ -6623,7 +7215,8 @@ const handleClearSearch = () => {
 
         if (
           useBasicSearchPipeline &&
-          scoredPlaces.length < KEYWORD_SEARCH_FALLBACK_MIN_RESULTS
+          scoredPlaces.length < KEYWORD_SEARCH_FALLBACK_MIN_RESULTS &&
+          !kakaoGeographicOnly
         ) {
           telemetryPreFallbackResultCount = scoredPlaces.length;
           try {
@@ -6665,6 +7258,7 @@ const handleClearSearch = () => {
               mergedFb,
               facetsForFilter,
               nextQuery,
+              mapIntentFilterOpts
             );
             const rescored = calculateLocalAIScores(
               mergedFb,
@@ -6691,7 +7285,7 @@ const handleClearSearch = () => {
           scoredPlaces = filterMapSearchPlacesByRegionProximity(scoredPlaces, {
             sortOrigin,
             locationName: String(locationName).trim(),
-            maxDistanceKm: 12,
+            maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
           });
           if (import.meta.env.DEV && beforeGate !== scoredPlaces.length) {
             devLog("[map-region-gate]", {
@@ -7019,6 +7613,20 @@ const handleClearSearch = () => {
       lastAiScoredPlacesForImportReorderRef.current = null;
     }
   };
+
+  const submitHomeSearch = useCallback(
+    async (value, options = {}) => {
+      const q = String(value ?? "").trim();
+      if (q) {
+        setHomeSearchHistoryList(
+          recordHomeSearchHistory({ userId: user?.id, query: q })
+        );
+      }
+      homeSearchMode.close();
+      await handleSearchSubmit(value, options);
+    },
+    [user?.id, homeSearchMode, handleSearchSubmit]
+  );
 
   // 팔로우 모달 핸들러
   const handleFollow = async (curatorName) => {
@@ -7357,7 +7965,8 @@ const handleClearSearch = () => {
 
       <div style={styles.page}>
       <main style={styles.mainContainer}>
-        {/* 실시간 체크인 토스트 - 지도 좌측 */}
+        {/* 실시간 체크인 토스트 - 지도 좌측 (검색 모드에선 숨김) */}
+        {!homeSearchMode.isOpen ? (
         <div style={{ 
           position: 'absolute', 
           top: '62px', // 실시간 체크인 토스트 — 헤더에 더 붙이기
@@ -7368,7 +7977,35 @@ const handleClearSearch = () => {
         }}>
           <CheckInToast />
         </div>
+        ) : null}
 
+        <HomeCoursesDiscoveryPanel
+          open={homeCoursesSheetOpen}
+          onClose={dismissHomeCoursesDiscovery}
+          railVisible={homeCoursesRailVisible}
+          user={user}
+          isCurator={isCurator}
+          browseCourse={homeCourseBrowse}
+          browseLoading={homeCourseBrowseLoading}
+          onBrowseBack={clearHomeCourseBrowse}
+          onSelectCourse={(id) => void selectHomeCourseInPanel(id)}
+          onBrowseStartFollow={() => void handleBrowseToggleFollow(true)}
+          followCourseId={homeFollowCourseId}
+          followBusy={homeRailFollowBusy}
+          stampedPlaceIds={homeRailStampPlaceIds}
+          guideStepIndex={homeRailGuideStepIndex}
+          courseCompleted={homeRailCourseCompleted}
+          stampStateVersion={homeCourseStampStateVersion}
+          replayBusy={homeRailReplayBusy}
+          onReplayStamps={() =>
+            void handleHomeRailReplayStamps(
+              homeCourseBrowse?.courseId || homeRailCourseDrive?.courseId
+            )
+          }
+          onStampStateRefresh={bumpHomeCourseStampState}
+          onSnapChange={setHomeCoursesSheetSnap}
+          sheetResetKey={homeCoursesSheetResetKey}
+        />
         <HotCheckinStrip
           rankingTop5={hotStripPlaceRows}
           risingCurators={risingCurators}
@@ -7401,39 +8038,30 @@ const handleClearSearch = () => {
             setShowFollowModal(true);
           }}
           onMutualSearchOpenChange={setMutualSearchPanelOpen}
-          hideWhenPreviewOpen={Boolean(selectedPlace) || aiSheetOpen}
-          previewCourseId={homeRailActiveCourseId}
-          courseFollowing={homeRailFollowingThisCourse}
-          courseFollowBusy={homeRailFollowBusy}
-          onStartCourseFollow={() => void handleHomeRailStartFollow()}
+          mutualSearchExpanded={mutualSearchPanelOpen}
+          hideWhenPreviewOpen={
+            Boolean(selectedPlace) ||
+            aiSheetOpen ||
+            (aiRecommendedIds.length > 0 && Boolean(String(query || "").trim()))
+          }
           hideWhenSearchActive={
             Boolean(String(query || "").trim()) || isAiSearching
           }
+          hideWhenCourseSheetDocked={hideHomeMapChromeForDockedCourseSheet}
           onPickPlace={(place) =>
             setSelectedPlaceWithAnalytics(place, "hot_strip")
           }
           onPickCurator={handleRisingCuratorPick}
-          courseDiscoveryHostVisible={
-            !mutualSearchPanelOpen && !hideSituationFolderStripForMapCourseUi
-          }
-          onPreviewPublicCourse={showHomeRailCourseOnMap}
-          onActiveTabChange={handleHotStripActiveTabChange}
         />
 
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: "100%",
-            minHeight: 0,
-          }}
-        >
+        <div style={styles.mapViewportLayer}>
           {!selectedPlace &&
           !String(query || "").trim() &&
           !isAiSearching &&
           !mutualSearchPanelOpen &&
           !hideSituationFolderStripForMapCourseUi &&
-          !hideHomeMapChromeForCourses ? (
+          !hideHomeMapChromeForCourses &&
+          !hideHomeMapChromeForDockedCourseSheet ? (
             <>
               <div style={styles.drinksSituationStripWrapper}>
                 <div
@@ -7562,9 +8190,7 @@ const handleClearSearch = () => {
               judoMode.isDayMode ? null : hotRankTopPlaceIds
             }
             canShowLiveFlame={judoMode.canShowLiveFlame}
-            onMapBackgroundClick={() =>
-              setMarkerGuideMapCloseTick((t) => t + 1)
-            }
+            onMapBackgroundClick={handleHomeMapBackgroundClick}
             onMapBlankClick={handleMapBlankPick}
             preserveViewportOnPlacesChange={
               showMapSearchHereButton ||
@@ -7604,41 +8230,6 @@ const handleClearSearch = () => {
               const p = recommendHighlightedMapPlaces[0];
               if (p) setSelectedPlaceWithAnalytics(p, "recommend_overlay");
             }}
-          />
-          <HomeRailCourseBottomSheet
-            visible={
-              Boolean(homeRailCourseDrive) &&
-              !homeCourseFollowMinimized &&
-              !isCourseMode &&
-              !String(query || "").trim() &&
-              !isAiSearching &&
-              !mutualSearchPanelOpen
-            }
-            drive={homeRailCourseDrive}
-            onDismiss={handleRailCourseSheetDismiss}
-            minimizeOnDismiss={homeRailFollowingThisCourse}
-            onOpenDetail={() => {
-              const id = String(homeRailCourseDrive?.courseId || "").trim();
-              if (!id) return;
-              navigate(`/courses/${encodeURIComponent(id)}`);
-            }}
-            courseId={String(homeRailCourseDrive?.courseId || "").trim()}
-            user={user}
-            following={homeRailFollowingThisCourse}
-            followBusy={homeRailFollowBusy}
-            onStartFollow={() => void handleHomeRailStartFollow()}
-            stampedPlaceIds={homeRailStampPlaceIds}
-            guideStepIndex={homeRailGuideStepIndex}
-            courseCompleted={homeRailCourseCompleted}
-            replayBusy={homeRailReplayBusy}
-            onReplayStamps={() =>
-              void handleHomeRailReplayStamps(homeRailCourseDrive?.courseId)
-            }
-            onStampStateRefresh={() =>
-              void refreshHomeRailCourseStampState(
-                homeRailCourseDrive?.courseId
-              )
-            }
           />
           <HomeCourseFollowStampDock
             visible={
@@ -7724,7 +8315,8 @@ const handleClearSearch = () => {
               !selectedPlace &&
               !String(query || "").trim() &&
               !isAiSearching &&
-              !homeDustIntroDismissed
+              !homeDustIntroDismissed &&
+              !hideHomeMapChromeForDockedCourseSheet
             }
             onTapToAnswer={handleHomeDustIntroTapToAnswer}
             onAnimationEnd={handleHomeDustIntroAnimationEnd}
@@ -7770,6 +8362,7 @@ const handleClearSearch = () => {
           onChangePrioritizeCurators={setCourseSecondFindPrioritizeCurators}
         />
 
+        {!homeSearchMode.isOpen ? (
         <div style={styles.headerOverlay}>
           <div style={styles.headerTopRow}>
             <button
@@ -7834,8 +8427,9 @@ const handleClearSearch = () => {
           </div>
 
         </div>
+        ) : null}
 
-        {judoMode.isDayMode ? (
+        {showJudoDayNoticeBar ? (
           <div
             style={styles.judoDayNoticeFixedBar}
             role="status"
@@ -7892,21 +8486,37 @@ const handleClearSearch = () => {
             myLocationButtonStyle={styles.legendMyLocationButton}
             myLocationSpinnerStyle={styles.legendMyLocationSpinner}
           />
-          <HomeCourseFollowQuickButton
-            visible={showHomeCourseFollowQuick}
-            active={homeCourseFollowQuickActive}
-            title={homeCourseFollowQuickTitle}
-            onClick={() => void handleOpenCourseFollowQuick()}
-          />
+          <div style={styles.legendCoursesChipStack}>
+            <HomeCoursesEntryChip
+              visible={homeCoursesEntryVisible}
+              open={homeCoursesEntryChipOpen}
+              onToggle={toggleHomeCoursesPanel}
+              buttonStyle={styles.legendCoursesEntryButton}
+              activeButtonStyle={styles.legendCoursesEntryButtonActive}
+              labelStyle={styles.legendCoursesEntryLabel}
+            />
+            <HomeCourseStampResumeChip
+              visible={showHomeCourseStampResume}
+              title={homeCourseFollowQuickTitle}
+              onOpen={() => void handleOpenCourseFollowQuick()}
+              buttonStyle={styles.legendCourseStampResumeButton}
+              labelStyle={styles.legendCourseStampResumeLabel}
+            />
+          </div>
         </div>
 
-        {!selectedPlace && !mutualSearchPanelOpen && !hideHomeMapChromeForCourses ? (
+        {!selectedPlace &&
+        !mutualSearchPanelOpen &&
+        !hideHomeMapChromeForCourses &&
+        !homeSearchMode.isOpen ? (
           <div style={styles.bottomBarContainer}>
-            <div style={styles.searchWrapper}>
+            <div
+              style={{
+                ...styles.searchWrapper,
+                ...(recommendSheetDocked ? styles.searchWrapperSheetDocked : {}),
+              }}
+            >
               <HomeSearchAboveStrip
-                idleHintVisible={searchIdleHintVisible}
-                idleHintText={searchIdleHintText}
-                idleHintStyle={styles.searchIdleFloatingHint}
                 showSpotlight={
                   !query.trim() && !isAiSearching && !mutualSearchPanelOpen
                 }
@@ -7925,21 +8535,22 @@ const handleClearSearch = () => {
               <SearchBar
                 query={query}
                 setQuery={setQuery}
-                onSubmit={handleSearchSubmit}
+                onSubmit={submitHomeSearch}
                 onClear={handleClearSearch}
-                onExampleClick={handleSearchSubmit}
+                onExampleClick={submitHomeSearch}
                 placeholder={homeSearchPlaceholderText}
-                onUserInteractWithSearch={dismissSearchIdleHint}
                 searchInputRef={homeSearchInputRef}
                 isLoading={isAiSearching}
                 loadingStatusText={searchLoadingLabel}
                 mapRef={mapRef}
                 compactRightActions={compactSearchBarAuth}
+                sheetDockedAbove={recommendSheetDocked}
+                onInputFocus={() => {
+                  if (!isCourseMode) homeSearchMode.open();
+                }}
                 showKakaoSearch={true}
                 onKakaoPlaceSelect={handleKakaoPlaceSelect}
                 onKakaoTypingPreviewPlacesChange={setKakaoTypingPreviewPlaces}
-                searchTargetMode={searchTargetMode}
-                onSearchTargetModeChange={setSearchTargetMode}
                 userLocation={currentLocation}
                 onNearbySearch={(location) => {
                   devLog('📍 내 주변 검색:', location);
@@ -7998,6 +8609,7 @@ const handleClearSearch = () => {
                 rightActions={
                   <HomeSearchAuthSlot
                     authLoading={authLoading}
+                    rolesLoading={rolesLoading}
                     isLoggedIn={Boolean(user)}
                     userRole={getUserRole()}
                     compact={compactSearchBarAuth}
@@ -8007,11 +8619,13 @@ const handleClearSearch = () => {
                     onProfilePhotoError={() => setSearchBarProfileImgFailed(true)}
                     profileInitial={getSearchBarProfileInitial()}
                     onProfileClick={() => {
+                      if (authLoading || rolesLoading) return;
                       const userRole = getUserRole();
                       devLog(" @아이디 버튼 클릭:", {
                         userRole,
                         isAdmin,
                         isCurator,
+                        rolesLoading,
                         username: getDisplayUsername(),
                       });
                       if (userRole === "admin") {
@@ -8066,10 +8680,15 @@ const handleClearSearch = () => {
                   }
                 : {}),
             bottom: selectedPlace
-              ? "18px"
+              ? "calc(18px + env(safe-area-inset-bottom, 0px))"
               : isCourseMode && String(query).trim() && !isAiSearching
                 ? "env(safe-area-inset-bottom, 0px)"
                 : styles.mapCardOverlay.bottom,
+            ...(selectedPlace
+              ? {
+                  zIndex: 200,
+                }
+              : {}),
           }}
         >
           {selectedPlace ? (
@@ -8099,6 +8718,8 @@ const handleClearSearch = () => {
                 userLocation={currentLocation}
                 onShowArrivalWalkingOnMap={handleShowArrivalWalkingOnMap}
                 arrivalWalkingRouteShown={Boolean(arrivalWalkingOverlay)}
+                courseIdHint={homeCheckinCourseIdHint}
+                onCourseStampProgress={handleHomeCheckinCourseStampProgress}
               />
             </div>
           ) : searchExpandUX && query.trim() && !isAiSearching ? (
@@ -8166,7 +8787,7 @@ const handleClearSearch = () => {
             !simpleMapSearchMarkersOnly ? (
             <HomeAiBottomSheetCluster
               styles={styles}
-              aiSheetOpen={aiSheetOpen}
+              onDismissRecommendSheet={handleDismissRecommendSheet}
               setAiSheetOpen={setAiSheetOpen}
               isAiSearching={isAiSearching}
               displayedPlaces={displayedPlaces}
@@ -8214,6 +8835,43 @@ const handleClearSearch = () => {
 
           ) : null}
         </div>
+
+        <HomeSearchOverlay
+          open={homeSearchMode.isOpen}
+          query={query}
+          onQueryChange={setQuery}
+          onClose={homeSearchMode.close}
+          onSubmit={(q) => void submitHomeSearch(q)}
+          placeholder={homeSearchPlaceholderText}
+          historyEntries={homeSearchHistoryList}
+          historyChip={homeSearchHistoryChip}
+          onHistoryChipChange={setHomeSearchHistoryChip}
+          onPickHistory={(entry) => {
+            setQuery(entry.query);
+            void submitHomeSearch(entry.query);
+          }}
+          onDeleteHistory={(id) =>
+            setHomeSearchHistoryList(
+              removeHomeSearchHistoryEntry(user?.id, id)
+            )
+          }
+          onClearAllHistory={() =>
+            setHomeSearchHistoryList(clearHomeSearchHistory(user?.id))
+          }
+          isLoading={isAiSearching}
+          inputRef={homeSearchInputRef}
+          showSuggestPanel={Boolean(String(query || "").trim())}
+          suggestPanel={
+            <KakaoPlaceSuggestPanel
+              results={overlayKakaoSuggest.results}
+              isLoading={overlayKakaoSuggest.isLoading}
+              onPickPlace={(place) => {
+                homeSearchMode.close();
+                handleKakaoPlaceSelect(place);
+              }}
+            />
+          }
+        />
       </main>
 
 

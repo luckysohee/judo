@@ -1,7 +1,7 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
 
 /** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
-function isCourseBridgeMapPin(place) {
+export function isCourseBridgeMapPin(place) {
   return (
     Boolean(place?.isCoursePin) &&
     /쩜오/.test(String(place?.courseMapCaption || ""))

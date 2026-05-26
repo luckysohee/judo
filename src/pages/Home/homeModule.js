@@ -381,14 +381,6 @@ function searchMapBottomChromePx() {
 /** v2: 지도보다 뒤에 그려져 안 보이던 문제 — DOM 순서·z-index 수정 후 키 갱신 */
 const HOME_CENTER_DUST_INTRO_KEY = "judo_home_center_dust_intro_v2";
 
-/** 검색바 보조 플로팅 힌트 — 세션당 최대 2회(sessionStorage) */
-const HOME_SEARCH_IDLE_HINTS_KEY = "judo_home_search_idle_hint_count_v1";
-
-const SEARCH_IDLE_HINT_MESSAGES = [
-  "을지로 1차·2차 코스가 추천됐어요 — 주도 검색에서 이어가 보세요",
-  "동선·인원까지 말해 보면 코스를 짜줘요 — AI 주도 검색",
-];
-
 /** KST 기준 검색바 placeholder — 오후 / 밤 / 그 외 */
 function getHomeSearchPlaceholderKst(homeSearchChannel) {
   let hour;
@@ -1015,8 +1007,6 @@ export {
   SEONGSU_MAP_CENTER,
   searchMapBottomChromePx,
   HOME_CENTER_DUST_INTRO_KEY,
-  HOME_SEARCH_IDLE_HINTS_KEY,
-  SEARCH_IDLE_HINT_MESSAGES,
   getHomeSearchPlaceholderKst,
   COURSE_SECOND_FIND_DISTANCE_OPTIONS,
   AI_API_BASE,

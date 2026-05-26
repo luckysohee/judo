@@ -8,11 +8,12 @@ export default function HomeBlogReviewSection({ blogReviews }) {
   return (
     <div
       style={{
-        marginTop: "16px",
+        marginTop: "12px",
         padding: "16px",
         backgroundColor: "#f8f9fa",
         borderRadius: "12px",
         borderTop: "1px solid #e9ecef",
+        flexShrink: 0,
       }}
     >
       <div

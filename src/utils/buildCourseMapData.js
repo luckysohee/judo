@@ -1,4 +1,5 @@
 import { haversineMeters } from "./placeCoords.js";
+import { courseRouteLabelPosition } from "./courseDriveWaypoints.js";
 import {
   formatCourseWalkApprox,
   getCourseLegMeters,
@@ -46,9 +47,7 @@ export function buildCourseMapData(course) {
       ? `${totalPrefix}${dist} · ${walk}`
       : `${totalPrefix}${dist || walk || ""}`.trim() || "";
 
-  const midIdx = Math.floor(polylinePath.length / 2);
-  const mid = polylinePath[midIdx] || polylinePath[0];
-  const labelPosition = { lat: mid.lat, lng: mid.lng };
+  const labelPosition = courseRouteLabelPosition(null, polylinePath);
 
   return { markers, polylinePath, legLabel, labelPosition };
 }

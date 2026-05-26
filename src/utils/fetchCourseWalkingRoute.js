@@ -1,3 +1,5 @@
+import { courseRouteLabelPosition } from "./courseDriveWaypoints";
+
 // 비우면 Vite `/api` → server 프록시 (kakaoAPIProxy와 동일 규칙)
 const API_BASE_URL = (
   import.meta.env.VITE_AI_API_BASE_URL ||
@@ -7,8 +9,8 @@ const API_BASE_URL = (
 ).replace(/\/$/, "");
 
 /**
- * 1차→2차 보행 경로 폴리라인 (서버 OSRM 프록시).
- * @returns {Promise<{ ok: true, path: {lat,lng}[], distanceMeters: number, durationSeconds: number } | { ok: false, error?: string }>}
+ * 1차→2차 보행 경로 폴리라인 (서버: 카카오 도보 우선 → OSRM fallback).
+ * @returns {Promise<{ ok: true, path: {lat,lng}[], distanceMeters: number, durationSeconds: number, provider?: 'kakao'|'osrm' } | { ok: false, error?: string }>}
  */
 export async function fetchCourseWalkingRoute(slat, slng, dlat, dlng) {
   const q = new URLSearchParams({
@@ -87,18 +89,31 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
   let distanceMeters = 0;
   let durationSeconds = 0;
   let routedLegCount = 0;
+  /** @type {{ legIndex: number, path: {lat:number,lng:number}[], distanceMeters: number, durationSeconds: number, labelPosition: object|null, routed: boolean }[]} */
+  const legResults = [];
+
   for (let i = 0; i < routes.length; i++) {
     const route = routes[i];
     const a = waypoints[i];
     const b = waypoints[i + 1];
+    let legPath = [];
+    let legDm = 0;
+    let legDs = 0;
+    let routed = false;
+
     if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
-      merged = appendWalkingPathSegment(merged, route.path);
-      distanceMeters += Number(route.distanceMeters) || 0;
-      durationSeconds += Number(route.durationSeconds) || 0;
+      legPath = route.path.map((p) => ({
+        lat: Number(p.lat),
+        lng: Number(p.lng),
+      }));
+      legDm = Number(route.distanceMeters) || 0;
+      legDs = Number(route.durationSeconds) || 0;
+      merged = appendWalkingPathSegment(merged, legPath);
+      distanceMeters += legDm;
+      durationSeconds += legDs;
       routedLegCount += 1;
-      continue;
-    }
-    if (
+      routed = true;
+    } else if (
       a &&
       b &&
       Number.isFinite(Number(a.lat)) &&
@@ -106,10 +121,24 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
       Number.isFinite(Number(b.lat)) &&
       Number.isFinite(Number(b.lng))
     ) {
-      merged = appendWalkingPathSegment(merged, [
+      legPath = [
         { lat: Number(a.lat), lng: Number(a.lng) },
         { lat: Number(b.lat), lng: Number(b.lng) },
-      ]);
+      ];
+      merged = appendWalkingPathSegment(merged, legPath);
+    }
+
+    if (legPath.length >= 2) {
+      legResults.push({
+        legIndex: i,
+        path: legPath,
+        distanceMeters: legDm,
+        durationSeconds: legDs,
+        labelPosition: courseRouteLabelPosition(null, legPath, {
+          perpendicularDeg: i % 2 === 0 ? 90 : -90,
+        }),
+        routed,
+      });
     }
   }
   if (merged.length < 2) return null;
@@ -120,5 +149,6 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
     durationSeconds,
     routedLegCount,
     totalLegs: routes.length,
+    legs: legResults,
   };
 }

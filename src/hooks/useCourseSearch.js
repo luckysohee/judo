@@ -6,6 +6,7 @@ import { findAreaKeywordInQuery } from "../utils/searchParser.js";
 import { normalizePlaces } from "../utils/normalizePlace";
 import {
   generateCourseOptions,
+  generateCourseCandidatePool,
   courseOptionsToMapPlaces,
   courseVenuePairKey,
   isBudgetChainBridgeCoffeePlace,
@@ -13,6 +14,9 @@ import {
   stripHalfStepFromCourses,
   upgradeTwoStepCoursesToHalfStep,
 } from "../utils/generateCourseOptions.js";
+import { compactCourseCandidatesForAssist } from "../utils/compactCourseCandidatesForAssist.js";
+import { raceCourseComposeAssist } from "../utils/fetchCourseComposeAssist.js";
+import { applyCourseComposeAssist } from "../utils/applyCourseComposeAssist.js";
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
 import { normalizeHangulSearchCompounds } from "../utils/searchParser.js";
 import { regenerateSecondStep } from "../utils/regenerateSecondStep.js";
@@ -22,6 +26,9 @@ import {
   fetchKakaoPlacesForCourseBridgeAround,
   mergeCoursePlacePoolsWithKakao,
 } from "../utils/augmentCourseSecondPlacesWithKakao.js";
+
+const ENABLE_COURSE_COMPOSE_ASSIST =
+  import.meta.env.VITE_ENABLE_COURSE_COMPOSE_ASSIST !== "false";
 
 /** 쩜오차용 카카오 키워드 검색 중심 — 내 위치 우선, 없으면 코스 풀 좌표 평균 */
 function resolveCourseKakaoAnchorPlace(placesForCourse, userOrigin) {
@@ -371,7 +378,16 @@ export function useCourseSearch() {
         return { handled: true, options: fullOptions, mapPlaces, parsed };
       }
 
-      const options = generateCourseOptions({
+      const pool = generateCourseCandidatePool({
+        parsedQuery: parsed,
+        places: placesForCourse,
+        bridgeAugment: bridgeAugmentForEngine,
+        limit: 12,
+        excludeCourseKeys: [],
+        excludeVenuePairKeys: [],
+      });
+
+      let options = generateCourseOptions({
         parsedQuery: parsed,
         places: placesForCourse,
         bridgeAugment: bridgeAugmentForEngine,
@@ -379,6 +395,34 @@ export function useCourseSearch() {
         excludeCourseKeys: [],
         excludeVenuePairKeys: [],
       });
+      let composeSummary = "";
+
+      if (ENABLE_COURSE_COMPOSE_ASSIST && pool.length >= 2) {
+        const assist = await raceCourseComposeAssist({
+          query: trimmed,
+          parsed: {
+            raw: parsed.raw,
+            area: parsed.area,
+            dateMode: parsed.dateMode,
+            steps: parsed.steps,
+            includeHalfStep: parsed.includeHalfStep,
+            partySize: parsed.partySize ?? null,
+          },
+          candidates: compactCourseCandidatesForAssist(pool),
+          maxPick: 3,
+        });
+        if (assist) {
+          const applied = applyCourseComposeAssist(pool, assist, {
+            maxDisplay: 3,
+          });
+          if (applied.options.length) {
+            options = applied.options;
+            composeSummary = applied.summary;
+          }
+        }
+      } else if (pool.length && !options.length) {
+        options = pool.slice(0, 3);
+      }
 
       if (!options.length) {
         setCourseError(
@@ -405,7 +449,13 @@ export function useCourseSearch() {
       setSeenVenuePairKeys(pairs);
 
       const mapPlaces = courseOptionsToMapPlaces(options);
-      return { handled: true, options, mapPlaces, parsed };
+      return {
+        handled: true,
+        options,
+        mapPlaces,
+        parsed,
+        composeSummary,
+      };
     } finally {
       setIsLoadingCourse(false);
     }

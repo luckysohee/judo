@@ -26,10 +26,15 @@ export function getCourseVisibilityBadge(course) {
   return null;
 }
 
-/** 공개 코스만 복제 API 허용 */
+/** 공개·발행 코스만 좋아요·저장(북마크) 등 상호작용 허용 */
 export function canDuplicatePublishedPublicCourse(course) {
   if (!course || typeof course !== "object") return false;
   return course.status === "published" && Boolean(course.is_public);
+}
+
+/** @deprecated 이름만 다름 — 즐겨찾기 저장용 */
+export function canBookmarkPublishedPublicCourse(course) {
+  return canDuplicatePublishedPublicCourse(course);
 }
 
 /**

@@ -8,13 +8,10 @@ import {
   JUDO_DAY_SIDE_STRIP_HINT,
 } from "../../utils/judoOperationMode";
 import MutualCheckinsHomeSection from "./MutualCheckinsHomeSection";
-import HomeCourseRail from "./HomeCourseRail";
 import {
   HOME_HOT_STRIP_CONTENT_SLOT_PX,
   HOME_HOT_STRIP_NAV_CLEARANCE_PX,
   HOME_HOT_STRIP_TAB_ROW_PX,
-  homeHotStripCoursesWrapBottomCss,
-  homeHotStripWrapTopCss,
 } from "../../utils/homeHotStripLayout";
 
 function placeMatchesRankId(place, rankPlaceId) {
@@ -31,22 +28,18 @@ function placeMatchesRankId(place, rankPlaceId) {
 }
 
 const TAB_HOT = "hot";
-const TAB_COURSES = "courses";
 const TAB_CURATORS = "curators";
 const TAB_MUTUAL = "mutual";
-
-export { TAB_COURSES };
 
 /** 한 줄 칩·탭 행 / 콘텐츠 슬롯 — `homeHotStripLayout`과 동기화 */
 const STRIP_ROW_PX = HOME_HOT_STRIP_TAB_ROW_PX;
 const STRIP_CONTENT_SLOT_H = HOME_HOT_STRIP_CONTENT_SLOT_PX;
-const STRIP_WRAP_TOP_CSS = homeHotStripWrapTopCss();
-const STRIP_COURSES_WRAP_BOTTOM_CSS = homeHotStripCoursesWrapBottomCss();
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 지도 위 가로 스트립: 탭 — 오늘 한잔 TOP(24h) / 지금 뜨는 코스 / 떠오르는 큐레이터(7일) / 아는 사람
+ * 지도 위 가로 스트립: 탭 — 오늘 한잔 TOP(24h) / 떠오르는 큐레이터(7일) / 아는 사람
+ * (공개 코스는 `HomeCoursesDiscovery` 진입 칩·패널로 분리)
  */
 export default function HotCheckinStrip({
   rankingTop5 = [],
@@ -59,22 +52,15 @@ export default function HotCheckinStrip({
   onOpenMutualPlaceDetail,
   onPickMutualUser,
   onMutualSearchOpenChange,
+  /** 아는 사람 탭 검색 열림 — 상위 UI 겹침 방지 */
+  mutualSearchExpanded = false,
   hideWhenPreviewOpen = false,
   /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
   hideWhenSearchActive = false,
+  /** 「지금 뜨는 코스」 시트가 중간·최소로 내려가 있을 때 */
+  hideWhenCourseSheetDocked = false,
   judoMode = null,
-  /** 공개 코스 탭·데이터 노출(기본 true). false면 코스 탭 자체를 숨김 */
-  showPublicCoursesTab = true,
-  /** 맞피 패널·코스 동선 UI 등으로 상단 코스 레일을 끌 때 false */
-  courseDiscoveryHostVisible = true,
-  /** 공개 코스 탭 카드 탭 → 홈 지도 미리보기 */
-  onPreviewPublicCourse,
-  /** 지도에 띄운 공개 코스 id — 따라가기 CTA 동기화 */
-  previewCourseId = "",
-  courseFollowing = false,
-  courseFollowBusy = false,
-  onStartCourseFollow,
-  /** 탭 전환 시 상위(검색바·술 칩 숨김 등) */
+  /** 탭 전환 시 상위 알림 */
   onActiveTabChange,
 }) {
   const { showToast } = useToast();
@@ -90,21 +76,11 @@ export default function HotCheckinStrip({
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
   const showMutualTab = Boolean(user?.id);
 
-  const mayShowCoursesTab =
-    showPublicCoursesTab !== false && courseDiscoveryHostVisible !== false;
   const showStrip =
     !hideWhenPreviewOpen &&
     !hideWhenSearchActive &&
-    (topFive.length > 0 ||
-      curators.length > 0 ||
-      showMutualTab ||
-      mayShowCoursesTab);
-
-  useEffect(() => {
-    if (!mayShowCoursesTab && tab === TAB_COURSES) {
-      setTab(TAB_HOT);
-    }
-  }, [mayShowCoursesTab, tab]);
+    !hideWhenCourseSheetDocked &&
+    (topFive.length > 0 || curators.length > 0 || showMutualTab);
 
   useEffect(() => {
     if (typeof onActiveTabChange !== "function") return;
@@ -115,64 +91,33 @@ export default function HotCheckinStrip({
 
   if (!showStrip) return null;
 
-  const isCoursesTab = tab === TAB_COURSES;
-  const coursesRailVisible =
-    isCoursesTab &&
-    mayShowCoursesTab &&
-    !hideWhenPreviewOpen &&
-    !hideWhenSearchActive;
-
   const styles = {
     wrap: {
       position: "absolute",
       left: "50%",
       transform: "translateX(-50%)",
       width: "min(720px, calc(100% - 32px))",
-      zIndex: isCoursesTab ? 120 : 85,
+      zIndex: 85,
       pointerEvents: "auto",
       boxSizing: "border-box",
-      ...(isCoursesTab
-        ? {
-            top: STRIP_WRAP_TOP_CSS,
-            bottom: STRIP_COURSES_WRAP_BOTTOM_CSS,
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-          }
-        : {
-            bottom: `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + env(safe-area-inset-bottom, 0px))`,
-          }),
+      bottom: `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + env(safe-area-inset-bottom, 0px))`,
     },
     bar: {
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
-      gap: 6,
-      padding: "6px 8px",
+      gap: 4,
+      padding: "4px 8px",
       borderRadius: 14,
-      background: isCoursesTab
-        ? "rgba(255,255,255,0.97)"
-        : "rgba(255,255,255,0.4)",
-      boxShadow: isCoursesTab
-        ? "0 -4px 32px rgba(15,23,42,0.14), 0 12px 40px rgba(15,23,42,0.08)"
-        : "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
-      border: isCoursesTab
-        ? "1px solid rgba(99,102,241,0.18)"
-        : "1px solid rgba(255,255,255,0.82)",
+      background: "rgba(255,255,255,0.4)",
+      boxShadow:
+        "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
+      border: "1px solid rgba(255,255,255,0.82)",
       backdropFilter: "blur(24px) saturate(200%)",
       WebkitBackdropFilter: "blur(24px) saturate(200%)",
       boxSizing: "border-box",
-      ...(isCoursesTab
-        ? {
-            position: "relative",
-            flex: "1 1 auto",
-            height: "100%",
-            minHeight: 0,
-            overflow: "hidden",
-          }
-        : {}),
     },
-    /** 탭 아래 — 칩·아는 사람(76px) */
+    /** 탭 아래 — 칩·아는 사람 한 줄 (높이 고정, 자동완성은 시트 아래 portal) */
     contentSlot: {
       width: "100%",
       minHeight: STRIP_CONTENT_SLOT_H,
@@ -184,19 +129,9 @@ export default function HotCheckinStrip({
       flexShrink: 0,
       boxSizing: "border-box",
     },
-    /** 코스 탭 — 탭 아래로만 확장 */
-    contentSlotCourses: {
-      width: "100%",
-      flex: "1 1 auto",
-      display: "flex",
-      flexDirection: "column",
-      overflow: "hidden",
-      minHeight: 0,
-      boxSizing: "border-box",
-    },
     tabRow: {
       display: "flex",
-      gap: 6,
+      gap: 4,
       flexShrink: 0,
       minHeight: STRIP_ROW_PX,
       alignItems: "center",
@@ -204,7 +139,7 @@ export default function HotCheckinStrip({
     tabBtn: (active) => ({
       flex: "1 1 0%",
       minWidth: 0,
-      padding: "3px 8px",
+      padding: "2px 7px",
       borderRadius: 999,
       border: active
         ? "1px solid rgba(225,29,72,0.35)"
@@ -239,7 +174,7 @@ export default function HotCheckinStrip({
     chipHot: {
       flexShrink: 0,
       maxWidth: 200,
-      padding: "3px 10px",
+      padding: "2px 9px",
       borderRadius: 999,
       border: "1px solid #fecaca",
       background: "linear-gradient(135deg, #fff7ed 0%, #fff1f2 100%)",
@@ -260,7 +195,7 @@ export default function HotCheckinStrip({
     chipCurator: {
       flexShrink: 0,
       maxWidth: 240,
-      padding: "3px 10px",
+      padding: "2px 9px",
       borderRadius: 999,
       border: "1px solid #ddd6fe",
       background: "linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%)",
@@ -375,7 +310,7 @@ export default function HotCheckinStrip({
 
   return (
     <div style={styles.wrap} aria-label="홈 추천 스트립">
-      <div style={styles.bar}>
+      <div style={styles.bar} data-home-hot-strip-bar>
         <div style={styles.tabRow} role="tablist" aria-label="스트립 탭">
           <button
             type="button"
@@ -387,18 +322,6 @@ export default function HotCheckinStrip({
           >
             🔥 오늘 한잔 TOP
           </button>
-          {mayShowCoursesTab ? (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === TAB_COURSES}
-              style={styles.tabBtn(tab === TAB_COURSES)}
-              onClick={() => setTab(TAB_COURSES)}
-              title="지금 뜨는 코스"
-            >
-              🗺️ 지금 뜨는 코스
-            </button>
-          ) : null}
           <button
             type="button"
             role="tab"
@@ -422,37 +345,18 @@ export default function HotCheckinStrip({
             </button>
           ) : null}
         </div>
-        {isCoursesTab ? (
-          <div
-            style={styles.contentSlotCourses}
-            role="tabpanel"
-            aria-label="지금 뜨는 코스"
-          >
-            <HomeCourseRail
-              visible={coursesRailVisible}
-              embedInHotStrip
-              embedDockExtension
-              onPreviewCourse={onPreviewPublicCourse}
-              previewCourseId={previewCourseId}
-              following={courseFollowing}
-              followBusy={courseFollowBusy}
-              onStartFollow={onStartCourseFollow}
-              user={user}
-            />
-          </div>
-        ) : tab === TAB_MUTUAL && showMutualTab ? (
+        {tab === TAB_MUTUAL && showMutualTab ? (
           <div style={styles.contentSlot} role="tabpanel" aria-label="아는 사람 활동">
             <MutualCheckinsHomeSection
               compact
               stripMode
               user={user}
-              judoMode={judoMode}
               onOpenPlaceDetail={onOpenMutualPlaceDetail}
               onPickUserFromSearch={onPickMutualUser}
               onSearchOpenChange={onMutualSearchOpenChange}
             />
           </div>
-        ) : !isCoursesTab ? (
+        ) : (
           <div style={styles.contentSlot} role="tabpanel">
             <div style={styles.scroll}>
             {tab === TAB_HOT ? (
@@ -526,7 +430,7 @@ export default function HotCheckinStrip({
             )}
             </div>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );

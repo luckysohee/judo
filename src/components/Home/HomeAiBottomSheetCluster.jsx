@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { useRecommendSheetPullDismiss } from "../../hooks/useRecommendSheetPullDismiss";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import HomeBlogReviewSection from "./HomeBlogReviewSection";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
@@ -16,7 +17,7 @@ import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName
  */
 export default function HomeAiBottomSheetCluster({
   styles,
-  aiSheetOpen,
+  onDismissRecommendSheet,
   setAiSheetOpen,
   isAiSearching,
   displayedPlaces,
@@ -61,98 +62,135 @@ export default function HomeAiBottomSheetCluster({
   aiSheetPhotoViewerOpen,
   closeAiSheetPhotoViewer,
 }) {
+  const {
+    sheetChromeRef,
+    clusterStyle,
+    pullDragging,
+    consumeHeaderClick,
+  } = useRecommendSheetPullDismiss({
+    enabled: true,
+    onDismiss: onDismissRecommendSheet,
+    isAiSearching,
+  });
+
   return (
             <>
               <div
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "stretch",
-                  width: "100%",
-                  pointerEvents: "auto",
+                  ...styles.aiRecommendSheetCluster,
+                  ...clusterStyle,
                 }}
               >
-                <button
-                  type="button"
+                <div
                   style={{
-                    ...styles.aiPeekBar,
-                    flex: 1,
-                    minWidth: 0,
-                    width: "auto",
+                    ...styles.aiRecommendMergedShell,
+                    ...styles.aiRecommendMergedShellExpanded,
                     opacity: isAiSearching ? 0.92 : 1,
                   }}
-                  onClick={() => {
-                    setAiSheetOpen((open) => !open);
-                    if (displayedPlaces.length > 0) {
-                      const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
-                        ...place,
-                        lat: parseFloat(place.y ?? place.lat),
-                        lng: parseFloat(place.x ?? place.lng),
-                        name: place.name || place.place_name,
-                        place_name: place.place_name,
-                        address_name: place.address_name || place.road_address_name,
-                        category_name: place.category_name,
-                        phone: place.phone || "",
-                        id: place.id,
-                        isExternal: true,
-                        isLive: true,
-                        kakao_place_id: place.id,
-                        isKakaoPlace:
-                          place.isKakaoPlace ||
-                          (!place.primaryCurator &&
-                            (Boolean(place.kakao_place_id) ||
-                              place.isExternal === true)),
-                      }));
-                      console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
-                      setKakaoPlaces(kakaoFormattedPlaces);
-                      if (!preserveMapViewportSituationChip) {
-                        setMapSearchMarkerFitTick((x) => x + 1);
-                      }
-                    }
-                  }}
                 >
-                  <div style={styles.aiPeekLeft}>
-                    <span style={styles.aiPeekBadge}>맞춤</span>
+                  <div
+                    ref={sheetChromeRef}
+                    style={{
+                      ...styles.aiRecommendSheetChrome,
+                      ...(pullDragging ? styles.aiRecommendSheetChromeDragging : {}),
+                    }}
+                  >
+                    <div
+                      style={styles.aiRecommendSheetPullStrip}
+                      aria-hidden
+                    >
+                      <div style={styles.aiRecommendSheetHandle} />
+                    </div>
 
-                    <div style={styles.aiPeekTextWrap}>
-                      <div style={styles.aiPeekTitle}>
-                        {isAiSearching
-                          ? "추천 리스트 준비 중"
-                          : aiError
-                          ? "추천 결과를 불러오지 못했어요"
-                          : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
-                      </div>
-
-                      <div
-                        style={{
-                          ...styles.aiPeekSubtitle,
-                          ...(aiError ? styles.aiPeekSubtitleError : {}),
+                    <div style={styles.aiRecommendSheetHeaderRow}>
+                      <button
+                        type="button"
+                        style={styles.aiRecommendSheetHeader}
+                        aria-label="맞춤 추천. 아래로 당기면 닫아요"
+                        onClick={() => {
+                          if (consumeHeaderClick()) return;
+                          if (displayedPlaces.length > 0) {
+                            const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
+                              ...place,
+                              lat: parseFloat(place.y ?? place.lat),
+                              lng: parseFloat(place.x ?? place.lng),
+                              name: place.name || place.place_name,
+                              place_name: place.place_name,
+                              address_name: place.address_name || place.road_address_name,
+                              category_name: place.category_name,
+                              phone: place.phone || "",
+                              id: place.id,
+                              isExternal: true,
+                              isLive: true,
+                              kakao_place_id: place.id,
+                              isKakaoPlace:
+                                place.isKakaoPlace ||
+                                (!place.primaryCurator &&
+                                  (Boolean(place.kakao_place_id) ||
+                                    place.isExternal === true)),
+                            }));
+                            console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
+                            setKakaoPlaces(kakaoFormattedPlaces);
+                            if (!preserveMapViewportSituationChip) {
+                              setMapSearchMarkerFitTick((x) => x + 1);
+                            }
+                          }
                         }}
                       >
-                        {isAiSearching
-                          ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
-                          : aiError
-                          ? "잠시 후 다시 시도해 주세요"
-                          : aiSummary || "눌러서 리스트 보기"}
-                      </div>
-                      {!isAiSearching && !aiError ? (
-                        <div style={styles.aiPeekTrustLine}>
-                          검색어·거리·실시간 반응을 함께 반영했어요
+                        <div style={styles.aiPeekBarRow}>
+                          <div style={styles.aiPeekLeft}>
+                            <span style={styles.aiPeekBadge}>맞춤</span>
+
+                            <div style={styles.aiPeekTextWrap}>
+                              <div style={styles.aiPeekTitle}>
+                                {isAiSearching
+                                  ? "추천 리스트 준비 중"
+                                  : aiError
+                                  ? "추천 결과를 불러오지 못했어요"
+                                  : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
+                              </div>
+
+                              <div
+                                style={{
+                                  ...styles.aiPeekSubtitle,
+                                  ...(aiError ? styles.aiPeekSubtitleError : {}),
+                                }}
+                              >
+                                {isAiSearching
+                                  ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
+                                  : aiError
+                                  ? "잠시 후 다시 시도해 주세요"
+                                  : aiSummary || "아래로 당기면 닫을 수 있어요"}
+                              </div>
+                              {!isAiSearching && !aiError ? (
+                                <div style={styles.aiPeekTrustLine}>
+                                  검색어·거리·실시간 반응을 함께 반영했어요
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
+                      </button>
+
+                      {!isAiSearching &&
+                      typeof onDismissRecommendSheet === "function" ? (
+                        <button
+                          type="button"
+                          style={styles.courseSearchClearButton}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDismissRecommendSheet();
+                          }}
+                          aria-label="추천 결과 닫기"
+                          title="추천 결과 닫기"
+                        >
+                          ×
+                        </button>
                       ) : null}
                     </div>
                   </div>
 
-                  <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
-                </button>
-              </div>
-
-              {aiSheetOpen ? (
-                <div style={styles.aiBottomSheet}>
-                  <div style={styles.aiSheetHandleWrap}>
-                    <div style={styles.aiSheetHandle} />
-                  </div>
-
+              <div style={styles.aiRecommendSheetBody}>
                   {yajangFallbackBanner ? (
                     <div
                       style={{
@@ -593,11 +631,12 @@ export default function HomeAiBottomSheetCluster({
                         ))}
                       </>
                     ) : null}
+
+                    <HomeBlogReviewSection blogReviews={blogReviews} />
                   </div>
                 </div>
-              ) : null}
+                </div>
 
-              <HomeBlogReviewSection blogReviews={blogReviews} />
               {aiSheetPhotoViewerOpen && aiSheetPhotoViewerItems.length > 0
                 ? createPortal(
                     <div
@@ -679,6 +718,7 @@ export default function HomeAiBottomSheetCluster({
                     document.body
                   )
                 : null}
+              </div>
             </>
 
   );

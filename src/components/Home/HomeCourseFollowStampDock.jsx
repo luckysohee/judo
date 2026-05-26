@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  capCourseStampStepsForUi,
   fetchCourseStampSteps,
   resolveCourseGuideStepIndex,
   stampCourseStepAtIndex,
@@ -10,9 +11,14 @@ import {
 import CourseStampFeedbackModal from "../Course/CourseStampFeedbackModal";
 import { useToast } from "../Toast/ToastProvider";
 import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
+import {
+  courseStampStepCellStyle,
+  courseStampStepDensity,
+  courseStampStepRowStyle,
+} from "../../utils/courseStampStepLayout";
 
 function dbStepsToStampRow(steps) {
-  return (steps || []).slice(0, 3).map((row, i) => ({
+  return capCourseStampStepsForUi(steps).map((row, i) => ({
     place_id: row.place_id,
     label: `${i + 1}차`,
     order: i + 1,
@@ -75,15 +81,8 @@ const styles = {
     cursor: "pointer",
     padding: 0,
   },
-  stepDots: {
-    display: "flex",
-    gap: 6,
-    justifyContent: "center",
-  },
   dot: (stamped, isGuide) => ({
-    flex: "1 1 0",
     textAlign: "center",
-    fontSize: 10,
     fontWeight: 800,
     padding: "4px 0",
     borderRadius: 8,
@@ -231,10 +230,16 @@ export default function HomeCourseFollowStampDock({
 
   const steps = useMemo(() => {
     if (Array.isArray(stepsProp) && stepsProp.length > 0) {
-      return stepsProp.slice(0, 3);
+      return capCourseStampStepsForUi(stepsProp);
     }
     return dbStepsToStampRow(dbSteps);
   }, [stepsProp, dbSteps]);
+
+  const stepCount = steps.length;
+  const stepDensity = useMemo(
+    () => courseStampStepDensity(stepCount),
+    [stepCount]
+  );
 
   const stampedSet = useMemo(() => {
     if (stampedPlaceIds != null) {
@@ -364,7 +369,7 @@ export default function HomeCourseFollowStampDock({
               </button>
             ) : null}
           </div>
-          <div style={styles.stepDots}>
+          <div style={courseStampStepRowStyle(stepCount)}>
             {steps.map((step, i) => {
               const pid = String(step.place_id || "").trim();
               const isStamped = pid ? stampedSet.has(pid) : false;
@@ -372,7 +377,17 @@ export default function HomeCourseFollowStampDock({
                 !courseCompleted && i === guideStepIndex && !isStamped;
               const label = String(step.label || "").trim() || `${i + 1}차`;
               return (
-                <span key={pid || i} style={styles.dot(isStamped, isGuide)}>
+                <span
+                  key={pid || i}
+                  style={{
+                    ...styles.dot(isStamped, isGuide),
+                    ...courseStampStepCellStyle(stepCount),
+                    fontSize: stepDensity.labelFontSize,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {isStamped ? `✓ ${label}` : label}
                 </span>
               );

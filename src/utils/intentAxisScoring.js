@@ -2,7 +2,11 @@
  * 주도 검색: 의도 축 → 점수 + 동일 근거 `signals` → 한 줄 이유(`buildReasonFromSignals`).
  */
 
-import { normalizeHangulSearchCompounds } from "./searchParser.js";
+import {
+  normalizeHangulSearchCompounds,
+  parseSearchQuery,
+  queryWantsYajangFocus,
+} from "./searchParser.js";
 import {
   reasonEvidenceHasBody,
   composeWhyFromEvidenceAndTail,
@@ -15,6 +19,7 @@ export const INTENT = Object.freeze({
   QUIET: "quiet",
   DRINK: "drink",
   CAFE: "cafe",
+  YAJANG: "yajang",
 });
 
 /** `buildReasonFromSignals` 기본 문구 — 매핑 없을 때·빈 signals */
@@ -22,27 +27,32 @@ export const INTENT_SIGNAL_REASON_FALLBACK = "조건에 맞는 후보로 골랐�
 
 /**
  * @param {string} query
- * @returns {{ date: boolean, after: boolean, quiet: boolean, drink: boolean, cafe: boolean }}
+ * @returns {{ date: boolean, after: boolean, quiet: boolean, drink: boolean, cafe: boolean, yajang: boolean }}
  */
 export function detectIntents(query = "") {
-  const q = normalizeHangulSearchCompounds(String(query || ""))
-    .toLowerCase()
-    .trim();
+  const raw = String(query || "");
+  const q = normalizeHangulSearchCompounds(raw).toLowerCase().trim();
+  const parsed = raw.trim() ? parseSearchQuery(raw) : null;
   return {
     date: /데이트|소개팅|맞선|첫\s*만남|첫만남/.test(q),
     after: /끝나고|2\s*차|이\s*차|이후|한잔|마시러/.test(q),
     quiet: /조용|차분|대화|얘기|담소/.test(q),
     drink: /술집|바|와인|이자카야|맥주|칵테일/.test(q),
     cafe: /카페|커피|디저트/.test(q),
+    yajang: queryWantsYajangFocus(raw, parsed),
   };
 }
 
 /**
  * @param {object} place — 카카오 row 또는 { category_name, place_name }
- * @returns {{ winebar: boolean, bar: boolean, izakaya: boolean, cafe: boolean, italian: boolean, cheap: boolean }}
+ * @returns {{ winebar: boolean, bar: boolean, izakaya: boolean, cafe: boolean, italian: boolean, cheap: boolean, outdoor: boolean }}
  */
 export function classifyCategory(place) {
   const text = `${place?.category_name || ""} ${place?.place_name || ""}`.toLowerCase();
+  const outdoor =
+    /야장|노천|포장마차|포차|테라스|야외|루프탑|옥상|가로수|길가|실외|마당|노상|이동식/.test(
+      text
+    );
   return {
     winebar: /와인/.test(text),
     bar: /바|펍|칵테일/.test(text),
@@ -50,6 +60,7 @@ export function classifyCategory(place) {
     cafe: /카페|커피|디저트/.test(text),
     italian: /파스타|이탈리안|피자/.test(text),
     cheap: /백반|국밥|분식|해장국|기사식당/.test(text),
+    outdoor,
   };
 }
 
@@ -58,16 +69,34 @@ export function classifyCategory(place) {
  * @param {(delta: number, key: string) => void} record
  */
 function applyIntentRules(intent, cat, record) {
+  const yajangPrimary = Boolean(intent.yajang);
+
+  if (yajangPrimary) {
+    if (cat.outdoor) record(9, "yajang_outdoor");
+    if (cat.izakaya) record(3, "yajang_izakaya");
+    if (cat.bar && !cat.winebar) record(2.5, "yajang_bar");
+    if (cat.winebar && !cat.outdoor) record(-9, "penalty_yajang_indoor_wine");
+    if (cat.cafe && !cat.outdoor) record(-5, "penalty_yajang_cafe");
+  }
+
   if (intent.date) {
-    if (cat.winebar) record(3, "date_winebar");
-    if (cat.bar) record(2, "date_bar");
-    if (cat.izakaya) record(1.5, "date_izakaya");
-    if (cat.cafe) {
-      if (intent.quiet) record(2, "date_quiet_cafe");
-      else record(1, "date_cafe");
+    if (yajangPrimary) {
+      if (cat.outdoor) record(2.5, "date_yajang_outdoor");
+      if (cat.izakaya && cat.outdoor) record(1.5, "date_yajang_izakaya");
+    } else {
+      if (cat.winebar) record(3, "date_winebar");
+      if (cat.bar) record(2, "date_bar");
+      if (cat.izakaya) record(1.5, "date_izakaya");
+      if (cat.cafe) {
+        if (intent.quiet) record(2, "date_quiet_cafe");
+        else record(1, "date_cafe");
+      }
+      if (cat.italian) record(1.2, "date_italian");
     }
-    if (cat.italian) record(1.2, "date_italian");
     if (cat.cheap) record(-4, "penalty_date_cheap");
+    if (yajangPrimary && cat.winebar && !cat.outdoor) {
+      record(-4, "penalty_date_wine_over_yajang");
+    }
   }
 
   if (intent.after) {
@@ -95,7 +124,7 @@ function applyIntentRules(intent, cat, record) {
     record(2, "intent_cafe_match");
   }
 
-  if (intent.date && intent.after) {
+  if (intent.date && intent.after && !yajangPrimary) {
     if (cat.winebar) record(2, "combo_date_after_winebar");
     if (cat.bar) record(2, "combo_date_after_bar");
     if (cat.cafe && intent.quiet) record(1.5, "combo_date_after_quiet_cafe");

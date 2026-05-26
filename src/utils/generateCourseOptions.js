@@ -1520,6 +1520,71 @@ export function generateCourseOptions({
   return selectedCourses;
 }
 
+/**
+ * LLM 리랭크용 후보 풀 — UI 3카드와 별도로 프로필별 buildCoursesWithProfile 상위 후보를 모음.
+ *
+ * @param {object} opts — generateCourseOptions와 동일 축 (maxOptions 제외)
+ * @param {number} [opts.limit=12]
+ */
+export function generateCourseCandidatePool({
+  parsedQuery,
+  places = [],
+  bridgeAugment = [],
+  limit = 12,
+  excludeCourseKeys = [],
+  excludeVenuePairKeys = [],
+}) {
+  const pattern = choosePattern(parsedQuery);
+  if (!pattern || !Array.isArray(pattern) || pattern.length < 2) return [];
+
+  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
+    places,
+    parsedQuery
+  );
+  if (!areaPlaces.length) return [];
+
+  const areaKey = effectiveParsed?.area;
+  const areaBridgeAugment = areaKey
+    ? (bridgeAugment || []).filter((p) => placeMatchesArea(p, areaKey))
+    : bridgeAugment || [];
+
+  const invocationSeed =
+    (hashString(String(effectiveParsed?.raw || "")) ^ Date.now()) >>> 0;
+  const excludeKeySet = new Set(
+    excludeCourseKeys instanceof Set
+      ? excludeCourseKeys
+      : excludeCourseKeys || []
+  );
+
+  const merged = [];
+  const seenKeys = new Set();
+
+  for (const profile of COURSE_PROFILE_ORDER) {
+    const rng = mulberry32(
+      (invocationSeed + hashString(profile.key || "")) >>> 0
+    );
+    const candidates = buildCoursesWithProfile({
+      parsedQuery: effectiveParsed,
+      places: areaPlaces,
+      bridgeAugment: areaBridgeAugment,
+      pattern,
+      profile,
+      rng,
+    });
+    for (const c of candidates.slice(0, 6)) {
+      const k = c?.key != null ? String(c.key) : "";
+      if (!k || excludeKeySet.has(k) || seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      merged.push(c);
+    }
+  }
+
+  merged.sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
+  const cap =
+    typeof limit === "number" && limit > 0 ? Math.floor(limit) : 12;
+  return merged.slice(0, cap);
+}
+
 /** 코스 결과 전체 → 지도 마커(중복 id 제거). 선택 코스만 쓰려면 인자로 1요소 배열 전달 */
 export function courseOptionsToMapPlaces(options = []) {
   const out = [];

@@ -11,6 +11,7 @@ import CuratorApplicationButton from "../CuratorApplicationButton/CuratorApplica
  */
 export default function HomeSearchAuthSlot({
   authLoading,
+  rolesLoading = false,
   isLoggedIn,
   userRole,
   compact,
@@ -25,8 +26,9 @@ export default function HomeSearchAuthSlot({
   onKakaoLogin,
   styleMap,
 }) {
+  const authPending = authLoading || (isLoggedIn && rolesLoading);
   const showCuratorApply =
-    !authLoading && isLoggedIn && userRole === "user";
+    !authPending && isLoggedIn && userRole === "user";
 
   return (
     <div
@@ -37,7 +39,24 @@ export default function HomeSearchAuthSlot({
     >
       {showCuratorApply && <CuratorApplicationButton compact={compact} />}
 
-      {authLoading ? null : isLoggedIn ? (
+      {authPending ? (
+        <span
+          style={{
+            ...styleMap?.searchBarProfileButton,
+            ...(compact ? styleMap?.searchBarProfileButtonNarrow : {}),
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: 0.55,
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#64748b",
+          }}
+          aria-hidden
+        >
+          …
+        </span>
+      ) : isLoggedIn ? (
         <>
           <button
             type="button"

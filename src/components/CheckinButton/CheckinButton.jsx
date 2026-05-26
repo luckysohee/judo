@@ -14,6 +14,8 @@ import {
   JUDO_CHECKIN_SCHEDULE_ERROR,
   JUDO_CHECKIN_SCHEDULE_TOAST,
 } from "../../utils/judoOperationMode";
+import { handleCourseProgressAfterCheckIn } from "../../api/courseSessionCheckin";
+import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
 
 function parseCoord(v) {
   if (v == null || v === "") return null;
@@ -179,6 +181,10 @@ export default function CheckinButton({
   compactRowShort = false,
   /** 운영 시간 외(`false`)에는 한잔 RPC 미실행·토스트만 — 버튼은 숨기지 않음 */
   canCheckIn = true,
+  /** 코스 따라가기 중일 때 — 한잔 성공 후 해당 코스 도장·완주 연동 */
+  courseIdHint = "",
+  /** 도장/완주 처리 후 부모 UI 갱신 */
+  onCourseStampProgress = null,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
@@ -303,6 +309,30 @@ export default function CheckinButton({
     }
   };
 
+  const applyCourseProgressAfterHanjan = useCallback(async () => {
+    const pid = String(placeId ?? "").trim();
+    if (!pid || !user?.id) return;
+    const hint = String(courseIdHint ?? "").trim();
+    try {
+      const r = await handleCourseProgressAfterCheckIn(pid, {
+        courseIdHint: hint || undefined,
+      });
+      if (r?.kind === "completed" && r.completion) {
+        dispatchCourseCompletedCelebration(r.completion);
+        onCourseStampProgress?.(r);
+        return;
+      }
+      if (r?.ok && r.toastMessage) {
+        showToast(r.toastMessage, "success", 3200);
+      }
+      if (r?.ok) {
+        onCourseStampProgress?.(r);
+      }
+    } catch (e) {
+      console.warn("[CheckinButton] course progress after check-in", e);
+    }
+  }, [placeId, user?.id, courseIdHint, onCourseStampProgress]);
+
   const runHanjanRpc = async ({
     plat,
     plng,
@@ -326,6 +356,7 @@ export default function CheckinButton({
     });
     setHanjanPicked(true);
     await toastAfterSuccess(skipDistanceCheck);
+    await applyCourseProgressAfterHanjan();
   };
 
   const executeHanjan = async () => {

@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { removeImportedCuratorCourse } from "../../api/courseImports";
+import { fetchMyCuratorCourses, updateCuratorCourse } from "../../api/curatorCourses";
 import {
-  fetchMyCuratorCourses,
-  updateCuratorCourse,
-} from "../../api/curatorCourses";
+  canEditCuratorCourse,
+  splitMyCuratorCourses,
+} from "../../utils/courseImportUi";
+import {
+  COURSE_SCRAP_SECTION_TITLE,
+  COURSE_SCRAPED_DATE_LABEL,
+} from "../../utils/coursePickCopy";
 import {
   getCuratorArchiveStats,
   getCourseEngagementStatsBatch,
@@ -19,6 +25,7 @@ import {
   studioCoursesCard,
   studioCoursesBtnPrimary,
   studioCoursesBtnGhost,
+  studioCoursesBtnDanger,
   studioCoursesEmpty,
   studioCoursesMeta,
   studioCoursesArchiveBand,
@@ -63,14 +70,124 @@ function CourseStatsLines({ lines }) {
   );
 }
 
+function ImportedCourseCardBody({ c, onRemove, removeBusy }) {
+  const navigate = useNavigate();
+  const sourceId = String(c.imported_from_course_id || "").trim();
+  const placeN = Math.max(0, Math.floor(Number(c.place_count) || 0));
+
+  return (
+    <div style={studioCoursesCard}>
+      <div
+        style={{
+          fontSize: "10px",
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          color: "rgba(165,180,252,0.95)",
+          marginBottom: "6px",
+        }}
+      >
+        {COURSE_SCRAP_SECTION_TITLE}
+      </div>
+      <div
+        style={{
+          fontSize: "16px",
+          fontWeight: 800,
+          letterSpacing: "-0.02em",
+          lineHeight: 1.3,
+          marginBottom: "6px",
+        }}
+      >
+        {c.title || "제목 없음"}
+      </div>
+      <div style={studioCoursesMeta}>
+        장소 {placeN}곳
+        {c.area ? (
+          <>
+            {" · "}
+            지역 {c.area}
+          </>
+        ) : null}
+        {" · "}
+        {COURSE_SCRAPED_DATE_LABEL} {formatDate(c.created_at)}
+      </div>
+      <p
+        style={{
+          ...studioCoursesMeta,
+          marginTop: "8px",
+          color: "rgba(255,255,255,0.5)",
+        }}
+      >
+        원본 그대로 보관됩니다. 수정·공개는 할 수 없어요.
+      </p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "4px",
+          marginTop: "10px",
+        }}
+      >
+        <button
+          type="button"
+          style={{
+            ...studioCoursesBtnPrimary,
+            padding: "5px 10px",
+            fontSize: "11px",
+            borderRadius: "6px",
+          }}
+          onClick={() =>
+            navigate(`/courses/${encodeURIComponent(String(c.id || ""))}`)
+          }
+        >
+          보기
+        </button>
+        {sourceId ? (
+          <button
+            type="button"
+            style={{
+              ...studioCoursesBtnGhost,
+              padding: "5px 8px",
+              fontSize: "11px",
+              borderRadius: "6px",
+            }}
+            onClick={() =>
+              navigate(`/courses/${encodeURIComponent(sourceId)}`)
+            }
+          >
+            원본
+          </button>
+        ) : null}
+        <button
+          type="button"
+          style={{
+            ...studioCoursesBtnDanger,
+            padding: "5px 10px",
+            fontSize: "11px",
+            borderRadius: "6px",
+            opacity: removeBusy ? 0.5 : 1,
+          }}
+          disabled={removeBusy}
+          title="스크랩한 코스를 삭제합니다. 원본 코스는 그대로입니다."
+          onClick={() => onRemove?.(c)}
+        >
+          {removeBusy ? "삭제 중…" : "삭제"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CourseCardBody({
   c,
   statsByCourseId,
   featured,
   toggleBusy,
   onTogglePublicListed,
+  userId,
 }) {
   const navigate = useNavigate();
+  const canEdit = canEditCuratorCourse(c, userId);
   const id = String(c.id || "").trim().toLowerCase();
   const st = id ? statsByCourseId.get(id) : null;
   const lines = pickStudioCourseEngagementLines(st);
@@ -205,20 +322,6 @@ function CourseCardBody({
         <button
           type="button"
           style={{
-            ...studioCoursesBtnPrimary,
-            padding: "5px 10px",
-            fontSize: "11px",
-            borderRadius: "6px",
-          }}
-          onClick={() =>
-            navigate(`/studio/courses/${encodeURIComponent(c.id)}/edit`)
-          }
-        >
-          수정
-        </button>
-        <button
-          type="button"
-          style={{
             ...studioCoursesBtnGhost,
             padding: "5px 8px",
             fontSize: "11px",
@@ -226,8 +329,24 @@ function CourseCardBody({
           }}
           onClick={() => navigate(`/courses/${encodeURIComponent(c.id)}`)}
         >
-          상세 보기
+          보기
         </button>
+        {canEdit ? (
+          <button
+            type="button"
+            style={{
+              ...studioCoursesBtnPrimary,
+              padding: "5px 10px",
+              fontSize: "11px",
+              borderRadius: "6px",
+            }}
+            onClick={() =>
+              navigate(`/studio/courses/${encodeURIComponent(c.id)}/edit`)
+            }
+          >
+            수정
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -250,6 +369,7 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [togglingCourseId, setTogglingCourseId] = useState(null);
+  const [removingImportId, setRemovingImportId] = useState(null);
 
   const load = useCallback(async () => {
     if (!user?.id) {
@@ -296,6 +416,7 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
   }, [authLoading, user?.id, load, embedded, active]);
 
   const handleToggleCoursePublicListed = useCallback(async (course) => {
+    if (course?.imported_from_course_id) return;
     const id = String(course?.id ?? "").trim();
     if (!id) return;
     const placeN = Math.max(0, Math.floor(Number(course.place_count) || 0));
@@ -330,27 +451,53 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
     }
   }, []);
 
+  const handleDeleteImportedCourse = useCallback(async (course) => {
+    const id = String(course?.id ?? "").trim();
+    if (!id) return;
+    if (
+      !window.confirm(
+        "스크랩한 코스를 삭제할까요? 원본 코스는 그대로 남습니다."
+      )
+    ) {
+      return;
+    }
+    setRemovingImportId(id);
+    try {
+      await removeImportedCuratorCourse(id);
+      setRows((prev) => prev.filter((r) => String(r.id) !== id));
+    } catch (e) {
+      window.alert(e?.message || "삭제하지 못했습니다.");
+    } finally {
+      setRemovingImportId(null);
+    }
+  }, []);
+
   const vibe = useMemo(
     () => buildCuratorArchiveVibes(archiveStats),
     [archiveStats]
   );
 
+  const { ownCourses, importedCourses } = useMemo(
+    () => splitMyCuratorCourses(rows),
+    [rows]
+  );
+
   const { featuredCourse, listCourses } = useMemo(() => {
     const topId = archiveStats?.top_course?.course_id?.toLowerCase() ?? "";
     if (!topId) {
-      return { featuredCourse: null, listCourses: rows };
+      return { featuredCourse: null, listCourses: ownCourses };
     }
-    const featured = rows.find(
+    const featured = ownCourses.find(
       (r) => String(r.id || "").trim().toLowerCase() === topId
     );
     if (!featured) {
-      return { featuredCourse: null, listCourses: rows };
+      return { featuredCourse: null, listCourses: ownCourses };
     }
-    const rest = rows.filter(
+    const rest = ownCourses.filter(
       (r) => String(r.id || "").trim().toLowerCase() !== topId
     );
     return { featuredCourse: featured, listCourses: rest };
-  }, [rows, archiveStats]);
+  }, [ownCourses, archiveStats]);
 
   const newCourseButton = (
     <button
@@ -427,32 +574,83 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
         <div style={{ padding: "20px 0", color: "rgba(255,255,255,0.6)" }}>
           목록 불러오는 중…
         </div>
-      ) : rows.length === 0 ? (
+      ) : ownCourses.length === 0 && importedCourses.length === 0 ? (
         <div style={studioCoursesEmpty}>
           아직 만든 잔 코스가 없어요. 인스타 저장보다 실행하기 쉬운 코스를
           만들어보세요.
         </div>
       ) : (
         <>
-          {featuredCourse ? (
-            <CourseCardBody
-              c={featuredCourse}
-              statsByCourseId={statsByCourseId}
-              featured
-              toggleBusy={togglingCourseId === String(featuredCourse.id)}
-              onTogglePublicListed={handleToggleCoursePublicListed}
-            />
+          {ownCourses.length > 0 ? (
+            <>
+              <p
+                style={{
+                  margin: "4px 2px 8px",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.55)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                내가 만든 코스
+              </p>
+              {featuredCourse ? (
+                <CourseCardBody
+                  c={featuredCourse}
+                  statsByCourseId={statsByCourseId}
+                  featured
+                  userId={user?.id}
+                  toggleBusy={togglingCourseId === String(featuredCourse.id)}
+                  onTogglePublicListed={handleToggleCoursePublicListed}
+                />
+              ) : null}
+              {listCourses.map((c) => (
+                <CourseCardBody
+                  key={c.id}
+                  c={c}
+                  statsByCourseId={statsByCourseId}
+                  featured={false}
+                  userId={user?.id}
+                  toggleBusy={togglingCourseId === String(c.id)}
+                  onTogglePublicListed={handleToggleCoursePublicListed}
+                />
+              ))}
+            </>
+          ) : (
+            <div
+              style={{
+                ...studioCoursesEmpty,
+                marginBottom: "12px",
+                padding: "14px 12px",
+              }}
+            >
+              직접 만든 코스는 없어요. + 로 새 코스를 만들거나, 다른 사람 코스를
+              스크랩해 보세요.
+            </div>
+          )}
+          {importedCourses.length > 0 ? (
+            <>
+              <p
+                style={{
+                  margin: "16px 2px 8px",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "rgba(165,180,252,0.85)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {COURSE_SCRAP_SECTION_TITLE}
+              </p>
+              {importedCourses.map((c) => (
+                <ImportedCourseCardBody
+                  key={c.id}
+                  c={c}
+                  removeBusy={removingImportId === String(c.id)}
+                  onRemove={handleDeleteImportedCourse}
+                />
+              ))}
+            </>
           ) : null}
-          {listCourses.map((c) => (
-            <CourseCardBody
-              key={c.id}
-              c={c}
-              statsByCourseId={statsByCourseId}
-              featured={false}
-              toggleBusy={togglingCourseId === String(c.id)}
-              onTogglePublicListed={handleToggleCoursePublicListed}
-            />
-          ))}
         </>
       )}
     </>

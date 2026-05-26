@@ -35,7 +35,6 @@ export default function HomeDesktopSocialStack({
       <div style={{ pointerEvents: "auto" }}>
         <MutualCheckinsHomeSection
           user={user}
-          judoMode={judoMode}
           onOpenPlaceDetail={onOpenPlaceDetail}
         />
       </div>

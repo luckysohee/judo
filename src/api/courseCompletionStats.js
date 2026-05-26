@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { isSupabaseSchemaMissingError } from "../utils/supabaseSchemaErrors";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -359,7 +360,9 @@ export async function getCourseLikeStatsBatch(courseIds) {
     p_course_ids: uniq,
   });
   if (error) {
-    console.warn("[getCourseLikeStatsBatch]", error);
+    if (!isSupabaseSchemaMissingError(error)) {
+      console.warn("[getCourseLikeStatsBatch]", error);
+    }
     for (const id of uniq) {
       out.set(id, { ...LIKE_ZEROS });
     }
@@ -424,7 +427,9 @@ export async function getCourseEngagementStats(courseId) {
   ]);
   let likes = { ...LIKE_ZEROS };
   if (likeRes.error) {
-    console.warn("[getCourseLikeStats]", likeRes.error);
+    if (!isSupabaseSchemaMissingError(likeRes.error)) {
+      console.warn("[getCourseLikeStats]", likeRes.error);
+    }
   } else {
     likes = normalizeCourseLikeStats(likeRes.data);
   }

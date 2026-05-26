@@ -1,4 +1,6 @@
 import { supabase } from "./client";
+import { getSupabaseUserSafe } from "../lib/supabaseAuth";
+import { isSupabaseSchemaMissingError } from "../utils/supabaseSchemaErrors";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,9 +16,7 @@ function parseUuid(id) {
  */
 export async function isCourseLikedByMe(courseId) {
   const id = parseUuid(courseId);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSupabaseUserSafe();
   if (!id || !user?.id) return false;
 
   const { data, error } = await supabase
@@ -27,7 +27,9 @@ export async function isCourseLikedByMe(courseId) {
     .maybeSingle();
 
   if (error) {
-    console.warn("[isCourseLikedByMe]", error);
+    if (!isSupabaseSchemaMissingError(error)) {
+      console.warn("[isCourseLikedByMe]", error);
+    }
     return false;
   }
   return Boolean(data?.id);
@@ -38,9 +40,7 @@ export async function isCourseLikedByMe(courseId) {
  */
 export async function toggleCuratorCourseLike(courseId) {
   const id = parseUuid(courseId);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSupabaseUserSafe();
   if (!id) throw new Error("코스 ID가 올바르지 않습니다.");
   if (!user?.id) throw new Error("로그인이 필요합니다.");
 
@@ -51,7 +51,14 @@ export async function toggleCuratorCourseLike(courseId) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (selErr) throw selErr;
+  if (selErr) {
+    if (isSupabaseSchemaMissingError(selErr)) {
+      throw new Error(
+        "좋아요 기능 DB가 아직 적용되지 않았어요. supabase/migrations/20260516150000_curator_course_likes.sql 을 실행해 주세요."
+      );
+    }
+    throw selErr;
+  }
 
   if (existing?.id) {
     const { error: delErr } = await supabase

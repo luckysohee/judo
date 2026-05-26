@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5173",
+    "dev": "node scripts/run-dev.mjs",
+    "dev:vite": "vite --strictPort",
     "dev:server": "npm --prefix server run dev",
     "build": "vite build",
     "test": "vitest run",

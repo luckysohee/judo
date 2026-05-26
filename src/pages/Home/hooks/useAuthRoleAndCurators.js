@@ -25,6 +25,8 @@ export function useAuthRoleAndCurators({
 }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCurator, setIsCurator] = useState(false);
+  /** auth 세션 후 admin·curator 판정이 끝날 때까지 true — 프로필→스튜디오 오판 방지 */
+  const [rolesLoading, setRolesLoading] = useState(true);
   const [curatorProfile, setCuratorProfile] = useState(null);
   const [dbCurators, setDbCurators] = useState([]);
   const [mapUserProfile, setMapUserProfile] = useState(null);
@@ -50,76 +52,28 @@ export function useAuthRoleAndCurators({
     else setMapUserProfile(null);
   }, [userId]);
 
-  /** 1) admin 판정 + 2) curator 판정/환영/반려 + 3) 전체 큐레이터 카탈로그 로드 */
+  /** 1) admin·curator 판정(병렬) → 2) 환영/반려 · 카탈로그는 비차단 */
   useEffect(() => {
     let cancelled = false;
 
-    const checkAdmin = async () => {
-      if (authLoading) return;
-      if (!userId) {
-        setIsAdmin(false);
-        return;
-      }
-
-      if (
-        import.meta.env.DEV &&
-        import.meta.env.VITE_ADMIN_USER_ID === userId
-      ) {
-        console.log("🔧 개발 환경: Admin 계정 자동 인식");
-        setIsAdmin(true);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (error) {
-        console.error("admin check error:", error);
-        setIsAdmin(false);
-        return;
-      }
-
-      setIsAdmin(data?.role === "admin");
-      console.log("👑 Admin check 결과:", {
-        userId,
-        isAdmin: data?.role === "admin",
+    const applyCuratorProfile = (data) => {
+      if (!data) return;
+      const handle = String(data.slug || data.username || "").trim();
+      const nick = String(
+        data.name || data.display_name || handle || "",
+      ).trim();
+      setCuratorProfile({
+        id: data.id,
+        user_id: data.user_id,
+        username: handle,
+        displayName: nick,
+        bio: data.bio,
+        image: curatorRowProfileImage(data),
       });
     };
 
-    const checkCurator = async () => {
-      if (authLoading) return;
-      if (!userId) {
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      console.log("Checking curator for user ID:", userId);
-
-      const { data, error } = await supabase
-        .from("curators")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      console.log("Curator check result:", { data, error });
-
-      if (cancelled) return;
-      if (error) {
-        console.error("curator check error:", error);
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      const isUserCurator = !!data;
+    const checkCuratorSideEffects = (data, isUserCurator) => {
       const wasCuratorBefore = curatorWelcomeRef.current;
-
-      setIsCurator(isUserCurator);
       curatorWelcomeRef.current = isUserCurator;
 
       if (isUserCurator && !wasCuratorBefore) {
@@ -140,80 +94,132 @@ export function useAuthRoleAndCurators({
           }, 1000);
         }
 
-        const handle = String(data.slug || data.username || "").trim();
-        const nick = String(
-          data.name || data.display_name || handle || "",
-        ).trim();
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: handle,
-          displayName: nick,
-          bio: data.bio,
-          image: curatorRowProfileImage(data),
-        });
-        console.log("✅ 큐레이터 프로필 로드됨:", handle);
+        applyCuratorProfile(data);
+        console.log("✅ 큐레이터 프로필 로드됨");
       } else if (isUserCurator) {
-        const handle = String(data.slug || data.username || "").trim();
-        const nick = String(
-          data.name || data.display_name || handle || "",
-        ).trim();
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: handle,
-          displayName: nick,
-          bio: data.bio,
-          image: curatorRowProfileImage(data),
-        });
+        applyCuratorProfile(data);
       }
 
-      const checkRejectedApplication = async () => {
-        try {
-          const { data: rejectedRows, error: rejErr } = await supabase
-            .from("curator_applications")
-            .select("*")
-            .eq("user_id", userId)
-            .eq("status", "rejected")
-            .order("created_at", { ascending: false })
-            .limit(1);
-          const rejectedApp = Array.isArray(rejectedRows)
-            ? rejectedRows[0]
-            : null;
+    };
 
-          if (cancelled) return;
+    const checkRejectedApplication = async () => {
+      if (!userId) return;
+      try {
+        const { data: rejectedRows, error: rejErr } = await supabase
+          .from("curator_applications")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("status", "rejected")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const rejectedApp = Array.isArray(rejectedRows)
+          ? rejectedRows[0]
+          : null;
 
-          if (rejErr) {
-            console.error("반려 신청 확인 오류:", rejErr);
-            return;
-          }
+        if (cancelled) return;
 
-          if (rejectedApp) {
-            const rejectKey = `curator_rejected_${userId}_${rejectedApp.id}`;
-            if (localStorage.getItem(rejectKey)) return;
-
-            // setTimeout 전에 예약: 동시에 두 번 돌아온 호출이 둘 다 alert를 잡지 않도록
-            localStorage.setItem(rejectKey, "shown");
-
-            setTimeout(() => {
-              if (cancelled) return;
-              const customReason =
-                rejectedApp.rejection_reason &&
-                String(rejectedApp.rejection_reason).trim();
-              const reasonLine = customReason
-                ? customReason
-                : "검토 결과 큐레이터 신청 기준에 맞지 않아 반려되었습니다.";
-              alert(
-                `😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: ${reasonLine}\n\n내용을 보완한 뒤 다시 신청하실 수 있습니다.`,
-              );
-            }, 1500);
-          }
-        } catch (e) {
-          console.error("반려 확인 중 오류:", e);
+        if (rejErr) {
+          console.error("반려 신청 확인 오류:", rejErr);
+          return;
         }
-      };
 
-      checkRejectedApplication();
+        if (rejectedApp) {
+          const rejectKey = `curator_rejected_${userId}_${rejectedApp.id}`;
+          if (localStorage.getItem(rejectKey)) return;
+
+          localStorage.setItem(rejectKey, "shown");
+
+          setTimeout(() => {
+            if (cancelled) return;
+            const customReason =
+              rejectedApp.rejection_reason &&
+              String(rejectedApp.rejection_reason).trim();
+            const reasonLine = customReason
+              ? customReason
+              : "검토 결과 큐레이터 신청 기준에 맞지 않아 반려되었습니다.";
+            alert(
+              `😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: ${reasonLine}\n\n내용을 보완한 뒤 다시 신청하실 수 있습니다.`,
+            );
+          }, 1500);
+        }
+      } catch (e) {
+        console.error("반려 확인 중 오류:", e);
+      }
+    };
+
+    const resolveRoles = async () => {
+      if (authLoading) {
+        setRolesLoading(true);
+        return;
+      }
+
+      setRolesLoading(true);
+
+      if (!userId) {
+        setIsAdmin(false);
+        setIsCurator(false);
+        setCuratorProfile(null);
+        curatorWelcomeRef.current = false;
+        setRolesLoading(false);
+        return;
+      }
+
+      let adminOk = false;
+      if (
+        import.meta.env.DEV &&
+        import.meta.env.VITE_ADMIN_USER_ID === userId
+      ) {
+        adminOk = true;
+      } else {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          console.error("admin check error:", error);
+          adminOk = false;
+        } else {
+          adminOk = data?.role === "admin";
+        }
+      }
+
+      const { data: curatorRow, error: curatorErr } = await supabase
+        .from("curators")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (curatorErr) {
+        console.error("curator check error:", curatorErr);
+        setIsCurator(false);
+        setCuratorProfile(null);
+        curatorWelcomeRef.current = false;
+      } else {
+        const isUserCurator = Boolean(curatorRow);
+        setIsCurator(isUserCurator);
+        if (isUserCurator) {
+          checkCuratorSideEffects(curatorRow, true);
+        } else {
+          setCuratorProfile(null);
+          curatorWelcomeRef.current = false;
+        }
+      }
+
+      setIsAdmin(adminOk);
+      setRolesLoading(false);
+      console.log("👑 역할 판정 완료:", {
+        userId,
+        isAdmin: adminOk,
+        isCurator: Boolean(curatorRow),
+      });
+
+      if (!adminOk && !curatorRow) {
+        void checkRejectedApplication();
+      }
     };
 
     const loadCurators = async () => {
@@ -277,16 +283,16 @@ export function useAuthRoleAndCurators({
       }
     };
 
-    checkAdmin();
-    checkCurator();
-    loadCurators();
+    void resolveRoles().then(() => {
+      if (!cancelled) loadCurators();
+    });
 
     return () => {
       cancelled = true;
     };
     /** userEmail은 환영 alert 안에서만 읽음 — id가 같은 한 reference 변화로 재실행 안 시킴 */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, userId, curatorAttachRowsRef]);
+  }, [authLoading, userId, curatorAttachRowsRef, userEmail]);
 
   /** 큐레이터로 판정되면 curators row 한 번 더 가져와 프로필 보강 */
   useEffect(() => {
@@ -343,6 +349,7 @@ export function useAuthRoleAndCurators({
   return {
     isAdmin,
     isCurator,
+    rolesLoading,
     curatorProfile,
     dbCurators,
     mapUserProfile,

@@ -7,6 +7,11 @@ import {
   pickHomeCourseCompletionMetricLine,
 } from "../../api/courseCompletionStats";
 import { supabase } from "../../lib/supabase";
+import {
+  HOME_COURSE_RAIL_FOLLOW_STAMP,
+  HOME_COURSE_RAIL_PICK_STAMP,
+  HOME_COURSE_RAIL_STAMP_ON_MAP,
+} from "../../utils/homeCourseStampCopy";
 
 const RAIL_TITLE = "지금 뜨는 코스";
 const FETCH_LIMIT = 16;
@@ -74,16 +79,18 @@ function buildFlowPreviewLine(previewSteps, placeCount) {
 /**
  * 한 줄 분위기: description 우선(짧게), 없으면 area + theme_tags 조합.
  */
-function buildCourseMoodCopy(course) {
+function buildCourseMoodCopy(course, { maxLen = 48 } = {}) {
   if (!course || typeof course !== "object") return "";
+  const cap =
+    typeof maxLen === "number" && maxLen > 0 ? Math.floor(maxLen) : 48;
   const desc = String(course.description || "")
     .replace(/\s+/g, " ")
     .trim();
   if (desc) {
     const firstLine = String(desc.split(/\n|\r/)[0] || "").trim();
     if (!firstLine) return "";
-    if (firstLine.length <= 48) return firstLine;
-    return `${firstLine.slice(0, 47).trim()}…`;
+    if (firstLine.length <= cap) return firstLine;
+    return `${firstLine.slice(0, cap - 1).trim()}…`;
   }
   const area = String(course.area || "").trim();
   const tags = (Array.isArray(course.theme_tags) ? course.theme_tags : [])
@@ -117,7 +124,7 @@ const styles = {
     pointerEvents: "none",
     boxSizing: "border-box",
   },
-  /** `HotCheckinStrip` 두 번째 탭 안에 넣을 때 — 지도 상단 고정 위치 제거 */
+  /** `HomeCoursesDiscovery` 패널 안에 넣을 때 — 지도 상단 고정 위치 제거 */
   wrapEmbed: {
     position: "relative",
     left: "auto",
@@ -323,17 +330,29 @@ const styles = {
     gap: "4px",
     background: "rgba(255,255,255,0.96)",
   },
-  embedDockHint: {
+  moodLineEmbedDock: {
+    margin: 0,
+    fontSize: "11px",
+    fontWeight: 650,
+    lineHeight: 1.42,
+    letterSpacing: "-0.02em",
+    color: "rgba(51,65,85,0.92)",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: "vertical",
+  },
+  embedDockHintStamp: {
     flexShrink: 0,
     margin: "0 0 4px",
-    padding: "4px 8px",
+    padding: "5px 10px",
     borderRadius: 8,
-    background: "rgba(99,102,241,0.08)",
-    border: "1px dashed rgba(99,102,241,0.2)",
+    background: "rgba(124,58,237,0.08)",
+    border: "1px dashed rgba(124,58,237,0.28)",
     fontSize: 10,
-    fontWeight: 650,
-    lineHeight: 1.35,
-    color: "rgba(49,46,129,0.72)",
+    fontWeight: 700,
+    lineHeight: 1.4,
+    color: "rgba(76,29,149,0.88)",
     textAlign: "center",
   },
   cardTitleOverlayEmbed: {
@@ -617,7 +636,7 @@ const TAP_MOVE_PX = 10;
 /**
  * 홈 지도 위 공개 코스 가로 레일. 장소 검색·핫스트립과 겹치지 않게 상단에 얇게 노출.
  * @param {{ visible?: boolean, embedInHotStrip?: boolean, onPreviewCourse?: (courseId: string) => void }} props
- *   `embedInHotStrip`: `HotCheckinStrip` 탭 패널 안에 넣을 때 상단 고정 레이아웃 제거.
+ *   `embedInHotStrip`: `HomeCoursesDiscovery` 패널 안에 넣을 때 상단 고정 레이아웃 제거.
  *   `onPreviewCourse`: 카드 탭 시에만 홈 지도 미리보기(임베드). 스와이프만으로는 미리보기 없음.
  */
 export default function HomeCourseRail({
@@ -812,8 +831,19 @@ export default function HomeCourseRail({
   const showPager = rows.length > 1 && (!embedInHotStrip || embedDock);
   const activeCourseId = String(rows[activeIndex]?.id || "").trim();
   const previewId = String(previewCourseId || "").trim();
-  const showEmbedPickHint =
-    embedDock && phase === "ready" && rows.length > 0 && !previewId;
+  const showEmbedStampBanner =
+    embedDock && phase === "ready" && rows.length > 0;
+  const embedStampHintText = previewId
+    ? HOME_COURSE_RAIL_STAMP_ON_MAP
+    : HOME_COURSE_RAIL_PICK_STAMP;
+  const showEmbedFollowRow =
+    embedDock &&
+    phase === "ready" &&
+    previewId &&
+    previewId === activeCourseId &&
+    Boolean(user?.id) &&
+    !following &&
+    typeof onStartFollow === "function";
 
   return (
     <div style={wrapStyle} aria-label={RAIL_TITLE}>
@@ -873,10 +903,23 @@ export default function HomeCourseRail({
           </div>
         ) : (
           <>
-            {showEmbedPickHint ? (
-              <p style={styles.embedDockHint}>
-                좌우로 고른 뒤 카드를 탭하면 지도에서 볼 수 있어요
-              </p>
+            {showEmbedStampBanner ? (
+              <p style={styles.embedDockHintStamp}>{embedStampHintText}</p>
+            ) : null}
+            {showEmbedFollowRow ? (
+              <div style={styles.followRowEmbed}>
+                <p style={styles.followMetaEmbed}>
+                  {HOME_COURSE_RAIL_FOLLOW_STAMP}
+                </p>
+                <button
+                  type="button"
+                  style={styles.followBtnEmbed}
+                  disabled={followBusy}
+                  onClick={onStartFollow}
+                >
+                  {followBusy ? "시작 중…" : "따라가기"}
+                </button>
+              </div>
             ) : null}
             {showPager ? (
               <div style={styles.pagerRow} aria-live="polite">
@@ -939,7 +982,9 @@ export default function HomeCourseRail({
                 ? c.preview_steps
                 : [];
               const flowLine = buildFlowPreviewLine(previewSteps, n);
-              const mood = buildCourseMoodCopy(c);
+              const mood = buildCourseMoodCopy(c, {
+                maxLen: embedDock ? 140 : 48,
+              });
               const statRow = id ? statsByCourseId.get(id.toLowerCase()) : null;
               const metricLine = pickHomeCourseCompletionMetricLine(statRow);
               const metricLabel = metricLine
@@ -1037,8 +1082,14 @@ export default function HomeCourseRail({
                         style={styles.thumbStrip}
                       />
                     ) : null}
-                    {mood && !embedDock ? (
-                      <p style={styles.moodLine}>{mood}</p>
+                    {mood ? (
+                      <p
+                        style={
+                          embedDock ? styles.moodLineEmbedDock : styles.moodLine
+                        }
+                      >
+                        {mood}
+                      </p>
                     ) : null}
                     <div style={styles.meta}>{metaBits.join(" · ")}</div>
                     {metricLine ? (

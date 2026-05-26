@@ -1,6 +1,7 @@
 import { supabase } from "./client";
 import { mapPlaceRowForCourse } from "./places.js";
 import { previewStepFromCoursePlaceRow } from "../utils/courseStepThumb.js";
+import { isImportedCuratorCourse } from "../utils/courseImportUi.js";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -17,6 +18,20 @@ function throwIfSupabaseError(error, koLabel) {
   if (!error) return;
   console.error(koLabel, error);
   throw error;
+}
+
+async function assertCourseEditable(courseId, label) {
+  const { data, error } = await supabase
+    .from("curator_courses")
+    .select("imported_from_course_id")
+    .eq("id", courseId)
+    .maybeSingle();
+  throwIfSupabaseError(error, label);
+  if (isImportedCuratorCourse(data)) {
+    const err = new Error("스크랩한 코스는 수정하거나 공개할 수 없습니다.");
+    console.error(label, err);
+    throw err;
+  }
 }
 
 function normalizePlaceCountRow(row) {
@@ -101,6 +116,14 @@ export async function createCuratorCourse(payload) {
     throw err;
   }
 
+  if (p.imported_from_course_id != null) {
+    const err = new Error(
+      "createCuratorCourse: imported_from_course_id is not allowed from client"
+    );
+    console.error("[코스 생성 실패]", err);
+    throw err;
+  }
+
   const row = {
     curator_id,
     title: titleTrim,
@@ -128,6 +151,7 @@ export async function createCuratorCourse(payload) {
  */
 export async function updateCuratorCourse(courseId, payload) {
   const id = assertUuid(courseId, "updateCuratorCourse.courseId");
+  await assertCourseEditable(id, "[코스 수정 실패]");
   const p = payload && typeof payload === "object" ? payload : {};
   const patch = {};
   if ("title" in p) {
@@ -173,6 +197,19 @@ export async function updateCuratorCourse(courseId, payload) {
  */
 export async function deleteCuratorCourse(courseId) {
   const id = assertUuid(courseId, "deleteCuratorCourse.courseId");
+  const { data: row, error: selErr } = await supabase
+    .from("curator_courses")
+    .select("imported_from_course_id")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfSupabaseError(selErr, "[코스 삭제 실패]");
+  if (isImportedCuratorCourse(row)) {
+    const err = new Error(
+      "스크랩한 코스는 removeImportedCuratorCourse로 삭제하세요."
+    );
+    console.error("[코스 삭제 실패]", err);
+    throw err;
+  }
   const { error } = await supabase.from("curator_courses").delete().eq("id", id);
   throwIfSupabaseError(error, "[코스 삭제 실패]");
 }
@@ -356,6 +393,7 @@ export async function fetchMyCuratorCourses(curatorId, opts = {}) {
  */
 export async function saveCuratorCoursePlaces(courseId, places) {
   const cid = assertUuid(courseId, "saveCuratorCoursePlaces.courseId");
+  await assertCourseEditable(cid, "[코스 장소 저장 실패]");
   const list = Array.isArray(places) ? places : [];
   if (list.length < 1 || list.length > 6) {
     const err = new Error(
@@ -424,6 +462,7 @@ export async function saveCuratorCoursePlaces(courseId, places) {
  */
 export async function publishCuratorCourse(courseId) {
   const id = assertUuid(courseId, "publishCuratorCourse.courseId");
+  await assertCourseEditable(id, "[코스 공개 실패]");
 
   const { count, error: cErr } = await supabase
     .from("curator_course_places")

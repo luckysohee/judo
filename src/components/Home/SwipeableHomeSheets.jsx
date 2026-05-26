@@ -6,7 +6,7 @@ import HomeSearchAboveStrip from "./HomeSearchAboveStrip";
  * 스와이프 가능한 홈 시트 컴포넌트
  * - 시트 1: 오늘 한잔 TOP 등 (미사용 레일아웃 예시)
  * - 시트 2: 취향 탐색 (미사용)
- * 실제 홈은 `HotCheckinStrip` 탭에 `HomeCourseRail` 이 포함됨.
+ * 실제 홈은 `HotCheckinStrip`(3탭) + `HomeCoursesDiscovery`(코스 진입·패널).
  */
 export default function SwipeableHomeSheets({
   // HotCheckinStrip props
@@ -25,9 +25,6 @@ export default function SwipeableHomeSheets({
   judoMode = null,
   
   // HomeSearchAboveStrip props
-  idleHintVisible = false,
-  idleHintText = "",
-  idleHintStyle = {},
   showCollectionsRail = false,
   showSpotlight = false,
   spotlightPlaces = [],
@@ -67,10 +64,6 @@ export default function SwipeableHomeSheets({
       title: "취향 탐색",
       component: (
         <HomeSearchAboveStrip
-          idleHintVisible={idleHintVisible}
-          idleHintText={idleHintText}
-          idleHintStyle={idleHintStyle}
-          showCollectionsRail={showCollectionsRail}
           showSpotlight={showSpotlight}
           spotlightPlaces={spotlightPlaces}
           onPickSpotlightPlace={onPickSpotlightPlace}

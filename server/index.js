@@ -165,8 +165,10 @@ import {
 } from "./placeBlogInsightsCache.js";
 import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
 import { handlePlacesInBounds } from "./placesInBounds.js";
+import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
+import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 
 const app = express();
 app.use(cors());
@@ -621,6 +623,9 @@ app.get("/api/health", (_req, res) => {
 /** 홈 지도: bbox + limit — Supabase RPC `get_places_in_bounds` (service role 전용) */
 app.get("/api/places-in-bounds", handlePlacesInBounds);
 
+/** 홈 「지금 뜨는 코스」 검색 — 공개 코스 전체 (48 풀과 분리) */
+app.get("/api/courses/search", handleSearchPublicCourses);
+
 /** 장소 1건 + 추천 행(공개 필드) — 카드/시트 오픈 후 (service role 전용) */
 app.get("/api/place-detail", handlePlaceDetail);
 
@@ -809,7 +814,7 @@ app.get("/api/region-outline", async (req, res) => {
 });
 
 /**
- * 코스 1차→2차 보행 경로 (OSRM 공개 데모 — 프로덕션은 자체 OSRM/키 있는 라우팅으로 교체 권장)
+ * 코스 1차→2차 보행 경로 — 카카오모빌리티 도보 길찾기 우선, 실패 시 OSRM foot fallback.
  * Query: slat, slng, dlat, dlng (WGS84)
  */
 app.get("/api/course-walking-route", async (req, res) => {
@@ -820,34 +825,20 @@ app.get("/api/course-walking-route", async (req, res) => {
   if (![slat, slng, dlat, dlng].every((n) => Number.isFinite(n))) {
     return res.status(400).json({ ok: false, error: "invalid_coordinates" });
   }
-  const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${slng},${slat};${dlng},${dlat}?overview=full&geometries=geojson&steps=false`;
+
   try {
-    const r = await fetch(osrmUrl, {
-      headers: { "User-Agent": "judo-course-walking-route/1.0" },
+    const { resolveCourseWalkingRoute } = await import("./courseWalkingRoute.js");
+    const result = await resolveCourseWalkingRoute({
+      apiKey: getKakaoRestApiKey(),
+      slat,
+      slng,
+      dlat,
+      dlng,
     });
-    if (!r.ok) {
-      return res.json({
-        ok: false,
-        error: "routing_http",
-        status: r.status,
-      });
+    if (!result.ok) {
+      return res.json(result);
     }
-    const data = await r.json();
-    const route = data?.routes?.[0];
-    const coords = route?.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) {
-      return res.json({ ok: false, error: "no_route" });
-    }
-    const path = coords.map(([lng, lat]) => ({
-      lat: Number(lat),
-      lng: Number(lng),
-    }));
-    return res.json({
-      ok: true,
-      path,
-      distanceMeters: Math.round(Number(route.distance) || 0),
-      durationSeconds: Math.round(Number(route.duration) || 0),
-    });
+    return res.json(result);
   } catch (e) {
     console.error("/api/course-walking-route", e);
     return res.json({ ok: false, error: "fetch_failed" });
@@ -1142,6 +1133,11 @@ app.post("/api/search-intent-assist", async (req, res) => {
     return res.json(fallback());
   }
 });
+
+/** 코스: 룰 엔진 후보 중 course.key만 LLM이 선택·summary (장소 발명 금지) */
+app.post("/api/course-compose-assist", (req, res) =>
+  handleCourseComposeAssist(req, res, { openai, hasUsableOpenAiKey })
+);
 
 // 네이버 **지역** 검색 API (openapi local.json) — 블로그 Python 크롤과 별개
 async function searchNaverLocal(query) {

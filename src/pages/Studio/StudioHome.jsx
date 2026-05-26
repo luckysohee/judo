@@ -1587,6 +1587,8 @@ export default function StudioHome() {
   const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
+  /** pending | allowed | denied — 장소 로드 전 큐레이터 여부 확정 */
+  const [curatorGate, setCuratorGate] = useState("pending");
   const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
   const [listPublicPicksOpen, setListPublicPicksOpen] = useState(false);
@@ -2501,9 +2503,58 @@ export default function StudioHome() {
   }, [activeSection, user?.id]);
 
   useEffect(() => {
-    if (authLoading) return;
-    loadStudioData();
+    if (authLoading) {
+      setCuratorGate("pending");
+      return;
+    }
+
+    let cancelled = false;
+
+    const resolveCuratorGate = async () => {
+      if (!user?.id) {
+        if (!cancelled) {
+          setIsCurator(false);
+          setCuratorGate("denied");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("curators")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("스튜디오 큐레이터 확인 오류:", error);
+        setIsCurator(false);
+        setCuratorGate("denied");
+        setLoading(false);
+        return;
+      }
+
+      const allowed = Boolean(data);
+      setIsCurator(allowed);
+      setCuratorGate(allowed ? "allowed" : "denied");
+      if (!allowed) {
+        setLoading(false);
+      }
+    };
+
+    void resolveCuratorGate();
+
+    return () => {
+      cancelled = true;
+    };
   }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    if (authLoading || curatorGate !== "allowed") return;
+    loadStudioData();
+  }, [authLoading, curatorGate, user?.id]);
 
   useEffect(() => {
     if (location.state?.openStudioList) {
@@ -2593,16 +2644,14 @@ export default function StudioHome() {
           .from("curators")
           .select("*")
           .eq("user_id", user.id) // user_id로 연결
-          .single();
-          
-        if (profileError && profileError.code !== 'PGRST116') {
-          console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+          .maybeSingle();
+
+        if (profileError) {
+          console.log("프로필 데이터 조회 오류:", profileError);
         }
-        
-        // 큐레이터 여부 확인
-        const isUserCurator = profileData && !profileError;
-        setIsCurator(isUserCurator);
-        console.log("🎭 큐레이터 여부:", isUserCurator);
+
+        setIsCurator(Boolean(profileData));
+        console.log("🎭 큐레이터 여부:", Boolean(profileData));
         
         const currentUser = profileData || {
           user_id: user.id, // 인증된 사용자 ID 연결
@@ -4307,7 +4356,7 @@ export default function StudioHome() {
     setLiveStartConfirmOpen(false);
   };
 
-  if (loading) {
+  if (authLoading || curatorGate === "pending" || (curatorGate === "allowed" && loading)) {
     return (
       <div style={{ padding: "20px", textAlign: "center" }}>
         로딩 중...
@@ -4316,7 +4365,7 @@ export default function StudioHome() {
   }
 
   // 일반 사용자는 스튜디오 접근 불가
-  if (!isCurator) {
+  if (curatorGate === "denied" || !isCurator) {
     return (
       <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
         <div style={{ marginTop: "100px", maxWidth: "600px", margin: "100px auto 0" }}>

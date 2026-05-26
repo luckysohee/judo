@@ -1,26 +1,16 @@
+import { useMemo } from "react";
 import { useCourseStepThumbs } from "../../hooks/useCourseStepThumbs";
 import { stepThumbKey } from "../../utils/courseStepThumb";
+import {
+  courseStampStepCellStyle,
+  courseStampStepDensity,
+  courseStampStepRowStyle,
+  } from "../../utils/courseStampStepLayout";
+import { MAX_COURSE_STAMP_STEPS } from "../../api/coursePlaceStamps";
 
 const styles = {
-  row: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "flex-start",
-    gap: 8,
-    width: "100%",
-    minWidth: 0,
-  },
-  cell: {
-    flex: "1 1 0",
-    minWidth: 0,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 3,
-  },
   thumbWrap: {
     width: "100%",
-    maxWidth: 52,
     aspectRatio: "1",
     borderRadius: 8,
     overflow: "hidden",
@@ -41,20 +31,22 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: 14,
     color: "rgba(91,33,182,0.45)",
     fontWeight: 800,
   },
   label: {
-    fontSize: 10,
     fontWeight: 800,
     color: "#5b21b6",
     letterSpacing: "-0.02em",
     lineHeight: 1.1,
+    textAlign: "center",
+    width: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   name: {
     width: "100%",
-    fontSize: 9,
     fontWeight: 600,
     color: "rgba(15,23,42,0.55)",
     textAlign: "center",
@@ -62,6 +54,16 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     lineHeight: 1.2,
+  },
+  nameFull: {
+    width: "100%",
+    fontWeight: 600,
+    color: "rgba(15,23,42,0.72)",
+    textAlign: "center",
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    overflowWrap: "break-word",
+    lineHeight: 1.25,
   },
 };
 
@@ -73,27 +75,43 @@ function shorten(s, max = 8) {
 }
 
 /**
- * 1차·2차·3차 라벨 아래 작은 장소 사진 미리보기
+ * 코스 장소별 작은 사진 미리보기 — 개수만큼 가로 폭에 균등 분할
  */
 export default function CourseStepThumbStrip({
   steps = [],
-  limit = 3,
+  /** 미지정 시 전체 스텝(최대 6) */
+  limit,
   enabled = true,
   compact = false,
-  /** 썸네일 한 변 최대(px). 카드 폭에 맞춰 키울 때 사용 */
-  thumbMaxWidth = 52,
+  /** true — 사진 아래 상호 전체 표시 */
+  fullNames = false,
   className,
   style,
 }) {
-  const slice = Array.isArray(steps) ? steps.slice(0, limit) : [];
-  const thumbByKey = useCourseStepThumbs(slice, { limit, enabled });
+  const slice = useMemo(() => {
+    const arr = Array.isArray(steps) ? steps : [];
+    const cap =
+      limit != null && Number.isFinite(Number(limit))
+        ? Math.min(Math.max(1, Math.floor(Number(limit))), MAX_COURSE_STAMP_STEPS)
+        : MAX_COURSE_STAMP_STEPS;
+    return arr.slice(0, cap);
+  }, [steps, limit]);
 
-  if (slice.length === 0) return null;
+  const count = slice.length;
+  const density = useMemo(() => courseStampStepDensity(count), [count]);
+  const thumbByKey = useCourseStepThumbs(slice, { limit: count, enabled });
+
+  if (count === 0) return null;
+
+  const nameMax = compact ? density.nameMaxLen - 1 : density.nameMaxLen;
 
   return (
     <div
       className={className}
-      style={{ ...styles.row, ...(style || {}) }}
+      style={{
+        ...courseStampStepRowStyle(count),
+        ...(style || {}),
+      }}
       aria-label="코스 장소 미리보기"
     >
       {slice.map((step, i) => {
@@ -102,22 +120,54 @@ export default function CourseStepThumbStrip({
         const label =
           String(step?.label || "").trim() ||
           (Number(step?.order) > 0 ? `${step.order}차` : `${i + 1}차`);
-        const name = shorten(step?.name || step?.category, compact ? 6 : 8);
+        const rawName = String(step?.name || step?.category || "").trim();
+        const name = fullNames
+          ? rawName
+          : shorten(step?.name || step?.category, nameMax);
 
         return (
-          <div key={key} style={styles.cell}>
-            <span style={styles.label}>{label}</span>
-            <div
-              style={{ ...styles.thumbWrap, maxWidth: thumbMaxWidth }}
-              aria-hidden={!thumb}
+          <div
+            key={key}
+            style={{
+              ...courseStampStepCellStyle(count),
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: compact ? 2 : 3,
+            }}
+          >
+            <span
+              style={{
+                ...styles.label,
+                fontSize: density.labelFontSize,
+              }}
             >
+              {label}
+            </span>
+            <div style={styles.thumbWrap} aria-hidden={!thumb}>
               {thumb ? (
                 <img src={thumb} alt="" style={styles.thumb} loading="lazy" />
               ) : (
-                <div style={styles.thumbPlaceholder}>{i + 1}</div>
+                <div
+                  style={{
+                    ...styles.thumbPlaceholder,
+                    fontSize: density.placeholderFontSize,
+                  }}
+                >
+                  {i + 1}
+                </div>
               )}
             </div>
-            {name ? <span style={styles.name}>{name}</span> : null}
+            {name ? (
+              <span
+                style={{
+                  ...(fullNames ? styles.nameFull : styles.name),
+                  fontSize: density.nameFontSize,
+                }}
+              >
+                {name}
+              </span>
+            ) : null}
           </div>
         );
       })}

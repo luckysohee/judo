@@ -2,6 +2,7 @@ import { supabase } from "./client";
 import {
   completeCourseSession,
   getMyActiveCourseSession,
+  reopenCourseSessionForReplay,
   updateCourseSessionStep,
 } from "./courseSessions";
 import {
@@ -12,9 +13,23 @@ import {
 } from "./completedCourseLogs";
 import { checkinIdMatchesStepPlace } from "../utils/checkinIdMatchesStepPlace";
 
+/** 코스당 최대 장소 수 — `curator_course_places` 트리거와 동일 */
+export const MAX_COURSE_STAMP_STEPS = 6;
+
 /**
  * @typedef {{ order_index: number, place_id: string, places: object | null }} CourseStampStepRow
  */
+
+/**
+ * 도장 UI에 노출할 스텝(과거 3곳 제한 제거, DB 상한만 적용)
+ * @template T
+ * @param {T[]} steps
+ * @returns {T[]}
+ */
+export function capCourseStampStepsForUi(steps) {
+  const list = Array.isArray(steps) ? steps : [];
+  return list.slice(0, MAX_COURSE_STAMP_STEPS);
+}
 
 /**
  * @param {object[]} raw
@@ -223,7 +238,7 @@ export async function deleteMyCoursePlaceStamps(courseId) {
 /**
  * 완주 기록은 유지하고 도장만 초기화 (다시 모으기).
  * @param {string} courseId
- * @returns {Promise<{ ok: boolean, reason?: string }>}
+ * @returns {Promise<{ ok: boolean, reason?: string, session?: object|null }>}
  */
 export async function resetCourseStampsForReplay(courseId) {
   const cid = String(courseId ?? "").trim();
@@ -240,12 +255,15 @@ export async function resetCourseStampsForReplay(courseId) {
     return { ok: false, reason: deleted.reason || "delete_failed" };
   }
 
-  const session = await getMyActiveCourseSession();
-  if (session?.id && String(session.course_id || "") === cid) {
-    await updateCourseSessionStep(session.id, 0);
+  let session = null;
+  try {
+    session = await reopenCourseSessionForReplay(cid);
+  } catch (e) {
+    console.warn("[resetCourseStampsForReplay] reopenCourseSessionForReplay", e);
+    return { ok: false, reason: "session_reopen_failed" };
   }
 
-  return { ok: true };
+  return { ok: true, session };
 }
 
 async function fetchCourseRowForCompletion(courseId) {

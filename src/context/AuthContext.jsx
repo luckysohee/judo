@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
+import { getAuthOAuthRedirectUrl } from "../utils/authRedirectUrl";
 
 const AuthContext = createContext(null);
 
@@ -58,10 +59,14 @@ export function AuthProvider({ children }) {
       user,
       loading,
       signInWithProvider: async (provider) => {
+        const redirectTo = getAuthOAuthRedirectUrl();
+        if (import.meta.env.DEV) {
+          console.log("[auth] OAuth redirectTo:", redirectTo);
+        }
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
           options: {
-            redirectTo: window.location.origin,
+            redirectTo,
           },
         });
 

@@ -64,6 +64,9 @@ export default function PlacePreviewCard({
   arrivalWalkingRouteShown = false,
   /** 낮 모드 등에서 한잔 불가 시 false — 버튼은 보이되 비활성 느낌 */
   canCheckIn = true,
+  /** 코스 따라가기 — 한잔 성공 시 도장 연동 */
+  courseIdHint = "",
+  onCourseStampProgress = null,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -1963,6 +1966,8 @@ export default function PlacePreviewCard({
                 }
                 hanjanStats={hanjanStatsNorm}
                 onHanjanRecorded={refetchHanjanStats}
+                courseIdHint={courseIdHint}
+                onCourseStampProgress={onCourseStampProgress}
               />
             </div>
           </div>

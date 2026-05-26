@@ -13,14 +13,17 @@ import {
 } from "../../api/courseCompletionStats";
 import { isCourseLikedByMe, toggleCuratorCourseLike } from "../../api/courseLikes";
 import {
+  importPublicCuratorCourseSnapshot,
+  isPublicCourseImportedByMe,
+  removeImportedCuratorCourse,
+  removeImportedCuratorCourseBySource,
+} from "../../api/courseImports";
+import {
   getMyLatestCompletionAtForCourse,
   recordCourseCompletionAfterSessionClosed,
 } from "../../api/completedCourseLogs";
 import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
-import {
-  duplicateCuratorCourseToMine,
-  fetchCuratorCourseById,
-} from "../../api/curatorCourses";
+import { fetchCuratorCourseById } from "../../api/curatorCourses";
 import { mapPlaceRowForCourse } from "../../api/places";
 import CourseMapPreview from "../../components/Course/CourseMapPreview";
 import { useAuth } from "../../context/AuthContext";
@@ -31,14 +34,25 @@ import {
   studioCoursesCard,
   studioCoursesBtnPrimary,
   studioCoursesBtnGhost,
+  studioCoursesBtnDanger,
   studioCoursesRowActions,
 } from "../Studio/studioCoursesSharedStyles";
 import {
-  canDuplicatePublishedPublicCourse,
+  canBookmarkPublishedPublicCourse,
   getCourseVisibilityBadge,
   isValidUuidCourseId,
   shareOrCopyCourseLink,
 } from "../../utils/courseDetailUi";
+import {
+  canEditCuratorCourse,
+  isImportedCuratorCourse,
+  isMyImportedCourseSnapshot,
+} from "../../utils/courseImportUi";
+import { buildHomeCourseFollowNavigationState } from "../../utils/homeCourseFollowNavigation";
+import {
+  COURSE_SCRAP_LABEL_SHORT,
+  COURSE_SCRAPED_LABEL,
+} from "../../utils/coursePickCopy";
 
 const PAGE_TITLE_APP = "주도";
 
@@ -72,14 +86,39 @@ export default function CourseDetailPage() {
   const [course, setCourse] = useState(null);
   const [curatorProfile, setCuratorProfile] = useState(null);
   const [curatorSlug, setCuratorSlug] = useState(null);
-  const [isCurator, setIsCurator] = useState(false);
-  const [dupBusy, setDupBusy] = useState(false);
+  const [importedByMe, setImportedByMe] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
   const [activeCourseSession, setActiveCourseSession] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [lastCompletionAtIso, setLastCompletionAtIso] = useState(null);
   const [coursePublicStats, setCoursePublicStats] = useState(null);
   const [likedByMe, setLikedByMe] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
+  const [isCurator, setIsCurator] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setIsCurator(false);
+      return undefined;
+    }
+    void supabase
+      .from("curators")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setIsCurator(false);
+          return;
+        }
+        setIsCurator(Boolean(data?.user_id));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const loadCourseBundle = useCallback(async () => {
     const id = String(courseId ?? "").trim();
@@ -154,12 +193,34 @@ export default function CourseDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!user?.id || !course?.id || !canDuplicatePublishedPublicCourse(course)) {
+    if (!user?.id || !course?.id || !canBookmarkPublishedPublicCourse(course)) {
       setLikedByMe(false);
       return undefined;
     }
     void isCourseLikedByMe(String(course.id)).then((v) => {
       if (!cancelled) setLikedByMe(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, course]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id || !course?.id) {
+      setImportedByMe(false);
+      return undefined;
+    }
+    if (isImportedCuratorCourse(course)) {
+      setImportedByMe(isMyImportedCourseSnapshot(course, user.id));
+      return undefined;
+    }
+    if (!canBookmarkPublishedPublicCourse(course)) {
+      setImportedByMe(false);
+      return undefined;
+    }
+    void isPublicCourseImportedByMe(String(course.id)).then((v) => {
+      if (!cancelled) setImportedByMe(v);
     });
     return () => {
       cancelled = true;
@@ -222,30 +283,6 @@ export default function CourseDetailPage() {
       cancelled = true;
     };
   }, [user?.id, course?.id]);
-
-  useEffect(() => {
-    if (authLoading || !user?.id) {
-      setIsCurator(false);
-      return undefined;
-    }
-    let cancelled = false;
-    void supabase
-      .from("curators")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          setIsCurator(false);
-          return;
-        }
-        setIsCurator(Boolean(data));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, user?.id]);
 
   useEffect(() => {
     if (!course || typeof course.title !== "string") {
@@ -340,7 +377,7 @@ export default function CourseDetailPage() {
   );
 
   const handleToggleLike = async () => {
-    if (!course?.id || !canDup) return;
+    if (!course?.id || !canSavePublic) return;
     if (!user?.id) {
       window.alert("로그인한 뒤 좋아요를 눌러 주세요.");
       return;
@@ -365,9 +402,28 @@ export default function CourseDetailPage() {
     [course]
   );
 
-  const canDup = useMemo(
-    () => canDuplicatePublishedPublicCourse(course),
+  const canSavePublic = useMemo(
+    () => canBookmarkPublishedPublicCourse(course),
     [course]
+  );
+
+  const isMyImportedSnapshot = useMemo(
+    () => isMyImportedCourseSnapshot(course, user?.id),
+    [course, user?.id]
+  );
+
+  const canEditAsAuthor = useMemo(
+    () => canEditCuratorCourse(course, user?.id),
+    [course, user?.id]
+  );
+
+  const canImportFromPublic = useMemo(
+    () =>
+      isCurator &&
+      canSavePublic &&
+      !isMyImportedSnapshot &&
+      !canEditAsAuthor,
+    [isCurator, canSavePublic, isMyImportedSnapshot, canEditAsAuthor]
   );
 
   const shareUrl = useMemo(() => {
@@ -395,57 +451,63 @@ export default function CourseDetailPage() {
     }
   };
 
-  const handleDuplicate = async () => {
-    if (!courseId || !canDup) return;
+  const handleImport = async () => {
+    if (!courseId || !canImportFromPublic) return;
     if (!user?.id) {
-      window.alert("로그인한 뒤 큐레이터 계정으로 이용해 주세요.");
+      window.alert("로그인이 필요해요.");
       return;
     }
-    if (!isCurator) {
-      window.alert("큐레이터만 내 코스로 복사할 수 있어요.");
-      return;
-    }
-    setDupBusy(true);
+    setImportBusy(true);
     try {
-      const newId = await duplicateCuratorCourseToMine(
-        String(courseId).trim()
+      await importPublicCuratorCourseSnapshot(String(courseId).trim());
+      setImportedByMe(true);
+      window.alert(
+        "코스를 스크랩했어요. 읽기 전용으로 저장되며 수정·공개는 할 수 없습니다."
       );
-      window.alert("내 코스로 복사했어요.");
-      navigate(`/studio/courses/${encodeURIComponent(newId)}/edit`, {
-        replace: false,
-      });
     } catch (e) {
-      window.alert(e?.message || "복사에 실패했습니다.");
+      window.alert(e?.message || "코스 스크랩을 처리하지 못했습니다.");
     } finally {
-      setDupBusy(false);
+      setImportBusy(false);
     }
   };
 
-  const handleStartFollow = useCallback(async () => {
+  const handleDeleteImport = async () => {
+    if (!courseId || !user?.id) return;
+    if (!isMyImportedSnapshot && !canSavePublic) return;
+    if (
+      !window.confirm(
+        "스크랩한 코스를 삭제할까요? 내 목록에서만 지워지고 원본은 그대로입니다."
+      )
+    ) {
+      return;
+    }
+    setImportBusy(true);
+    try {
+      if (isMyImportedSnapshot) {
+        await removeImportedCuratorCourse(String(courseId).trim());
+        navigate("/studio/courses");
+        return;
+      }
+      await removeImportedCuratorCourseBySource(String(courseId).trim());
+      setImportedByMe(false);
+    } catch (e) {
+      window.alert(e?.message || "삭제하지 못했습니다.");
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const handleStartFollow = useCallback(() => {
     const id = String(course?.id || "").trim();
     if (!id) return;
-    setFollowBusy(true);
-    try {
-      const s = await startCourseSession(id, { replaceExisting: false });
-      setActiveCourseSession(s);
-    } catch (e) {
-      if (e?.code === "ACTIVE_SESSION_EXISTS") {
-        if (
-          !window.confirm(
-            "현재 진행중인 코스를 종료하고 새 코스를 시작할까요?"
-          )
-        ) {
-          return;
-        }
-        const s = await startCourseSession(id, { replaceExisting: true });
-        setActiveCourseSession(s);
-      } else {
-        window.alert(e?.message || "시작하지 못했어요.");
-      }
-    } finally {
-      setFollowBusy(false);
+    if (!user?.id) {
+      window.alert("로그인하면 이 코스를 따라갈 수 있어요.");
+      return;
     }
-  }, [course?.id]);
+    const state = buildHomeCourseFollowNavigationState(id);
+    if (!state) return;
+    navigate("/", { state });
+  }, [course?.id, user?.id, navigate]);
 
   const handleNextFollowStep = useCallback(async () => {
     if (!activeCourseSession?.id || !followingThisCourse) return;
@@ -517,10 +579,6 @@ export default function CourseDetailPage() {
       setFollowBusy(false);
     }
   }, [activeCourseSession?.id]);
-
-  const isOwner = Boolean(
-    user?.id && course && String(user.id) === String(course.curator_id)
-  );
 
   if (phase === "loading" || (phase === "ok" && !course)) {
     return (
@@ -700,6 +758,45 @@ export default function CourseDetailPage() {
         >
           {String(course.title || "").trim() || "제목 없음"}
         </h1>
+        {isMyImportedSnapshot ? (
+          <p
+            style={{
+              fontSize: "12px",
+              fontWeight: 650,
+              color: "rgba(165,180,252,0.9)",
+              margin: "0 0 10px",
+              lineHeight: 1.45,
+            }}
+          >
+            스크랩한 코스예요. 보기와 삭제만 할 수 있고, 수정·공개는 할 수 없어요.
+            {course.imported_from_course_id ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  style={{
+                    border: "none",
+                    background: "none",
+                    padding: 0,
+                    color: "#c4b5fd",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                  onClick={() =>
+                    navigate(
+                      `/courses/${encodeURIComponent(
+                        String(course.imported_from_course_id)
+                      )}`
+                    )
+                  }
+                >
+                  원본 코스 보기
+                </button>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         {completionSocialLine ? (
           <p
             style={{
@@ -714,7 +811,7 @@ export default function CourseDetailPage() {
             {completionSocialLine}
           </p>
         ) : null}
-        {canDup ? (
+        {canSavePublic ? (
           <div style={{ marginBottom: "12px" }}>
             <button
               type="button"
@@ -952,9 +1049,9 @@ export default function CourseDetailPage() {
                 type="button"
                 style={studioCoursesBtnPrimary}
                 disabled={followBusy}
-                onClick={() => void handleStartFollow()}
+                onClick={handleStartFollow}
               >
-                {followBusy ? "처리 중…" : "따라가기 시작"}
+                코스 따라가기
               </button>
             )}
           </div>
@@ -1133,43 +1230,71 @@ export default function CourseDetailPage() {
         <div style={{ ...studioCoursesRowActions, marginTop: "22px" }}>
           <button
             type="button"
-            style={{
-              ...studioCoursesBtnPrimary,
-              opacity:
-                canDup && user?.id && isCurator && !dupBusy ? 1 : 0.45,
-            }}
-            disabled={!canDup || dupBusy || !user?.id || !isCurator}
-            title={
-              !canDup
-                ? "공개된 코스만 복사할 수 있어요."
-                : !user?.id
-                  ? "로그인이 필요해요."
-                  : !isCurator
-                    ? "큐레이터만 복사할 수 있어요."
-                    : ""
-            }
-            onClick={() => void handleDuplicate()}
-          >
-            {dupBusy ? "복사 중…" : "내 코스로 복사하기"}
-          </button>
-          <button
-            type="button"
             style={studioCoursesBtnGhost}
             onClick={() => void handleShare()}
           >
             공유하기
           </button>
-          <button
-            type="button"
-            style={{ ...studioCoursesBtnGhost, opacity: 0.5 }}
-            disabled
-            title="준비 중"
-          >
-            저장
-          </button>
+          {isMyImportedSnapshot ? (
+            <button
+              type="button"
+              style={{
+                ...studioCoursesBtnDanger,
+                opacity: user?.id && !importBusy ? 1 : 0.45,
+              }}
+              disabled={!user?.id || importBusy}
+              title="스크랩한 코스 삭제"
+              onClick={() => void handleDeleteImport()}
+            >
+              {importBusy ? "삭제 중…" : "삭제"}
+            </button>
+          ) : canImportFromPublic ? (
+            importedByMe ? (
+              <>
+                <button
+                  type="button"
+                  style={{
+                    ...studioCoursesBtnGhost,
+                    color: "#a5b4fc",
+                    borderColor: "rgba(129,140,248,0.45)",
+                    opacity: 0.85,
+                  }}
+                  disabled
+                  aria-pressed
+                >
+                  {COURSE_SCRAPED_LABEL}
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...studioCoursesBtnDanger,
+                    opacity: user?.id && !importBusy ? 1 : 0.45,
+                  }}
+                  disabled={!user?.id || importBusy}
+                  title="스크랩한 코스 삭제"
+                  onClick={() => void handleDeleteImport()}
+                >
+                  {importBusy ? "삭제 중…" : "삭제"}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                style={{
+                  ...studioCoursesBtnGhost,
+                  opacity: user?.id && !importBusy ? 1 : 0.45,
+                }}
+                disabled={!user?.id || importBusy}
+                title={!user?.id ? "로그인이 필요해요." : "코스 스크랩"}
+                onClick={() => void handleImport()}
+              >
+                {importBusy ? "처리 중…" : COURSE_SCRAP_LABEL_SHORT}
+              </button>
+            )
+          ) : null}
         </div>
 
-        {isOwner ? (
+        {canEditAsAuthor ? (
           <div style={{ marginTop: "14px" }}>
             <button
               type="button"

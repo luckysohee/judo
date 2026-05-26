@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchMutualCheckins } from "../../utils/userActivity";
-import {
-  getJudoModeCopy,
-  JUDO_CHECKIN_SCHEDULE_TOAST,
-  JUDO_DAY_SIDE_STRIP_HINT,
-} from "../../utils/judoOperationMode";
+import { HOME_HOT_STRIP_CONTENT_SLOT_PX } from "../../utils/homeHotStripLayout";
 import PickUserButton from "../PickUserButton/PickUserButton";
 
 const THREE_H_MS = 3 * 60 * 60 * 1000;
 const POLL_MS = 90_000;
+const SEARCH_DEBOUNCE_MS = 200;
+
+/** PostgREST `.or()` / `ilike` 와일드카드·구분자 이스케이프 */
+function sanitizeMutualSearchTerm(raw) {
+  return String(raw || "")
+    .replace(/^@+/, "")
+    .trim()
+    .replace(/[%_,().]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+}
 
 function userInitial(label) {
   const s = String(label || "?").trim();
@@ -196,15 +205,9 @@ export default function MutualCheckinsHomeSection({
   compact = false,
   stripMode = false,
   onSearchOpenChange,
-  judoMode = null,
 }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const dayLocked = Boolean(judoMode?.isDayMode);
-  const dayScheduleToast = useCallback(() => {
-    const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
-    showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
-  }, [judoMode, showToast]);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [profilesById, setProfilesById] = useState({});
@@ -214,6 +217,9 @@ export default function MutualCheckinsHomeSection({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const searchInputRef = useRef(null);
+  const stripRootRef = useRef(null);
+  const [stripSuggestAnchor, setStripSuggestAnchor] = useState(null);
 
   useEffect(() => {
     if (typeof onSearchOpenChange === "function") {
@@ -295,13 +301,10 @@ export default function MutualCheckinsHomeSection({
     }
   }, [user?.id]);
 
-  const runHandleSearch = useCallback(async (rawQuery = searchQuery) => {
-    const normalized = String(rawQuery || "")
-      .replace(/^@+/, "")
-      .trim()
-      .toLowerCase();
+  const runHandleSearch = useCallback(async (rawQuery) => {
+    const normalized = sanitizeMutualSearchTerm(rawQuery).toLowerCase();
     if (!normalized) {
-      setSearchError("핸들을 입력해 주세요.");
+      setSearchError("");
       setSearchResults([]);
       return;
     }
@@ -309,18 +312,19 @@ export default function MutualCheckinsHomeSection({
     setSearchLoading(true);
     setSearchError("");
     try {
+      const term = normalized.replace(/"/g, "");
       const [{ data: profiles, error: profileErr }, { data: curRows, error: curErr }] =
         await Promise.all([
           supabase
             .from("profiles")
             .select("id, username, display_name, avatar_url")
-            .or(`username.ilike.%${normalized}%,display_name.ilike.%${normalized}%`)
+            .or(`username.ilike.%${term}%,display_name.ilike.%${term}%`)
             .limit(30),
           supabase
             .from("curators")
             .select("user_id, slug, username, display_name, name, avatar_url")
             .or(
-              `slug.ilike.%${normalized}%,username.ilike.%${normalized}%,display_name.ilike.%${normalized}%,name.ilike.%${normalized}%`
+              `slug.ilike.%${term}%,username.ilike.%${term}%,display_name.ilike.%${term}%,name.ilike.%${term}%`
             )
             .limit(30),
         ]);
@@ -388,24 +392,68 @@ export default function MutualCheckinsHomeSection({
     } finally {
       setSearchLoading(false);
     }
-  }, [searchQuery, user?.id]);
+  }, [user?.id]);
+
+  const trimmedSearchQuery = useMemo(
+    () => sanitizeMutualSearchTerm(searchQuery),
+    [searchQuery]
+  );
+
+  const showSearchSuggest =
+    searchOpen &&
+    Boolean(trimmedSearchQuery) &&
+    (searchLoading || searchResults.length > 0 || Boolean(searchError));
 
   useEffect(() => {
     if (!searchOpen) return undefined;
-    const q = String(searchQuery || "")
-      .replace(/^@+/, "")
-      .trim();
-    if (!q) {
+    if (!trimmedSearchQuery) {
       setSearchResults([]);
       setSearchError("");
       setSearchLoading(false);
       return undefined;
     }
+    setSearchLoading(true);
     const timer = window.setTimeout(() => {
-      void runHandleSearch(q);
-    }, 160);
+      void runHandleSearch(trimmedSearchQuery);
+    }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [searchOpen, searchQuery, runHandleSearch]);
+  }, [searchOpen, trimmedSearchQuery, runHandleSearch]);
+
+  useEffect(() => {
+    if (!stripMode || !searchOpen || !showSearchSuggest) {
+      setStripSuggestAnchor(null);
+      return undefined;
+    }
+    const update = () => {
+      const bar = stripRootRef.current?.closest("[data-home-hot-strip-bar]");
+      if (!bar) {
+        setStripSuggestAnchor(null);
+        return;
+      }
+      const r = bar.getBoundingClientRect();
+      setStripSuggestAnchor({
+        left: r.left,
+        top: r.top,
+        bottom: r.bottom,
+        width: r.width,
+      });
+    };
+    update();
+    const t = window.setTimeout(update, 0);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [stripMode, searchOpen, showSearchSuggest, trimmedSearchQuery]);
+
+  useEffect(() => {
+    if (!stripMode || !searchOpen) return undefined;
+    const t = window.setTimeout(() => searchInputRef.current?.focus(), 80);
+    return () => window.clearTimeout(t);
+  }, [stripMode, searchOpen]);
 
   useEffect(() => {
     void load();
@@ -584,6 +632,13 @@ export default function MutualCheckinsHomeSection({
       alignItems: "center",
       position: "relative",
     },
+    searchInputWrap: {
+      flex: "1 1 auto",
+      minWidth: 0,
+      position: "relative",
+      display: "flex",
+      alignItems: "center",
+    },
     searchInput: {
       width: "100%",
       minWidth: 0,
@@ -594,20 +649,29 @@ export default function MutualCheckinsHomeSection({
       fontSize: compact ? "11px" : "12px",
       padding: compact ? "6px 8px" : "7px 10px",
       outline: "none",
+      boxSizing: "border-box",
     },
-    searchClearButton: {
-      border: "1px solid rgba(0,0,0,0.14)",
-      background: "#fff",
-      color: "#6b7280",
-      borderRadius: "999px",
-      width: compact ? "24px" : "26px",
-      height: compact ? "24px" : "26px",
+    searchInputWithClear: {
+      paddingRight: compact ? 26 : 28,
+    },
+    searchClearInInput: {
+      position: "absolute",
+      right: 4,
+      top: "50%",
+      transform: "translateY(-50%)",
+      border: "none",
+      background: "transparent",
+      color: "#9ca3af",
+      width: 22,
+      height: 22,
+      borderRadius: 999,
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
-      fontSize: compact ? "12px" : "13px",
+      fontSize: 15,
       lineHeight: 1,
       cursor: "pointer",
+      padding: 0,
       flexShrink: 0,
     },
     searchButton: {
@@ -631,6 +695,13 @@ export default function MutualCheckinsHomeSection({
       fontSize: compact ? "10px" : "11px",
       color: "#b91c1c",
       fontWeight: 700,
+    },
+    searchLoading: {
+      padding: compact ? "8px 6px" : "10px 8px",
+      fontSize: compact ? "10px" : "11px",
+      fontWeight: 600,
+      color: "rgba(15,23,42,0.5)",
+      textAlign: "center",
     },
     searchResultList: {
       marginTop: 7,
@@ -711,10 +782,10 @@ export default function MutualCheckinsHomeSection({
     },
     stripWrap: {
       width: "100%",
-      /** `HotCheckinStrip` contentSlot(76px)과 동일 — 탭 전환 시 높이·탭 위치 통일 */
-      minHeight: compact ? "76px" : "32px",
-      height: compact ? "76px" : "auto",
-      maxHeight: compact ? "76px" : "none",
+      /** `HotCheckinStrip` contentSlot과 동일 — 탭 전환 시 높이·탭 위치 통일 */
+      minHeight: compact ? `${HOME_HOT_STRIP_CONTENT_SLOT_PX}px` : "32px",
+      height: compact ? `${HOME_HOT_STRIP_CONTENT_SLOT_PX}px` : "auto",
+      maxHeight: compact ? `${HOME_HOT_STRIP_CONTENT_SLOT_PX}px` : "none",
       display: "flex",
       alignItems: "center",
       gap: 6,
@@ -769,16 +840,135 @@ export default function MutualCheckinsHomeSection({
       alignItems: "center",
       padding: "0 2px",
     },
+    searchSuggestPortal: (anchor) => {
+      const gap = 6;
+      const viewportW =
+        typeof window !== "undefined" ? window.innerWidth : 400;
+      const viewportH =
+        typeof window !== "undefined" ? window.innerHeight : 800;
+      const width = Math.min(Math.max(anchor.width, 220), viewportW - 16);
+      const left = Math.max(8, Math.min(anchor.left, viewportW - width - 8));
+      const maxHeight = Math.min(
+        220,
+        Math.max(96, viewportH - anchor.bottom - gap - 12)
+      );
+      return {
+        position: "fixed",
+        top: anchor.bottom + gap,
+        left,
+        width,
+        maxHeight,
+        overflowY: "auto",
+        zIndex: 500,
+        boxSizing: "border-box",
+      };
+    },
   };
+
+  const handleSearchClearClick = useCallback(() => {
+    if (trimmedSearchQuery) {
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchError("");
+      return;
+    }
+    setSearchOpen(false);
+  }, [trimmedSearchQuery]);
+
+  const renderSearchField = (inputStyle = {}) => (
+    <div style={styles.searchInputWrap}>
+      <input
+        ref={stripMode ? searchInputRef : undefined}
+        value={String(searchQuery || "").replace(/^@+/, "")}
+        onChange={(e) =>
+          setSearchQuery(String(e.target.value || "").replace(/^@+/, ""))
+        }
+        placeholder={
+          stripMode ? "닉네임·@핸들 검색" : "닉네임 또는 한글 별명으로 찾기"
+        }
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-controls="mutual-search-suggest"
+        style={{
+          ...styles.searchInput,
+          ...styles.searchInputWithClear,
+          ...inputStyle,
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void runHandleSearch(trimmedSearchQuery);
+          }
+        }}
+      />
+      <button
+        type="button"
+        style={styles.searchClearInInput}
+        onClick={handleSearchClearClick}
+        aria-label={trimmedSearchQuery ? "검색어 지우기" : "검색 닫기"}
+        title={trimmedSearchQuery ? "지우기" : "닫기"}
+      >
+        ×
+      </button>
+    </div>
+  );
+
+  const renderSearchSuggestPanel = (panelStyle = {}) => (
+    <div style={{ ...styles.searchPanel, ...panelStyle }} role="listbox" aria-label="닉네임 자동완성">
+      {searchLoading && searchResults.length === 0 && !searchError ? (
+        <div style={styles.searchLoading}>검색 중…</div>
+      ) : null}
+      {searchError ? <div style={styles.searchError}>{searchError}</div> : null}
+      {searchResults.length > 0 ? (
+        <div style={styles.searchResultList}>
+          {searchResults.map((u) => (
+            <div key={u.userId} style={styles.searchResultRow}>
+              <button
+                type="button"
+                style={styles.searchResultMain}
+                onClick={() => onSearchResultActivate(u)}
+              >
+                <div
+                  style={{
+                    ...styles.searchAvatar,
+                    ...(u.isCurator ? styles.searchAvatarCurator : {}),
+                  }}
+                >
+                  {u.avatarUrl ? (
+                    <img src={u.avatarUrl} alt="" style={styles.searchAvatarImg} />
+                  ) : (
+                    userInitial(u.displayName)
+                  )}
+                </div>
+                <div style={styles.searchNameBlock}>
+                  <div style={styles.searchName}>{u.displayName}</div>
+                  <div style={styles.searchHandle}>
+                    @{u.username}
+                    {u.isCurator ? " · 큐레이터" : ""}
+                  </div>
+                </div>
+              </button>
+              <PickUserButton
+                profileUserId={u.userId}
+                buttonStyle={styles.inlinePickButton}
+                onBecomePicking={() => void load()}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 
   if (stripMode) {
     return (
       <div
+        ref={stripRootRef}
         style={{
           position: "relative",
           width: "100%",
-          height: compact ? "76px" : "auto",
-          minHeight: compact ? "76px" : 0,
+          height: compact ? `${HOME_HOT_STRIP_CONTENT_SLOT_PX}px` : "auto",
+          minHeight: compact ? `${HOME_HOT_STRIP_CONTENT_SLOT_PX}px` : 0,
           boxSizing: "border-box",
         }}
       >
@@ -822,70 +1012,31 @@ export default function MutualCheckinsHomeSection({
                 transition: "opacity 520ms ease",
               }}
             >
-              <input
-                value={String(searchQuery || "").replace(/^@+/, "")}
-                onChange={(e) =>
-                  setSearchQuery(String(e.target.value || "").replace(/^@+/, ""))
-                }
-                placeholder="닉네임 검색"
+              {renderSearchField({
+                minHeight: 28,
+                height: 28,
+                padding: "4px 26px 4px 8px",
+                fontSize: 11,
+                borderRadius: 12,
+              })}
+              <button
+                type="button"
                 style={{
-                  ...styles.searchInput,
+                  ...styles.searchButton,
                   minHeight: 28,
                   height: 28,
                   padding: "4px 8px",
                   fontSize: 11,
                   borderRadius: 12,
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void runHandleSearch();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                style={styles.searchButton}
-                onClick={() => void runHandleSearch()}
+                onClick={() => void runHandleSearch(trimmedSearchQuery)}
                 disabled={searchLoading}
               >
                 {searchLoading ? "검색중" : "검색"}
               </button>
-              <button
-                type="button"
-                style={styles.searchClearButton}
-                onClick={() => {
-                  if (String(searchQuery || "").trim()) {
-                    setSearchQuery("");
-                    setSearchResults([]);
-                    setSearchError("");
-                  } else {
-                    setSearchOpen(false);
-                  }
-                }}
-                aria-label={String(searchQuery || "").trim() ? "검색어 지우기" : "검색 닫기"}
-                title={String(searchQuery || "").trim() ? "지우기" : "닫기"}
-              >
-                ×
-              </button>
             </div>
           </div>
-          {dayLocked ? (
-            <button
-              type="button"
-              style={{
-                ...styles.stripChip,
-                opacity: 0.55,
-                cursor: "not-allowed",
-                filter: "grayscale(0.22)",
-                flex: "1 1 auto",
-                minWidth: 0,
-              }}
-              onClick={dayScheduleToast}
-            >
-              {JUDO_DAY_SIDE_STRIP_HINT}
-            </button>
-          ) : cards.length > 0 ? (
+          {cards.length > 0 ? (
             cards.slice(0, 8).map((card, idx) => (
               <button
                 key={`${card.kind}:${card.groupKey}:${idx}:${maxCreatedMs(card.rows)}`}
@@ -903,63 +1054,22 @@ export default function MutualCheckinsHomeSection({
             <div style={styles.stripEmpty}>아는 사람 활동이 아직 없어요</div>
           ) : null}
         </div>
-        {searchOpen && (searchError || searchResults.length > 0) ? (
-          <div
-            style={{
-              ...styles.searchPanel,
-              position: "absolute",
-              left: 0,
-              right: 0,
-              top: "100%",
-              marginTop: 0,
-              marginBottom: 0,
-              zIndex: 12,
-            }}
-          >
-            {searchError ? <div style={styles.searchError}>{searchError}</div> : null}
-            {searchResults.length > 0 ? (
-              <div style={styles.searchResultList}>
-                {searchResults.map((u) => (
-                  <div key={u.userId} style={styles.searchResultRow}>
-                    <button
-                      type="button"
-                      style={styles.searchResultMain}
-                      onClick={() => onSearchResultActivate(u)}
-                    >
-                      <div
-                        style={{
-                          ...styles.searchAvatar,
-                          ...(u.isCurator ? styles.searchAvatarCurator : {}),
-                        }}
-                      >
-                        {u.avatarUrl ? (
-                          <img src={u.avatarUrl} alt="" style={styles.searchAvatarImg} />
-                        ) : (
-                          userInitial(u.displayName)
-                        )}
-                      </div>
-                      <div style={styles.searchNameBlock}>
-                        <div style={styles.searchName}>{u.displayName}</div>
-                        <div style={styles.searchHandle}>
-                          @{u.username}
-                          {u.isCurator ? " · 큐레이터" : ""}
-                        </div>
-                      </div>
-                    </button>
-                    <PickUserButton
-                      profileUserId={u.userId}
-                      buttonStyle={styles.inlinePickButton}
-                      onBecomePicking={() => void load()}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        {showSearchSuggest &&
+        stripSuggestAnchor &&
+        typeof document !== "undefined"
+          ? createPortal(
+              <div id="mutual-search-suggest">
+                {renderSearchSuggestPanel(
+                  styles.searchSuggestPortal(stripSuggestAnchor)
+                )}
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     );
   }
+
 
   return (
     <div style={styles.container}>
@@ -1000,125 +1110,27 @@ export default function MutualCheckinsHomeSection({
       {searchOpen ? (
         <div style={styles.searchPanel}>
           <div style={styles.searchRow}>
-            <input
-              value={String(searchQuery || "").replace(/^@+/, "")}
-              onChange={(e) =>
-                setSearchQuery(String(e.target.value || "").replace(/^@+/, ""))
-              }
-              placeholder="닉네임 또는 한글 별명으로 찾기"
-              style={styles.searchInput}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void runHandleSearch();
-                }
-              }}
-            />
-            {String(searchQuery || "").trim() ? (
-              <button
-                type="button"
-                style={styles.searchClearButton}
-                onClick={() => {
-                  setSearchQuery("");
-                  setSearchResults([]);
-                  setSearchError("");
-                }}
-                aria-label="검색어 지우기"
-                title="지우기"
-              >
-                ×
-              </button>
-            ) : null}
+            {renderSearchField()}
             <button
               type="button"
               style={styles.searchButton}
-              onClick={() => void runHandleSearch()}
+              onClick={() => void runHandleSearch(trimmedSearchQuery)}
               disabled={searchLoading}
             >
               {searchLoading ? "검색중" : "검색"}
             </button>
           </div>
-          {searchError ? <div style={styles.searchError}>{searchError}</div> : null}
-          {searchResults.length > 0 ? (
-            <div style={styles.searchResultList}>
-              {searchResults.map((u) => (
-                <div key={u.userId} style={styles.searchResultRow}>
-                  <button
-                    type="button"
-                    style={styles.searchResultMain}
-                    onClick={() => onSearchResultActivate(u)}
-                  >
-                    <div
-                      style={{
-                        ...styles.searchAvatar,
-                        ...(u.isCurator ? styles.searchAvatarCurator : {}),
-                      }}
-                    >
-                      {u.avatarUrl ? (
-                        <img src={u.avatarUrl} alt="" style={styles.searchAvatarImg} />
-                      ) : (
-                        userInitial(u.displayName)
-                      )}
-                    </div>
-                    <div style={styles.searchNameBlock}>
-                      <div style={styles.searchName}>{u.displayName}</div>
-                      <div style={styles.searchHandle}>
-                        @{u.username}
-                        {u.isCurator ? " · 큐레이터" : ""}
-                      </div>
-                    </div>
-                  </button>
-                  <PickUserButton
-                    profileUserId={u.userId}
-                    buttonStyle={styles.inlinePickButton}
-                    onBecomePicking={() => void load()}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
+          {showSearchSuggest ? renderSearchSuggestPanel() : null}
         </div>
       ) : null}
 
-      {!dayLocked && !loading && rows.length === 0 ? (
+      {!loading && rows.length === 0 ? (
         <div style={styles.empty}>
           아는 사람 활동이 아직 없어요
         </div>
       ) : null}
 
-      {dayLocked ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: compact ? "6px 6px 8px" : "10px 8px 12px",
-            color: "#64748b",
-            fontSize: compact ? 10 : 11,
-            fontWeight: 650,
-            lineHeight: 1.4,
-          }}
-        >
-          {JUDO_DAY_SIDE_STRIP_HINT}
-          <span style={{ display: "block", marginTop: compact ? 6 : 8 }}>
-            <button
-              type="button"
-              style={{
-                padding: "6px 10px",
-                borderRadius: 999,
-                border: "1px solid rgba(52,152,219,0.28)",
-                background: "rgba(52,152,219,0.06)",
-                color: "#2563ab",
-                fontWeight: 750,
-                fontSize: compact ? 10 : 11,
-                cursor: "pointer",
-                opacity: 0.92,
-              }}
-              onClick={dayScheduleToast}
-            >
-              한잔 시간 안내
-            </button>
-          </span>
-        </div>
-      ) : cards.length > 0 ? (
+      {cards.length > 0 ? (
         <div style={styles.list}>
           {cards.map((card, idx) => {
             const head = primaryLine(card, profilesById, placeNames);

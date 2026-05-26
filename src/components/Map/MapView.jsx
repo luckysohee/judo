@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from "react";
 import createMarker, {
+  isCourseBridgeMapPin,
   isEphemeralSearchMapMarker,
 } from "../../utils/createMarker";
 import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
@@ -22,6 +23,185 @@ import { situationFolderLabel } from "../../utils/situationPlaceFilter";
 
 /** 첫 진입: 성수역 일대 (주도 술 동선 탐색 기본 뷰) */
 const DEFAULT_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
+
+/**
+ * CustomOverlay(경로 라벨·×) — 탭/클릭이 지도·마커로 새지 않게
+ * @param {HTMLElement} el
+ * @param {{ ignoreMapClickRef?: { current: boolean } }} [opts]
+ */
+function shieldMapOverlayPointerEvents(el, opts = {}) {
+  const { ignoreMapClickRef } = opts;
+  el.style.pointerEvents = "auto";
+  const swallow = (e) => {
+    if (
+      e.target instanceof Element &&
+      e.target.closest("button[data-map-route-dismiss]")
+    ) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (ignoreMapClickRef) {
+      ignoreMapClickRef.current = true;
+      window.setTimeout(() => {
+        ignoreMapClickRef.current = false;
+      }, 420);
+    }
+  };
+  for (const type of ["pointerdown", "mousedown", "touchstart", "click"]) {
+    el.addEventListener(type, swallow, { capture: true });
+  }
+}
+
+/**
+ * @param {{
+ *   ariaLabel: string,
+ *   title: string,
+ *   borderColor: string,
+ *   textColor: string,
+ *   onDismiss: () => void,
+ *   ignoreMapClickRef?: { current: boolean },
+ * }} cfg
+ */
+function createMapRouteDismissButton(cfg) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.setAttribute("data-map-route-dismiss", "true");
+  btn.setAttribute("aria-label", cfg.ariaLabel);
+  btn.title = cfg.title;
+  btn.textContent = "×";
+  btn.style.cssText = [
+    "flex-shrink:0",
+    "width:44px",
+    "height:44px",
+    "min-width:44px",
+    "padding:0",
+    "margin:0",
+    "border-radius:999px",
+    `border:1px solid ${cfg.borderColor}`,
+    "background:rgba(255,255,255,0.98)",
+    `color:${cfg.textColor}`,
+    "font-size:20px",
+    "line-height:1",
+    "font-weight:500",
+    "cursor:pointer",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "box-shadow:0 2px 10px rgba(0,0,0,0.12)",
+    "-webkit-tap-highlight-color:transparent",
+    "touch-action:manipulation",
+  ].join(";");
+  shieldMapOverlayPointerEvents(btn, {
+    ignoreMapClickRef: cfg.ignoreMapClickRef,
+  });
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cfg.onDismiss();
+  });
+  return btn;
+}
+
+const COURSE_LEG_LABEL_TEXT_STYLE = [
+  "padding:5px 10px",
+  "background:rgba(255,255,255,0.96)",
+  "border:1px solid rgba(124,58,237,0.45)",
+  "border-radius:10px",
+  "font-size:11px",
+  "font-weight:700",
+  "color:#5b21b6",
+  "white-space:nowrap",
+  "text-align:center",
+  "line-height:1.35",
+  "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
+].join(";");
+
+/**
+ * @param {{
+ *   legLabel: string,
+ *   legSubLabel?: string,
+ *   showDismiss?: boolean,
+ *   onDismiss?: () => void,
+ *   ignoreMapClickRef?: { current: boolean },
+ * }} cfg
+ */
+function createCourseLegLabelOverlayContent(cfg) {
+  const legLabel = String(cfg.legLabel || "").trim();
+  const legSubLabel = String(cfg.legSubLabel || "").trim();
+  if (!legLabel && !legSubLabel && !cfg.showDismiss) return null;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = [
+    "display:flex",
+    "flex-direction:row",
+    "align-items:flex-start",
+    "gap:6px",
+  ].join(";");
+  shieldMapOverlayPointerEvents(wrap, {
+    ignoreMapClickRef: cfg.ignoreMapClickRef,
+  });
+
+  if (legLabel || legSubLabel) {
+    const col = document.createElement("div");
+    col.style.cssText = [
+      "display:flex",
+      "flex-direction:column",
+      "align-items:center",
+      "gap:2px",
+      "max-width:min(88vw, 240px)",
+      "pointer-events:auto",
+    ].join(";");
+    if (legLabel) {
+      const labelEl = document.createElement("div");
+      labelEl.textContent = legLabel;
+      labelEl.style.cssText = COURSE_LEG_LABEL_TEXT_STYLE;
+      col.appendChild(labelEl);
+    }
+    if (legSubLabel) {
+      const subEl = document.createElement("div");
+      subEl.textContent = legSubLabel;
+      subEl.style.cssText = [
+        "padding:0 8px 2px",
+        "font-size:10px",
+        "font-weight:600",
+        "color:#6d28d9",
+        "line-height:1.35",
+        "text-align:center",
+        "white-space:nowrap",
+      ].join(";");
+      col.appendChild(subEl);
+    }
+    wrap.appendChild(col);
+  }
+
+  if (cfg.showDismiss && typeof cfg.onDismiss === "function") {
+    wrap.appendChild(
+      createMapRouteDismissButton({
+        ariaLabel: "경로 끄기",
+        title: "경로 숨기기",
+        borderColor: "rgba(124,58,237,0.55)",
+        textColor: "#5b21b6",
+        ignoreMapClickRef: cfg.ignoreMapClickRef,
+        onDismiss: cfg.onDismiss,
+      })
+    );
+  }
+
+  return wrap;
+}
+
+function clearMapCustomOverlays(ref) {
+  const list = Array.isArray(ref.current) ? ref.current : [];
+  for (const ov of list) {
+    try {
+      ov.setMap(null);
+    } catch {
+      /* ignore */
+    }
+  }
+  ref.current = [];
+}
 
 /** 클러스터 안 마커 개수 표기 (멀리서도 읽기 쉽게) */
 function formatClusterMarkerCount(size) {
@@ -338,7 +518,7 @@ const MapView = forwardRef(({
    */
   preserveViewportOnPlacesChange = false,
   /**
-   * 코스 1→2차 보행 경로 `{ polylinePath, legLabel?, legSubLabel?, labelPosition?, key }` — key는 effect 의존용
+   * 코스 보행 경로 `{ polylinePath, legLabels?: {legLabel,labelPosition}[], legLabel?, key }`
    */
   courseOverlay = null,
   /**
@@ -395,7 +575,7 @@ const MapView = forwardRef(({
   /** 실제 적용 중인 클러스터 옵션 스냅샷 — 동일하면 인스턴스 재생성 생략 */
   const lastAppliedClusterOptionsRef = useRef(null);
   const coursePolylineRef = useRef(null);
-  const courseLegLabelOverlayRef = useRef(null);
+  const courseLegLabelOverlaysRef = useRef([]);
   const arrivalPolylineRef = useRef(null);
   const arrivalLegLabelOverlayRef = useRef(null);
   /** 동일 key면 setBounds 생략 — 패딩만 바뀐 effect 재실행에 지도가 붙잡히지 않게 */
@@ -678,6 +858,10 @@ const MapView = forwardRef(({
     }
   };
   const [mapError, setMapError] = useState("");
+  /** 폰 실기 테스트용 — DevTools 없이 화면에 상태 표시 */
+  const [phoneMapDebug, setPhoneMapDebug] = useState(() =>
+    import.meta.env.DEV ? "지도: 준비 중…" : ""
+  );
 
   // 현재 위치 마커 업데이트
   useEffect(() => {
@@ -1110,21 +1294,44 @@ const MapView = forwardRef(({
     let mounted = true;
     let retryTimer = null;
     const initMap = () => {
-      if (!mounted || mapRef.current || !mapContainerRef.current) return;
+      if (!mounted || mapRef.current) return;
+      if (!mapContainerRef.current) {
+        retryTimer = setTimeout(initMap, 120);
+        return;
+      }
 
       const appKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
+      if (import.meta.env.DEV) {
+        setPhoneMapDebug(
+          appKey
+            ? `지도: SDK 로드 중… (${window.location.host})`
+            : "지도: .env 키 없음"
+        );
+      }
       loadKakaoMapsSdk({ appKey })
         .then(() => {
-          if (!mounted) return;
-          if (!window.kakao || !window.kakao.maps) {
+          if (!mounted || mapRef.current || !mapContainerRef.current) return;
+          if (!window.kakao?.maps || typeof window.kakao.maps.Map !== "function") {
             setMapError("카카오 지도 SDK 로딩에 실패했습니다.");
+            setPhoneMapDebug("지도: SDK maps API 없음");
             return;
           }
 
-          window.kakao.maps.load(() => {
-            try {
-              if (import.meta.env.DEV) console.log("지도 초기화 시작...");
-              const map = new window.kakao.maps.Map(mapContainerRef.current, {
+          const containerEl = mapContainerRef.current;
+          const cw = containerEl.offsetWidth;
+          const ch = containerEl.offsetHeight;
+          if (import.meta.env.DEV) {
+            setPhoneMapDebug(
+              `지도: Map 생성… ${cw}×${ch}px rs=${window.kakao.maps.readyState ?? "?"}`
+            );
+          }
+          if (cw < 8 || ch < 8) {
+            retryTimer = setTimeout(initMap, 200);
+            return;
+          }
+          try {
+            if (import.meta.env.DEV) console.log("지도 초기화 시작...");
+            const map = new window.kakao.maps.Map(containerEl, {
                 center: new window.kakao.maps.LatLng(
                   DEFAULT_MAP_CENTER.lat,
                   DEFAULT_MAP_CENTER.lng
@@ -1133,17 +1340,25 @@ const MapView = forwardRef(({
                 level: 5,
               });
               mapRef.current = map;
+              setMapError("");
+              setPhoneMapDebug("");
               if (import.meta.env.DEV) console.log("지도 생성 완료");
 
               // 지도 스타일 설정
               mapContainerRef.current.style.backgroundColor = "#ffffff";
 
               // 지도 강제 리사이즈
-              setTimeout(() => {
-                if (mapRef.current) {
-                  mapRef.current.relayout(); // relayout()이 맞습니다
+              const relayoutMap = () => {
+                try {
+                  mapRef.current?.relayout?.();
+                } catch {
+                  /* ignore */
                 }
-              }, 100);
+              };
+              relayoutMap();
+              setTimeout(relayoutMap, 100);
+              setTimeout(relayoutMap, 400);
+              setTimeout(relayoutMap, 1200);
 
               /** 프로그램 이동(idle)은 무시, 실제 손·마우스 드래그·줌은 항상 반영 */
               const markUserInteractedFromIdle = () => {
@@ -1256,25 +1471,76 @@ const MapView = forwardRef(({
                 viewportNotifyReadyRef.current = true;
                 notifyViewportCenterChanged();
               }, 650);
-            } catch (e) {
-              console.error("kakao map init error:", e);
-              setMapError("지도 로딩 오류");
+            } catch (error) {
+              console.error("🔥 실제 지도 에러:", error);
+              console.error("kakao map init error:", error);
+              const detail =
+                error instanceof Error ? error.message : String(error);
+              setMapError(
+                detail
+                  ? `지도 로딩 오류: ${detail}`
+                  : "지도 로딩 오류"
+              );
+              setPhoneMapDebug(`지도: ${detail}`);
             }
-          });
         })
-        .catch((e) => {
-          console.error("kakao sdk load error:", e);
-          setMapError(
-            e?.message === "VITE_KAKAO_JAVASCRIPT_KEY is missing"
+        .catch((error) => {
+          console.error("🔥 실제 지도 에러:", error);
+          console.error("kakao sdk load error:", error);
+          const msg =
+            error?.message === "VITE_KAKAO_JAVASCRIPT_KEY is missing"
               ? "VITE_KAKAO_JAVASCRIPT_KEY가 설정되지 않았습니다. .env에 키를 추가해주세요."
-              : "카카오 지도 SDK를 불러오지 못했습니다."
+              : error?.message
+                ? `지도 SDK 로드 실패: ${error.message}`
+                : "카카오 지도 SDK를 불러오지 못했습니다.";
+          setMapError(msg);
+          setPhoneMapDebug(
+            error?.message ? String(error.message).slice(0, 120) : "SDK 실패"
           );
         });
     };
     initMap();
+
+    const containerEl = mapContainerRef.current;
+    let resizeObserver = null;
+    if (containerEl && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        if (mapRef.current) {
+          try {
+            mapRef.current.relayout();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        if (
+          mounted &&
+          !mapRef.current &&
+          containerEl.offsetWidth >= 8 &&
+          containerEl.offsetHeight >= 8
+        ) {
+          initMap();
+        }
+      });
+      resizeObserver.observe(containerEl);
+    }
+
+    const onViewportResize = () => {
+      try {
+        mapRef.current?.relayout?.();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("resize", onViewportResize);
+    window.visualViewport?.addEventListener("resize", onViewportResize);
+
     return () => {
       mounted = false;
       if (retryTimer) clearTimeout(retryTimer);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", onViewportResize);
+      window.visualViewport?.removeEventListener("resize", onViewportResize);
       const { map: m, handler: h } = clusterViewportCleanupRef.current;
       if (m && h && window.kakao?.maps?.event) {
         ["zoom_changed", "dragend", "idle"].forEach((evt) => {
@@ -1388,6 +1654,10 @@ const MapView = forwardRef(({
     const bounds = new window.kakao.maps.LatLngBounds();
     const liveMarkers = [];
     const clusterMarkers = [];
+    const courseRouteOnMap = Boolean(
+      Array.isArray(courseOverlay?.polylinePath) &&
+        courseOverlay.polylinePath.length >= 2
+    );
 
     const nextMarkers = validPlaces.map((p) => {
       const { lat, lng } = resolvePlaceCoords(p);
@@ -1422,7 +1692,10 @@ const MapView = forwardRef(({
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
         checkinMeta,
         mapShortCaption,
-        onClick: (cp) => {
+        onClick:
+          courseRouteOnMap && p.isCoursePin && !isCourseBridgeMapPin(p)
+            ? undefined
+            : (cp) => {
           lockAutoMoveRef.current?.(800, "marker");
           ignoreMapClickRef.current = true;
 
@@ -1588,6 +1861,7 @@ const MapView = forwardRef(({
     placesFitBoundsPadding,
     skipKoreaBBoxForCuratorPins,
     courseSecondPickMode,
+    courseOverlay,
     lockAutoMove,
     mapClusterLevel,
     clusterLayoutTick,
@@ -1715,14 +1989,7 @@ const MapView = forwardRef(({
 
     let releaseIgnoreTimer = null;
 
-    if (courseLegLabelOverlayRef.current) {
-      try {
-        courseLegLabelOverlayRef.current.setMap(null);
-      } catch {
-        /* ignore */
-      }
-      courseLegLabelOverlayRef.current = null;
-    }
+    clearMapCustomOverlays(courseLegLabelOverlaysRef);
 
     if (coursePolylineRef.current) {
       try {
@@ -1776,147 +2043,100 @@ const MapView = forwardRef(({
 
     const legLabel = String(courseOverlay?.legLabel || "").trim();
     const legSubLabel = String(courseOverlay?.legSubLabel || "").trim();
-    const lp = courseOverlay?.labelPosition;
-    let overlayLat = null;
-    let overlayLng = null;
-    if (
-      lp &&
-      Number.isFinite(Number(lp.lat)) &&
-      Number.isFinite(Number(lp.lng))
-    ) {
-      overlayLat = Number(lp.lat);
-      overlayLng = Number(lp.lng);
-    } else if (kakaoPath.length) {
-      const mid = kakaoPath[Math.floor(kakaoPath.length / 2)];
-      overlayLat = mid.getLat();
-      overlayLng = mid.getLng();
-    }
-
+    const legLabelsRaw = Array.isArray(courseOverlay?.legLabels)
+      ? courseOverlay.legLabels
+      : [];
     const canDismiss = typeof onCourseOverlayDismissRef.current === "function";
+
+    const labelEntries =
+      legLabelsRaw.length > 0
+        ? legLabelsRaw
+            .map((entry) => ({
+              legLabel: String(entry?.legLabel || "").trim(),
+              legSubLabel: String(entry?.legSubLabel || "").trim(),
+              labelPosition: entry?.labelPosition,
+            }))
+            .filter((e) => e.legLabel)
+        : legLabel
+          ? [
+              {
+                legLabel,
+                legSubLabel,
+                labelPosition: courseOverlay?.labelPosition,
+              },
+            ]
+          : [];
+
+    const overlays = [];
     if (
-      overlayLat != null &&
-      overlayLng != null &&
       typeof window.kakao.maps.CustomOverlay === "function" &&
-      (legLabel || legSubLabel || canDismiss)
+      labelEntries.length > 0
     ) {
-      const wrap = document.createElement("div");
-      wrap.style.cssText = [
-        "display:flex",
-        "flex-direction:row",
-        "align-items:flex-start",
-        "gap:6px",
-        "pointer-events:none",
-      ].join(";");
-
-      if (legLabel || legSubLabel) {
-        const col = document.createElement("div");
-        col.style.cssText = [
-          "display:flex",
-          "flex-direction:column",
-          "align-items:center",
-          "gap:4px",
-          "max-width:min(88vw, 268px)",
-          "pointer-events:none",
-        ].join(";");
-        if (legLabel) {
-          const labelEl = document.createElement("div");
-          labelEl.textContent = legLabel;
-          labelEl.style.cssText = [
-            "padding:5px 10px",
-            "background:rgba(255,255,255,0.96)",
-            "border:1px solid rgba(124,58,237,0.45)",
-            "border-radius:10px",
-            "font-size:11px",
-            "font-weight:700",
-            "color:#5b21b6",
-            "pointer-events:none",
-            "white-space:normal",
-            "text-align:center",
-            "line-height:1.35",
-            "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
-          ].join(";");
-          col.appendChild(labelEl);
+      labelEntries.forEach((entry, idx) => {
+        const lp = entry.labelPosition;
+        if (
+          !lp ||
+          !Number.isFinite(Number(lp.lat)) ||
+          !Number.isFinite(Number(lp.lng))
+        ) {
+          return;
         }
-        if (legSubLabel) {
-          const subEl = document.createElement("div");
-          subEl.textContent = legSubLabel;
-          subEl.style.cssText = [
-            "padding:3px 8px 5px",
-            "font-size:10px",
-            "font-weight:600",
-            "color:#6d28d9",
-            "line-height:1.35",
-            "text-align:center",
-            "white-space:normal",
-            "pointer-events:none",
-          ].join(";");
-          col.appendChild(subEl);
+        const isLast = idx === labelEntries.length - 1;
+        const content = createCourseLegLabelOverlayContent({
+          legLabel: entry.legLabel,
+          legSubLabel: entry.legSubLabel,
+          showDismiss: isLast && canDismiss,
+          onDismiss: () => onCourseOverlayDismissRef.current?.(),
+          ignoreMapClickRef: ignoreMapClickRef,
+        });
+        if (!content) return;
+        try {
+          overlays.push(
+            new window.kakao.maps.CustomOverlay({
+              map: mapRef.current,
+              position: new window.kakao.maps.LatLng(
+                Number(lp.lat),
+                Number(lp.lng)
+              ),
+              content,
+              xAnchor: 0.5,
+              yAnchor: 0.5,
+              zIndex: 12 + idx,
+              clickable: true,
+            })
+          );
+        } catch {
+          /* skip leg */
         }
-        wrap.appendChild(col);
-      }
-
-      if (canDismiss) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("aria-label", "경로 끄기");
-        btn.title = "경로 숨기기";
-        btn.textContent = "×";
-        btn.style.cssText = [
-          "flex-shrink:0",
-          "width:28px",
-          "height:28px",
-          "min-width:28px",
-          "padding:0",
-          "margin:0",
-          "border-radius:999px",
-          "border:1px solid rgba(124,58,237,0.55)",
-          "background:rgba(255,255,255,0.98)",
-          "color:#5b21b6",
-          "font-size:17px",
-          "line-height:1",
-          "font-weight:500",
-          "cursor:pointer",
-          "pointer-events:auto",
-          "display:flex",
-          "align-items:center",
-          "justify-content:center",
-          "box-shadow:0 2px 10px rgba(0,0,0,0.12)",
-          "-webkit-tap-highlight-color:transparent",
-        ].join(";");
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onCourseOverlayDismissRef.current?.();
-        });
-        wrap.appendChild(btn);
-      }
-
-      try {
-        courseLegLabelOverlayRef.current = new window.kakao.maps.CustomOverlay({
-          map: mapRef.current,
-          position: new window.kakao.maps.LatLng(overlayLat, overlayLng),
-          content: wrap,
-          xAnchor: 0.5,
-          yAnchor: legLabel || legSubLabel ? 0.45 : 0.5,
-          zIndex: 5,
-          /** true면 지도 클릭·드래그가 막히는 구간이 넓어질 수 있음 — × 버튼은 DOM pointer-events로 유지 */
-          clickable: false,
-        });
-      } catch {
-        courseLegLabelOverlayRef.current = null;
-      }
+      });
     }
+    courseLegLabelOverlaysRef.current = overlays;
 
     const bounds = new window.kakao.maps.LatLngBounds();
     kakaoPath.forEach((ll) => bounds.extend(ll));
+    const hasRouteLabel = labelEntries.length > 0;
+    if (hasRouteLabel) {
+      for (const entry of labelEntries) {
+        const lp = entry.labelPosition;
+        if (
+          lp &&
+          Number.isFinite(Number(lp.lat)) &&
+          Number.isFinite(Number(lp.lng))
+        ) {
+          bounds.extend(
+            new window.kakao.maps.LatLng(Number(lp.lat), Number(lp.lng))
+          );
+        }
+      }
+    }
     const courseFitKey = String(courseOverlay?.key ?? "");
     if (courseFitKey && courseFitKey !== coursePathFitKeyRef.current) {
       coursePathFitKeyRef.current = courseFitKey;
       ignoreViewportEventRef.current = true;
       const padB = Math.round(Number(courseOverlayFitBottomPaddingPx) || 0);
-      if (padB > 0) {
-        const padT = 56;
-        const padX = 44;
+      if (padB > 0 || hasRouteLabel) {
+        const padT = hasRouteLabel ? 76 : 56;
+        const padX = hasRouteLabel ? 58 : 44;
         mapRef.current.setBounds(bounds, padT, padX, padB, padX);
       } else {
         mapRef.current.setBounds(bounds);
@@ -1932,14 +2152,7 @@ const MapView = forwardRef(({
         releaseIgnoreTimer = null;
       }
       ignoreViewportEventRef.current = false;
-      if (courseLegLabelOverlayRef.current) {
-        try {
-          courseLegLabelOverlayRef.current.setMap(null);
-        } catch {
-          /* ignore */
-        }
-        courseLegLabelOverlayRef.current = null;
-      }
+      clearMapCustomOverlays(courseLegLabelOverlaysRef);
       if (coursePolylineRef.current) {
         try {
           coursePolylineRef.current.setMap(null);
@@ -2047,8 +2260,10 @@ const MapView = forwardRef(({
         "flex-direction:row",
         "align-items:flex-start",
         "gap:6px",
-        "pointer-events:none",
       ].join(";");
+      shieldMapOverlayPointerEvents(wrap, {
+        ignoreMapClickRef: ignoreMapClickRef,
+      });
 
       if (legLabel) {
         const labelEl = document.createElement("div");
@@ -2061,7 +2276,6 @@ const MapView = forwardRef(({
           "font-size:11px",
           "font-weight:700",
           "color:#9a3412",
-          "pointer-events:none",
           "white-space:nowrap",
           "box-shadow:0 2px 8px rgba(0,0,0,0.08)",
         ].join(";");
@@ -2069,39 +2283,16 @@ const MapView = forwardRef(({
       }
 
       if (canDismiss) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("aria-label", "도착 경로 끄기");
-        btn.title = "경로 숨기기";
-        btn.textContent = "×";
-        btn.style.cssText = [
-          "flex-shrink:0",
-          "width:28px",
-          "height:28px",
-          "min-width:28px",
-          "padding:0",
-          "margin:0",
-          "border-radius:999px",
-          "border:1px solid rgba(230,126,34,0.65)",
-          "background:rgba(255,255,255,0.98)",
-          "color:#9a3412",
-          "font-size:17px",
-          "line-height:1",
-          "font-weight:500",
-          "cursor:pointer",
-          "pointer-events:auto",
-          "display:flex",
-          "align-items:center",
-          "justify-content:center",
-          "box-shadow:0 2px 10px rgba(0,0,0,0.12)",
-          "-webkit-tap-highlight-color:transparent",
-        ].join(";");
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onArrivalWalkingOverlayDismissRef.current?.();
-        });
-        wrap.appendChild(btn);
+        wrap.appendChild(
+          createMapRouteDismissButton({
+            ariaLabel: "도착 경로 끄기",
+            title: "경로 숨기기",
+            borderColor: "rgba(230,126,34,0.65)",
+            textColor: "#9a3412",
+            ignoreMapClickRef: ignoreMapClickRef,
+            onDismiss: () => onArrivalWalkingOverlayDismissRef.current?.(),
+          })
+        );
       }
 
       try {
@@ -2110,9 +2301,9 @@ const MapView = forwardRef(({
           position: new window.kakao.maps.LatLng(overlayLat, overlayLng),
           content: wrap,
           xAnchor: 0.5,
-          yAnchor: legLabel ? 0.45 : 0.5,
-          zIndex: 6,
-          clickable: false,
+          yAnchor: 0.5,
+          zIndex: 13,
+          clickable: true,
         });
       } catch {
         arrivalLegLabelOverlayRef.current = null;
@@ -2121,14 +2312,23 @@ const MapView = forwardRef(({
 
     const bounds = new window.kakao.maps.LatLngBounds();
     kakaoPath.forEach((ll) => bounds.extend(ll));
+    if (
+      legLabel &&
+      overlayLat != null &&
+      overlayLng != null &&
+      Number.isFinite(overlayLat) &&
+      Number.isFinite(overlayLng)
+    ) {
+      bounds.extend(new window.kakao.maps.LatLng(overlayLat, overlayLng));
+    }
     const arrivalFitKey = String(arrivalWalkingOverlay?.key ?? "");
     if (arrivalFitKey && arrivalFitKey !== arrivalPathFitKeyRef.current) {
       arrivalPathFitKeyRef.current = arrivalFitKey;
       ignoreViewportEventRef.current = true;
       const padB = Math.round(Number(arrivalWalkingOverlayFitBottomPaddingPx) || 0);
-      if (padB > 0) {
-        const padT = 56;
-        const padX = 44;
+      const padT = legLabel ? 76 : 56;
+      const padX = legLabel ? 58 : 44;
+      if (padB > 0 || legLabel) {
         mapRef.current.setBounds(bounds, padT, padX, padB, padX);
       } else {
         mapRef.current.setBounds(bounds);
@@ -2285,11 +2485,13 @@ const MapView = forwardRef(({
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div style={styles.mapOuter}>
+        <div ref={mapContainerRef} style={styles.mapInner} />
         {mapError ? (
-          <div style={styles.errorBox}>{mapError}</div>
-        ) : (
-          <div ref={mapContainerRef} style={styles.mapInner} />
-        )}
+          <div style={styles.errorOverlay}>{mapError}</div>
+        ) : null}
+        {import.meta.env.DEV && phoneMapDebug ? (
+          <div style={styles.phoneMapDebug}>{phoneMapDebug}</div>
+        ) : null}
       </div>
       
       {showFloatingLocationButton ? (
@@ -2343,25 +2545,45 @@ const styles = {
     position: "relative",
     zIndex: 1
   },
-  /** 살짝 아래로 — 상단 헤더·스트립과 붙어 보이는 느낌 완화 */
   mapInner: {
-    width: "100%",
-    height: "calc(100% - 14px)",
-    backgroundColor: "#f0f0f0",
     position: "absolute",
-    top: 14,
-    left: 0,
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#f0f0f0",
     zIndex: 2,
     touchAction: "pan-x pan-y pinch-zoom",
   },
-  errorBox: {
-    width: "100%",
-    height: "100%",
+  errorOverlay: {
+    position: "absolute",
+    inset: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    padding: "12px 16px",
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: 600,
     color: "#333",
-    zIndex: 3
+    background: "rgba(255,255,255,0.92)",
+    zIndex: 3,
+    pointerEvents: "none",
+  },
+  phoneMapDebug: {
+    position: "absolute",
+    top: 56,
+    left: 8,
+    right: 8,
+    zIndex: 4,
+    padding: "8px 10px",
+    borderRadius: 8,
+    background: "rgba(15,23,42,0.88)",
+    color: "#f8fafc",
+    fontSize: 11,
+    fontWeight: 600,
+    lineHeight: 1.35,
+    pointerEvents: "none",
+    wordBreak: "break-all",
   },
   locationButton: {
     position: "absolute",

@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { kakaoNumericPlaceId, resolvePlaceWgs84 } from "../utils/placeCoords";
 
 /** Kakao 지도 level(숫자 클수록 멀리 봄) → bbox places 상한 */
 export function getLimitByZoom(level) {
@@ -98,17 +99,19 @@ export function mapPlaceRowForCourse(row) {
     row.address ?? row.road_address_name ?? row.address_name ?? ""
   ).trim();
   const category = String(row.category ?? row.category_name ?? "").trim();
-  const lat = row.lat != null ? Number(row.lat) : null;
-  const lng = row.lng != null ? Number(row.lng) : null;
+  const wgs = resolvePlaceWgs84(row);
+  const kid =
+    row.kakao_place_id != null && String(row.kakao_place_id).trim() !== ""
+      ? String(row.kakao_place_id).trim()
+      : kakaoNumericPlaceId(row);
   return {
     id,
     name: name || "이름 없음",
     address,
     category,
-    lat: Number.isFinite(lat) ? lat : null,
-    lng: Number.isFinite(lng) ? lng : null,
-    kakao_place_id:
-      row.kakao_place_id != null ? String(row.kakao_place_id).trim() : null,
+    lat: wgs?.lat ?? null,
+    lng: wgs?.lng ?? null,
+    kakao_place_id: kid || null,
   };
 }
 

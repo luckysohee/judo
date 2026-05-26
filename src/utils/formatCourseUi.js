@@ -105,7 +105,7 @@ export function getCourseLegMeters(course) {
   return Number.isFinite(d) && d > 0 ? d : null;
 }
 
-/** 바텀시트·피크 한 줄: 대략 거리 + 도보 분 (지도는 OSRM 보행 경로로 표시) */
+/** 바텀시트·피크 한 줄: 대략 거리 + 도보 분 (지도는 카카오 도보 경로, 미승인 시 OSRM) */
 export function formatCourseLegDistanceSummary(course) {
   const m = getCourseLegMeters(course);
   if (m == null) return "";

@@ -30,6 +30,23 @@ function buildRegionKeywords() {
     명동: ["명동", "명동입구", "회현", "충무로"],
     신촌: ["신촌", "이대", "아현", "공덕"],
     잠실: ["잠실", "잠실역", "송파", "문정", "복정"],
+    /** 이태원·한남 인접 권역(단일 클러스터) */
+    이태원: [
+      "이태원",
+      "이태원동",
+      "이태원로",
+      "이태원역",
+      "경리단길",
+      "한남",
+      "한남동",
+      "한남역",
+      "보행자연가",
+      "용산구",
+      "용산",
+      "효창",
+      "후암",
+    ],
+    서초: ["서초", "서초동", "서초역", "서초구", "서래마을"],
     부산: ["부산", "서면", "해운대", "광안리", "남포동"],
     대구: ["대구", "동성로", "중앙로", "반월당"],
     제주: ["제주", "제주시", "애월", "협재", "성산"],
@@ -47,17 +64,22 @@ function buildRegionKeywords() {
     const 압 = new Set(out.압구정);
     out.강남 = out.강남.filter((s) => !압.has(s));
   }
-  if (out.한남?.length && out.강남?.length) {
-    const hn = new Set(out.한남);
-    out.강남 = out.강남.filter((s) => !hn.has(s));
+  if (out.한남?.length) {
+    out.이태원 = uniqConcat(out.이태원 || [], out.한남);
+    delete out.한남;
+  }
+  if (out.이태원?.length && out.강남?.length) {
+    const itaewonHannam = new Set(out.이태원);
+    out.강남 = out.강남.filter((s) => !itaewonHannam.has(s));
   }
 
   const ORDER = [
     "압구정",
-    "한남",
+    "이태원",
     "홍대",
     "성수",
     "을지로",
+    "서초",
     "강남",
     "종로",
     "명동",
@@ -79,6 +101,202 @@ function buildRegionKeywords() {
 
 // 지역 키워드 사전 (검색 확장 UX에서도 사용)
 export const REGION_KEYWORDS = buildRegionKeywords();
+
+/** 구(舊) 단일 지역 키 → 클러스터 키 (DB·로그 호환) */
+const REGION_CLUSTER_ALIAS = {
+  한남: "이태원",
+};
+
+export function normalizeRegionClusterKey(regionKey) {
+  const k = String(regionKey || "").trim();
+  if (!k) return null;
+  return REGION_CLUSTER_ALIAS[k] || k;
+}
+
+/** 지역 고정 검색 시 좌표 폴백(대략 중심) */
+const REGION_CENTER_COORDS = {
+  /** 이태원·한남 권역 중심(대략) */
+  이태원: { lat: 37.5319, lng: 127.0008 },
+  홍대: { lat: 37.5563, lng: 126.9236 },
+  성수: { lat: 37.5445, lng: 127.0559 },
+  을지로: { lat: 37.566, lng: 126.991 },
+  강남: { lat: 37.4979, lng: 127.0276 },
+  압구정: { lat: 37.527, lng: 127.028 },
+  종로: { lat: 37.57, lng: 126.979 },
+  명동: { lat: 37.5636, lng: 126.985 },
+  신촌: { lat: 37.5558, lng: 126.9364 },
+  잠실: { lat: 37.5133, lng: 127.1002 },
+  서초: { lat: 37.4837, lng: 127.0324 },
+};
+
+/** 쿼리에 동네명이 박혀 있을 때 허용 반경(km) — 12km면 신사·종로·서초가 이태원 검색에 섞임 */
+const REGION_PROXIMITY_KM = {
+  /** 이태원↔한남 포함, 신사·서초 제외 */
+  이태원: 2.5,
+  홍대: 2.4,
+  성수: 2.5,
+  을지로: 2.8,
+  강남: 3.2,
+  압구정: 2.6,
+  종로: 3,
+  명동: 2.5,
+  신촌: 2.4,
+  잠실: 3.5,
+  서초: 2.8,
+};
+
+/**
+ * 쿼리 지역과 주소·상호가 명백히 다른 동네일 때 제외.
+ * (좌표만 가깝고 주소는 서초구인 POI — 이태원 검색 오염 방지)
+ */
+const REGION_ADDRESS_CONFLICT = {
+  이태원: [
+    /종로구|종로\d|광화문|인사동|익선/,
+    /서초구|서초[0-9가-힣]*|방배|사당|교대|양재/,
+    /신사동|신사역|신사로|가로수길/,
+    /강남구|역삼|선릉|삼성동|청담|압구정|논현|신논현/,
+    /동대문구|동대문(?!.*이태원)/,
+    /마포구|홍대|합정|망원|상수|연남/,
+    /잠실|송파구|광진구|건대|성동구(?!.*용산)/,
+    /구로|신림|노원|강서|영등포|여의도/,
+  ],
+};
+
+export function regionKeyForLocationToken(token) {
+  const ln = String(token || "").trim().toLowerCase();
+  if (!ln) return null;
+  let bestKey = null;
+  let bestLen = 0;
+  for (const [key, syns] of Object.entries(REGION_KEYWORDS)) {
+    for (const s of syns) {
+      const sl = String(s).toLowerCase();
+      if (sl.length < 2) continue;
+      const hit = ln === sl || ln.includes(sl) || sl.includes(ln);
+      if (hit && sl.length >= bestLen) {
+        bestKey = key;
+        bestLen = sl.length;
+      }
+    }
+  }
+  return bestKey;
+}
+
+/**
+ * `parseSearchQuery` + `findAreaKeywordInQuery` — EXTRA 지명(이태원 등)까지 regions에 반영.
+ */
+export function resolveParsedRegionsFromQuery(rawQuery, parsedResult = null) {
+  const p =
+    parsedResult && typeof parsedResult === "object"
+      ? parsedResult
+      : parseSearchQuery(String(rawQuery || ""));
+  const regions =
+    p.regions?.length > 0 ? [...p.regions] : p.region ? [p.region] : [];
+  const anchor = findAreaKeywordInQuery(rawQuery);
+  if (anchor) {
+    const key = regionKeyForLocationToken(anchor);
+    if (key && !regions.includes(key)) regions.push(key);
+  }
+  return uniqStrings(regions.map((r) => normalizeRegionClusterKey(r) || r));
+}
+
+/** 사전에 등록된 지역 클러스터인지 */
+export function isKnownRegionCluster(locationName) {
+  return Boolean(regionKeyForLocationToken(locationName));
+}
+
+/** 쿼리에서 뽑은 지명(역·동·EXTRA 등) */
+export function extractMapLocationAnchorFromQuery(rawQuery) {
+  const q = String(rawQuery || "").trim();
+  if (!q) return null;
+  return extractLocationAnchorFromQuery(q) || findAreaKeywordInQuery(q);
+}
+
+/** 사전엔 없지만 검색어에 지역명이 있는 경우 — 카카오 「지역+와인바」식 검색이 맞음 */
+export function queryUsesUnmappedMapAnchor(rawQuery) {
+  const anchor = extractMapLocationAnchorFromQuery(rawQuery);
+  return Boolean(anchor && !regionKeyForLocationToken(anchor));
+}
+
+/**
+ * 사전 미등록 지명 — 주소·상호에 지명이 있거나, 지도 중심에서 가까운 POI만.
+ */
+export function filterPlacesByExtractedMapAnchor(
+  places,
+  locationName,
+  { sortOrigin = null, maxDistanceKm = 3 } = {},
+) {
+  const ln = String(locationName || "").trim();
+  if (!ln || !Array.isArray(places) || places.length === 0) return places;
+
+  return places.filter((p) => {
+    if (placeMatchesMapRegionAnchor(p, ln)) return true;
+    const lat = parseFloat(p.y ?? p.lat);
+    const lng = parseFloat(p.x ?? p.lng);
+    if (
+      sortOrigin &&
+      Number.isFinite(sortOrigin.lat) &&
+      Number.isFinite(sortOrigin.lng) &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+      return (
+        haversineKm(sortOrigin.lat, sortOrigin.lng, lat, lng) <= maxDistanceKm
+      );
+    }
+    return false;
+  });
+}
+
+/** 검색어에 동네·상권명이 명시됐는지 (사전 미등록 지명 포함) */
+export function queryPinsExplicitRegion(rawQuery, parsedResult = null) {
+  if (queryUsesUnmappedMapAnchor(rawQuery)) return true;
+  return resolveParsedRegionsFromQuery(rawQuery, parsedResult).length > 0;
+}
+
+/** 지도 스코어링 후 거리 게이트 — 동네명 검색은 km를 좁힌다 */
+export function mapSearchMaxDistanceKmForLocation(locationName) {
+  const ln = String(locationName || "").trim();
+  if (!ln) return 12;
+  if (/구$|시$|도$/.test(ln) && ln.length <= 8) return 8;
+  const key = regionKeyForLocationToken(ln);
+  if (key && REGION_PROXIMITY_KM[key] != null) return REGION_PROXIMITY_KM[key];
+  if (ln.length >= 2 && ln.length <= 10) return 2.5;
+  return 12;
+}
+
+function placeConflictsWithPinnedRegion(place, regionKey) {
+  const patterns = REGION_ADDRESS_CONFLICT[regionKey];
+  if (!patterns?.length) return false;
+  const profile = buildPlaceScoringProfile(place);
+  const hay = `${profile.addressLower} ${profile.textLower}`;
+  const ownSyns = REGION_KEYWORDS[regionKey] || [];
+  const hasOwn = ownSyns.some((s) =>
+    hay.includes(String(s || "").toLowerCase())
+  );
+  if (!hasOwn && patterns.some((re) => re.test(hay))) return true;
+  return false;
+}
+
+function placeWithinRegionProximity(place, regionKey) {
+  const center = REGION_CENTER_COORDS[regionKey];
+  const maxKm = REGION_PROXIMITY_KM[regionKey];
+  if (!center || maxKm == null) return false;
+  const lat = parseFloat(place?.y ?? place?.lat);
+  const lng = parseFloat(place?.x ?? place?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return haversineKm(center.lat, center.lng, lat, lng) <= maxKm;
+}
+
+function placeMatchesPinnedRegions(place, parsedRegions, rawQuery) {
+  if (!Array.isArray(parsedRegions) || parsedRegions.length === 0) {
+    return true;
+  }
+  for (const r of parsedRegions) {
+    if (placeConflictsWithPinnedRegion(place, r)) return false;
+  }
+  if (placeMatchesAnyParsedRegion(place, parsedRegions, rawQuery)) return true;
+  return parsedRegions.some((r) => placeWithinRegionProximity(place, r));
+}
 
 /**
  * `홍대` 클러스터 동의어에 합정·상수 등이 포함돼 있어, 쿼리에 그 동명이 직접 들어가면
@@ -124,6 +342,8 @@ export function findAreaKeywordInQuery(query) {
     "연남동",
     "망원동",
     "이태원",
+    "한남",
+    "한남동",
     "여의도",
     "한강공원",
     "건대입구",
@@ -786,7 +1006,16 @@ export function filterMapSearchPlacesByRegionProximity(
   const ln = String(locationName || "").trim();
   if (!ln || !Array.isArray(places) || places.length === 0) return places;
 
+  const regionKey = regionKeyForLocationToken(ln);
+  const parsedRegions = regionKey ? [regionKey] : [];
+
   return places.filter((p) => {
+    if (
+      parsedRegions.length &&
+      placeConflictsWithPinnedRegion(p, parsedRegions[0])
+    ) {
+      return false;
+    }
     const lat = parseFloat(p.y ?? p.lat);
     const lng = parseFloat(p.x ?? p.lng);
     const hasOrigin =
@@ -801,6 +1030,7 @@ export function filterMapSearchPlacesByRegionProximity(
       );
     }
     if (placeMatchesMapRegionAnchor(p, ln)) return true;
+    if (regionKey && placeWithinRegionProximity(p, regionKey)) return true;
     return false;
   });
 }
@@ -1224,7 +1454,12 @@ export function placeMatchesAnyParsedRegion(place, parsedRegions, rawQuery) {
       }
       continue;
     }
-    if (profile.region === r) return true;
+    if (
+      profile.region === r ||
+      normalizeRegionClusterKey(profile.region) === r
+    ) {
+      return true;
+    }
     if (
       syns.some((syn) => hay.includes(String(syn || "").toLowerCase()))
     ) {
@@ -1239,7 +1474,11 @@ export function placeMatchesAnyParsedRegion(place, parsedRegions, rawQuery) {
  * 걸러낸 뒤 0건이면 원본을 돌려준다.
  */
 /**
- * @param {{ curatorCatalogForYajang?: object[] }} [options] 야장 의도 시 카카오 상호에 안 나와도 큐레이터 태그로 후보 유지
+ * @param {{
+ *   curatorCatalogForYajang?: object[],
+ *   sortOrigin?: { lat: number, lng: number }|null,
+ *   maxDistanceKm?: number,
+ * }} [options]
  */
 export function filterPlacesByParsedIntent(
   places,
@@ -1252,41 +1491,53 @@ export function filterPlacesByParsedIntent(
 
   const q = String(rawQuery || "").toLowerCase();
   const p = parsedResult || {};
-  const parsedRegions =
-    p.regions?.length > 0
-      ? p.regions
-      : p.region
-        ? [p.region]
-        : [];
+  const explicitRegion = queryPinsExplicitRegion(rawQuery, p);
   let geoScoped = list;
+
+  const mapAnchor = extractMapLocationAnchorFromQuery(rawQuery);
+  const unmappedAnchor =
+    mapAnchor && !regionKeyForLocationToken(mapAnchor);
+
+  if (unmappedAnchor) {
+    const maxKm =
+      options.maxDistanceKm ??
+      mapSearchMaxDistanceKmForLocation(mapAnchor);
+    geoScoped = filterPlacesByExtractedMapAnchor(list, mapAnchor, {
+      sortOrigin: options.sortOrigin ?? null,
+      maxDistanceKm: maxKm,
+    });
+  } else {
+  const parsedRegions = resolveParsedRegionsFromQuery(rawQuery, p);
   if (parsedRegions.length) {
     const regionPass = list.filter((pl) =>
-      placeMatchesAnyParsedRegion(pl, parsedRegions, rawQuery),
+      placeMatchesPinnedRegions(pl, parsedRegions, rawQuery),
     );
-    /**
-     * 주소에 지역명이 안 찍혀도 같은 동네 POI가 많다.
-     * 엄격 지역 필터는 통과 건수가 충분할 때만 쓴다.
-     * 예전 `(regionPass ≥ 1 && list ≤ 6)`는 후보가 적을 때 1곳만 통과(상호에만 지명이 있는
-     * 「을지로 골목집」 등)하면 나머지를 전부 버려 단일 결과처럼 보이는 버그였다.
-     */
-    const strictRegionEnough = regionPass.length >= 4;
-    const smallPoolMostlyInRegion =
-      list.length > 0 &&
-      list.length <= 10 &&
-      regionPass.length >= 2 &&
-      regionPass.length >= Math.ceil(list.length * 0.4);
-    const hongdaeSubPinned =
-      parsedRegions.includes("홍대") && queryPinsHongdaeStrictSubtoken(rawQuery);
-    if (
-      strictRegionEnough ||
-      smallPoolMostlyInRegion ||
-      (hongdaeSubPinned && regionPass.length > 0)
-    ) {
+    if (explicitRegion) {
+      /** 「이태원 와인바」처럼 동네가 박힌 검색 — 타 동네 혼입 차단(0건이어도 전국 풀 복구 안 함) */
       geoScoped = regionPass;
-    } else if (hongdaeSubPinned && regionPass.length === 0) {
-      geoScoped = [];
+    } else {
+      const strictRegionEnough = regionPass.length >= 4;
+      const smallPoolMostlyInRegion =
+        list.length > 0 &&
+        list.length <= 10 &&
+        regionPass.length >= 2 &&
+        regionPass.length >= Math.ceil(list.length * 0.4);
+      const hongdaeSubPinned =
+        parsedRegions.includes("홍대") &&
+        queryPinsHongdaeStrictSubtoken(rawQuery);
+      if (
+        strictRegionEnough ||
+        smallPoolMostlyInRegion ||
+        (hongdaeSubPinned && regionPass.length > 0)
+      ) {
+        geoScoped = regionPass;
+      } else if (hongdaeSubPinned && regionPass.length === 0) {
+        geoScoped = [];
+      }
     }
   }
+  }
+
   const alcohols = p.alcohols?.length
     ? p.alcohols
     : [p.alcohol].filter(Boolean);
@@ -1399,6 +1650,10 @@ export function filterPlacesByParsedIntent(
    * 되돌리면 학교·사무실 등 무관 POI가 다시 끼어든다(예: 을지로 와인바 검색).
    */
   if (appliedStrictAlcoholPlaceFilter) {
+    return [];
+  }
+
+  if (explicitRegion && geoScoped.length === 0) {
     return [];
   }
 
@@ -1560,10 +1815,9 @@ export function buildPlaceScoringProfile(place) {
   const addressLower = `${place?.address_name || ""} ${place?.road_address_name || ""} ${place?.address || ""}`.toLowerCase();
   const textLower = `${place?.place_name || place?.name || ""} ${place?.category_name || place?.category || ""} ${addressLower}`.toLowerCase();
 
-  const region =
-    place?.region ||
-    inferRegionKeyFromAddress(addressLower) ||
-    null;
+  const region = normalizeRegionClusterKey(
+    place?.region || inferRegionKeyFromAddress(addressLower) || null
+  );
 
   const mergeFacet = (explicit, dict) =>
     uniqStrings([...(Array.isArray(explicit) ? explicit : []), ...facetsFromHaystack(textLower, dict)]);
@@ -1809,6 +2063,12 @@ export function scorePlace(place, parsedResult) {
       }
     }
     if (hit) score += 5;
+    else if (
+      parsed.regions.some((r) => placeConflictsWithPinnedRegion(place, r))
+    ) {
+      score -= 40;
+      reasons.push("다른 동네");
+    }
   }
 
   const alcoholMatchCount = parsed.alcohols.filter((a) =>
@@ -1824,12 +2084,11 @@ export function scorePlace(place, parsedResult) {
     reasons.push(`${parsed.alcohols[0]} 후보(업종)`);
   }
 
-  const vibeMatchCount = parsed.vibes.filter((v) => profile.vibes.includes(v)).length;
-  if (vibeMatchCount) {
-    score += vibeMatchCount * 4;
-    parsed.vibes.forEach((v) => {
-      if (profile.vibes.includes(v)) reasons.push(`${v} 분위기`);
-    });
+  for (const v of parsed.vibes) {
+    if (!profile.vibes.includes(v)) continue;
+    const vibePts = v === "야장" ? 10 : 4;
+    score += vibePts;
+    reasons.push(`${v} 분위기`);
   }
 
   const purposeMatchCount = parsed.purposes.filter((p) =>

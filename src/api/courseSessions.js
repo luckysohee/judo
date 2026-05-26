@@ -74,6 +74,120 @@ export async function getMyActiveCourseSession() {
   return normalizeActiveCourseSessionRow(data);
 }
 
+const ACTIVE_SESSION_SELECT = `
+      id,
+      user_id,
+      course_id,
+      current_step_index,
+      started_at,
+      updated_at,
+      completed_at,
+      abandoned_at,
+      curator_courses (
+        id,
+        curator_id,
+        title,
+        cover_image_url,
+        area,
+        status,
+        is_public
+      )
+    `;
+
+/**
+ * @returns {Promise<object[]>}
+ */
+export async function listMyActiveCourseSessions() {
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user?.id) return [];
+
+  const { data, error } = await supabase
+    .from("active_course_sessions")
+    .select("id, course_id")
+    .eq("user_id", user.id)
+    .is("completed_at", null)
+    .is("abandoned_at", null);
+
+  throwIfSupabaseError(error, "[진행 코스 세션 목록 조회 실패]");
+  return Array.isArray(data) ? data : [];
+}
+
+/** @returns {Promise<number>} */
+export async function abandonAllMyActiveCourseSessions() {
+  const rows = await listMyActiveCourseSessions();
+  for (const row of rows) {
+    if (row?.id) await abandonCourseSession(row.id);
+  }
+  return rows.length;
+}
+
+/**
+ * 해당 코스의 가장 최근 세션(완주·중단 포함).
+ * @param {string} courseId
+ * @returns {Promise<object|null>}
+ */
+export async function getLatestCourseSessionForCourse(courseId) {
+  const cid = assertUuid(courseId, "getLatestCourseSessionForCourse.courseId");
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user?.id) return null;
+
+  const { data, error } = await supabase
+    .from("active_course_sessions")
+    .select(ACTIVE_SESSION_SELECT)
+    .eq("user_id", user.id)
+    .eq("course_id", cid)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  throwIfSupabaseError(error, "[코스 세션 조회 실패]");
+  const row = Array.isArray(data) ? data[0] : null;
+  return normalizeActiveCourseSessionRow(row);
+}
+
+/**
+ * 다시 모으기 — 도장 초기화 후 완주된 세션을 0차부터 재개(INSERT 대신 재활성화 우선).
+ * @param {string} courseId
+ * @returns {Promise<object>}
+ */
+export async function reopenCourseSessionForReplay(courseId) {
+  const cid = assertUuid(courseId, "reopenCourseSessionForReplay.courseId");
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user?.id) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  await abandonAllMyActiveCourseSessions();
+
+  const latest = await getLatestCourseSessionForCourse(cid);
+  if (latest?.id) {
+    const { data, error } = await supabase
+      .from("active_course_sessions")
+      .update({
+        current_step_index: 0,
+        completed_at: null,
+        abandoned_at: null,
+      })
+      .eq("id", latest.id)
+      .eq("user_id", user.id)
+      .select(ACTIVE_SESSION_SELECT)
+      .single();
+
+    throwIfSupabaseError(error, "[코스 다시 모으기 세션 재개 실패]");
+    if (data) return normalizeActiveCourseSessionRow(data);
+  }
+
+  return startCourseSession(cid, { replaceExisting: true });
+}
+
 /**
  * 공개 코스 따라가기 시작.
  * @param {string} courseId
@@ -90,6 +204,10 @@ export async function startCourseSession(courseId, options = {}) {
   } = await supabase.auth.getUser();
   if (authErr || !user?.id) {
     throw new Error("로그인이 필요합니다.");
+  }
+
+  if (replaceExisting) {
+    await abandonAllMyActiveCourseSessions();
   }
 
   const existing = await getMyActiveCourseSession();
@@ -123,35 +241,26 @@ export async function startCourseSession(courseId, options = {}) {
     throw new Error("따라가기는 공개된 코스만 시작할 수 있어요.");
   }
 
-  const { data, error } = await supabase
+  const insertPayload = {
+    user_id: user.id,
+    course_id: cid,
+    current_step_index: 0,
+  };
+
+  let { data, error } = await supabase
     .from("active_course_sessions")
-    .insert({
-      user_id: user.id,
-      course_id: cid,
-      current_step_index: 0,
-    })
-    .select(
-      `
-      id,
-      user_id,
-      course_id,
-      current_step_index,
-      started_at,
-      updated_at,
-      completed_at,
-      abandoned_at,
-      curator_courses (
-        id,
-        curator_id,
-        title,
-        cover_image_url,
-        area,
-        status,
-        is_public
-      )
-    `
-    )
+    .insert(insertPayload)
+    .select(ACTIVE_SESSION_SELECT)
     .single();
+
+  if (error?.code === "23505") {
+    await abandonAllMyActiveCourseSessions();
+    ({ data, error } = await supabase
+      .from("active_course_sessions")
+      .insert(insertPayload)
+      .select(ACTIVE_SESSION_SELECT)
+      .single());
+  }
 
   throwIfSupabaseError(error, "[코스 따라가기 시작 실패]");
   return normalizeActiveCourseSessionRow(data);

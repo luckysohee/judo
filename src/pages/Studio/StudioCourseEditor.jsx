@@ -5,7 +5,6 @@ import {
   createCuratorCourse,
   deleteCuratorCourse,
   fetchCuratorCourseById,
-  publishCuratorCourse,
   saveCuratorCoursePlaces,
   updateCuratorCourse,
 } from "../../api/curatorCourses";
@@ -32,8 +31,6 @@ import {
   studioCoursesMobileShell,
   studioCoursesStickyFooter,
   studioCoursesStickyBtn,
-  studioCoursesVisibilityRow,
-  studioCoursesVisibilityPill,
   studioCoursesCoverBox,
   studioCoursesCoverThumb,
   studioCoursesCoverPickBtn,
@@ -48,25 +45,73 @@ import CourseMapPreview from "../../components/Course/CourseMapPreview";
 import StudioPlaceMapSearchPanel from "../../components/Studio/StudioPlaceMapSearchPanel";
 import StudioMapSearchSuggestions from "../../components/Studio/StudioMapSearchSuggestions";
 import useMobileLayout from "../../hooks/useMobileLayout";
-import {
-  isAcceptableRasterImageFile,
-  prepareImageFileForUpload,
-} from "../../utils/prepareImageFileForUpload";
+import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
+import { uploadCuratorCourseCoverFile } from "../../utils/curatorPlacePhotos";
+import { removeImportedCuratorCourse } from "../../api/courseImports";
+import { isImportedCuratorCourse } from "../../utils/courseImportUi";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseThemeTags(raw) {
-  return String(raw || "")
-    .split(/[,，]/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function normalizeHashtagTag(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return "";
+  const body = t.startsWith("#") ? t.slice(1).trim() : t;
+  if (!body) return "";
+  return `#${body}`;
+}
+
+function normalizeHashtagTags(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : String(raw || "")
+        .split(/[,，\s]+/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const tag = normalizeHashtagTag(item);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out;
 }
 
 function parseRowCoord(v) {
   if (v == null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function captureEditorSnapshot({
+  title,
+  description,
+  area,
+  themeTags,
+  coverImageUrl,
+  placeRows,
+}) {
+  const places = (Array.isArray(placeRows) ? placeRows : [])
+    .filter((r) => UUID_RE.test(String(r?.place_id || "").trim()))
+    .map((r) => ({
+      place_id: String(r.place_id).trim().toLowerCase(),
+      memo: String(r.memo ?? "").trim(),
+      stay_minutes: String(r.stay_minutes ?? "").trim(),
+    }));
+  return JSON.stringify({
+    title: String(title ?? "").trim(),
+    description: String(description ?? "").trim(),
+    area: String(area ?? "").trim(),
+    themeTags: normalizeHashtagTags(themeTags)
+      .map((t) => t.toLowerCase())
+      .sort(),
+    coverImageUrl: String(coverImageUrl ?? "").trim(),
+    places,
+  });
 }
 
 function newPlaceRowFromHit(hit) {
@@ -97,10 +142,9 @@ export default function StudioCourseEditor() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [area, setArea] = useState("");
-  const [themeTagsInput, setThemeTagsInput] = useState("");
+  const [themeTags, setThemeTags] = useState([]);
+  const [tagInputValue, setTagInputValue] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
-  /** @type {'draft'|'private'|'published'} */
-  const [visibility, setVisibility] = useState("draft");
 
   const [placeRows, setPlaceRows] = useState([]);
   const [draggingPlaceKey, setDraggingPlaceKey] = useState(null);
@@ -118,14 +162,43 @@ export default function StudioCourseEditor() {
   const [manualUuidInput, setManualUuidInput] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
   const coverInputRef = useRef(null);
+  const [importedFromCourseId, setImportedFromCourseId] = useState(null);
+  const [importDeleteBusy, setImportDeleteBusy] = useState(false);
+  const savedSnapshotRef = useRef(null);
 
   const isMobile = useMobileLayout();
+  const isImportedSnapshot = Boolean(importedFromCourseId);
 
   const placeCount = useMemo(
     () =>
       placeRows.filter((r) => UUID_RE.test(String(r.place_id || "").trim()))
         .length,
     [placeRows]
+  );
+
+  const currentSnapshot = useMemo(
+    () =>
+      captureEditorSnapshot({
+        title,
+        description,
+        area,
+        themeTags,
+        coverImageUrl,
+        placeRows,
+      }),
+    [title, description, area, themeTags, coverImageUrl, placeRows]
+  );
+
+  const isDirty = useMemo(() => {
+    if (savedSnapshotRef.current == null) return false;
+    return currentSnapshot !== savedSnapshotRef.current;
+  }, [currentSnapshot]);
+
+  const markSavedSnapshot = useCallback(
+    (snapshotState) => {
+      savedSnapshotRef.current = captureEditorSnapshot(snapshotState);
+    },
+    []
   );
 
   const loadCourse = useCallback(async () => {
@@ -144,70 +217,119 @@ export default function StudioCourseEditor() {
         setLoadingCourse(false);
         return;
       }
+      setImportedFromCourseId(
+        isImportedCuratorCourse(row)
+          ? String(row.imported_from_course_id || "").trim() || null
+          : null
+      );
       setTitle(row.title ?? "");
       setDescription(row.description ?? "");
       setArea(row.area ?? "");
-      setThemeTagsInput(
-        Array.isArray(row.theme_tags) ? row.theme_tags.join(", ") : ""
-      );
+      setThemeTags(normalizeHashtagTags(row.theme_tags));
+      setTagInputValue("");
       setCoverImageUrl(row.cover_image_url ?? "");
-      if (row.status === "published" && row.is_public) {
-        setVisibility("published");
-      } else if (row.status === "private") {
-        setVisibility("private");
-      } else {
-        setVisibility("draft");
-      }
 
       const steps = Array.isArray(row.curator_course_places)
         ? [...row.curator_course_places].sort(
             (a, b) => Number(a.order_index) - Number(b.order_index)
           )
         : [];
-      if (steps.length === 0) {
-        setPlaceRows([]);
-      } else {
-        setPlaceRows(
-          steps.map((s) => {
-            const pl =
-              s.places && typeof s.places === "object" ? s.places : {};
-            const meta = mapPlaceRowForCourse({
-              id: s.place_id,
-              ...pl,
-            });
-            return {
-              key: s.id || `loaded-${s.place_id}-${s.order_index}`,
-              place_id: String(s.place_id ?? ""),
-              place_name: meta.name,
-              place_address: meta.address,
-              place_category: meta.category,
-              place_lat: meta.lat,
-              place_lng: meta.lng,
-              memo: s.memo ?? "",
-              stay_minutes:
-                s.stay_minutes != null && s.stay_minutes !== ""
-                  ? String(s.stay_minutes)
-                  : "",
-            };
-          })
-        );
+      let loadedRows = [];
+      if (steps.length > 0) {
+        loadedRows = steps.map((s) => {
+          const pl = s.places && typeof s.places === "object" ? s.places : {};
+          const meta = mapPlaceRowForCourse({
+            id: s.place_id,
+            ...pl,
+          });
+          return {
+            key: s.id || `loaded-${s.place_id}-${s.order_index}`,
+            place_id: String(s.place_id ?? ""),
+            place_name: meta.name,
+            place_address: meta.address,
+            place_category: meta.category,
+            place_lat: meta.lat,
+            place_lng: meta.lng,
+            memo: s.memo ?? "",
+            stay_minutes:
+              s.stay_minutes != null && s.stay_minutes !== ""
+                ? String(s.stay_minutes)
+                : "",
+          };
+        });
       }
+      setPlaceRows(loadedRows);
+      markSavedSnapshot({
+        title: row.title ?? "",
+        description: row.description ?? "",
+        area: row.area ?? "",
+        themeTags: normalizeHashtagTags(row.theme_tags),
+        coverImageUrl: row.cover_image_url ?? "",
+        placeRows: loadedRows,
+      });
     } catch (e) {
       setLoadErr(e?.message || "불러오기 실패");
     } finally {
       setLoadingCourse(false);
     }
-  }, [courseId, user?.id]);
+  }, [courseId, user?.id, markSavedSnapshot]);
 
   useEffect(() => {
     if (authLoading) return;
     if (!user?.id) return;
     if (isNew) {
       setLoadingCourse(false);
+      markSavedSnapshot({
+        title: "",
+        description: "",
+        area: "",
+        themeTags: [],
+        coverImageUrl: "",
+        placeRows: [],
+      });
+      setTagInputValue("");
       return;
     }
     void loadCourse();
-  }, [authLoading, user?.id, isNew, loadCourse]);
+  }, [authLoading, user?.id, isNew, loadCourse, markSavedSnapshot]);
+
+  const addThemeTag = useCallback((raw) => {
+    const tag = normalizeHashtagTag(raw);
+    if (!tag) return;
+    setThemeTags((prev) => {
+      const key = tag.toLowerCase();
+      if (prev.some((t) => t.toLowerCase() === key)) return prev;
+      return [...prev, tag];
+    });
+    setTagInputValue("");
+  }, []);
+
+  const removeThemeTag = useCallback((tagToRemove) => {
+    setThemeTags((prev) => prev.filter((t) => t !== tagToRemove));
+  }, []);
+
+  const handleThemeTagKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    addThemeTag(e.currentTarget.value);
+  };
+
+  useEffect(() => {
+    if (authLoading || loadingCourse || isNew || !isImportedSnapshot || !courseId) {
+      return;
+    }
+    navigate(`/courses/${encodeURIComponent(String(courseId))}`, {
+      replace: true,
+    });
+  }, [
+    authLoading,
+    loadingCourse,
+    isNew,
+    isImportedSnapshot,
+    courseId,
+    navigate,
+  ]);
 
   const buildPlacePayload = useCallback(() => {
     const cleaned = [];
@@ -256,17 +378,18 @@ export default function StudioCourseEditor() {
     [buildPlacePayload]
   );
 
-  const statusFromVisibility = () => {
-    if (visibility === "published") {
-      return { status: "published", is_public: true };
+  const handleCancel = () => {
+    if (isDirty) {
+      if (!window.confirm("저장 내용이 있는데 취소할까요?")) return;
     }
-    if (visibility === "private") {
-      return { status: "private", is_public: false };
-    }
-    return { status: "draft", is_public: false };
+    navigate("/studio/courses");
   };
 
-  const handleSaveDraft = async () => {
+  const handleConfirm = async () => {
+    if (isImportedSnapshot) {
+      alert("스크랩한 코스는 수정할 수 없습니다.");
+      return;
+    }
     const t = String(title).trim();
     if (!t) {
       alert("코스 제목을 입력해 주세요.");
@@ -283,110 +406,47 @@ export default function StudioCourseEditor() {
       alert("유효한 장소(place_id)를 1개 이상 입력해 주세요.");
       return;
     }
-    if (visibility === "published" && payloadPlaces.length < 2) {
-      alert("공개 상태로 저장하려면 장소를 2개 이상 추가해 주세요.");
-      return;
-    }
 
     setSaving(true);
     try {
       if (!user?.id) throw new Error("로그인이 필요합니다.");
 
       let cid = courseId;
-      const tags = parseThemeTags(themeTagsInput);
+      const tags = normalizeHashtagTags(themeTags);
       const meta = {
         title: t,
         description: String(description).trim() || null,
         area: String(area).trim() || null,
         theme_tags: tags,
         cover_image_url: String(coverImageUrl).trim() || null,
-        ...statusFromVisibility(),
+      };
+      const snapshotAfterSave = {
+        title: t,
+        description,
+        area,
+        themeTags: tags,
+        coverImageUrl,
+        placeRows,
       };
 
       if (isNew || !cid) {
         const created = await createCuratorCourse({
           curator_id: user.id,
           ...meta,
-        });
-        cid = created?.id;
-        if (!cid) throw new Error("코스 생성 후 id 가 없습니다.");
-        await persistPlaces(cid);
-        navigate(`/studio/courses/${encodeURIComponent(cid)}/edit`, {
-          replace: true,
-        });
-      } else {
-        await updateCuratorCourse(cid, meta);
-        await persistPlaces(cid);
-        await loadCourse();
-      }
-      alert("저장했습니다.");
-    } catch (e) {
-      alert(e?.message || "저장에 실패했습니다.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handlePublish = async () => {
-    const t = String(title).trim();
-    if (!t) {
-      alert("코스 제목을 입력해 주세요.");
-      return;
-    }
-    let payloadPlaces;
-    try {
-      payloadPlaces = buildPlacePayload();
-    } catch (e) {
-      alert(e?.message || "장소 입력을 확인해 주세요.");
-      return;
-    }
-    if (payloadPlaces.length < 2) {
-      alert("공개하려면 장소를 2개 이상 입력해 주세요.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (!user?.id) throw new Error("로그인이 필요합니다.");
-
-      let cid = courseId;
-      if (isNew || !cid) {
-        const created = await createCuratorCourse({
-          curator_id: user.id,
-          title: t,
-          description: String(description).trim() || null,
-          area: String(area).trim() || null,
-          theme_tags: parseThemeTags(themeTagsInput),
-          cover_image_url: String(coverImageUrl).trim() || null,
           status: "draft",
           is_public: false,
         });
         cid = created?.id;
         if (!cid) throw new Error("코스 생성 후 id 가 없습니다.");
         await persistPlaces(cid);
-        navigate(`/studio/courses/${encodeURIComponent(cid)}/edit`, {
-          replace: true,
-        });
       } else {
-        await updateCuratorCourse(cid, {
-          title: t,
-          description: String(description).trim() || null,
-          area: String(area).trim() || null,
-          theme_tags: parseThemeTags(themeTagsInput),
-          cover_image_url: String(coverImageUrl).trim() || null,
-        });
+        await updateCuratorCourse(cid, meta);
         await persistPlaces(cid);
       }
-
-      await publishCuratorCourse(cid);
-      setVisibility("published");
-      alert("공개했습니다.");
-      if (!isNew) {
-        await loadCourse();
-      }
+      markSavedSnapshot(snapshotAfterSave);
+      navigate("/studio/courses");
     } catch (e) {
-      const msg = e?.message || String(e);
-      alert(msg.includes("2개") ? msg : msg || "공개에 실패했습니다.");
+      alert(e?.message || "저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -584,6 +644,26 @@ export default function StudioCourseEditor() {
     }
   };
 
+  const handleDeleteImportedCourse = async () => {
+    if (!courseId) return;
+    if (
+      !window.confirm(
+        "스크랩한 코스를 삭제할까요? 원본 코스는 그대로 남습니다."
+      )
+    ) {
+      return;
+    }
+    setImportDeleteBusy(true);
+    try {
+      await removeImportedCuratorCourse(courseId);
+      navigate("/studio/courses");
+    } catch (e) {
+      alert(e?.message || "삭제에 실패했습니다.");
+    } finally {
+      setImportDeleteBusy(false);
+    }
+  };
+
   const removeRow = (key) => {
     setPlaceRows((prev) => prev.filter((r) => r.key !== key));
   };
@@ -674,25 +754,13 @@ export default function StudioCourseEditor() {
       alert("이미지 파일만 올릴 수 있어요.");
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      alert("8MB 이하 이미지만 올려 주세요.");
+    if (file.size > 5 * 1024 * 1024) {
+      alert("5MB 이하 이미지만 올려 주세요.");
       return;
     }
     setCoverUploading(true);
     try {
-      const prepared = await prepareImageFileForUpload(file);
-      const ext = (prepared.name.split(".").pop() || "jpg").toLowerCase();
-      const filePath = `course-covers/${user.id}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage
-        .from("place-images")
-        .upload(filePath, prepared, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-      if (error) throw error;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("place-images").getPublicUrl(filePath);
+      const publicUrl = await uploadCuratorCourseCoverFile(file, user.id);
       setCoverImageUrl(publicUrl);
     } catch (err) {
       alert(err?.message || "커버 업로드에 실패했습니다.");
@@ -700,12 +768,6 @@ export default function StudioCourseEditor() {
       setCoverUploading(false);
     }
   };
-
-  const visibilityOptions = [
-    { v: "draft", label: "임시저장", hint: "나만 보기" },
-    { v: "private", label: "비공개", hint: "링크만" },
-    { v: "published", label: "공개", hint: "탐색 노출" },
-  ];
 
   const canAddMore =
     placeRows.filter((r) => UUID_RE.test(String(r.place_id || "").trim()))
@@ -777,6 +839,62 @@ export default function StudioCourseEditor() {
     );
   }
 
+  if (!isNew && isImportedSnapshot) {
+    return (
+      <div style={studioCoursesShell}>
+        <div style={{ ...studioCoursesInner, paddingTop: "24px", maxWidth: 560 }}>
+          <h1 style={studioCoursesH1}>스크랩한 코스</h1>
+          <div style={studioCoursesCard}>
+            <p style={{ ...studioCoursesHint, marginTop: 0 }}>
+              다른 사람 코스를 스크랩해 둔 복사본이에요. 읽기 전용이며 수정·공개는 할 수 없습니다.
+            </p>
+            <p
+              style={{
+                fontSize: "18px",
+                fontWeight: 800,
+                letterSpacing: "-0.03em",
+                margin: "12px 0 8px",
+              }}
+            >
+              {title || "제목 없음"}
+            </p>
+            <div style={studioCoursesRowActions}>
+              {importedFromCourseId ? (
+                <button
+                  type="button"
+                  style={studioCoursesBtnPrimary}
+                  onClick={() =>
+                    navigate(
+                      `/courses/${encodeURIComponent(importedFromCourseId)}`
+                    )
+                  }
+                >
+                  원본 코스 보기
+                </button>
+              ) : null}
+              <button
+                type="button"
+                style={studioCoursesBtnGhost}
+                onClick={() => navigate("/studio/courses")}
+                disabled={importDeleteBusy}
+              >
+                잔 코스 목록
+              </button>
+              <button
+                type="button"
+                style={studioCoursesBtnDanger}
+                disabled={importDeleteBusy}
+                onClick={() => void handleDeleteImportedCourse()}
+              >
+                {importDeleteBusy ? "삭제 중…" : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -791,7 +909,7 @@ export default function StudioCourseEditor() {
             <button
               type="button"
               style={studioCoursesBtnGhost}
-              onClick={() => navigate("/studio/courses")}
+              onClick={handleCancel}
               disabled={saving}
             >
               목록
@@ -1084,22 +1202,9 @@ export default function StudioCourseEditor() {
           ))}
         </div>
 
-        <details
-          style={{ ...studioCoursesCard, marginTop: "12px" }}
-          open={!isMobile}
-        >
-          <summary
-            style={{
-              ...studioCoursesCardTitle,
-              marginBottom: 0,
-              cursor: "pointer",
-              userSelect: "none",
-              listStyle: "none",
-            }}
-          >
-            코스 정보 (선택)
-          </summary>
-          <div style={{ marginTop: "12px" }}>
+        <div style={{ ...studioCoursesCard, marginTop: "12px" }}>
+          <div style={studioCoursesCardTitle}>코스 정보 (선택)</div>
+          <div>
             <label style={studioCoursesLabel}>설명</label>
             <textarea
               style={{
@@ -1120,11 +1225,60 @@ export default function StudioCourseEditor() {
               placeholder="예: 성수"
             />
             <label style={studioCoursesLabel}>태그</label>
+            {themeTags.length > 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  marginBottom: "8px",
+                }}
+              >
+                {themeTags.map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "4px 8px",
+                      borderRadius: "999px",
+                      backgroundColor: "rgba(52,152,219,0.18)",
+                      border: "1px solid rgba(52,152,219,0.35)",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: "rgba(255,255,255,0.92)",
+                    }}
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeThemeTag(tag)}
+                      disabled={saving}
+                      aria-label={`${tag} 태그 삭제`}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "rgba(255,255,255,0.65)",
+                        cursor: "pointer",
+                        padding: 0,
+                        lineHeight: 1,
+                        fontSize: "14px",
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <input
               style={{ ...studioCoursesInput, marginBottom: "12px" }}
-              value={themeTagsInput}
-              onChange={(e) => setThemeTagsInput(e.target.value)}
-              placeholder="데이트, 회식"
+              value={tagInputValue}
+              onChange={(e) => setTagInputValue(e.target.value)}
+              onKeyDown={handleThemeTagKeyDown}
+              placeholder="태그 입력 후 Enter"
+              enterKeyHint="done"
             />
             <label style={studioCoursesLabel}>커버 사진</label>
             <div style={{ ...studioCoursesCoverBox, marginBottom: "12px" }}>
@@ -1182,60 +1336,33 @@ export default function StudioCourseEditor() {
               <>
                 <label style={studioCoursesLabel}>커버 URL (고급)</label>
                 <input
-                  style={{ ...studioCoursesInput, marginBottom: "12px" }}
+                  style={{ ...studioCoursesInput, marginBottom: 0 }}
                   value={coverImageUrl}
                   onChange={(e) => setCoverImageUrl(e.target.value)}
                   placeholder="https://…"
                 />
               </>
             ) : null}
-            <label style={studioCoursesLabel}>공개</label>
-            <div
-              style={{ ...studioCoursesVisibilityRow, marginBottom: "4px" }}
-            >
-              {visibilityOptions.map((opt) => (
-                <button
-                  key={opt.v}
-                  type="button"
-                  style={studioCoursesVisibilityPill(visibility === opt.v)}
-                  onClick={() => setVisibility(opt.v)}
-                  disabled={saving}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>
-              {visibilityOptions.find((o) => o.v === visibility)?.hint}
-            </div>
           </div>
-        </details>
+        </div>
 
         {!isMobile ? (
           <div style={{ ...studioCoursesRowActions, marginTop: "16px" }}>
             <button
               type="button"
-              style={studioCoursesBtnPrimary}
-              onClick={handleSaveDraft}
+              style={studioCoursesBtnGhost}
+              onClick={handleCancel}
               disabled={saving}
             >
-              {saving ? "저장 중…" : "저장"}
+              취소
             </button>
             <button
               type="button"
-              style={{
-                ...studioCoursesBtnPrimary,
-                backgroundColor: "#3498DB",
-              }}
-              onClick={handlePublish}
-              disabled={saving || placeCount < 2}
-              title={
-                placeCount < 2
-                  ? "공개하려면 장소를 2개 이상 추가하세요."
-                  : ""
-              }
+              style={studioCoursesBtnPrimary}
+              onClick={() => void handleConfirm()}
+              disabled={saving}
             >
-              {saving ? "처리 중…" : "공개하기"}
+              {saving ? "저장 중…" : "확인"}
             </button>
           </div>
         ) : null}
@@ -1250,22 +1377,21 @@ export default function StudioCourseEditor() {
               ...studioCoursesBtnGhost,
               backgroundColor: "rgba(255,255,255,0.1)",
             }}
-            onClick={handleSaveDraft}
+            onClick={handleCancel}
             disabled={saving}
           >
-            {saving ? "저장 중…" : "저장"}
+            취소
           </button>
           <button
             type="button"
             style={{
               ...studioCoursesStickyBtn,
-              backgroundColor: "#3498DB",
-              color: "#fff",
+              ...studioCoursesBtnPrimary,
             }}
-            onClick={handlePublish}
-            disabled={saving || placeCount < 2}
+            onClick={() => void handleConfirm()}
+            disabled={saving}
           >
-            {saving ? "처리 중…" : "공개"}
+            {saving ? "저장 중…" : "확인"}
           </button>
         </div>
       ) : null}
