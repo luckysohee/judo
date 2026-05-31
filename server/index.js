@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
-} from "../src/utils/placeTaxonomy.js";
+} from "./utils/placeTaxonomy.js";
 
 // ES 모듈에서 __dirname 대체
 const __filename = fileURLToPath(import.meta.url);

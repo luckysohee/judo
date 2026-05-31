@@ -19,7 +19,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { taxonomyContextBlockForMl } from "../../src/utils/placeTaxonomy.js";
+import { taxonomyContextBlockForMl } from "../utils/placeTaxonomy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
