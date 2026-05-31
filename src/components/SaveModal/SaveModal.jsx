@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import { markSearchSessionBookmarked } from "../../utils/searchAnalytics";
+import { placeKeyForFeedback } from "../../utils/searchPlaceFeedback";
 import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
 import {
   selectSystemFoldersOrdered,
@@ -23,9 +25,12 @@ export default function SaveModal({
   place, 
   isOpen, 
   onClose, 
+  onDismissAll,
   onSaveComplete,
   firstSavedFrom = 'home',
   searchSessionIdRef,
+  /** 직전 검색 집계 컨텍스트 — 있으면 저장 RPC */
+  searchFeedbackContextRef = null,
   /** true: 장소 미리보기 카드 안에만 채움(전체 화면 X) */
   embeddedInPlaceCard = false,
 }) {
@@ -166,10 +171,21 @@ export default function SaveModal({
       }
 
       if (sessionId) {
+        const fb = searchFeedbackContextRef?.current;
+        const pk = placeKeyForFeedback(place);
         await markSearchSessionBookmarked({
           sessionId,
           placeId: folderRes.placeUuid ?? place.id,
           user,
+          searchPlaceFeedback:
+            fb?.normalizedQuery && pk
+              ? {
+                  normalizedQuery: fb.normalizedQuery,
+                  area: fb.area ?? null,
+                  intentTags: fb.intentTags ?? null,
+                  placeKey: pk,
+                }
+              : null,
         });
       }
 
@@ -247,7 +263,7 @@ export default function SaveModal({
     ? styles.placeCardModal
     : styles.modal;
 
-  return (
+  const modalContent = (
     <div style={shellStyle}>
       <div
         style={modalStyle}
@@ -256,19 +272,36 @@ export default function SaveModal({
         role="dialog"
         aria-modal="true"
       >
-        {/* X 버튼을 header 밖으로 이동 */}
-        <button 
-          onClick={onClose} 
-          style={{
-            ...styles.closeButton,
-            position: 'absolute',
-            top: '15px',
-            right: '15px',
-            zIndex: 1002
-          }}
-        >
-          ×
-        </button>
+        {embeddedInPlaceCard ? (
+          <>
+            <button
+              type="button"
+              onClick={onClose}
+              style={styles.backButton}
+            >
+              back
+            </button>
+            <button
+              type="button"
+              onClick={typeof onDismissAll === "function" ? onDismissAll : onClose}
+              style={styles.closeButton}
+              aria-label="닫기"
+              title="닫기"
+            >
+              ×
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={onClose}
+            style={styles.closeButton}
+            aria-label="닫기"
+            title="닫기"
+          >
+            ×
+          </button>
+        )}
         
         <div
           style={
@@ -284,7 +317,13 @@ export default function SaveModal({
           }
         >
           {/* system_folders 전체 + 새 폴더 (4열 그리드) */}
-          <div style={styles.section}>
+          <div
+            style={
+              embeddedInPlaceCard
+                ? { ...styles.section, ...styles.placeCardSection }
+                : styles.section
+            }
+          >
             <div style={styles.folderGrid2x4}>
               {folderDefs.map((folder) => {
                 const selected = selectedFolders.includes(folder.key);
@@ -388,44 +427,70 @@ export default function SaveModal({
       </div>
     </div>
   );
+
+  if (embeddedInPlaceCard && typeof document !== "undefined") {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 }
 
 const styles = {
   /** 장소 카드 내부 전용: 부모가 flex column + minHeight 0 일 것 */
   placeCardShell: {
-    flex: 1,
-    minHeight: 0,
-    width: '100%',
+    position: 'fixed',
+    inset: 0,
+    width: '100vw',
+    height: '100vh',
     display: 'flex',
     flexDirection: 'column',
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    padding: '0 0 max(0px, env(safe-area-inset-bottom, 0px))',
+    backgroundColor: 'transparent',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    overflow: 'visible',
     boxSizing: 'border-box',
+    zIndex: 13020,
+    pointerEvents: 'none',
   },
   placeCardModal: {
-    flex: 1,
-    minHeight: 0,
-    width: '100%',
+    flex: '0 0 auto',
+    minHeight: 'auto',
+    height: 'auto',
+    width: 'min(94vw, 460px)',
     display: 'flex',
     flexDirection: 'column',
     position: 'relative',
-    backgroundColor: 'transparent',
-    border: 'none',
-    boxShadow: 'none',
-    borderRadius: 0,
+    background: 'linear-gradient(180deg, rgba(20,24,34,0.66) 0%, rgba(12,16,26,0.62) 100%)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    boxShadow: '0 14px 28px rgba(0,0,0,0.28)',
+    borderRadius: '20px',
+    backdropFilter: 'blur(18px) saturate(1.15)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.15)',
     overflow: 'hidden',
+    pointerEvents: 'auto',
   },
   placeCardHeaderSpacer: {
     flexShrink: 0,
-    height: '36px',
+    height: '44px',
   },
   placeCardContent: {
-    padding: '4px 12px 10px',
+    flex: '0 0 auto',
+    minHeight: 'auto',
+    overflowY: 'visible',
+    padding: '6px 12px 8px',
     gap: '12px',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+  },
+  placeCardSection: {
+    marginTop: '2px',
   },
   placeCardFooter: {
-    padding: '10px 12px',
+    flexShrink: 0,
+    padding: '8px 12px 10px',
   },
   overlay: {
     position: 'fixed',
@@ -504,6 +569,23 @@ const styles = {
     zIndex: 1002,
     lineHeight: '1'
   },
+  backButton: {
+    position: 'absolute',
+    top: '15px',
+    left: '15px',
+    zIndex: 1002,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(238,242,255,0.9)',
+    height: '32px',
+    padding: '0 12px',
+    borderRadius: '10px',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+  },
   content: {
     padding: '20px',
     flex: 1,
@@ -535,7 +617,7 @@ const styles = {
   section: {
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
+    alignItems: 'stretch',
     width: '100%',
     gap: '10px' // 폴더들 간 간격
   },
@@ -554,9 +636,7 @@ const styles = {
     gap: '10px',
     alignItems: 'stretch',
     width: '100%',
-    maxWidth: '320px',
-    marginLeft: 'auto',
-    marginRight: 'auto',
+    maxWidth: '100%',
     justifyItems: 'stretch',
   },
   folderButton: {
@@ -603,9 +683,7 @@ const styles = {
     backgroundColor: '#1a1a1a',
     boxSizing: 'border-box',
     width: '100%',
-    maxWidth: '320px',
-    marginLeft: 'auto',
-    marginRight: 'auto',
+    maxWidth: '100%',
   },
   newFolderInputActions: {
     display: 'flex',

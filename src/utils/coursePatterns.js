@@ -47,4 +47,65 @@ export const COURSE_PATTERNS = {
       tags: ["데이트", "2차", "가볍게"],
     },
   ],
+
+  /** 1차 → 쩜오차(달달·짧게) → 2차 — `includeHalfStep` 옵션일 때만 사용 */
+  casual_3step: [
+    {
+      step: 1,
+      label: "1차",
+      stayMinutes: 110,
+      categories: ["한식", "고깃집", "식사", "육류", "고기", "포차", "술집"],
+      vibes: ["시끌벅적", "편안한"],
+      liquorTypes: ["소주", "맥주"],
+      tags: ["1차", "식사가능", "안주맛집"],
+    },
+    {
+      step: 2,
+      label: "쩜오차",
+      stayMinutes: 25,
+      categories: ["카페", "디저트"],
+      vibes: ["편안한", "분위기좋은"],
+      liquorTypes: [],
+      tags: ["아이스크림", "디저트", "달달"],
+    },
+    {
+      step: 3,
+      label: "2차",
+      stayMinutes: 80,
+      categories: ["포차", "술집", "해산물", "이자카야", "와인바", "바"],
+      vibes: ["가볍게", "분위기좋은", "편안한", "조용한"],
+      liquorTypes: [...STUDIO_LIQUOR_TYPE_OPTIONS],
+      tags: ["2차", "가볍게", "한잔", "늦게까지"],
+    },
+  ],
+
+  date_3step: [
+    {
+      step: 1,
+      label: "1차",
+      stayMinutes: 100,
+      categories: ["양식", "와인바", "이자카야", "한식", "다이닝"],
+      vibes: ["분위기좋은", "조용한", "편안한"],
+      liquorTypes: ["와인", "하이볼", "맥주", "소주"],
+      tags: ["데이트", "분위기", "식사가능"],
+    },
+    {
+      step: 2,
+      label: "쩜오차",
+      stayMinutes: 25,
+      categories: ["카페", "디저트"],
+      vibes: ["편안한", "분위기좋은", "조용한"],
+      liquorTypes: [],
+      tags: ["아이스크림", "디저트", "데이트"],
+    },
+    {
+      step: 3,
+      label: "2차",
+      stayMinutes: 70,
+      categories: ["바", "와인바", "카페", "술집", "칵테일"],
+      vibes: ["조용한", "분위기좋은", "가볍게"],
+      liquorTypes: [...STUDIO_LIQUOR_TYPE_OPTIONS],
+      tags: ["데이트", "2차", "가볍게"],
+    },
+  ],
 };

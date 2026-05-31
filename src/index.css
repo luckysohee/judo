@@ -151,7 +151,11 @@ button:focus-visible {
   100% { transform: translateX(-50%); } /* 전체 길이의 절반만큼 이동 */
 }
 
-/* 스크롤바 숨기기용 */
+/* 스크롤바 숨기기용 (인라인 스타일에 pseudo 선택자 못 쓸 때 class로 연결) */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }

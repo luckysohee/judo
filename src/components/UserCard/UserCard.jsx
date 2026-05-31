@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from '../../lib/supabase';
 import { uploadUserProfileAvatarFile } from "../../utils/curatorPlacePhotos";
 import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
@@ -12,6 +19,15 @@ import {
   selectSystemFoldersOrdered,
 } from "../../utils/systemFoldersSupabase";
 import { useAuth } from "../../context/AuthContext";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
+import { fetchUserPickedPlaces } from "../../api/placePicks";
+import { fetchUserHanjanHistory } from "../../api/userHanjan";
+import PlacePickButton from "../PlacePick/PlacePickButton";
+import {
+  fetchStudioFollowingEnriched,
+  fetchStudioFollowersEnriched,
+} from "../../utils/studioFollowersFetch";
+import { unfollowUser } from "../../utils/userProfileFollows";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -41,22 +57,22 @@ document.head.appendChild(style);
  */
 const userCardGlass = {
   overlay: {
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    backgroundColor: "rgba(0, 0, 0, 0.38)",
   },
   sheet: {
     background:
-      "linear-gradient(175deg, rgba(52,54,68,0.96) 0%, rgba(22,24,32,0.98) 32%, rgba(6,7,11,0.99) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.14)",
+      "linear-gradient(175deg, rgba(74,76,92,0.94) 0%, rgba(38,40,52,0.95) 34%, rgba(16,17,24,0.96) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.2)",
     boxShadow:
-      "0 -18px 56px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+      "0 -16px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.35)",
   },
   hairline: {
     borderColor: "rgba(255, 255, 255, 0.1)",
   },
   panel: {
     background:
-      "linear-gradient(150deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 50%, rgba(0,0,0,0.2) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.11)",
+      "linear-gradient(150deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.08) 54%, rgba(0,0,0,0.14) 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
     boxShadow:
       "inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.3)",
   },
@@ -246,6 +262,32 @@ function getSavedPlaceDisplayFields(item) {
   };
 }
 
+/** `PlacePickButton` / `resolvePlaceUuidForPick` — 저장 행·드래프트 행 */
+function savedItemToPickPlace(item) {
+  if (!item || typeof item !== "object") return {};
+  const pl = item.places;
+  if (pl && typeof pl === "object") {
+    return {
+      ...pl,
+      id: pl.id ?? item.place_id,
+      kakao_place_id: pl.kakao_place_id ?? item.kakao_place_id,
+    };
+  }
+  const inner = item.place;
+  if (inner && typeof inner === "object") {
+    return {
+      ...inner,
+      id: inner.id ?? item.place_id,
+      kakao_place_id: inner.kakao_place_id ?? item.kakao_place_id,
+    };
+  }
+  return {
+    id: item.place_id,
+    kakao_place_id: item.kakao_place_id,
+    name: item.place?.name,
+  };
+}
+
 /** curators 행: Studio·DB와 동일하게 avatar_url → avatar → image */
 function curatorProfileImageUrl(curator) {
   if (!curator || typeof curator !== "object") return "";
@@ -326,11 +368,38 @@ const UserCard = ({
   adminEmbedBanner = null,
   adminTallSheet = false,
   layerZIndex = 1000,
+  /**
+   * 생략 시: 인증 완료 후 `sessionUser.id === user.id` 로 본인 판별.
+   * 타인 프로필 시트는 `false` 명시 권장(세션 로딩 중 저장 탭 노출 방지).
+   */
+  isOwnProfile: explicitIsOwnProfile = null,
 }) => {
-  const { user: sessionUser } = useAuth();
+  const navigate = useNavigate();
+  const { user: sessionUser, loading: authLoading } = useAuth();
+
+  const showSavedFoldersTab = useMemo(() => {
+    if (embeddedSavedRows != null && Array.isArray(embeddedSavedRows)) {
+      return true;
+    }
+    if (explicitIsOwnProfile === false) return false;
+    if (explicitIsOwnProfile === true) return true;
+    if (!user?.id) return false;
+    if (authLoading) return false;
+    return Boolean(sessionUser?.id && sessionUser.id === user.id);
+  }, [
+    embeddedSavedRows,
+    explicitIsOwnProfile,
+    user?.id,
+    sessionUser?.id,
+    authLoading,
+  ]);
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
+  const [pickedPlaces, setPickedPlaces] = useState([]);
+  const [hanjanRows, setHanjanRows] = useState([]);
   const [followingCurators, setFollowingCurators] = useState([]);
+  /** 나를 팔로우한 사람 (studio_follower_previews_* 행) */
+  const [followerPreviews, setFollowerPreviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -529,10 +598,25 @@ const UserCard = ({
   }, [isVisible, attachSwipeDownClose, attachHandlePull]);
 
   useEffect(() => {
-    if (hideFollowingTab && activeTab === "following") {
-      setActiveTab("saved");
+    if (
+      hideFollowingTab &&
+      (activeTab === "following" || activeTab === "followers")
+    ) {
+      setActiveTab(showSavedFoldersTab ? "saved" : "picked");
     }
-  }, [hideFollowingTab, activeTab]);
+  }, [hideFollowingTab, activeTab, showSavedFoldersTab]);
+
+  useEffect(() => {
+    if (!showSavedFoldersTab && activeTab === "saved") {
+      setActiveTab("picked");
+    }
+  }, [showSavedFoldersTab, activeTab]);
+
+  useEffect(() => {
+    if (!showSavedFoldersTab) {
+      setSelectedFolder(null);
+    }
+  }, [showSavedFoldersTab]);
 
   useEffect(() => {
     console.log('🔄 UserCard useEffect 호출:', { isVisible, user });
@@ -540,7 +624,13 @@ const UserCard = ({
       console.log('✅ loadUserData 시작');
       loadUserData();
     }
-  }, [isVisible, user, embeddedSavedRows, embeddedFollowingCurators]);
+  }, [
+    isVisible,
+    user,
+    embeddedSavedRows,
+    embeddedFollowingCurators,
+    showSavedFoldersTab,
+  ]);
 
   useEffect(() => {
     if (!isVisible) {
@@ -587,6 +677,9 @@ const UserCard = ({
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setSelectedFolder(null);
+    if (tab !== "following" && tab !== "followers") {
+      setShowSearch(false);
+    }
   };
 
   // 폴더 클릭 핸들러
@@ -623,7 +716,8 @@ const UserCard = ({
       // localStorage 데이터인지 Supabase 데이터인지 확인
       if (placeItem.isKakaoPlace || placeItem.isDbPlace || placeItem.id?.startsWith('kakao_') || placeItem.id?.startsWith('local_')) {
         // localStorage 데이터 삭제
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const draftOwnerId = sessionUser?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         let updatedDrafts;
         
         if (placeItem.id?.startsWith('kakao_')) {
@@ -639,7 +733,7 @@ const UserCard = ({
           );
         }
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
         console.log("✅ localStorage 장소 삭제 완료:", delName);
       } else if (placeItem.id && !placeItem.id.startsWith('kakao_') && !placeItem.id.startsWith('local_')) {
         // Supabase 데이터 삭제 (UUID 형식인 경우만)
@@ -730,7 +824,8 @@ const UserCard = ({
       // localStorage 데이터인지 Supabase 데이터인지 확인
       if (editingPlace.isKakaoPlace || editingPlace.isDbPlace) {
         // localStorage 데이터 수정
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const draftOwnerId = sessionUser?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         const updatedDrafts = existingDrafts.map(draft => {
           if (draft.id === editingPlace.id || 
               (editingPlace.isKakaoPlace && draft.kakao_place_id === editingPlace.id.replace('kakao_', '')) ||
@@ -741,7 +836,7 @@ const UserCard = ({
           return draft;
         });
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
         console.log(
           "✅ localStorage 폴더 수정 완료:",
           getSavedPlaceDisplayFields(editingPlace).name
@@ -815,50 +910,109 @@ const UserCard = ({
     });
   };
 
+  const getFilteredFollowers = () => {
+    if (!searchQuery.trim()) return followerPreviews;
+    const q = searchQuery.toLowerCase();
+    return followerPreviews.filter((f) => {
+      const a = (f.primaryText || "").toLowerCase();
+      const b = (f.secondaryText || "").toLowerCase();
+      const c = (f.label || "").toLowerCase();
+      return a.includes(q) || b.includes(q) || c.includes(q);
+    });
+  };
+
   // 큐레이터 프로필 불러오기
   const loadCuratorProfile = async (curator) => {
     try {
-      // 큐레이터 상세 정보 불러오기
-      const { data: curatorData, error: curatorError } = await supabase
-        .from('curators')
-        .select('*')
-        .eq('username', curator.username)
-        .single();
-
-      if (curatorError) {
-        console.error('큐레이터 정보 로드 오류:', curatorError);
+      if (curator && curator.isCurator === false) {
         return;
       }
+      const rawHandle = String(
+        curator?.slug || curator?.username || ""
+      ).replace(/^@+/, "").trim();
+      const rawUserId = String(
+        curator?.user_id || curator?.following_user_id || curator?.id || ""
+      ).trim();
+      if (!rawHandle && !rawUserId) return;
+
+      // 큐레이터 상세 정보 불러오기 (핸들 → user_id 순으로 폴백)
+      let curatorData = null;
+      if (rawHandle) {
+        const { data, error } = await supabase
+          .from("curators")
+          .select("*")
+          .or(`slug.eq.${rawHandle},username.eq.${rawHandle}`)
+          .maybeSingle();
+        if (error) {
+          console.error("큐레이터 정보 로드 오류(핸들):", error);
+        } else {
+          curatorData = data || null;
+        }
+      }
+      if (!curatorData && rawUserId) {
+        const { data, error } = await supabase
+          .from("curators")
+          .select("*")
+          .eq("user_id", rawUserId)
+          .maybeSingle();
+        if (error) {
+          console.error("큐레이터 정보 로드 오류(user_id):", error);
+        } else {
+          curatorData = data || null;
+        }
+      }
+      if (!curatorData) return;
 
       // user_saved_places.user_id 는 일반적으로 auth.uid() (= curators.user_id). curators.id(PK)와 다름.
       const curatorAuthId = curatorData.user_id ?? curatorData.id;
-      const { data: savedPlaces, error: placesError } = await supabase
-        .from('user_saved_places')
-        .select(`
+      const [{ data: savedPlaces, error: placesError }, { count: followerCount }, { count: placeCount }, { count: saveCount }] =
+        await Promise.all([
+          supabase
+            .from("user_saved_places")
+            .select(`
           *,
           places (*)
         `)
-        .eq('user_id', curatorAuthId)
-        .order('created_at', { ascending: false })
-        .limit(20);
+            .eq("user_id", curatorAuthId)
+            .order("created_at", { ascending: false })
+            .limit(20),
+          supabase
+            .from("user_profile_follows")
+            .select("*", { count: "exact", head: true })
+            .eq("following_id", curatorAuthId),
+          supabase
+            .from("curator_places")
+            .select("*", { count: "exact", head: true })
+            .eq("curator_id", curatorAuthId),
+          supabase
+            .from("user_saved_places")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", curatorAuthId),
+        ]);
 
       if (placesError) {
-        console.error('큐레이터 저장 장소 로드 오류:', placesError);
+        console.error("큐레이터 저장 장소 로드 오류:", placesError);
       }
-
-      // 큐레이터의 팔로워 수 불러오기
-      const { count: followerCount, error: followerError } = await supabase
-        .from('user_follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('curator_id', curatorData.id);
 
       setSelectedCurator({
         ...curatorData,
+        username: String(
+          curatorData.slug || curatorData.username || rawHandle || ""
+        ).trim(),
+        display_name: String(
+          curatorData.name ||
+            curatorData.display_name ||
+            curatorData.username ||
+            rawHandle ||
+            "큐레이터"
+        ).trim(),
         savedPlaces: savedPlaces || [],
+        placeCount: Number(placeCount) || 0,
         stats: {
           ...curatorData.stats,
-          followerCount: followerCount || 0
-        }
+          followerCount: Number(followerCount) || 0,
+          saveCount: Number(saveCount) || 0,
+        },
       });
 
     } catch (error) {
@@ -866,24 +1020,52 @@ const UserCard = ({
     }
   };
 
+  const openFollowerPreview = (f) => {
+    if (embeddedAdminReadOnly) return;
+    const handle = String(f.secondaryText || "")
+      .replace(/^@/, "")
+      .trim();
+    if (f.isCurator && handle) {
+      loadCuratorProfile({ username: handle, isCurator: true });
+    } else if (f.user_id) {
+      navigate(`/u/${f.user_id}`);
+    }
+  };
+
   const loadUserData = async () => {
+    let picksHanjanPromise = Promise.resolve([[], []]);
     try {
       console.log('🚀 loadUserData 함수 시작');
       setLoading(true);
 
+      picksHanjanPromise =
+        user?.id != null
+          ? Promise.all([
+              fetchUserPickedPlaces(user.id, { limit: 150 }).catch((err) => {
+                console.warn("UserCard fetchUserPickedPlaces:", err);
+                return [];
+              }),
+              fetchUserHanjanHistory(user.id, { limit: 80 }).catch((err) => {
+                console.warn("UserCard fetchUserHanjanHistory:", err);
+                return [];
+              }),
+            ])
+          : Promise.resolve([[], []]);
+
       const useEmbedded =
         embeddedSavedRows != null && Array.isArray(embeddedSavedRows);
 
-      let savedData = null;
-      let savedError = null;
+      if (showSavedFoldersTab) {
+        let savedData = null;
+        let savedError = null;
 
-      if (useEmbedded) {
-        savedData = embeddedSavedRows;
-      } else {
-        const res = await supabase
-          .from("user_saved_places")
-          .select(
-            `
+        if (useEmbedded) {
+          savedData = embeddedSavedRows;
+        } else {
+          const res = await supabase
+            .from("user_saved_places")
+            .select(
+              `
           *,
           places (*), 
           user_saved_place_folders (
@@ -895,212 +1077,190 @@ const UserCard = ({
             )
           )
         `
-          )
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        savedData = res.data;
-        savedError = res.error;
-      }
-
-      console.log("UserCard - savedData:", savedData);
-      console.log("UserCard - savedError:", savedError);
-
-      const localStorageDrafts = useEmbedded
-        ? []
-        : JSON.parse(localStorage.getItem("studio_drafts") || "[]");
-      console.log('🗂️ UserCard - localStorage 데이터:', localStorageDrafts);
-      
-      let folderDefsForGrid = UCARD_DRAFT_FOLDER_ROWS.map((f, i) => ({
-        key: f.key,
-        name: f.name,
-        color: f.color,
-        icon: f.icon,
-        sort_order: i + 1,
-      }));
-
-      if (!useEmbedded) {
-        const { data: sfRows, error: sfErr } =
-          await selectSystemFoldersOrdered(supabase, sessionUser?.id ?? null);
-        if (!sfErr && sfRows?.length) {
-          folderDefsForGrid = sfRows;
+            )
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(50);
+          savedData = res.data;
+          savedError = res.error;
         }
-      }
 
-      const groupedByFolder = {};
-      folderDefsForGrid.forEach((folder) => {
-        groupedByFolder[folder.key] = {
-          folderInfo: {
-            key: folder.key,
-            name: folder.name,
-            color: folder.color,
-            icon: folder.icon,
-          },
-          places: [],
-        };
-      });
+        console.log("UserCard - savedData:", savedData);
+        console.log("UserCard - savedError:", savedError);
 
-      // localStorage 데이터 처리
-      localStorageDrafts.forEach(draft => {
-        const folders = draft.folders || [];
-        folders.forEach(folderName => {
-          const folderKey = UCARD_DRAFT_FOLDER_ROWS.find(
-            (f) => f.name === folderName
-          )?.key;
-          if (folderKey && groupedByFolder[folderKey]) {
-            // localStorage 데이터를 Supabase 형식으로 변환
-            const placeData = {
-              id: draft.id || `local_${draft.kakao_place_id || draft.place_name}_${Date.now()}`,
-              place: {
-                name: draft.place_name,
-                address: draft.address,
-                category: draft.category,
-                lat: draft.lat,
-                lng: draft.lng
-              },
-              created_at: draft.created_at,
-              isKakaoPlace: draft.isKakaoPlace || false,
-              isDbPlace: draft.isDbPlace || false,
-              kakao_place_id: draft.kakao_place_id // 추가 정보 저장
-            };
-            groupedByFolder[folderKey].places.push(placeData);
-            console.log(`✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`);
+        const localStorageDrafts = useEmbedded
+          ? []
+          : readStudioDrafts(sessionUser?.id ?? null);
+        console.log("🗂️ UserCard - localStorage 데이터:", localStorageDrafts);
+
+        let folderDefsForGrid = UCARD_DRAFT_FOLDER_ROWS.map((f, i) => ({
+          key: f.key,
+          name: f.name,
+          color: f.color,
+          icon: f.icon,
+          sort_order: i + 1,
+        }));
+
+        if (!useEmbedded) {
+          const { data: sfRows, error: sfErr } =
+            await selectSystemFoldersOrdered(supabase, sessionUser?.id ?? null);
+          if (!sfErr && sfRows?.length) {
+            folderDefsForGrid = sfRows;
           }
-        });
-      });
+        }
 
-      if (savedError) {
-        console.error('저장된 장소 로드 오류:', savedError);
-      } else if (savedData && savedData.length > 0) {
-        savedData.forEach((saved) => {
-          if (
-            saved.user_saved_place_folders &&
-            saved.user_saved_place_folders.length > 0
-          ) {
-            saved.user_saved_place_folders.forEach((folder) => {
-              const folderKey = folder.folder_key;
-              const sf = folder.system_folders;
-              if (!groupedByFolder[folderKey]) {
-                groupedByFolder[folderKey] = {
-                  folderInfo: {
-                    key: folderKey,
-                    name: sf?.name || folderKey,
-                    color: sf?.color || "#3498DB",
-                    icon: sf?.icon || "📁",
-                  },
-                  places: [],
-                };
-              }
-              groupedByFolder[folderKey].places.push(saved);
-            });
-          }
+        const groupedByFolder = {};
+        folderDefsForGrid.forEach((folder) => {
+          groupedByFolder[folder.key] = {
+            folderInfo: {
+              key: folder.key,
+              name: folder.name,
+              color: folder.color,
+              icon: folder.icon,
+            },
+            places: [],
+          };
         });
-      }
 
-      console.log('UserCard - 그룹화된 데이터:', groupedByFolder);
-      
-      // 각 폴더별 장소 수 확인
-      Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
-        console.log(
-          `📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`,
-          folderData.places.map((p) => getSavedPlaceDisplayFields(p).name)
+        localStorageDrafts.forEach((draft) => {
+          const folders = draft.folders || [];
+          folders.forEach((folderName) => {
+            const folderKey = UCARD_DRAFT_FOLDER_ROWS.find(
+              (f) => f.name === folderName
+            )?.key;
+            if (folderKey && groupedByFolder[folderKey]) {
+              const placeData = {
+                id:
+                  draft.id ||
+                  `local_${draft.kakao_place_id || draft.place_name}_${Date.now()}`,
+                place: {
+                  name: draft.place_name,
+                  address: draft.address,
+                  category: draft.category,
+                  lat: draft.lat,
+                  lng: draft.lng,
+                },
+                created_at: draft.created_at,
+                isKakaoPlace: draft.isKakaoPlace || false,
+                isDbPlace: draft.isDbPlace || false,
+                kakao_place_id: draft.kakao_place_id,
+              };
+              groupedByFolder[folderKey].places.push(placeData);
+              console.log(
+                `✅ localStorage 장소 추가: ${folderName} 폴더에 ${draft.place_name}`
+              );
+            }
+          });
+        });
+
+        if (savedError) {
+          console.error("저장된 장소 로드 오류:", savedError);
+        } else if (savedData && savedData.length > 0) {
+          savedData.forEach((saved) => {
+            if (
+              saved.user_saved_place_folders &&
+              saved.user_saved_place_folders.length > 0
+            ) {
+              saved.user_saved_place_folders.forEach((folder) => {
+                const folderKey = folder.folder_key;
+                const sf = folder.system_folders;
+                if (!groupedByFolder[folderKey]) {
+                  groupedByFolder[folderKey] = {
+                    folderInfo: {
+                      key: folderKey,
+                      name: sf?.name || folderKey,
+                      color: sf?.color || "#3498DB",
+                      icon: sf?.icon || "📁",
+                    },
+                    places: [],
+                  };
+                }
+                groupedByFolder[folderKey].places.push(saved);
+              });
+            }
+          });
+        }
+
+        console.log("UserCard - 그룹화된 데이터:", groupedByFolder);
+
+        Object.entries(groupedByFolder).forEach(([folderKey, folderData]) => {
+          console.log(
+            `📁 ${folderData.folderInfo?.name}: ${folderData.places.length}개 장소`,
+            folderData.places.map((p) => getSavedPlaceDisplayFields(p).name)
+          );
+        });
+
+        const totalPlaces = Object.values(groupedByFolder).reduce(
+          (sum, folder) => sum + folder.places.length,
+          0
         );
-      });
-      
-      // 전체 장소 수 확인
-      const totalPlaces = Object.values(groupedByFolder).reduce((sum, folder) => sum + folder.places.length, 0);
-      console.log(`📊 전체 장소 수: ${totalPlaces}개 (localStorage: ${localStorageDrafts.length}개, Supabase: ${savedData?.length || 0}개)`);
-      
-      setSavedPlaces(groupedByFolder);
+        console.log(
+          `📊 전체 장소 수: ${totalPlaces}개 (localStorage: ${localStorageDrafts.length}개, Supabase: ${savedData?.length || 0}개)`
+        );
+
+        setSavedPlaces(groupedByFolder);
+      } else {
+        setSavedPlaces({});
+      }
 
       if (hideFollowingTab) {
         setFollowingCurators([]);
+        setFollowerPreviews([]);
       } else if (useEmbedded) {
         setFollowingCurators(
           Array.isArray(embeddedFollowingCurators)
             ? embeddedFollowingCurators
             : []
         );
+        setFollowerPreviews([]);
       } else {
-      const { data: followingData, error: followingError } = await supabase
-        .from('user_follows')
-        .select('*')
-        .eq('user_id', user.id);
-
-      console.log("🔍 UserCard - 팔로우 데이터:", followingData);
-      console.log("🔍 UserCard - 현재 user.id:", user.id);
-
-      if (followingError) {
-        console.error('팔로우 큐레이터 로드 오류:', followingError);
-        setFollowingCurators([]);
-      } else if (followingData && followingData.length > 0) {
-        // 각 curator_id에 해당하는 큐레이터 정보 가져오기
-        const curatorIds = followingData.map(f => f.curator_id).filter(Boolean);
-        
-        if (curatorIds.length > 0) {
-          // UUID와 문자열을 분리
-          const uuidIds = curatorIds.filter(id => id.includes('-'));
-          const stringIds = curatorIds.filter(id => !id.includes('-'));
-          
-          let curatorData = [];
-          
-          // UUID 기반 조회
-          if (uuidIds.length > 0) {
-            const { data: uuidData, error: uuidError } = await supabase
-              .from('curators')
-              .select('*')
-              .in('id', uuidIds);
-            
-            if (!uuidError && uuidData) {
-              curatorData = [...curatorData, ...uuidData];
-            } else if (uuidError) {
-              console.error('UUID 큐레이터 정보 로드 오류:', uuidError);
-            }
-          }
-          
-          // 문자열(username) 기반 조회
-          if (stringIds.length > 0) {
-            const { data: stringData, error: stringError } = await supabase
-              .from('curators')
-              .select('*')
-              .or(`username.in.(${stringIds.map(id => `'${id}'`).join(',')}),slug.in.(${stringIds.map(id => `'${id}'`).join(',')})`);
-            
-            if (!stringError && stringData) {
-              curatorData = [...curatorData, ...stringData];
-            } else if (stringError) {
-              console.error('문자열 큐레이터 정보 로드 오류:', stringError);
-            }
-          }
-          
-          // 팔로우 데이터와 큐레이터 정보 결합
-          const enrichedData = followingData.map(follow => {
-            const curator = uuidIds.includes(follow.curator_id)
-              ? curatorData.find(c => c.id === follow.curator_id)
-              : curatorData.find(c => c.username === follow.curator_id) || 
-                curatorData.find(c => c.slug === follow.curator_id);
-            
-            console.log("🔍 큐레이터 매칭:", {
-              follow_curator_id: follow.curator_id,
-              found_curator: curator,
-              curator_username: curator?.username,
-              curator_slug: curator?.slug
-            });
-            
-            return curator || follow;
-          });
-          
-          setFollowingCurators(enrichedData);
-        } else {
-          setFollowingCurators(followingData);
-        }
-      } else {
-        setFollowingCurators([]);
-      }
+        const [rows, followersRaw] = await Promise.all([
+          fetchStudioFollowingEnriched(supabase, user.id),
+          fetchStudioFollowersEnriched(supabase, user.id, {
+            byFollowingUserId: user.id,
+          }),
+        ]);
+        setFollowerPreviews(
+          Array.isArray(followersRaw) ? followersRaw : []
+        );
+        const mapped = (rows || []).map((r) => {
+          const uid = r.following_user_id || r.user_id;
+          const handleFromSecondary = r.secondaryText
+            ? String(r.secondaryText).replace(/^@/, "")
+            : "";
+          const handle =
+            handleFromSecondary ||
+            (typeof r.label === "string" && r.label.startsWith("@")
+              ? r.label.slice(1)
+              : "user");
+          return {
+            id: uid,
+            user_id: uid,
+            following_user_id: uid,
+            username: handle,
+            display_name: r.primaryText,
+            displayName: r.primaryText,
+            bio: r.isCurator ? null : "사용자",
+            avatar_url: r.avatarUrl,
+            isCurator: Boolean(r.isCurator),
+            stats: { saveCount: 0, followerCount: 0 },
+          };
+        });
+        setFollowingCurators(mapped);
       }
 
     } catch (error) {
       console.error('사용자 데이터 로드 오류:', error);
     } finally {
+      try {
+        const [pickedRows, hanjan] = await picksHanjanPromise;
+        setPickedPlaces(Array.isArray(pickedRows) ? pickedRows : []);
+        setHanjanRows(Array.isArray(hanjan) ? hanjan : []);
+      } catch (e) {
+        console.warn("UserCard picks/hanjan:", e);
+        setPickedPlaces([]);
+        setHanjanRows([]);
+      }
       setLoading(false);
     }
   };
@@ -1216,22 +1376,18 @@ const UserCard = ({
     }
   };
 
-  const handleUnfollow = async (curatorId) => {
+  const handleUnfollow = async (followingUserId) => {
     try {
-      const { error } = await supabase
-        .from('user_follows')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('curator_id', curatorId);
-
-      if (error) {
-        console.error('언팔로우 오류:', error);
-        alert('언팔로우에 실패했습니다.');
-      } else {
-        setFollowingCurators(prev => prev.filter(c => c.id !== curatorId));
-      }
+      await unfollowUser(supabase, followingUserId);
+      setFollowingCurators((prev) =>
+        prev.filter(
+          (c) =>
+            (c.following_user_id || c.user_id || c.id) !== followingUserId
+        )
+      );
     } catch (error) {
-      console.error('언팔로우 처리 오류:', error);
+      console.error("remove 처리 오류:", error);
+      alert(error?.message || "remove에 실패했습니다.");
     }
   };
 
@@ -1460,7 +1616,8 @@ const UserCard = ({
                 width: '40px',
                 height: '40px',
                 borderRadius: '50%',
-                background: 'linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))',
+                background:
+                  "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1468,7 +1625,8 @@ const UserCard = ({
                 color: 'white',
                 overflow: 'hidden',
                 flexShrink: 0,
-                boxShadow: '0 2px 10px rgba(52, 152, 219, 0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
+                boxShadow:
+                  "0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.22)",
                 border: '1px solid rgba(255, 255, 255, 0.25)',
               }}>
                 {cardAvatarUrl ? (
@@ -1485,7 +1643,7 @@ const UserCard = ({
                 <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardNick || cardHandle || "사용자"}
                 </div>
-                <div style={{ fontSize: '12px', color: '#3498DB', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.68)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardHandle ? `@${cardHandle}` : "핸들 미설정 · 아래에서 추가"}
                 </div>
                 {user.user_metadata?.bio && (
@@ -1539,7 +1697,7 @@ const UserCard = ({
                   padding: "8px 10px",
                   borderRadius: "10px",
                   border: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  background: "rgba(52, 152, 219, 0.2)",
+                  background: "rgba(255, 255, 255, 0.1)",
                   color: "#fff",
                   fontSize: "12px",
                   fontWeight: 700,
@@ -1570,7 +1728,7 @@ const UserCard = ({
                           overflow: "hidden",
                           flexShrink: 0,
                           background:
-                            "linear-gradient(145deg, rgba(52, 152, 219, 0.95), rgba(41, 128, 185, 0.75))",
+                            "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -1791,7 +1949,7 @@ const UserCard = ({
             </div>
           ) : null}
 
-          {/* 탭 버튼 */}
+          {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → picked / pick */}
           <div
             style={{
               display: "flex",
@@ -1802,86 +1960,205 @@ const UserCard = ({
           >
             <button
               type="button"
-              onClick={() => handleTabChange("saved")}
+              onClick={() => handleTabChange("picked")}
               style={{
                 flex: 1,
-                padding: "9px 8px",
+                minWidth: 0,
+                padding: "9px 4px",
                 background:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
                     : "transparent",
                 color:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "white"
                     : "rgba(255, 255, 255, 0.55)",
                 border: "none",
-                fontSize: "12px",
+                fontSize: "11px",
                 fontWeight: "600",
                 cursor: "pointer",
                 transition: "all 0.2s ease",
                 boxShadow:
-                  activeTab === "saved"
+                  activeTab === "picked"
                     ? "inset 0 1px 0 rgba(255,255,255,0.2)"
                     : "none",
               }}
             >
-              ❤️ 내 저장 ({getTotalPlacesCount()})
+              픽한 가게 ({pickedPlaces.length})
             </button>
-            {hideFollowingTab ? null : (
+            <button
+              type="button"
+              onClick={() => handleTabChange("hanjan")}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: "9px 4px",
+                background:
+                  activeTab === "hanjan"
+                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                    : "transparent",
+                color:
+                  activeTab === "hanjan"
+                    ? "white"
+                    : "rgba(255, 255, 255, 0.55)",
+                border: "none",
+                borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                fontSize: "11px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow:
+                  activeTab === "hanjan"
+                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                    : "none",
+              }}
+            >
+              한잔함 ({hanjanRows.length})
+            </button>
+            {showSavedFoldersTab ? (
               <button
                 type="button"
-                onClick={() => handleTabChange("following")}
+                onClick={() => handleTabChange("saved")}
                 style={{
                   flex: 1,
-                  padding: "9px 8px",
+                  minWidth: 0,
+                  padding: "9px 4px",
                   background:
-                    activeTab === "following"
+                    activeTab === "saved"
                       ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
                       : "transparent",
                   color:
-                    activeTab === "following"
+                    activeTab === "saved"
                       ? "white"
                       : "rgba(255, 255, 255, 0.55)",
                   border: "none",
                   borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  fontSize: "12px",
+                  fontSize: "11px",
                   fontWeight: "600",
                   cursor: "pointer",
                   transition: "all 0.2s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "4px",
                   boxShadow:
-                    activeTab === "following"
+                    activeTab === "saved"
                       ? "inset 0 1px 0 rgba(255,255,255,0.2)"
                       : "none",
                 }}
               >
-                🤝 팔로우 큐레이터 ({followingCurators.length})
-                {activeTab === "following" && !embeddedAdminReadOnly && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowSearch(!showSearch);
-                    }}
-                    style={{
-                      backgroundColor: showSearch
-                        ? "rgba(255, 255, 255, 0.3)"
-                        : "rgba(255, 255, 255, 0.2)",
-                      border: "1px solid rgba(255, 255, 255, 0.3)",
-                      color: "white",
-                      borderRadius: "4px",
-                      padding: "2px 6px",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
-                    }}
-                  >
-                    🔍
-                  </div>
-                )}
+                저장 폴더 ({getTotalPlacesCount()})
               </button>
+            ) : null}
+            {hideFollowingTab ? null : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange("followers")}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "9px 4px",
+                    background:
+                      activeTab === "followers"
+                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                        : "transparent",
+                    color:
+                      activeTab === "followers"
+                        ? "white"
+                        : "rgba(255, 255, 255, 0.55)",
+                    border: "none",
+                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "4px",
+                    boxShadow:
+                      activeTab === "followers"
+                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                        : "none",
+                  }}
+                >
+                  picked ({followerPreviews.length})
+                  {activeTab === "followers" && !embeddedAdminReadOnly && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSearch(!showSearch);
+                      }}
+                      style={{
+                        backgroundColor: showSearch
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : "rgba(255, 255, 255, 0.2)",
+                        border: "1px solid rgba(255, 255, 255, 0.3)",
+                        color: "white",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                      }}
+                    >
+                      🔍
+                    </div>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange("following")}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "9px 4px",
+                    background:
+                      activeTab === "following"
+                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
+                        : "transparent",
+                    color:
+                      activeTab === "following"
+                        ? "white"
+                        : "rgba(255, 255, 255, 0.55)",
+                    border: "none",
+                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "4px",
+                    boxShadow:
+                      activeTab === "following"
+                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
+                        : "none",
+                  }}
+                >
+                  pick ({followingCurators.length})
+                  {activeTab === "following" && !embeddedAdminReadOnly && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSearch(!showSearch);
+                      }}
+                      style={{
+                        backgroundColor: showSearch
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : "rgba(255, 255, 255, 0.2)",
+                        border: "1px solid rgba(255, 255, 255, 0.3)",
+                        color: "white",
+                        borderRadius: "4px",
+                        padding: "2px 6px",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                      }}
+                    >
+                      🔍
+                    </div>
+                  )}
+                </button>
+              </>
             )}
           </div>
             </div>
@@ -1942,8 +2219,149 @@ const UserCard = ({
               <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                 로딩 중...
               </div>
+            ) : activeTab === "picked" ? (
+              pickedPlaces.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "14px", color: "#999", fontSize: "13px" }}>
+                  아직 픽한 가게가 없어요.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {pickedPlaces.map((row) => {
+                    const { name: placeName, address: placeAddress } =
+                      getSavedPlaceDisplayFields({ places: row.places });
+                    return (
+                      <div
+                        key={row.id}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: "10px",
+                          ...userCardGlass.panel,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                color: "white",
+                                fontSize: "13px",
+                                fontWeight: "bold",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {placeName}
+                            </div>
+                            {placeAddress ? (
+                              <div
+                                style={{
+                                  color: "#999",
+                                  fontSize: "11px",
+                                  marginTop: "2px",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {placeAddress}
+                              </div>
+                            ) : null}
+                            {row.is_curator ? (
+                              <div
+                                style={{
+                                  marginTop: "4px",
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  color: "#f9a8d4",
+                                }}
+                              >
+                                큐레이터 픽
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : activeTab === "hanjan" ? (
+              hanjanRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "14px", color: "#999", fontSize: "13px" }}>
+                  한잔 기록이 없어요.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {hanjanRows.map((row) => (
+                    <div
+                      key={row.id}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "10px",
+                        ...userCardGlass.panel,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: "white",
+                          fontSize: "13px",
+                          fontWeight: "bold",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {row.place_name || "이름 없음"}
+                      </div>
+                      {row.place_address ? (
+                        <div
+                          style={{
+                            color: "#999",
+                            fontSize: "11px",
+                            marginTop: "2px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {row.place_address}
+                        </div>
+                      ) : null}
+                      <div
+                        style={{
+                          color: "#777",
+                          fontSize: "10px",
+                          marginTop: "4px",
+                        }}
+                      >
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString("ko-KR")
+                          : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
             ) : activeTab === 'saved' ? (
-              Object.keys(savedPlaces).length === 0 ? (
+              !showSavedFoldersTab ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "14px",
+                    color: "#999",
+                    fontSize: "13px",
+                  }}
+                >
+                  저장 폴더는 프로필 주인만 볼 수 있어요.
+                </div>
+              ) : Object.keys(savedPlaces).length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
                   아직 저장한 장소가 없습니다.
                 </div>
@@ -2010,6 +2428,11 @@ const UserCard = ({
                                 ) : null}
                               </div>
                               {!embeddedAdminReadOnly ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                <PlacePickButton
+                                  place={savedItemToPickPlace(item)}
+                                  variant="folderChip"
+                                />
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                 <button
                                   onClick={() => {
@@ -2051,6 +2474,7 @@ const UserCard = ({
                                 >
                                   삭제
                                 </button>
+                              </div>
                               </div>
                               ) : null}
                             </div>
@@ -2222,6 +2646,106 @@ const UserCard = ({
                   </div>
                 )
               )
+            ) : activeTab === "followers" ? (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+              >
+                {showSearch && (
+                  <div
+                    style={{
+                      paddingBottom: "6px",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="picked 검색…"
+                      style={{
+                        width: "100%",
+                        padding: "6px 10px",
+                        backgroundColor: "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid rgba(255, 255, 255, 0.22)",
+                        borderRadius: "10px",
+                        color: "white",
+                        fontSize: "12px",
+                        outline: "none",
+                        boxSizing: "border-box",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+                >
+                  {getFilteredFollowers().length === 0 ? (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        padding: "10px",
+                        color: "#999",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {searchQuery
+                        ? "검색 결과가 없습니다"
+                        : "아직 picked가 없어요."}
+                    </div>
+                  ) : (
+                    getFilteredFollowers().map((f) => (
+                      <div
+                        key={f.user_id}
+                        style={curatorCardStyles.card}
+                      >
+                        <div style={curatorCardStyles.info}>
+                          <CuratorFollowAvatar
+                            curator={{
+                              username:
+                                String(f.secondaryText || "").replace(
+                                  /^@/,
+                                  ""
+                                ) || "user",
+                              display_name: f.primaryText,
+                              avatar_url: f.avatarUrl,
+                            }}
+                            sizePx={24}
+                          />
+                          <div style={curatorCardStyles.details}>
+                            <div
+                              style={{
+                                ...curatorCardStyles.name,
+                                cursor: embeddedAdminReadOnly
+                                  ? "default"
+                                  : "pointer",
+                                textDecoration: embeddedAdminReadOnly
+                                  ? "none"
+                                  : "underline",
+                                textDecorationColor:
+                                  "rgba(255, 255, 255, 0.3)",
+                              }}
+                              onClick={() => openFollowerPreview(f)}
+                            >
+                              {f.primaryText || f.label || "프로필"}
+                            </div>
+                            <div style={curatorCardStyles.meta}>
+                              {f.secondaryText || (f.isCurator ? "@unknown" : "사용자")}
+                            </div>
+                            <div style={curatorCardStyles.meta}>
+                              {f.isCurator ? "큐레이터" : "사용자"}
+                              {f.created_at
+                                ? ` · ${new Date(f.created_at).toLocaleDateString("ko-KR")}`
+                                : ""}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {/* 검색 입력창 */}
@@ -2231,7 +2755,7 @@ const UserCard = ({
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="팔로우한 큐레이터 검색..."
+                      placeholder="pick 검색…"
                       style={{
                         width: '100%',
                         padding: '6px 10px',
@@ -2249,16 +2773,16 @@ const UserCard = ({
                   </div>
                 )}
                 
-                {/* 큐레이터 리스트 */}
+                {/* pick 목록 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {getFilteredCurators().length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '10px', color: '#999', fontSize: '12px' }}>
-                      {searchQuery ? '검색 결과가 없습니다' : '아직 팔로우한 큐레이터가 없습니다.'}
+                      {searchQuery ? '검색 결과가 없습니다' : '아직 pick이 없어요.'}
                     </div>
                   ) : (
                     getFilteredCurators().map((curator) => (
                       <div
-                        key={curator.id}
+                        key={curator.following_user_id || curator.user_id || curator.id}
                         style={curatorCardStyles.card}
                       >
                         <div style={curatorCardStyles.info}>
@@ -2277,6 +2801,9 @@ const UserCard = ({
                               if (!embeddedAdminReadOnly) loadCuratorProfile(curator);
                             }}
                           >
+                            {curator.display_name || curator.displayName || "큐레이터"}
+                          </div>
+                          <div style={curatorCardStyles.meta}>
                             @{curator.username || "unknown"}
                           </div>
                           <div style={curatorCardStyles.meta}>
@@ -2288,11 +2815,15 @@ const UserCard = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleUnfollow(curator.id);
+                            handleUnfollow(
+                              curator.following_user_id ||
+                                curator.user_id ||
+                                curator.id
+                            );
                           }}
                           style={curatorCardStyles.unfollowButton}
                         >
-                          언팔로우
+                          remove
                         </button>
                         ) : null}
                       </div>
@@ -2317,7 +2848,7 @@ const UserCard = ({
         </div>
       </div>
 
-      {/* 큐레이터 프로필 모달 */}
+      {/* 유저/큐레이터 프로필 모달 */}
       {selectedCurator && (
         <div
           style={{
@@ -2330,46 +2861,77 @@ const UserCard = ({
             justifyContent: "center",
             alignItems: "center",
             zIndex: 2000,
-            ...userCardGlass.overlay,
+            background: "rgba(0, 0, 0, 0.72)",
+            backdropFilter: "blur(4px)",
           }}
+          onClick={() => setSelectedCurator(null)}
         >
           <div
             style={{
-              borderRadius: "22px",
-              width: "90%",
-              maxWidth: "500px",
+              borderRadius: "18px",
+              width: "min(420px, calc(100vw - 28px))",
+              maxWidth: "100%",
               maxHeight: "80vh",
               overflow: "hidden",
-              ...userCardGlass.sheet,
-              boxShadow:
-                "0 28px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45)",
+              background:
+                "linear-gradient(180deg, rgba(22,22,24,0.98) 0%, rgba(8,8,10,0.98) 100%)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 18px 48px rgba(0,0,0,0.55)",
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* 큐레이터 프로필 헤더 */}
+            {(() => {
+              const isGeneralUserProfile =
+                selectedCurator?.isCurator === false ||
+                selectedCurator?.is_curator === false;
+              const profileTitle = isGeneralUserProfile
+                ? "아는 사람 프로필"
+                : "큐레이터 프로필";
+              const subTitle = isGeneralUserProfile
+                ? (selectedCurator.display_name || selectedCurator.username || "아는 사람")
+                : (selectedCurator.display_name || "큐레이터");
+              const metricLine = isGeneralUserProfile
+                ? `picked ${selectedCurator.stats?.followerCount || 0}명`
+                : `picked ${selectedCurator.stats?.followerCount || 0}명 • 추천 ${selectedCurator.placeCount || 0}곳 • 저장 ${selectedCurator.stats?.saveCount || 0}개`;
+              return (
+                <>
+            {/* 프로필 헤더 */}
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '20px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+              padding: "14px 16px",
+              borderBottom: "1px solid rgba(255, 255, 255, 0.1)"
             }}>
-              <h3 style={{ margin: 0, color: 'white', fontSize: '16px' }}>
-                큐레이터 프로필
-              </h3>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.9)",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                }}
+              >
+                {profileTitle}
+              </span>
               <button
                 type="button"
                 onClick={() => setSelectedCurator(null)}
                 style={{
-                  width: "40px",
-                  height: "40px",
+                  width: "34px",
+                  height: "34px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: "rgba(255, 255, 255, 0.1)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  backgroundColor: "rgba(255, 255, 255, 0.08)",
+                  border: "1px solid rgba(255, 255, 255, 0.18)",
                   borderRadius: "50%",
                   color: "rgba(255, 255, 255, 0.9)",
-                  fontSize: "22px",
+                  fontSize: "18px",
                   lineHeight: 1,
                   cursor: "pointer",
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
@@ -2379,19 +2941,19 @@ const UserCard = ({
               </button>
             </div>
 
-            {/* 큐레이터 정보 */}
-            <div style={{ padding: '20px' }}>
+            {/* 프로필 정보 */}
+            <div style={{ padding: "16px" }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
                 <CuratorFollowAvatar curator={selectedCurator} sizePx={60} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
                     @{selectedCurator.username}
                   </div>
-                  <div style={{ fontSize: '14px', color: '#ccc', marginBottom: '4px' }}>
-                    {selectedCurator.display_name || '큐레이터'}
+                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.72)', marginBottom: '4px' }}>
+                    {subTitle}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#999' }}>
-                    팔로워 {selectedCurator.stats?.followerCount || 0}명 • 저장 {selectedCurator.stats?.saveCount || 0}개
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.54)' }}>
+                    {metricLine}
                   </div>
                 </div>
               </div>
@@ -2399,13 +2961,14 @@ const UserCard = ({
               {selectedCurator.bio && (
                 <div
                   style={{
-                    fontSize: "14px",
-                    color: "#e8eaef",
+                    fontSize: "13px",
+                    color: "rgba(255,255,255,0.84)",
                     lineHeight: "1.45",
-                    marginBottom: "20px",
-                    padding: "12px 14px",
+                    marginBottom: "14px",
+                    padding: "11px 12px",
                     borderRadius: "12px",
-                    ...userCardGlass.panel,
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.12)",
                   }}
                 >
                   {selectedCurator.bio}
@@ -2414,18 +2977,18 @@ const UserCard = ({
 
               {/* 저장된 장소 목록 */}
               <div>
-                <h4 style={{ color: 'white', fontSize: '14px', marginBottom: '12px' }}>
-                  저장한 장소 ({selectedCurator.savedPlaces?.length || 0})
+                <h4 style={{ color: 'rgba(255,255,255,0.92)', fontSize: '13px', marginBottom: '10px' }}>
+                  {isGeneralUserProfile ? "픽한 장소" : "저장한 장소"} ({selectedCurator.savedPlaces?.length || 0})
                 </h4>
                 <div style={{ 
-                  maxHeight: '300px', 
+                  maxHeight: '280px',
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px'
                 }}>
                   {selectedCurator.savedPlaces?.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                    <div style={{ textAlign: 'center', padding: '16px', color: 'rgba(255,255,255,0.52)' }}>
                       저장한 장소가 없습니다
                     </div>
                   ) : (
@@ -2433,15 +2996,16 @@ const UserCard = ({
                       <div
                         key={saved.id}
                         style={{
-                          padding: "12px",
+                          padding: "10px 11px",
                           borderRadius: "12px",
-                          ...userCardGlass.panel,
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
-                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>
                           {saved.places?.name || '정보 없음'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#999' }}>
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.58)' }}>
                           {saved.places?.address || '주소 정보 없음'}
                         </div>
                       </div>
@@ -2450,6 +3014,9 @@ const UserCard = ({
                 </div>
               </div>
             </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

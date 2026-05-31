@@ -31,14 +31,25 @@ export async function fetchSearchIntentAssist(query) {
   if (!q) return null;
 
   const url = AI_API_BASE ? `${AI_API_BASE}/api/search-intent-assist` : "/api/search-intent-assist";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: q }),
-  });
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
 
-  if (!res.ok) return null;
-  return res.json();
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[search-intent-assist] skipped (server unreachable or CORS):",
+        url,
+        e?.message || e
+      );
+    }
+    return null;
+  }
 }
 
 /**

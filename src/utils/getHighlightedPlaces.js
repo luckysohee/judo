@@ -12,7 +12,11 @@ function namePairMatches(a, b) {
 }
 
 export function getHighlightedPlaces(mapPlaces, recommendation) {
-  const recPlaces = recommendation?.places;
+  const recPlaces =
+    Array.isArray(recommendation?.import_pool) &&
+    recommendation.import_pool.length > 0
+      ? recommendation.import_pool
+      : recommendation?.places;
   if (!Array.isArray(mapPlaces) || !Array.isArray(recPlaces)) return [];
 
   return mapPlaces.filter((p) => {

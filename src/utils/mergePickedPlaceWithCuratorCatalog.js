@@ -1,4 +1,5 @@
 import { resolvePlaceWgs84, kakaoNumericPlaceId } from "./placeCoords";
+import { collectReasonEvidence } from "./reasonEvidence.js";
 
 function extractedKakaoIdFromUrl(place) {
   return place?.place_url?.match(/\/place\/(\d+)/)?.[1] || null;
@@ -13,11 +14,16 @@ export function normalizeKakaoPlaceId(place) {
     typeof rawId === "string" && rawId.startsWith("kakao_")
       ? rawId.slice(6)
       : null;
+  const strippedLocal =
+    typeof rawId === "string" && rawId.startsWith("local_")
+      ? rawId.slice(6)
+      : null;
   const candidates = [
     place.kakao_place_id,
     place.place_id,
     place.kakaoId,
     stripped,
+    strippedLocal,
     typeof rawId === "string" && /^\d+$/.test(rawId.trim())
       ? rawId.trim()
       : null,
@@ -115,7 +121,10 @@ function isKakaoApiShape(p) {
   if (!p) return false;
   if (p.isKakaoPlace) return true;
   const sid = p.id;
-  return typeof sid === "string" && sid.startsWith("kakao_");
+  if (typeof sid === "string" && sid.startsWith("kakao_")) return true;
+  if (typeof sid === "string" && sid.startsWith("local_")) return true;
+  if (typeof sid === "string" && /^\d+$/.test(sid.trim())) return true;
+  return false;
 }
 
 /**
@@ -141,7 +150,15 @@ function mergeTwoPlacesSameKakaoId(a, b) {
   let lng = primary.lng;
   let x = primary.x;
   let y = primary.y;
-  if (meters > 40 && isKakaoApiShape(secondary) && wS) {
+  /** DB UUID(큐레이터) 좌표가 오래·오류인 경우가 많아, 같은 업소의 카카오 검색 좌표를 지도에 우선한다. */
+  const uuidPrimaryKakaoSecondary =
+    isUuidLike(primary?.id) && isKakaoApiShape(secondary) && wS;
+  if (uuidPrimaryKakaoSecondary) {
+    lat = wS.lat;
+    lng = wS.lng;
+    x = secondary.x != null && secondary.x !== "" ? secondary.x : x;
+    y = secondary.y != null && secondary.y !== "" ? secondary.y : y;
+  } else if (meters > 40 && isKakaoApiShape(secondary) && wS) {
     lat = wS.lat;
     lng = wS.lng;
     x = secondary.x != null && secondary.x !== "" ? secondary.x : x;
@@ -163,7 +180,7 @@ function mergeTwoPlacesSameKakaoId(a, b) {
     ...new Set([...(primary.curators || []), ...(secondary.curators || [])]),
   ];
 
-  return {
+  const mergedCore = {
     ...secondary,
     ...primary,
     id: primary.id,
@@ -190,6 +207,11 @@ function mergeTwoPlacesSameKakaoId(a, b) {
     road_address_name:
       primary.road_address_name || secondary.road_address_name || "",
     address_name: primary.address_name || secondary.address_name || "",
+    blogInsight: primary.blogInsight ?? secondary.blogInsight,
+  };
+  return {
+    ...mergedCore,
+    reasonEvidence: collectReasonEvidence(mergedCore),
   };
 }
 
@@ -237,13 +259,19 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
   const canonical = findCuratorCatalogMatch(picked, catalog);
   if (!canonical) {
     const w = resolvePlaceWgs84(picked);
-    if (!w) return picked;
-    return {
+    if (!w) {
+      return { ...picked, reasonEvidence: collectReasonEvidence(picked) };
+    }
+    const out = {
       ...picked,
       lat: w.lat,
       lng: w.lng,
       x: picked.x != null && picked.x !== "" ? picked.x : String(w.lng),
       y: picked.y != null && picked.y !== "" ? picked.y : String(w.lat),
+    };
+    return {
+      ...out,
+      reasonEvidence: collectReasonEvidence(out),
     };
   }
 
@@ -252,7 +280,7 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
   const mergedKakaoNumId =
     kakaoNumericPlaceId(canonical) || kakaoNumericPlaceId(picked);
 
-  return {
+  const merged = {
     ...picked,
     id: canonical.id,
     name: canonical.name || picked.name || picked.place_name,
@@ -315,5 +343,29 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
     matchedFacetLabels: picked.matchedFacetLabels,
     searchRepresentativeTag: picked.searchRepresentativeTag,
     recommendation: picked.recommendation ?? canonical.recommendation,
+  };
+  const wFix = resolvePlaceWgs84(merged);
+  if (!wFix) {
+    return {
+      ...merged,
+      reasonEvidence: collectReasonEvidence(merged),
+    };
+  }
+  const withCoords = {
+    ...merged,
+    lat: wFix.lat,
+    lng: wFix.lng,
+    x:
+      merged.x != null && merged.x !== ""
+        ? merged.x
+        : String(wFix.lng),
+    y:
+      merged.y != null && merged.y !== ""
+        ? merged.y
+        : String(wFix.lat),
+  };
+  return {
+    ...withCoords,
+    reasonEvidence: collectReasonEvidence(withCoords),
   };
 }

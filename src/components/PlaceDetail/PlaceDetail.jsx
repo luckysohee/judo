@@ -1,7 +1,13 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "../../context/AuthContext";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { PlacePickButton } from "../PlacePick/PlacePickButton";
+import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
+import CheckinButton from "../CheckinButton/CheckinButton";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
-// import CheckinButton from "../CheckinButton/CheckinButton";
+import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { checkinPlaceKeyFromPlace } from "../../utils/checkinPlaceKeyFromPlace";
+import { normalizeHanjanStats } from "../../utils/hanjanSocialCopy";
+import { getJudoOperationMode } from "../../utils/judoOperationMode";
+import { supabase } from "../../lib/supabase";
 
 // 기본 이미지 폴백 시스템
 const getPlaceImage = (place) => {
@@ -57,7 +63,6 @@ const getPlaceComments = (place) => {
 export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: isLiveProp, liveCuratorNameSet }) {
   if (!place) return null;
 
-  const { user } = useAuth();
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
   const displayTags = filterPlaceTagsForDisplay(place.tags || []);
@@ -80,11 +85,53 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
   // 여러 코멘트 데이터 가져오기
   const [comments, setComments] = useState([]);
   const [showAllComments, setShowAllComments] = useState(false);
-  
+  const [hanjanStatsNorm, setHanjanStatsNorm] = useState(null);
+
   useEffect(() => {
     const placeComments = getPlaceComments(place);
     setComments(placeComments);
   }, [place]);
+
+  const checkinKey = useMemo(() => checkinPlaceKeyFromPlace(place), [place]);
+  const checkinWgs = useMemo(() => resolvePlaceWgs84(place), [place]);
+
+  useEffect(() => {
+    if (!checkinKey) {
+      setHanjanStatsNorm(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void supabase
+      .rpc("get_place_hanjan_stats", { p_place_id: String(checkinKey) })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
+        else setHanjanStatsNorm(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkinKey]);
+
+  const refetchHanjanStats = useCallback(() => {
+    if (!checkinKey) return;
+    void supabase
+      .rpc("get_place_hanjan_stats", { p_place_id: String(checkinKey) })
+      .then(({ data, error }) => {
+        if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
+      });
+  }, [checkinKey]);
+
+  const [judoScheduleTick, setJudoScheduleTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setJudoScheduleTick((n) => n + 1), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const canCheckIn = useMemo(() => {
+    void judoScheduleTick;
+    return getJudoOperationMode().canCheckIn;
+  }, [judoScheduleTick]);
 
   // 임시 체크인 버튼
   const handleTempCheckin = () => {
@@ -104,13 +151,7 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
 
           <div style={styles.headerTitle}>상세보기</div>
 
-          <button
-            type="button"
-            onClick={() => onSave(place)}
-            style={styles.headerSaveButton}
-          >
-            {isSaved ? "저장됨" : "저장"}
-          </button>
+          <div style={styles.headerSpacer} aria-hidden />
         </div>
 
         <div style={styles.content}>
@@ -147,6 +188,59 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
               {place.region} · <strong>저장 {place.savedCount}</strong>
             </div>
 
+            {(place.curators || []).length > 0 ? (
+              <section style={{ ...styles.section, marginTop: 10 }}>
+                <div style={styles.sectionTitle}>추천 큐레이터</div>
+                <div style={styles.chipRow}>
+                  {(place.curators || []).map((curator) => (
+                    <span key={curator} style={styles.curatorChip}>
+                      <strong>{curator}</strong>
+                    </span>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {typeof place.comment === "string" && place.comment.trim() ? (
+              <div style={styles.detailReasonLine}>{place.comment.trim()}</div>
+            ) : null}
+
+            <PlacePickDetailSummary place={place} theme="dark" />
+
+            <div style={styles.detailActionRow}>
+              <PlacePickButton place={place} variant="darkRow" />
+              <button
+                type="button"
+                onClick={() => onSave(place)}
+                style={styles.detailSaveOutline}
+                title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
+                aria-label="내 폴더에 저장"
+              >
+                {isSaved ? "📁 저장됨" : "📁 저장"}
+              </button>
+              <div style={styles.detailHanjanWrap}>
+                <CheckinButton
+                  compact
+                  hideHint
+                  canCheckIn={canCheckIn}
+                  place={place}
+                  placeId={checkinKey ?? String(place?.id ?? "")}
+                  placeName={place.name}
+                  placeAddress={place.address || ""}
+                  placeLat={checkinWgs?.lat}
+                  placeLng={checkinWgs?.lng}
+                  kakaoPlaceId={
+                    place.place_id ??
+                    place.kakao_place_id ??
+                    place.kakaoId ??
+                    null
+                  }
+                  hanjanStats={hanjanStatsNorm}
+                  onHanjanRecorded={refetchHanjanStats}
+                />
+              </div>
+            </div>
+
             <section style={styles.section}>
               <div style={styles.sectionTitle}>큐레이터 코멘트</div>
               <div style={styles.commentList}>
@@ -177,17 +271,6 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
               <div style={styles.sectionTitle}>주소</div>
               <div style={styles.text}>
                 {place.address || "주소 정보가 없습니다."}
-              </div>
-            </section>
-
-            <section style={styles.section}>
-              <div style={styles.sectionTitle}>추천 큐레이터</div>
-              <div style={styles.chipRow}>
-                {(place.curators || []).map((curator) => (
-                  <span key={curator} style={styles.curatorChip}>
-                    <strong>{curator}</strong>
-                  </span>
-                ))}
               </div>
             </section>
 
@@ -256,6 +339,10 @@ const styles = {
     fontWeight: 700,
     color: "#ffffff",
   },
+  headerSpacer: {
+    width: "64px",
+    flexShrink: 0,
+  },
   headerButton: {
     border: "1px solid #3a3a3a",
     backgroundColor: "#171717",
@@ -265,14 +352,37 @@ const styles = {
     fontSize: "12px",
     fontWeight: 700,
   },
-  headerSaveButton: {
-    border: "none",
-    backgroundColor: "#2ECC71",
-    color: "#111111",
-    borderRadius: "999px",
-    padding: "8px 12px",
-    fontSize: "12px",
-    fontWeight: 800,
+  detailActionRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: "8px",
+    marginTop: "12px",
+    marginBottom: "4px",
+  },
+  detailSaveOutline: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    color: "rgba(255,255,255,0.9)",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  detailHanjanWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailReasonLine: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontSize: 14,
+    color: "rgba(255,255,255,0.88)",
+    lineHeight: 1.45,
+    fontStyle: "italic",
   },
   content: {
     height: "calc(92vh - 56px)",

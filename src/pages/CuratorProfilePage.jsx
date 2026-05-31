@@ -1,90 +1,148 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { useAuth } from "../context/AuthContext";
+import { fetchUserPickedPlaces } from "../api/placePicks";
+import PickUserButton, {
+  PickCountsRow,
+} from "../components/PickUserButton/PickUserButton";
+import PlacePicksPublicList from "../components/PlacePick/PlacePicksPublicList";
+import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
+import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
+import { isPlaceSaved } from "../utils/storage";
+import { getPickCounts } from "../utils/userProfileFollows";
+import {
+  getCuratorArchiveStats,
+  buildCuratorArchiveVibes,
+} from "../api/courseCompletionStats";
 
 export default function CuratorProfilePage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  
-  // URL 디코딩
-  const decodedSlug = decodeURIComponent(slug);
-  
+
+  const decodedSlug = slug ? decodeURIComponent(slug) : "";
+
   const [curator, setCurator] = useState(null);
-  const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
+  const [profilePickRows, setProfilePickRows] = useState([]);
+  const [profilePicksLoading, setProfilePicksLoading] = useState(false);
+  const [pickDetailPlace, setPickDetailPlace] = useState(null);
+  const [receivedPickCount, setReceivedPickCount] = useState(0);
+  const [outgoingPickCount, setOutgoingPickCount] = useState(0);
+  const [mutual, setMutual] = useState(false);
+  const [routeArchiveVibe, setRouteArchiveVibe] = useState({
+    headline: null,
+    whisper: null,
+  });
 
-  useEffect(() => {
-    if (!decodedSlug) return;
-    fetchCurator();
-  }, [decodedSlug]);
+  const profileUserId = curator?.user_id ?? null;
+  const isSelf = Boolean(user?.id && profileUserId && user.id === profileUserId);
 
-  const fetchCurator = async () => {
+  const onPickCountsChange = useCallback(({ received, outgoing }) => {
+    setReceivedPickCount(received);
+    setOutgoingPickCount(outgoing);
+  }, []);
+
+  const onRelationshipChange = useCallback(({ mutual: m }) => {
+    setMutual(Boolean(m));
+  }, []);
+
+  const fetchCurator = useCallback(async () => {
+    if (!decodedSlug) {
+      setCurator(null);
+      setLoading(false);
+      return;
+    }
     try {
-      console.log("Original slug:", slug);
-      console.log("Decoded slug:", decodedSlug); // 디버깅
-      
       const { data, error } = await supabase
         .from("curators")
         .select("*")
-        .eq("slug", decodedSlug) // 디코딩된 slug 사용
+        .eq("slug", decodedSlug)
         .single();
-
-      console.log("Curator data:", data); // 디버깅
-      console.log("Error:", error); // 디버깅
 
       if (error) throw error;
       setCurator(data);
-      
-      if (user) {
-        await checkFollowStatus(data.id);
-      }
     } catch (error) {
       console.error("fetch curator error:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [decodedSlug]);
 
-  const checkFollowStatus = async (curatorId) => {
-    try {
-      const { data, error } = await supabase.rpc("is_following_curator", {
-        curator_id: curatorId,
-      });
-      setIsFollowing(data || false);
-    } catch (error) {
-      console.error("check follow status error:", error);
+  useEffect(() => {
+    setLoading(true);
+    void fetchCurator();
+  }, [fetchCurator]);
+
+  useEffect(() => {
+    const uid = curator?.user_id;
+    if (!uid) {
+      setProfilePickRows([]);
+      return undefined;
     }
-  };
-
-  const handleFollow = async () => {
-    if (!user || !curator) return;
-    
-    try {
-      setProcessing(true);
-      const rpc = isFollowing ? "unfollow_curator" : "follow_curator";
-      
-      const { error } = await supabase.rpc(rpc, {
-        curator_id: curator.id,
+    let cancelled = false;
+    setProfilePicksLoading(true);
+    fetchUserPickedPlaces(uid, { limit: 200 })
+      .then((rows) => {
+        if (!cancelled) setProfilePickRows(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("CuratorProfilePage place_picks:", e);
+        if (!cancelled) setProfilePickRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProfilePicksLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
 
-      if (error) throw error;
+  useEffect(() => {
+    const uid = curator?.user_id;
+    if (!uid) {
+      setRouteArchiveVibe({ headline: null, whisper: null });
+      return undefined;
+    }
+    let cancelled = false;
+    void getCuratorArchiveStats(uid).then((stats) => {
+      if (cancelled) return;
+      setRouteArchiveVibe(buildCuratorArchiveVibes(stats));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
 
-      if (rpc === "follow_curator") {
-        void syncAuthProviderToProfile(supabase, user).catch(() => {});
+  useEffect(() => {
+    let cancelled = false;
+    const uid = curator?.user_id;
+    if (!uid) {
+      setReceivedPickCount(0);
+      setOutgoingPickCount(0);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const c = await getPickCounts(supabase, uid);
+        if (!cancelled) {
+          setReceivedPickCount(c.followers_count);
+          setOutgoingPickCount(c.following_count);
+        }
+      } catch (e) {
+        console.warn("CuratorProfilePage pick counts:", e);
       }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [curator?.user_id]);
 
-      setIsFollowing(!isFollowing);
-    } catch (error) {
-      console.error("follow error:", error);
-      alert(error?.message || "팔로우 처리 중 오류가 발생했습니다.");
-    } finally {
-      setProcessing(false);
-    }
-  };
+  useEffect(() => {
+    if (!user?.id) setMutual(false);
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -118,27 +176,77 @@ export default function CuratorProfilePage() {
         <div style={styles.profile}>
           <div style={styles.name}>{curator.display_name}</div>
           <div style={styles.bio}>{curator.bio || "주도 큐레이터입니다."}</div>
-          
-          {user ? (
-            <button
-              type="button"
-              onClick={handleFollow}
-              disabled={processing}
-              style={{
-                ...styles.followButton,
-                ...(isFollowing ? styles.followingButton : styles.followButtonActive),
-                opacity: processing ? 0.6 : 1,
-              }}
-            >
-              {processing ? "처리 중..." : isFollowing ? "팔로잉" : "팔로우"}
-            </button>
-          ) : (
-            <div style={styles.loginPrompt}>
-              팔로우하려면 로그인이 필요합니다.
+
+          {routeArchiveVibe.headline || routeArchiveVibe.whisper ? (
+            <div style={styles.routeArchive}>
+              {routeArchiveVibe.headline ? (
+                <p style={styles.routeArchiveHeadline}>
+                  {routeArchiveVibe.headline}
+                </p>
+              ) : null}
+              {routeArchiveVibe.whisper ? (
+                <p style={styles.routeArchiveWhisper}>
+                  {routeArchiveVibe.whisper}
+                </p>
+              ) : null}
             </div>
-          )}
+          ) : null}
+
+          <PickCountsRow
+            profileUserId={profileUserId}
+            receivedCount={receivedPickCount}
+            outgoingCount={outgoingPickCount}
+            mutual={Boolean(user?.id && !isSelf && mutual)}
+            style={{ justifyContent: "center", marginBottom: 8 }}
+          />
+
+          {profileUserId ? (
+            <div style={{ marginTop: 4 }}>
+              <PickUserButton
+                key={profileUserId}
+                profileUserId={profileUserId}
+                onPickCountsChange={onPickCountsChange}
+                onRelationshipChange={onRelationshipChange}
+                onBecomePicking={() => {
+                  if (user)
+                    void syncAuthProviderToProfile(supabase, user).catch(() => {});
+                }}
+                buttonStyle={{
+                  padding: "12px 24px",
+                  fontSize: 16,
+                  borderRadius: 12,
+                  marginTop: 0,
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        <div style={styles.picksSection}>
+          <div style={styles.picksTitle}>픽한 가게</div>
+          <p style={styles.picksHint}>
+            공개 추천(place_picks). 개인 저장 폴더와 별도입니다.
+          </p>
+          <PlacePicksPublicList
+            rows={profilePickRows}
+            loading={profilePicksLoading}
+            showCuratorPickBadge
+            onRowClick={(row) => {
+              const p = placePickJoinRowToDetailPlace(row);
+              if (p) setPickDetailPlace(p);
+            }}
+          />
         </div>
       </div>
+
+      {pickDetailPlace ? (
+        <PlaceDetail
+          place={pickDetailPlace}
+          isSaved={isPlaceSaved(pickDetailPlace.id)}
+          onClose={() => setPickDetailPlace(null)}
+          onSave={() => {}}
+        />
+      ) : null}
     </div>
   );
 }
@@ -148,7 +256,8 @@ const styles = {
     minHeight: "100vh",
     backgroundColor: "#111111",
     color: "#ffffff",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   header: {
     padding: "16px",
@@ -176,34 +285,51 @@ const styles = {
   bio: {
     fontSize: "16px",
     color: "#bdbdbd",
-    marginBottom: "24px",
+    marginBottom: "16px",
     lineHeight: 1.5,
   },
-  followButton: {
-    border: "1px solid #444444",
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px 24px",
-    fontSize: "16px",
-    fontWeight: 700,
-    cursor: "pointer",
+  routeArchive: {
+    maxWidth: "420px",
+    margin: "0 auto 18px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    background:
+      "linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(26,26,30,0.95) 100%)",
+    border: "1px solid rgba(255,255,255,0.08)",
   },
-  followButtonActive: {
-    backgroundColor: "#2ECC71",
-    color: "#111111",
-    border: "none",
-  },
-  followingButton: {
-    backgroundColor: "#1a1a1a",
-    color: "#ffffff",
-    border: "1px solid #444444",
-  },
-  loginPrompt: {
+  routeArchiveHeadline: {
+    margin: "0 0 6px",
     fontSize: "14px",
-    color: "#bdbdbd",
-    padding: "12px",
-    backgroundColor: "#1a1a1a",
-    borderRadius: "12px",
+    fontWeight: 750,
+    lineHeight: 1.45,
+    color: "rgba(250,250,255,0.92)",
+    letterSpacing: "-0.02em",
+  },
+  routeArchiveWhisper: {
+    margin: 0,
+    fontSize: "12px",
+    fontWeight: 600,
+    lineHeight: 1.45,
+    color: "rgba(255,255,255,0.45)",
+    letterSpacing: "-0.01em",
+  },
+  picksSection: {
+    marginTop: "28px",
+    textAlign: "left",
+    maxWidth: "480px",
+    marginLeft: "auto",
+    marginRight: "auto",
+    padding: "0 4px",
+  },
+  picksTitle: {
+    fontSize: "18px",
+    fontWeight: 800,
+    marginBottom: "6px",
+  },
+  picksHint: {
+    fontSize: "13px",
+    color: "#9a9a9a",
+    margin: "0 0 12px",
+    lineHeight: 1.45,
   },
 };

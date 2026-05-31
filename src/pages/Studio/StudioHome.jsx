@@ -13,6 +13,12 @@ import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
 import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
+import StudioPlaceMapSearchPanel from "../../components/Studio/StudioPlaceMapSearchPanel";
+import StudioMapSearchSuggestions from "../../components/Studio/StudioMapSearchSuggestions";
+import useMobileLayout from "../../hooks/useMobileLayout";
+import {
+  studioMapSearchMapFill,
+} from "./studioCoursesSharedStyles";
 import { 
   calculateRecommendationScore, 
   analyzeUserPreferences, 
@@ -38,8 +44,36 @@ import {
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
+  STUDIO_PLACE_CATEGORY_OPTIONS,
+  normalizeStudioPlaceCategory,
 } from "../../utils/placeTaxonomy.js";
 import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
+import { fetchUserPickedPlaces } from "../../api/placePicks";
+import { placePickJoinRowToDetailPlace } from "../../utils/placePickRowDisplay";
+import PlacePicksPublicList from "../../components/PlacePick/PlacePicksPublicList";
+import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
+import { isPlaceSaved } from "../../utils/storage";
+import {
+  normalizeCuratorStyleBlock,
+} from "../../utils/curatorStyleFeatures";
+import { StudioCoursesPanel } from "./StudioCoursesPage";
+import {
+  getCuratorArchiveStats,
+  normalizeCuratorArchiveStats,
+} from "../../api/courseCompletionStats";
+
+/**
+ * 스튜디오 상단 탭 표기 고정.
+ * (구호: 잔 로그·잔 작가·잔 그림 등과 혼동하지 않도록 이 문자열만 사용)
+ */
+const STUDIO_TAB = {
+  add: "잔 올리기",
+  courses: "잔 코스",
+  list: "잔 리스트",
+  drafts: "잔 채우기",
+  archive: "잔 아카이브",
+};
 
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
@@ -274,6 +308,7 @@ function normalizeStudioArchiveExtendedInsights(raw) {
         moods: [],
         tags: [],
         categories: [],
+        meta: normalizeCuratorStyleBlock(null).meta,
       },
       followers: {
         savesOnPicks: 0,
@@ -284,13 +319,7 @@ function normalizeStudioArchiveExtendedInsights(raw) {
     };
   }
   const arr = (x) => (Array.isArray(x) ? x : []);
-  const pctRows = (rows) =>
-    arr(rows)
-      .map((r) => ({
-        label: String(r?.label ?? "").trim(),
-        pct: Math.min(100, Math.max(0, Number(r?.pct) || 0)),
-      }))
-      .filter((r) => r.label);
+  const styleBlock = normalizeCuratorStyleBlock(parsed.style);
   return {
     oneLineTop: arr(parsed.one_line_top)
       .map((r) => ({
@@ -300,12 +329,7 @@ function normalizeStudioArchiveExtendedInsights(raw) {
         placeName: String(r?.place_name ?? "").trim(),
       }))
       .filter((r) => r.text),
-    style: {
-      alcohol: pctRows(parsed.style?.alcohol),
-      moods: pctRows(parsed.style?.moods),
-      tags: pctRows(parsed.style?.tags),
-      categories: pctRows(parsed.style?.categories),
-    },
+    style: styleBlock,
     followers: {
       savesOnPicks: Number(parsed.followers?.saves_on_picks) || 0,
       distinctSavers: Number(parsed.followers?.distinct_savers) || 0,
@@ -319,27 +343,6 @@ function normalizeStudioArchiveExtendedInsights(raw) {
         ) || 0,
     },
   };
-}
-
-/** 잔 올리기 카테고리 셀렉트 고정 목록 — 그 외 저장값은 동적 option 으로 표시 */
-const STUDIO_PLACE_CATEGORY_OPTIONS = [
-  "한식",
-  "중식",
-  "일식",
-  "양식",
-  "육류",
-  "해산물",
-  "디저트",
-  "미분류",
-];
-
-/** 잔 올리기 셀렉트에 넣지 않을 레거시·가져오기용 카테고리 문자열 → 표준값 */
-function normalizeStudioPlaceCategory(raw) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-  if (STUDIO_PLACE_CATEGORY_OPTIONS.includes(s)) return s;
-  if (/순대|순댓/i.test(s)) return "한식";
-  return s;
 }
 
 function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
@@ -493,7 +496,8 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
         name: basicInfo.name_address,
         address: basicInfo.name_address,
         phone: basicInfo.phone || null,
-        category: basicInfo.category || null,
+        category:
+          normalizeStudioPlaceCategory(basicInfo.category || "") || "미분류",
         atmosphere: basicInfo.atmosphere || null,
         recommended_menu: basicInfo.recommended_menu || null,
         menu_reason: basicInfo.menu_reason || null,
@@ -1566,6 +1570,7 @@ export default function StudioHome() {
   const location = useLocation();
   const { user, loading: authLoading } = useAuth(); // 인증된 사용자 정보 가져오기
   const { showToast } = useToast(); // Toast 훅 추가
+  const isMobile = useMobileLayout();
   const mapRef = useRef(null); // 지도 ref 다시 추가
   /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
   const skipAddSectionResetRef = useRef(false);
@@ -1578,12 +1583,20 @@ export default function StudioHome() {
   const profileEditAvatarFileRef = useRef(null);
 
   // 상태 관리
-  const [activeSection, setActiveSection] = useState("archive"); // archive, add, list, drafts
+  const [activeSection, setActiveSection] = useState("archive"); // archive, add, courses, list, drafts
   const [myPlaces, setMyPlaces] = useState([]); // 잔 리스트 상태 - 실제 데이터만 사용
   const [loading, setLoading] = useState(true);
   const [isCurator, setIsCurator] = useState(false); // 큐레이터 여부
+  /** pending | allowed | denied — 장소 로드 전 큐레이터 여부 확정 */
+  const [curatorGate, setCuratorGate] = useState("pending");
   const [filterType, setFilterType] = useState("all"); // 잔 리스트: all | public | private
   const [listSearchQuery, setListSearchQuery] = useState(""); // 잔 리스트 탭 내 검색어
+  const [listPublicPicksOpen, setListPublicPicksOpen] = useState(false);
+
+  /** `place_picks` (잔 리스트 → 공개 픽). curator_places 와 무관 */
+  const [studioPlacePicks, setStudioPlacePicks] = useState([]);
+  const [studioPlacePicksLoading, setStudioPlacePicksLoading] = useState(false);
+  const [studioPickDetailPlace, setStudioPickDetailPlace] = useState(null);
 
   /** 잔 리스트 상단 — 카카오 「저장」 폴더 (system_folders + user_saved_places) */
   const [savedFolderDefs, setSavedFolderDefs] = useState(FALLBACK_SAVED_FOLDER_DEFS);
@@ -1804,6 +1817,7 @@ export default function StudioHome() {
       return;
     }
 
+    setShowSuggestions(true);
     setIsSearchingSuggestions(true);
     
     try {
@@ -1844,7 +1858,7 @@ export default function StudioHome() {
         setSelectedSuggestionIndex(-1);
       } else {
         setSearchSuggestions([]);
-        setShowSuggestions(false);
+        setShowSuggestions(true);
       }
     } catch (error) {
       console.error("자동완성 검색 오류:", error);
@@ -2021,12 +2035,15 @@ export default function StudioHome() {
       typeof lng === "number" &&
       Number.isFinite(lng);
 
-    setFormData(prev => ({ 
-      ...prev, 
+    setFormData((prev) => ({
+      ...prev,
       name_address: suggestion.place_name || suggestion,
       latitude: latOk ? lat : null,
       longitude: latOk ? lng : null,
       kakao_place_id: kid,
+      category: normalizeStudioPlaceCategory(
+        suggestion.category_name || ""
+      ),
     }));
     setSearchSuggestions([]);
     setShowSuggestions(false);
@@ -2157,123 +2174,112 @@ export default function StudioHome() {
   const [archiveExtInsights, setArchiveExtInsights] = useState(() =>
     normalizeStudioArchiveExtendedInsights(null)
   );
+  const [courseArchiveStats, setCourseArchiveStats] = useState(null);
   /** studio_archive_extended_insights RPC 실패 시 메시지(빈 스타일과 구분) */
   const [archiveInsightsError, setArchiveInsightsError] = useState("");
   /** 겹친 장소 RPC 목록 — studio_curator_overlap_places */
   const [overlapSharedPlacesList, setOverlapSharedPlacesList] = useState([]);
   const [showOverlapPlacesList, setShowOverlapPlacesList] = useState(false);
 
-  // 큐레이터 프로필 ID 확인 (테스트용)
+  // 새 팔로워 읽지 않음 토스트 (user_profile_follows.is_read)
   useEffect(() => {
-    if (curatorProfile?.id) {
-      console.log('🔍 큐레이터 로그인:', curatorProfile.id);
-      console.log('🔍 전체 프로필:', curatorProfile);
-      console.log('🔍 현재 사용자:', user?.id);
-      
-      // 읽지 않은 팔로우 조회 및 Toast 알림
-      const fetchUnreadFollowers = async () => {
-        try {
-          const { data: unreadFollows, error: unreadError } = await supabase
-            .from('user_follows')
-            .select('user_id, created_at')
-            .eq('curator_id', curatorProfile.id)
-            .eq('is_read', false)
-            .order('created_at', { ascending: false });
+    if (!user?.id) return undefined;
 
-          if (unreadError) {
-            console.error('읽지 않은 팔로워 조회 실패:', unreadError);
-            return;
-          }
+    const fetchUnreadFollowers = async () => {
+      try {
+        const { data: unreadFollows, error: unreadError } = await supabase
+          .from("user_profile_follows")
+          .select("follower_id, created_at")
+          .eq("following_id", user.id)
+          .eq("is_read", false)
+          .order("created_at", { ascending: false });
 
-          if (unreadFollows && unreadFollows.length > 0) {
-            const enriched = await fetchStudioFollowersEnriched(
-              supabase,
-              curatorProfile.id
-            );
-            const byUserId = new Map(
-              enriched.map((r) => [r.user_id, r])
-            );
-
-            const followerPromises = unreadFollows.map(async (follow) => {
-              const row = byUserId.get(follow.user_id);
-              if (row) {
-                const toastLine =
-                  row.label === "이름 미설정" ? null : row.label;
-                return { ...follow, toastLine, toastDetail: null };
-              }
-              const [profRes, curRes] = await Promise.all([
-                supabase
-                  .from("profiles")
-                  .select("username, display_name, auth_provider, avatar_url")
-                  .eq("id", follow.user_id)
-                  .maybeSingle(),
-                supabase
-                  .from("curators")
-                  .select(
-                    "user_id, display_name, username, name, avatar_url, avatar, image, grade"
-                  )
-                  .eq("user_id", follow.user_id)
-                  .maybeSingle(),
-              ]);
-
-              const pres = resolveFollowerPresentation(
-                profRes.data || {},
-                curRes.data
-              );
-              const toastLine =
-                pres.label === "이름 미설정" ? null : pres.label;
-
-              return {
-                ...follow,
-                toastLine,
-                toastDetail: null,
-              };
-            });
-
-            const followersWithData = await Promise.all(followerPromises);
-            const count = followersWithData.length;
-            const firstFollower = followersWithData[0];
-
-            // 메시지 생성
-            const singleMsg = (() => {
-              const f = firstFollower;
-              if (f.toastDetail) {
-                return `✨ ${f.toastLine} — ${f.toastDetail}`;
-              }
-              if (!f.toastLine) {
-                return `✨ 새 팔로우가 생겼어요! 👤`;
-              }
-              return `✨ ${f.toastLine}님이 큐레이터님을 팔로우했습니다! 👤`;
-            })();
-
-            const message =
-              count === 1
-                ? singleMsg
-                : !firstFollower.toastLine
-                  ? `🚀 새 팔로우 ${count}건이 있어요. 👤`
-                  : `🚀 ${firstFollower.toastLine}님 외 ${count - 1}명이 큐레이터님을 팔로우합니다!`;
-
-            // Toast 알림 표시
-            showToast(message, 'info', 5000);
-
-            // 읽음 처리
-            await supabase
-              .from('user_follows')
-              .update({ is_read: true })
-              .eq('curator_id', curatorProfile.id)
-              .eq('is_read', false);
-          }
-        } catch (error) {
-          console.error('팔로워 알림 처리 오류:', error);
+        if (unreadError) {
+          console.error("읽지 않은 팔로워 조회 실패:", unreadError);
+          return;
         }
-      };
 
-      fetchUnreadFollowers();
-    } else {
-      console.log('🔍 큐레이터 프로필 없음');
-      console.log('🔍 현재 사용자:', user?.id);
-    }
-  }, [curatorProfile?.id, user?.id, showToast]);
+        if (unreadFollows && unreadFollows.length > 0) {
+          const enriched = await fetchStudioFollowersEnriched(supabase, user.id, {
+            byFollowingUserId: user.id,
+          });
+          const byUserId = new Map(enriched.map((r) => [r.user_id, r]));
+
+          const followerPromises = unreadFollows.map(async (follow) => {
+            const fid = follow.follower_id;
+            const row = byUserId.get(fid);
+            if (row) {
+              const toastLine =
+                row.label === "이름 미설정" ? null : row.label;
+              return { ...follow, toastLine, toastDetail: null };
+            }
+            const [profRes, curRes] = await Promise.all([
+              supabase
+                .from("profiles")
+                .select("username, display_name, auth_provider, avatar_url")
+                .eq("id", fid)
+                .maybeSingle(),
+              supabase
+                .from("curators")
+                .select(
+                  "user_id, display_name, username, name, avatar_url, avatar, image, grade"
+                )
+                .eq("user_id", fid)
+                .maybeSingle(),
+            ]);
+
+            const pres = resolveFollowerPresentation(
+              profRes.data || {},
+              curRes.data
+            );
+            const toastLine =
+              pres.label === "이름 미설정" ? null : pres.label;
+
+            return {
+              ...follow,
+              toastLine,
+              toastDetail: null,
+            };
+          });
+
+          const followersWithData = await Promise.all(followerPromises);
+          const count = followersWithData.length;
+          const firstFollower = followersWithData[0];
+
+          const singleMsg = (() => {
+            const f = firstFollower;
+            if (f.toastDetail) {
+              return `✨ ${f.toastLine} — ${f.toastDetail}`;
+            }
+            if (!f.toastLine) {
+              return `✨ 새 팔로우가 생겼어요! 👤`;
+            }
+            return `✨ ${f.toastLine}님이 나를 팔로우했습니다! 👤`;
+          })();
+
+          const message =
+            count === 1
+              ? singleMsg
+              : !firstFollower.toastLine
+                ? `🚀 새 팔로우 ${count}건이 있어요. 👤`
+                : `🚀 ${firstFollower.toastLine}님 외 ${count - 1}명이 나를 팔로우합니다!`;
+
+          showToast(message, "info", 5000);
+
+          await supabase
+            .from("user_profile_follows")
+            .update({ is_read: true })
+            .eq("following_id", user.id)
+            .eq("is_read", false);
+        }
+      } catch (error) {
+        console.error("팔로워 알림 처리 오류:", error);
+      }
+    };
+
+    void fetchUnreadFollowers();
+    return undefined;
+  }, [user?.id, showToast]);
 
   // 실제 통계 데이터 로드 함수 (다대다 구조)
   const loadCuratorStats = async (userId) => {
@@ -2304,7 +2310,6 @@ export default function StudioHome() {
       const placeCuratorsData = [...byPlace.values()];
 
       const totalPlaces = placeCuratorsData?.length || 0;
-      const totalLikes = 0; // likes 필드가 없으므로 0으로 설정
 
       /** 큐레이터가 이 장소를 연결한 시각. 없으면 레거시 폴백으로 places.created_at */
       const linkCreatedAt = (pc) => {
@@ -2344,15 +2349,12 @@ export default function StudioHome() {
       else if (totalPlaces >= 50) level = 1;   // 브론즈
 
       // 팔로워 수(성장 추이 picked = 주간 신규 팔로워 집계에도 동일 행 사용)
-      console.log("🔍 큐레이터 프로필 ID:", curatorProfile?.id);
       const [{ data: followersData, error: followersError }, followingCount] =
         await Promise.all([
-          curatorProfile?.id
-            ? supabase
-                .from("user_follows")
-                .select("id, created_at")
-                .eq("curator_id", curatorProfile.id)
-            : Promise.resolve({ data: [], error: null }),
+          supabase
+            .from("user_profile_follows")
+            .select("id, created_at")
+            .eq("following_id", userId),
           countStudioFollowingDistinct(supabase, userId),
         ]);
 
@@ -2379,6 +2381,7 @@ export default function StudioHome() {
         overlapRpc,
         extRpc,
         overlapPlacesRpc,
+        courseArchiveStatsResult,
       ] = await Promise.all([
         supabase.rpc("studio_week_save_insights", { p_curator_id: userId }),
         supabase.rpc("studio_curator_overlap_place_count", {
@@ -2390,6 +2393,7 @@ export default function StudioHome() {
         supabase.rpc("studio_curator_overlap_places", {
           p_curator_id: userId,
         }),
+        getCuratorArchiveStats(userId),
       ]);
       if (!insightErr && insightJson && typeof insightJson === "object") {
         weekInsight = {
@@ -2429,10 +2433,12 @@ export default function StudioHome() {
         setOverlapSharedPlacesList([]);
       }
 
+      let extInsightsNormalized = normalizeStudioArchiveExtendedInsights(null);
       const { data: extRaw, error: extErr } = extRpc || {};
       if (!extErr && extRaw != null) {
         setArchiveInsightsError("");
-        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(extRaw));
+        extInsightsNormalized = normalizeStudioArchiveExtendedInsights(extRaw);
+        setArchiveExtInsights(extInsightsNormalized);
       } else {
         if (extErr) {
           console.warn(
@@ -2445,12 +2451,15 @@ export default function StudioHome() {
             "내 스타일 분석 응답이 비어 있습니다. Supabase에 최신 마이그레이션을 적용했는지 확인하세요."
           );
         }
-        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(null));
+        setArchiveExtInsights(extInsightsNormalized);
       }
+
+      setCourseArchiveStats(courseArchiveStatsResult ?? null);
 
       const stats = {
         placeCount: totalPlaces,
-        saveCount: totalLikes, // likes 필드가 없으므로 0
+        // 잔 아카이브 RPC followers.saves_on_picks(내 추천 장소 저장 횟수)와 동일 소스
+        saveCount: extInsightsNormalized.followers.savesOnPicks,
         followerCount: followerCount, // 실제 팔로워 수
         followingCount,
         overlapSharedPlaceCount,
@@ -2496,9 +2505,58 @@ export default function StudioHome() {
   }, [activeSection, user?.id]);
 
   useEffect(() => {
-    if (authLoading) return;
-    loadStudioData();
+    if (authLoading) {
+      setCuratorGate("pending");
+      return;
+    }
+
+    let cancelled = false;
+
+    const resolveCuratorGate = async () => {
+      if (!user?.id) {
+        if (!cancelled) {
+          setIsCurator(false);
+          setCuratorGate("denied");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("curators")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("스튜디오 큐레이터 확인 오류:", error);
+        setIsCurator(false);
+        setCuratorGate("denied");
+        setLoading(false);
+        return;
+      }
+
+      const allowed = Boolean(data);
+      setIsCurator(allowed);
+      setCuratorGate(allowed ? "allowed" : "denied");
+      if (!allowed) {
+        setLoading(false);
+      }
+    };
+
+    void resolveCuratorGate();
+
+    return () => {
+      cancelled = true;
+    };
   }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    if (authLoading || curatorGate !== "allowed") return;
+    loadStudioData();
+  }, [authLoading, curatorGate, user?.id]);
 
   useEffect(() => {
     if (location.state?.openStudioList) {
@@ -2506,6 +2564,13 @@ export default function StudioHome() {
       navigate("/studio", { replace: true, state: {} });
     }
   }, [location.state?.openStudioList, navigate]);
+
+  useEffect(() => {
+    if (location.state?.openStudioCourses) {
+      setActiveSection("courses");
+      navigate("/studio", { replace: true, state: {} });
+    }
+  }, [location.state?.openStudioCourses, navigate]);
 
   useEffect(() => {
     if (!liveStartConfirmOpen) return;
@@ -2581,20 +2646,20 @@ export default function StudioHome() {
           .from("curators")
           .select("*")
           .eq("user_id", user.id) // user_id로 연결
-          .single();
-          
-        if (profileError && profileError.code !== 'PGRST116') {
-          console.log("프로필 데이터 없음, 기본값 사용:", profileError);
+          .maybeSingle();
+
+        if (profileError) {
+          console.log("프로필 데이터 조회 오류:", profileError);
         }
-        
-        // 큐레이터 여부 확인
-        const isUserCurator = profileData && !profileError;
-        setIsCurator(isUserCurator);
-        console.log("🎭 큐레이터 여부:", isUserCurator);
+
+        setIsCurator(Boolean(profileData));
+        console.log("🎭 큐레이터 여부:", Boolean(profileData));
         
         const currentUser = profileData || {
           user_id: user.id, // 인증된 사용자 ID 연결
+          slug: user.user_metadata?.username || user.email?.split('@')[0],
           username: user.user_metadata?.username || user.email?.split('@')[0],
+          name: user.user_metadata?.display_name || "큐레이터",
           display_name: user.user_metadata?.display_name || "큐레이터",
           bio: "안녕하세요! 맛집 탐험을 좋아하는 큐레이터입니다.",
           image: null,
@@ -2610,8 +2675,17 @@ export default function StudioHome() {
         setCuratorProfile(prev => ({
           ...prev,
           id: currentUser.id, // ID 필드 추가
-          username: currentUser.username,
-          displayName: currentUser.display_name,
+          user_id: currentUser.user_id || user.id,
+          username:
+            String(currentUser.slug || currentUser.username || "").trim(),
+          displayName:
+            String(
+              currentUser.name ||
+                currentUser.display_name ||
+                currentUser.slug ||
+                currentUser.username ||
+                ""
+            ).trim() || "큐레이터",
           bio: currentUser.bio,
           image:
             currentUser.avatar_url ??
@@ -2635,9 +2709,7 @@ export default function StudioHome() {
 
       if (!user?.id) {
         setMyPlaces([]);
-        const savedDraftsGuest = JSON.parse(
-          localStorage.getItem("studio_drafts") || "[]"
-        );
+        const savedDraftsGuest = readStudioDrafts(null);
         setDrafts(savedDraftsGuest);
         setLoading(false);
         return;
@@ -2680,13 +2752,14 @@ export default function StudioHome() {
           console.log("✅ 기존 방식으로 장소 발견:", oldWayData.length, "개");
           
           // 기존 방식으로 데이터 변환
-          const formattedPlaces = oldWayData.map(place => ({
+          const formattedPlaces = oldWayData.map((place) => ({
             id: place.id,
             name: place.name,
             address: place.address || place.name,
             latitude: place.lat,
             longitude: place.lng,
-            category: place.category || "미분류",
+            category:
+              normalizeStudioPlaceCategory(place.category || "") || "미분류",
             alcohol_type: place.alcohol_type || "",
             atmosphere: place.atmosphere || "",
             recommended_menu: place.recommended_menu || "",
@@ -2729,7 +2802,7 @@ export default function StudioHome() {
         // 임시저장된 데이터만 drafts에 표시됨
         
         // localStorage에서 임시저장된 데이터 불러오기
-        const savedDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        const savedDrafts = readStudioDrafts(user.id);
         setDrafts(savedDrafts);
         console.log("📝 localStorage에서 임시저장 데이터 불러옴:", savedDrafts.length, "개");
       }
@@ -2824,11 +2897,46 @@ export default function StudioHome() {
     prevActiveSectionForListFolderRef.current = activeSection;
   }, [activeSection]);
 
+  useEffect(() => {
+    if (activeSection !== "list") {
+      setListPublicPicksOpen(false);
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== "list" || !user?.id) return undefined;
+    let cancelled = false;
+    setStudioPlacePicksLoading(true);
+    fetchUserPickedPlaces(user.id, { limit: 200 })
+      .then((rows) => {
+        if (!cancelled) setStudioPlacePicks(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("StudioHome place_picks:", e);
+        if (!cancelled) setStudioPlacePicks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStudioPlacePicksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, user?.id]);
+
   const sortedSavedFolders = useMemo(() => {
     return [...savedFolderDefs].sort(
       (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
     );
   }, [savedFolderDefs]);
+
+  const courseReactionMetrics = useMemo(() => {
+    const s = normalizeCuratorArchiveStats(courseArchiveStats);
+    return [
+      { value: s.recent_completion_count_7d, label: "코스 완주 (이번 주)" },
+      { value: s.total_completion_count, label: "코스 완주 (누적)" },
+      { value: s.unique_completed_users, label: "완주한 유저" },
+    ];
+  }, [courseArchiveStats]);
 
   const hasDeletableSavedFolders = useMemo(
     () => sortedSavedFolders.some((f) => isDeletableUserSavedFolderKey(f.key)),
@@ -3095,13 +3203,12 @@ export default function StudioHome() {
       const removePublishedDraft = () => {
         if (!draftIdPublishedFrom) return;
         try {
-          const existingDrafts = JSON.parse(
-            localStorage.getItem("studio_drafts") || "[]"
-          );
+          const draftOwnerId = user?.id ?? null;
+          const existingDrafts = readStudioDrafts(draftOwnerId);
           const nextDrafts = existingDrafts.filter(
             (d) => String(d.id) !== String(draftIdPublishedFrom)
           );
-          localStorage.setItem("studio_drafts", JSON.stringify(nextDrafts));
+          writeStudioDrafts(draftOwnerId, nextDrafts);
           setDrafts(nextDrafts);
         } catch (e) {
           console.warn("studio_drafts 정리(잔 올리기 저장 후):", e);
@@ -3133,16 +3240,17 @@ export default function StudioHome() {
           return;
         }
 
-        if (addPlaceSelectedFolders.length === 0) {
-          alert("내 저장 폴더를 1개 이상 선택해주세요.");
-          return;
-        }
-
         const effectiveEditPlaceId =
           editingPlaceId ||
           (typeof localStorage !== "undefined"
             ? localStorage.getItem("editing_place_id")
             : null);
+
+        /** 신규 잔 올리기만 폴더 필수 — 수정은 폴더 로딩 실패·비워도 본문 저장 가능 */
+        if (!effectiveEditPlaceId && addPlaceSelectedFolders.length === 0) {
+          alert("내 저장 폴더를 1개 이상 선택해주세요.");
+          return;
+        }
 
         if (effectiveEditPlaceId) {
           // 수정 모드: UPDATE 사용
@@ -3151,17 +3259,68 @@ export default function StudioHome() {
             address: formData.name_address,
             lat: formData.latitude,
             lng: formData.longitude,
+            category:
+              normalizeStudioPlaceCategory(formData.category || "") ||
+              "미분류",
             // 추천 한 줄은 curator_places.one_line_reason (upsertCuratorPlaceForStudio)
             kakao_place_id: formData.kakao_place_id || null,
           };
-          
-          console.log("📝 수정할 데이터:", updateData);
-          
-          const { data, error } = await supabase
+
+          const updatePayload = { ...updateData };
+          const editKakaoId = formData.kakao_place_id
+            ? String(formData.kakao_place_id).trim()
+            : "";
+          if (editKakaoId) {
+            const { data: kakaoConflict, error: kakaoConflictErr } =
+              await supabase
+                .from("places")
+                .select("id, name")
+                .eq("kakao_place_id", editKakaoId)
+                .neq("id", effectiveEditPlaceId)
+                .limit(1);
+            if (kakaoConflictErr) {
+              console.warn("kakao_place_id 충돌 조회:", kakaoConflictErr);
+            } else if (kakaoConflict?.length) {
+              const other = kakaoConflict[0];
+              delete updatePayload.kakao_place_id;
+              showToast(
+                `카카오 ID(${editKakaoId})는 다른 장소「${other.name || "이름 없음"}」에서 쓰는 값이라, 이번 저장에서는 카카오 필드만 빼고 나머지를 반영할게요.`,
+                "info",
+                6200
+              );
+            }
+          }
+
+          console.log("📝 수정할 데이터:", updatePayload);
+
+          let { data, error } = await supabase
             .from("places")
-            .update(updateData)
+            .update(updatePayload)
             .eq("id", effectiveEditPlaceId)
             .select();
+
+          const dupKakao =
+            error &&
+            (error.code === "23505" ||
+              String(error.message || "").includes("unique_kakao_place_id"));
+          if (error && dupKakao && "kakao_place_id" in updatePayload) {
+            const retryPayload = { ...updatePayload };
+            delete retryPayload.kakao_place_id;
+            const second = await supabase
+              .from("places")
+              .update(retryPayload)
+              .eq("id", effectiveEditPlaceId)
+              .select();
+            data = second.data;
+            error = second.error;
+            if (!error) {
+              showToast(
+                "카카오 장소 ID는 DB에서 겹쳐 저장하지 못했어요. 이름·위치·분류 등 나머지는 저장했어요.",
+                "info",
+                5500
+              );
+            }
+          }
 
           if (error) {
             console.error("❌ 장소 수정 오류:", error);
@@ -3171,6 +3330,25 @@ export default function StudioHome() {
           }
 
           console.log("✅ 장소 수정 성공:", data);
+
+          const savedRow = Array.isArray(data) && data[0] ? data[0] : null;
+          const basisForList = savedRow
+            ? {
+                name: savedRow.name,
+                address: savedRow.address,
+                lat: savedRow.lat,
+                lng: savedRow.lng,
+                latitude: savedRow.lat,
+                longitude: savedRow.lng,
+                category: savedRow.category,
+                kakao_place_id: savedRow.kakao_place_id ?? null,
+              }
+            : {
+                ...updatePayload,
+                latitude: updatePayload.lat,
+                longitude: updatePayload.lng,
+                kakao_place_id: updatePayload.kakao_place_id ?? null,
+              };
 
           const { error: cpMergeErr } = await upsertCuratorPlaceForStudio(
             supabase,
@@ -3203,21 +3381,21 @@ export default function StudioHome() {
             );
           }
           
-          // 로컬 상태 업데이트
-          setMyPlaces(prev => prev.map(place => 
-            String(place.id) === String(effectiveEditPlaceId)
-              ? {
-                  ...place,
-                  ...updateData,
-                  latitude: updateData.lat,
-                  longitude: updateData.lng,
-                  tags: formData.tags || [],
-                  alcohol_type: formData.alcohol_type || "",
-                  atmosphere: formData.atmosphere || "",
-                  menu_reason: formData.menu_reason || "",
-                }
-              : place
-          ));
+          // 로컬 상태 업데이트 (DB 반환값 우선 — 카카오 생략 저장 시 폼과 불일치 방지)
+          setMyPlaces((prev) =>
+            prev.map((place) =>
+              String(place.id) === String(effectiveEditPlaceId)
+                ? {
+                    ...place,
+                    ...basisForList,
+                    tags: formData.tags || [],
+                    alcohol_type: formData.alcohol_type || "",
+                    atmosphere: formData.atmosphere || "",
+                    menu_reason: formData.menu_reason || "",
+                  }
+                : place
+            )
+          );
 
           removePublishedDraft();
 
@@ -3265,9 +3443,9 @@ export default function StudioHome() {
                   lat: formData.latitude,
                   lng: formData.longitude,
                   category:
-                    formData.category ||
-                    existingPlace.category ||
-                    "미분류",
+                    normalizeStudioPlaceCategory(
+                      formData.category || existingPlace.category || ""
+                    ) || "미분류",
                   kakao_place_id: kid,
                 })
                 .eq("id", existingPlace.id)
@@ -3285,7 +3463,9 @@ export default function StudioHome() {
               address: formData.name_address,
               lat: formData.latitude,
               lng: formData.longitude,
-              category: formData.category || "미분류",
+              category:
+                normalizeStudioPlaceCategory(formData.category || "") ||
+                "미분류",
               kakao_place_id: kid || null,
             };
 
@@ -3420,7 +3600,9 @@ export default function StudioHome() {
               address: formData.name_address,
               latitude: formData.latitude,
               longitude: formData.longitude,
-              category: formData.category || "미분류",
+              category:
+                normalizeStudioPlaceCategory(formData.category || "") ||
+                "미분류",
               alcohol_type: formData.alcohol_type || "",
               atmosphere: formData.atmosphere || "",
               recommended_menu: formData.recommended_menu || "",
@@ -3496,8 +3678,9 @@ export default function StudioHome() {
           createdAt: new Date().toISOString().split('T')[0]
         };
         
-        // localStorage에 저장
-        const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+        // localStorage에 저장 (계정별 키)
+        const draftOwnerId = user?.id ?? null;
+        const existingDrafts = readStudioDrafts(draftOwnerId);
         let updatedDrafts;
         
         if (editingDraftId) {
@@ -3513,7 +3696,7 @@ export default function StudioHome() {
           console.log("📝 새 임시저장 추가:", draftData.id);
         }
         
-        localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+        writeStudioDrafts(draftOwnerId, updatedDrafts);
 
         // React 상태는 localStorage와 동일하게 유지 (기존: 항상 append 해서 수정 시 초안이 2개로 보임)
         setDrafts(updatedDrafts);
@@ -3951,9 +4134,10 @@ export default function StudioHome() {
     console.log("Delete draft:", draftId);
     
     // localStorage에서 삭제
-    const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+    const draftOwnerId = user?.id ?? null;
+    const existingDrafts = readStudioDrafts(draftOwnerId);
     const updatedDrafts = existingDrafts.filter(draft => draft.id !== draftId);
-    localStorage.setItem('studio_drafts', JSON.stringify(updatedDrafts));
+    writeStudioDrafts(draftOwnerId, updatedDrafts);
     
     // state에서도 삭제
     setDrafts(prev => prev.filter(draft => draft.id !== draftId));
@@ -4172,7 +4356,7 @@ export default function StudioHome() {
     setLiveStartConfirmOpen(false);
   };
 
-  if (loading) {
+  if (authLoading || curatorGate === "pending" || (curatorGate === "allowed" && loading)) {
     return (
       <div style={{ padding: "20px", textAlign: "center" }}>
         로딩 중...
@@ -4181,7 +4365,7 @@ export default function StudioHome() {
   }
 
   // 일반 사용자는 스튜디오 접근 불가
-  if (!isCurator) {
+  if (curatorGate === "denied" || !isCurator) {
     return (
       <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
         <div style={{ marginTop: "100px", maxWidth: "600px", margin: "100px auto 0" }}>
@@ -4291,7 +4475,7 @@ export default function StudioHome() {
       <div style={styles.topBarWrap}>
         <button
           type="button"
-          title="잔 올리기"
+          title={STUDIO_TAB.add}
           onClick={() => {
             setEditingDraftId(null);
             setEditingPlaceId(null);
@@ -4307,40 +4491,51 @@ export default function StudioHome() {
             ...(activeSection === "add" ? styles.topBarButtonActive : {}),
           }}
         >
-          잔 올리기
+          {STUDIO_TAB.add}
         </button>
         <button
           type="button"
-          title="잔 리스트"
+          title={`${STUDIO_TAB.courses} — 목록·편집`}
+          onClick={() => setActiveSection("courses")}
+          style={{
+            ...styles.topBarButton,
+            ...(activeSection === "courses" ? styles.topBarButtonActive : {}),
+          }}
+        >
+          {STUDIO_TAB.courses}
+        </button>
+        <button
+          type="button"
+          title={STUDIO_TAB.list}
           onClick={() => setActiveSection("list")}
           style={{
             ...styles.topBarButton,
             ...(activeSection === "list" ? styles.topBarButtonActive : {}),
           }}
         >
-          잔 리스트
+          {STUDIO_TAB.list}
         </button>
         <button
           type="button"
-          title="잔 채우기"
+          title={STUDIO_TAB.drafts}
           onClick={() => setActiveSection("drafts")}
           style={{
             ...styles.topBarButton,
             ...(activeSection === "drafts" ? styles.topBarButtonActive : {}),
           }}
         >
-          잔 채우기
+          {STUDIO_TAB.drafts}
         </button>
         <button
           type="button"
-          title="잔 아카이브"
+          title={STUDIO_TAB.archive}
           onClick={() => setActiveSection("archive")}
           style={{
             ...styles.topBarButton,
             ...(activeSection === "archive" ? styles.topBarButtonActive : {}),
           }}
         >
-          잔 아카이브
+          {STUDIO_TAB.archive}
         </button>
       </div>
 
@@ -4348,173 +4543,100 @@ export default function StudioHome() {
       {activeSection === "add" && (
         <div style={styles.studioSectionInner}>
           {/* 장소/주소 검색 */}
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>장소 또는 주소 검색</label>
-            <div style={{ position: "relative", zIndex: 1000 }}>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <div style={{ position: "relative", flex: 1 }}>
-                  <input
-                    type="text"
-                    value={formData.name_address}
-                    onChange={(e) => handleInputChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => {
-                      if (formData.name_address.trim()) {
-                        fetchSuggestions(formData.name_address);
-                      }
-                    }}
-                    onBlur={() => {
-                      setTimeout(() => {
-                        setShowSuggestions(false);
-                        setSelectedSuggestionIndex(-1);
-                      }, 200);
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "10px 35px 10px 10px",
-                      border: "1px solid #333",
-                      borderRadius: "6px",
-                      backgroundColor: "#222",
-                      color: "white",
-                      fontSize: "14px",
-                      zIndex: 1001,
-                      boxSizing: "border-box"
-                    }}
-                    placeholder="장소 이름 또는 주소를 입력하세요"
-                    tabIndex={1}
-                  />
-                  {formData.name_address && (
-                    <button
-                      onClick={() => {
-                        setFormData(prev => ({ ...prev, name_address: "" }));
-                        setSearchSuggestions([]);
-                        setShowSuggestions(false);
-                        setSelectedSuggestionIndex(-1);
-                      }}
-                      style={{
-                        position: "absolute",
-                        right: "6px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        color: "#666",
-                        cursor: "pointer",
-                        fontSize: "16px",
-                        padding: "2px",
-                        zIndex: 1002
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <button
-                  onClick={handleSearch}
-                  style={{
-                    padding: "10px 16px",
-                    backgroundColor: "#2ECC71",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    whiteSpace: "nowrap",
-                    zIndex: 1001,
-                    flexShrink: 0
-                  }}
-                  tabIndex={2}
-                >
-                  🔍 검색
-                </button>
-              </div>
-              
-              {/* 자동완성 리스트 */}
-              {showSuggestions && (
-                <div style={{
-                  position: "absolute",
-                  top: "100%",
-                  left: "0",
-                  right: "0",
-                  backgroundColor: "#333",
-                  border: "1px solid #444",
-                  borderTop: "none",
-                  borderRadius: "0 0 6px 6px",
-                  maxHeight: "180px",
-                  overflowY: "auto",
-                  zIndex: 1000,
-                  marginTop: "1px"
-                }}>
-                  {searchSuggestions.map((suggestion, index) => (
-                    <div
-                      key={index}
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      style={{
-                        padding: "8px 10px",
-                        cursor: "pointer",
-                        backgroundColor: index === selectedSuggestionIndex ? "#444" : "transparent",
-                        color: index === selectedSuggestionIndex ? "#2ECC71" : "white",
-                        fontSize: "13px",
-                        transition: "background-color 0.2s ease"
-                      }}
-                      onMouseEnter={() => setSelectedSuggestionIndex(index)}
-                      onMouseLeave={() => setSelectedSuggestionIndex(-1)}
-                    >
-                      <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-                        🔍 {suggestion.place_name}
-                      </div>
-                      {suggestion.address_name && (
-                        <div style={{ fontSize: "11px", color: "#999" }}>
-                          {suggestion.address_name}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 지도 영역 */}
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>위치 선택 (지도를 클릭하세요)</label>
-            <div style={{ 
-              height: "400px", 
-              width: "100%",
-              borderRadius: "8px", 
-              overflow: "hidden",
-              border: "1px solid #333",
-              backgroundColor: "#f0f0f0"
-            }}>
+          <StudioPlaceMapSearchPanel
+            query={formData.name_address}
+            onQueryChange={handleInputChange}
+            onSearch={handleSearch}
+            onClear={() => {
+              setFormData((prev) => ({
+                ...prev,
+                name_address: "",
+                latitude: null,
+                longitude: null,
+                kakao_place_id: null,
+              }));
+              setSearchSuggestions([]);
+              setShowSuggestions(false);
+              setSelectedSuggestionIndex(-1);
+              setSearchedPlaces([]);
+            }}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (formData.name_address.trim()) {
+                fetchSuggestions(formData.name_address);
+              }
+            }}
+            onBlur={() => {
+              setTimeout(() => {
+                setShowSuggestions(false);
+                setSelectedSuggestionIndex(-1);
+              }, 200);
+            }}
+            placeholder="가게 이름 또는 주소"
+            isMobile={isMobile}
+            suggestionsDropdown={
+              <StudioMapSearchSuggestions
+                open={showSuggestions && formData.name_address.trim().length >= 2}
+                loading={isSearchingSuggestions}
+                items={searchSuggestions}
+                selectedIndex={selectedSuggestionIndex}
+                onSelect={handleSuggestionClick}
+                onHoverIndex={setSelectedSuggestionIndex}
+                getItemKey={(s, i) => `${s.place_name}-${i}`}
+                emptyMessage={
+                  !isSearchingSuggestions ? "검색 결과가 없어요." : null
+                }
+              />
+            }
+            mapSlot={
               <MapView
                 key={`map-${activeSection}`}
                 ref={mapRef}
-                places={searchedPlaces.length > 0 ? searchedPlaces.map(place => ({
-                  id: place.kakao_place_id || `studio-${place.place_name}-${place.y}-${place.x}`,
-                  name: place.place_name,
-                  address: place.address_name,
-                  latitude: parseFloat(place.y),
-                  longitude: parseFloat(place.x),
-                  category: "",
-                  is_public: true,
-                  created_at: new Date().toISOString().split('T')[0]
-                })) : defaultPlaces}
+                places={
+                  searchedPlaces.length > 0
+                    ? searchedPlaces.map((place) => ({
+                        id:
+                          place.kakao_place_id ||
+                          `studio-${place.place_name}-${place.y}-${place.x}`,
+                        name: place.place_name,
+                        address: place.address_name,
+                        latitude: parseFloat(place.y),
+                        longitude: parseFloat(place.x),
+                        category: "",
+                        is_public: true,
+                        created_at: new Date().toISOString().split("T")[0],
+                      }))
+                    : defaultPlaces
+                }
                 center={mapCenter}
-                style={{ 
-                  width: "100%", 
-                  height: "100%",
-                  display: "block"
-                }}
+                style={studioMapSearchMapFill}
               />
-            </div>
-            {formData.latitude && formData.longitude && (
-              <div style={{ marginTop: "10px", color: "#666", fontSize: "12px" }}>
-                선택된 좌표: {formData.latitude.toFixed(6)}, {formData.longitude.toFixed(6)}
-              </div>
-            )}
-          </div>
-
+            }
+            footerSlot={
+              formData.latitude && formData.longitude ? (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    color: "rgba(255,255,255,0.45)",
+                    fontSize: "12px",
+                  }}
+                >
+                  선택된 좌표: {formData.latitude.toFixed(6)},{" "}
+                  {formData.longitude.toFixed(6)}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    color: "rgba(255,255,255,0.4)",
+                    fontSize: "12px",
+                  }}
+                >
+                  검색하거나 지도에서 위치를 확인하세요
+                </div>
+              )
+            }
+          />
           {/* 카테고리 */}
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>카테고리</label>
@@ -5090,9 +5212,94 @@ export default function StudioHome() {
         </div>
       )}
 
+      {/* 잔 코스 섹션 */}
+      {activeSection === "courses" && (
+        <div style={styles.studioSectionInner}>
+          <StudioCoursesPanel embedded active />
+        </div>
+      )}
+
       {/* 잔 리스트 섹션 */}
       {activeSection === "list" && (
         <div style={styles.studioSectionInner}>
+          {listPublicPicksOpen ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setListPublicPicksOpen(false);
+                  setStudioPickDetailPlace(null);
+                }}
+                style={{
+                  ...styles.topBarButton,
+                  marginBottom: "12px",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                }}
+              >
+                ← 잔 리스트
+              </button>
+              <div
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#fff",
+                  marginBottom: "8px",
+                }}
+              >
+                공개 픽
+              </div>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#999",
+                  margin: "0 0 14px",
+                  lineHeight: 1.45,
+                }}
+              >
+                지도·장소 카드에서 고른 공개 픽이에요. {STUDIO_TAB.add}·잔
+                리스트 추천과는 별도로 프로필에 보입니다.
+              </p>
+              <PlacePicksPublicList
+                rows={studioPlacePicks}
+                loading={studioPlacePicksLoading}
+                showCuratorPickBadge
+                onRowClick={(row) => {
+                  const p = placePickJoinRowToDetailPlace(row);
+                  if (p) setStudioPickDetailPlace(p);
+                }}
+              />
+            </>
+          ) : (
+            <>
+          <button
+            type="button"
+            onClick={() => setListPublicPicksOpen(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              maxWidth: "320px",
+              margin: "0 auto 12px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid rgba(253,164,175,0.35)",
+              background: "rgba(253,164,175,0.08)",
+              color: "#fda4af",
+              fontSize: "12px",
+              fontWeight: 700,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <span>공개 픽</span>
+            <span style={{ color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
+              {studioPlacePicksLoading
+                ? "불러오는 중…"
+                : `${studioPlacePicks.length}곳 · 관리`}
+            </span>
+          </button>
           <div style={{ marginBottom: "6px", textAlign: "left" }}>
             <div
               style={{
@@ -5705,6 +5912,8 @@ export default function StudioHome() {
               ))
             )})()}
           </div>
+            </>
+          )}
         </div>
       )}
 
@@ -6587,7 +6796,7 @@ export default function StudioHome() {
                   lineHeight: 1.35,
                 }}
               >
-                잔에 적은 값과 장소 마스터에 저장된 태그·주종·분위기·업종을 합쳐 비율을 계산합니다
+                잔 올리기·잔 코스 장소(픽과 겹치면 1회)와 코스 테마 태그를 합칩니다. 주종·분위기는 술·무드 정보가 있는 정거장만, 업종·태그는 경유·디저트 정거장도 반영됩니다.
               </div>
               {archiveInsightsError ? (
                 <div
@@ -6617,7 +6826,7 @@ export default function StudioHome() {
                 if (!any) {
                   return (
                     <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
-                      잔 올리기에서 주종·분위기·태그·카테고리를 넣으면 비율이 잡혀요.
+                      잔 올리기·잔 코스에 장소를 넣고 주종·분위기·태그·카테고리를 채우면 비율이 잡혀요.
                     </div>
                   );
                 }
@@ -6712,41 +6921,71 @@ export default function StudioHome() {
                   marginBottom: "4px",
                 }}
               >
-                🤝 팔로워 행동
+                📚 코스 반응 중심
               </div>
               <div
                 style={{
                   color: "rgba(255,255,255,0.55)",
                   fontSize: "11px",
-                  marginBottom: "10px",
+                  marginBottom: "8px",
                   lineHeight: 1.35,
                 }}
               >
-                picked 가 내 픽에 남긴 저장 · 그 저장이 몰린 지역 · 내 픽 장소 한잔 누적(전체
-                사용자)
+                완주/코스 사용 반응을 먼저 보고, 장소 저장 반응은 보조로 확인해요.
               </div>
-              <div style={{ color: "#eee", fontSize: "12px", marginBottom: "8px" }}>
-                <span style={{ fontWeight: 700 }}>
-                  {archiveExtInsights.followers.savesOnPicks}
-                </span>
-                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
-                  건 저장
-                </span>
-                <span style={{ color: "rgba(255,255,255,0.35)", margin: "0 6px" }}>·</span>
-                <span style={{ fontWeight: 700 }}>
-                  {archiveExtInsights.followers.distinctSavers}
-                </span>
-                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
-                  명이 참여
-                </span>
+              <button
+                type="button"
+                onClick={() => setActiveSection("courses")}
+                style={{
+                  marginBottom: "10px",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "rgba(255,255,255,0.08)",
+                  color: "#fff",
+                  borderRadius: "8px",
+                  padding: "6px 10px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                잔코스 상세 보기 →
+              </button>
+              <div style={styles.followerMetricRow}>
+                {courseReactionMetrics.map((m) => (
+                  <div key={m.label} style={styles.followerMetricCell}>
+                    <div style={styles.followerMetricValue}>{m.value}</div>
+                    <div style={styles.followerMetricLabel}>{m.label}</div>
+                  </div>
+                ))}
               </div>
-              <div style={{ color: "#eee", fontSize: "12px", marginBottom: "10px" }}>
-                <span style={{ fontWeight: 700 }}>
-                  {archiveExtInsights.followers.checkinsTotal}
-                </span>
-                <span style={{ color: "rgba(255,255,255,0.55)", marginLeft: "4px" }}>
-                  한잔 누적 (내 픽 장소)
-                </span>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.65)",
+                  fontSize: "11px",
+                  margin: "2px 0 8px",
+                }}
+              >
+                장소 저장 반응(보조)
+              </div>
+              <div style={styles.followerMetricRow}>
+                <div style={styles.followerMetricCell}>
+                  <div style={styles.followerMetricValue}>
+                    {archiveExtInsights.followers.savesOnPicks}
+                  </div>
+                  <div style={styles.followerMetricLabel}>건 저장</div>
+                </div>
+                <div style={styles.followerMetricCell}>
+                  <div style={styles.followerMetricValue}>
+                    {archiveExtInsights.followers.distinctSavers}
+                  </div>
+                  <div style={styles.followerMetricLabel}>명이 참여</div>
+                </div>
+                <div style={styles.followerMetricCell}>
+                  <div style={styles.followerMetricValue}>
+                    {archiveExtInsights.followers.checkinsTotal}
+                  </div>
+                  <div style={styles.followerMetricLabel}>한잔 누적</div>
+                </div>
               </div>
               {archiveExtInsights.followers.regions.length === 0 ? (
                 <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px" }}>
@@ -6775,322 +7014,86 @@ export default function StudioHome() {
             </div>
           </div>
           
-          {/* 📈 이번 주 성장 피드백 */}
-          <div style={{
-            backgroundColor: "#34495E",
-            padding: "20px",
-            borderRadius: "12px",
-            marginBottom: "30px",
-            border: "1px solid #2C3E50"
-          }}>
-            <div style={{ 
-              color: "white", 
-              fontSize: "14px", 
-              fontWeight: "bold",
-              marginBottom: "15px"
-            }}>
-              📈 성장 추이 (지난주 대비)
-            </div>
-            
-            {/* 그래프 영역 */}
-            <div style={{ 
-              backgroundColor: "rgba(255,255,255,0.1)", 
-              borderRadius: "8px", 
-              padding: "15px", 
-              marginBottom: "15px"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px", fontSize: "11px", color: "rgba(255,255,255,0.7)" }}>
-                <span>지난주</span>
-                <span>이번주</span>
-              </div>
-              <div style={{ display: "flex", gap: "20px" }}>
-                {/* 잔 기록 */}
-                {(() => {
-                  const nPlw = curatorStats.lastWeekStats?.newPlaces || 0;
-                  const nPtw = curatorStats.weeklyStats?.newPlaces || 0;
-                  const placesScale = Math.max(8, nPlw, nPtw);
-                  return (
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 기록</div>
-                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                    <svg style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      zIndex: 1,
-                      overflow: "hidden"
-                    }}>
-                      <line
-                        x1="20%"
-                        y1={`${growthTrendLineYPercent(nPlw, placesScale)}%`}
-                        x2="80%"
-                        y2={`${growthTrendLineYPercent(nPtw, placesScale)}%`}
-                        stroke="#E74C3C"
-                        strokeWidth="2"
-                        strokeDasharray="300"
-                        strokeDashoffset="300"
-                        style={{ animation: "lineDraw 1s ease-out 0.1s forwards" }}
-                      />
-                    </svg>
-                    <div style={{
-                      width: "12px",
-                      height: "12px",
-                      backgroundColor: "rgba(231, 76, 60, 0.5)",
-                      borderRadius: "50%",
-                      border: "2px solid #E74C3C",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nPlw / placesScale) * 52}px`,
-                      animation: "bounce 0.6s ease-out"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.8)",
-                        whiteSpace: "nowrap"
-                      }}>
-                        {nPlw}
-                      </div>
+          {/* 📈 성장 핵심 신호 */}
+          <div
+            style={{
+              backgroundColor: "#34495E",
+              padding: "20px",
+              borderRadius: "12px",
+              marginBottom: "30px",
+              border: "1px solid #2C3E50",
+            }}
+          >
+            {(() => {
+              const s = normalizeCuratorArchiveStats(courseArchiveStats);
+              const weeklyCompletions = s.recent_completion_count_7d;
+              const totalCompletions = s.total_completion_count;
+              const completionUsers = s.unique_completed_users;
+              const publishedCourses = Math.max(1, s.published_course_count);
+              const completionPerCourse = Math.round(
+                (totalCompletions / publishedCourses) * 10
+              ) / 10;
+              const placeSavesWeekly = curatorStats.weeklyStats?.newSaves || 0;
+              return (
+                <>
+                  <div
+                    style={{
+                      color: "white",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    📈 성장 핵심 신호 (코스 중심)
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                      gap: "10px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{weeklyCompletions}</div>
+                      <div style={styles.followerMetricLabel}>이번 주 코스 완주</div>
                     </div>
-                    <div style={{
-                      width: "16px",
-                      height: "16px",
-                      backgroundColor: "#E74C3C",
-                      borderRadius: "50%",
-                      border: "3px solid rgba(255,255,255,0.3)",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nPtw / placesScale) * 52}px`,
-                      boxShadow: "0 0 10px rgba(231, 76, 60, 0.5)",
-                      animation: "bounce 0.6s ease-out 0.2s both"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "#E74C3C",
-                        fontWeight: "bold",
-                        whiteSpace: "nowrap",
-                        animation: "fadeInUp 0.4s ease-out 0.5s both"
-                      }}>
-                        {nPtw > nPlw ? "▲" :
-                         nPtw < nPlw ? "▼" : "─"}
-                        {nPtw}
-                      </div>
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{completionUsers}</div>
+                      <div style={styles.followerMetricLabel}>완주한 유저(누적)</div>
+                    </div>
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{completionPerCourse}</div>
+                      <div style={styles.followerMetricLabel}>코스당 완주(누적)</div>
                     </div>
                   </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "rgba(255,255,255,0.8)",
+                      lineHeight: 1.4,
+                      borderTop: "1px solid rgba(255,255,255,0.2)",
+                      paddingTop: "10px",
+                    }}
+                  >
+                    누적 완주 {totalCompletions}회 · 이번 주 장소 저장 {placeSavesWeekly}건
+                    (보조)
                   </div>
-                </div>
-                  );
-                })()}
-                {/* 잔 반응 */}
-                {(() => {
-                  const nSlw = curatorStats.lastWeekStats?.newSaves || 0;
-                  const nStw = curatorStats.weeklyStats?.newSaves || 0;
-                  const savesScale = Math.max(40, nSlw, nStw);
-                  return (
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 반응</div>
-                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                    <svg style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      zIndex: 1,
-                      overflow: "hidden"
-                    }}>
-                      <line
-                        x1="20%"
-                        y1={`${growthTrendLineYPercent(nSlw, savesScale)}%`}
-                        x2="80%"
-                        y2={`${growthTrendLineYPercent(nStw, savesScale)}%`}
-                        stroke="#F39C12"
-                        strokeWidth="2"
-                        strokeDasharray="300"
-                        strokeDashoffset="300"
-                        style={{ animation: "lineDraw 1s ease-out 0.3s forwards" }}
-                      />
-                    </svg>
-                    <div style={{
-                      width: "12px",
-                      height: "12px",
-                      backgroundColor: "rgba(243, 156, 18, 0.5)",
-                      borderRadius: "50%",
-                      border: "2px solid #F39C12",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nSlw / savesScale) * 52}px`
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.8)",
-                        whiteSpace: "nowrap"
-                      }}>
-                        {nSlw}
-                      </div>
-                    </div>
-                    <div style={{
-                      width: "16px",
-                      height: "16px",
-                      backgroundColor: "#F39C12",
-                      borderRadius: "50%",
-                      border: "3px solid rgba(255,255,255,0.3)",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nStw / savesScale) * 52}px`,
-                      boxShadow: "0 0 10px rgba(243, 156, 18, 0.5)",
-                      animation: "bounce 0.6s ease-out 0.4s both"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "#F39C12",
-                        fontWeight: "bold",
-                        whiteSpace: "nowrap",
-                        animation: "fadeInUp 0.4s ease-out 0.7s both"
-                      }}>
-                        {nStw > nSlw ? "▲" :
-                         nStw < nSlw ? "▼" : "─"}
-                        {nStw}
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                </div>
-                  );
-                })()}
-                {/* picked — 이번 주 신규 팔로워만 (picks 아님) */}
-                {(() => {
-                  const plw = curatorStats.lastWeekStats?.newFollowers || 0;
-                  const ptw = curatorStats.weeklyStats?.newFollowers || 0;
-                  const pickedScale = Math.max(5, plw, ptw);
-                  return (
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>picked</div>
-                      <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                      <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                        <svg style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          height: "100%",
-                          zIndex: 1,
-                          overflow: "hidden"
-                        }}>
-                          <line
-                            x1="20%"
-                            y1={`${growthTrendLineYPercent(plw, pickedScale)}%`}
-                            x2="80%"
-                            y2={`${growthTrendLineYPercent(ptw, pickedScale)}%`}
-                            stroke="#9B59B6"
-                            strokeWidth="2"
-                            strokeDasharray="300"
-                            strokeDashoffset="300"
-                            style={{ animation: "lineDraw 1s ease-out 0.5s forwards" }}
-                          />
-                        </svg>
-                        <div style={{
-                          width: "12px",
-                          height: "12px",
-                          backgroundColor: "rgba(155, 89, 182, 0.5)",
-                          borderRadius: "50%",
-                          border: "2px solid #9B59B6",
-                          position: "relative",
-                          zIndex: 2,
-                          bottom: `${(plw / pickedScale) * 52}px`
-                        }}>
-                          <div style={{
-                            position: "absolute",
-                            bottom: "20px",
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            fontSize: "10px",
-                            color: "rgba(255,255,255,0.8)",
-                            whiteSpace: "nowrap"
-                          }}>
-                            {plw}
-                          </div>
-                        </div>
-                        <div style={{
-                          width: "16px",
-                          height: "16px",
-                          backgroundColor: "#9B59B6",
-                          borderRadius: "50%",
-                          border: "3px solid rgba(255,255,255,0.3)",
-                          position: "relative",
-                          zIndex: 2,
-                          bottom: `${(ptw / pickedScale) * 52}px`,
-                          boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
-                          animation: "bounce 0.6s ease-out 0.6s both"
-                        }}>
-                          <div style={{
-                            position: "absolute",
-                            bottom: "20px",
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            fontSize: "10px",
-                            color: "#9B59B6",
-                            fontWeight: "bold",
-                            whiteSpace: "nowrap",
-                            animation: "fadeInUp 0.4s ease-out 0.9s both"
-                          }}>
-                            {ptw > plw ? "▲" : ptw < plw ? "▼" : "─"}
-                            {ptw}
-                          </div>
-                        </div>
-                      </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-              
-              {/* CSS 애니메이션 스타일 - 완전히 제거 */}
-            </div>
-            
-            <div style={{ 
-              fontSize: "12px", 
-              color: "white", 
-              fontWeight: "bold",
-              paddingTop: "10px",
-              borderTop: "1px solid rgba(255,255,255,0.2)"
-            }}>
-              🔥 이번 주 최고 반응 잔
-              <div style={{ fontSize: "11px", fontWeight: "normal", marginTop: "3px", lineHeight: 1.35 }}>
-                {curatorStats.weekTopReactingPlace ? (
-                  <>
-                    → {curatorStats.weekTopReactingPlace} (저장{" "}
-                    {curatorStats.weekTopReactingSaves})
-                  </>
-                ) : (curatorStats.weeklyStats?.newSaves || 0) > 0 ? (
-                  <>→ 이번 주 저장 합계 {curatorStats.weeklyStats.newSaves}건</>
-                ) : (
-                  <>→ 이번 주 추천 잔에 새 저장이 없어요</>
-                )}
-              </div>
-            </div>
+                </>
+              );
+            })()}
           </div>
           </div>
       )}
+
+      {studioPickDetailPlace ? (
+        <PlaceDetail
+          place={studioPickDetailPlace}
+          isSaved={isPlaceSaved(studioPickDetailPlace.id)}
+          onClose={() => setStudioPickDetailPlace(null)}
+          onSave={() => {}}
+        />
+      ) : null}
 
       {liveStartConfirmOpen && (
         <div
@@ -7674,6 +7677,37 @@ const styles = {
     textAlign: "center",
     border: "1px solid rgba(255,255,255,0.07)",
     minWidth: 0,
+  },
+  followerMetricRow: {
+    display: "flex",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: "8px",
+    marginBottom: "10px",
+  },
+  followerMetricCell: {
+    flex: "1 1 0",
+    minWidth: "68px",
+    backgroundColor: "#222",
+    padding: "8px 6px",
+    borderRadius: "8px",
+    textAlign: "center",
+    border: "1px solid rgba(255,255,255,0.07)",
+    boxSizing: "border-box",
+  },
+  followerMetricValue: {
+    fontSize: "16px",
+    fontWeight: 800,
+    lineHeight: 1.15,
+    marginBottom: "2px",
+    fontVariantNumeric: "tabular-nums",
+    color: "#eee",
+  },
+  followerMetricLabel: {
+    fontSize: "10px",
+    color: "rgba(255,255,255,0.55)",
+    lineHeight: 1.3,
+    wordBreak: "keep-all",
   },
   archiveStatValue: {
     fontSize: "20px",

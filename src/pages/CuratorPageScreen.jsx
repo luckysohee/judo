@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import CuratorPage from "../components/CuratorPage/CuratorPage";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
@@ -10,17 +10,15 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import {
-  fetchMyFollowedCuratorIds,
-  followCurator,
-  unfollowCurator,
-} from "../utils/supabaseFollows";
+import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
+import { getPickCounts } from "../utils/userProfileFollows";
 import { fetchPlacesForCuratorPage } from "../utils/supabasePlaces";
 import {
   fetchCuratorLiveStatus,
   setCuratorLiveStatus,
   subscribeCuratorLiveStatus,
 } from "../utils/supabaseLive";
+import { fetchUserPickedPlaces } from "../api/placePicks";
 
 export default function CuratorPageScreen() {
   const { name } = useParams();
@@ -30,19 +28,38 @@ export default function CuratorPageScreen() {
   const [detailPlace, setDetailPlace] = useState(null);
   const [curator, setCurator] = useState(null);
   const [curatorPlaces, setCuratorPlaces] = useState([]);
-  const [followState, setFollowState] = useState(false);
+  const [curatorPickRows, setCuratorPickRows] = useState([]);
+  const [receivedPickCount, setReceivedPickCount] = useState(0);
+  const [outgoingPickCount, setOutgoingPickCount] = useState(0);
+  const [mutual, setMutual] = useState(false);
   const [liveState, setLiveState] = useState(false);
   const [canEditLive, setCanEditLive] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const folders = useMemo(() => getFolders(), []);
 
+  const onPickCountsChange = useCallback(({ received, outgoing }) => {
+    setReceivedPickCount(received);
+    setOutgoingPickCount(outgoing);
+  }, []);
+
+  const onRelationshipChange = useCallback(({ mutual: m }) => {
+    setMutual(Boolean(m));
+  }, []);
+
+  const onBecomePicking = useCallback(() => {
+    if (user) void syncAuthProviderToProfile(supabase, user).catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     const slug = decodeURIComponent(name || "");
     if (!slug) {
       setCurator(null);
       setCuratorPlaces([]);
-      setFollowState(false);
+      setCuratorPickRows([]);
+      setReceivedPickCount(0);
+      setOutgoingPickCount(0);
+      setMutual(false);
       setLiveState(false);
       setCanEditLive(false);
       setLoading(false);
@@ -72,7 +89,10 @@ export default function CuratorPageScreen() {
         if (!curatorRow) {
           setCurator(null);
           setCuratorPlaces([]);
-          setFollowState(false);
+          setCuratorPickRows([]);
+          setReceivedPickCount(0);
+          setOutgoingPickCount(0);
+          setMutual(false);
           setLiveState(false);
           setCanEditLive(false);
           return;
@@ -80,13 +100,14 @@ export default function CuratorPageScreen() {
 
         const mappedCurator = {
           id: curatorRow.id,
+          /** pick 관계의 대상 auth.users.id (모든 유저 pick 확장과 동일 키) */
+          userId: curatorRow.user_id,
           name: curatorRow.name,
           displayName: curatorRow.display_name,
           subtitle: curatorRow.subtitle,
           bio: curatorRow.bio,
           avatar: curatorRow.avatar_url,
           color: curatorRow.color,
-          followers: Number(curatorRow.followers_count || 0),
         };
 
         setCurator(mappedCurator);
@@ -112,8 +133,34 @@ export default function CuratorPageScreen() {
           setLiveState(false);
         }
 
-        const placesRows = await fetchPlacesForCuratorPage(curatorRow);
+        const uid = curatorRow.user_id;
+        const [placesRows, pickRowsRaw] = await Promise.all([
+          fetchPlacesForCuratorPage(curatorRow),
+          uid
+            ? fetchUserPickedPlaces(uid, { limit: 200 }).catch((err) => {
+                console.error("curator place_picks fetch:", err);
+                return [];
+              })
+            : Promise.resolve([]),
+        ]);
 
+        if (!mounted) return;
+
+        setCuratorPickRows(Array.isArray(pickRowsRaw) ? pickRowsRaw : []);
+
+        try {
+          if (uid) {
+            const c = await getPickCounts(supabase, uid);
+            if (!mounted) return;
+            setReceivedPickCount(c.followers_count);
+            setOutgoingPickCount(c.following_count);
+          } else {
+            setReceivedPickCount(0);
+            setOutgoingPickCount(0);
+          }
+        } catch (countsErr) {
+          console.warn("CuratorPageScreen pick counts:", countsErr);
+        }
         if (!mounted) return;
 
         const mappedPlaces = placesRows.map((row) => ({
@@ -132,20 +179,15 @@ export default function CuratorPageScreen() {
         }));
 
         setCuratorPlaces(mappedPlaces);
-
-        if (user?.id) {
-          const followedIds = await fetchMyFollowedCuratorIds(user.id);
-          if (!mounted) return;
-          setFollowState(followedIds.includes(curatorRow.id));
-        } else {
-          setFollowState(false);
-        }
       } catch (error) {
         console.error("curator page fetch error:", error);
         if (!mounted) return;
         setCurator(null);
         setCuratorPlaces([]);
-        setFollowState(false);
+        setCuratorPickRows([]);
+        setReceivedPickCount(0);
+        setOutgoingPickCount(0);
+        setMutual(false);
         setLiveState(false);
         setCanEditLive(false);
       } finally {
@@ -161,6 +203,15 @@ export default function CuratorPageScreen() {
       }
     };
   }, [name, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) setMutual(false);
+  }, [user?.id]);
+
+  const profileUserId = curator?.userId ?? null;
+  const pickMutualVisible = Boolean(
+    user?.id && profileUserId && user.id !== profileUserId && mutual,
+  );
 
   const curatorColorMap = useMemo(() => {
     if (!curator) return {};
@@ -207,33 +258,22 @@ export default function CuratorPageScreen() {
         open={true}
         curator={curator}
         places={curatorPlaces}
+        pickedPlacesRows={curatorPickRows}
+        pickedPlacesLoading={false}
         curatorColorMap={curatorColorMap}
         savedColorMap={savedColorMap}
         onClose={() => navigate(-1)}
         onOpenPlaceDetail={setDetailPlace}
         onSelectPlace={setDetailPlace}
-        followState={followState}
+        profileUserId={profileUserId}
+        pickReceivedCount={receivedPickCount}
+        pickOutgoingCount={outgoingPickCount}
+        pickMutualVisible={pickMutualVisible}
+        onPickCountsChange={onPickCountsChange}
+        onRelationshipChange={onRelationshipChange}
+        onBecomePicking={onBecomePicking}
         liveState={liveState}
         canEditLive={canEditLive}
-        onToggleFollow={async () => {
-          if (!user?.id) {
-            alert("팔로우하려면 로그인이 필요합니다.");
-            return;
-          }
-
-          try {
-            if (followState) {
-              await unfollowCurator({ userId: user.id, curatorId: curator.id });
-              setFollowState(false);
-            } else {
-              await followCurator({ userId: user.id, curatorId: curator.id });
-              setFollowState(true);
-            }
-          } catch (error) {
-            console.error("follow toggle error:", error);
-            alert(error?.message || "팔로우 처리 중 오류가 발생했습니다.");
-          }
-        }}
         onToggleLive={async () => {
           try {
             await setCuratorLiveStatus({ curatorId: curator.id, isLive: !liveState });

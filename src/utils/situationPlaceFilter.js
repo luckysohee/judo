@@ -18,9 +18,14 @@ const TAG_HINTS = {
     "바",
     "술집",
     "안주",
+    "술안주",
     "해산물",
     "맥주",
     "하이볼",
+    "칵테일",
+    "펍",
+    "요리주점",
+    "닭발",
   ],
   [SITUATION_FOLDER.firstMeal]: [
     "회식",
@@ -29,9 +34,14 @@ const TAG_HINTS = {
     "고기",
     "삼겹",
     "밥",
+    "식사",
     "해장",
     "곱창",
     "찌개",
+    "점심",
+    "저녁",
+    "치킨",
+    "족발",
   ],
   [SITUATION_FOLDER.vibe]: [
     "데이트",
@@ -43,6 +53,10 @@ const TAG_HINTS = {
     "루프탑",
     "뷰",
     "인테리어",
+    "감성",
+    "무드",
+    "브런치",
+    "디저트",
   ],
 };
 
@@ -69,15 +83,37 @@ function categoryHeuristic(place, folderKey) {
   const c = String(place?.category || place?.category_name || "").toLowerCase();
   if (!c) return false;
   if (folderKey === SITUATION_FOLDER.secondRound) {
-    return /주점|바|포장|민속|호프|술집|이자카야|와인|포차/.test(c);
+    return /주점|바|포장|민속|호프|술집|이자카야|와인|포차|요리주점|칵테일|펍|pub|라운지|양주|음식점\s*>\s*술집|음식점\s*>\s*바/.test(
+      c
+    );
   }
   if (folderKey === SITUATION_FOLDER.firstMeal) {
-    return /한식|중식|일식|고기|곱창|삼겹|국밥|찌개|회/.test(c);
+    return /한식|중식|일식|고기|곱창|삼겹|국밥|찌개|회|치킨|닭|족발|피자|분식|돈까스|구이|샤브|샤브샤브|육류|백반|한정식/.test(
+      c
+    );
   }
   if (folderKey === SITUATION_FOLDER.vibe) {
-    return /와인|바|카페|브루|다이닝|레스토랑|이탈리/.test(c);
+    return /와인|바|카페|브루|다이닝|레스토랑|이탈리|베이커리|브런치|디저트|뷔페|프렌치/.test(
+      c
+    );
   }
   return false;
+}
+
+/** 같은 필터에서도 매번 위쪽 몇 개만 보이지 않게 순서만 섞음(결정적) */
+function varietyOrderKey(place, seed) {
+  const id = String(
+    place?.id ?? place?.place_id ?? `${place?.lat ?? ""},${place?.lng ?? ""}`
+  );
+  const s = String(seed || "");
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  }
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  }
+  return h >>> 0;
 }
 
 /** userSavedPlaces: { [placeId]: [{ key, name?, ... }, ...] } */
@@ -110,13 +146,27 @@ export function placeMatchesSituationFolder(place, folderKey, userSavedPlaces) {
  * @param {T[]} places
  * @param {string | null} folderKey system_folders.key or null
  * @param {Record<string, unknown>} userSavedPlaces
+ * @param {{ varietySeed?: string | null }} [opts]
  * @returns {T[]}
  */
-export function filterPlacesBySituationFolder(places, folderKey, userSavedPlaces) {
+export function filterPlacesBySituationFolder(
+  places,
+  folderKey,
+  userSavedPlaces,
+  opts = {}
+) {
   if (!folderKey || !Array.isArray(places)) return places || [];
-  return places.filter((p) =>
+  const filtered = places.filter((p) =>
     placeMatchesSituationFolder(p, folderKey, userSavedPlaces)
   );
+  const seed = opts?.varietySeed;
+  if (!seed || filtered.length < 2) return filtered;
+  return [...filtered].sort((a, b) => {
+    const ka = varietyOrderKey(a, seed);
+    const kb = varietyOrderKey(b, seed);
+    if (ka !== kb) return ka - kb;
+    return String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+  });
 }
 
 export function situationFolderLabel(folderKey) {

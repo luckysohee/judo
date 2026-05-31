@@ -4,15 +4,15 @@
  */
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import SearchStates, { InitialState, TypingState, SearchCompleteState } from "./SearchStates";
+import { TypingState } from "./SearchStates";
 import { supabase } from '../../lib/supabase';
-import ContextTags from './ContextTags';
 import { formatKakaoKeywordHitsForMap } from "../../utils/formatKakaoKeywordHitsForMap";
 import {
   filterKakaoKeywordRowsForMealIntent,
   isMealFocusedKakaoQuery,
 } from "../../utils/filterKakaoKeywordResultsForMealIntent";
 import { searchKakaoKeywordViaProxy } from "../../utils/kakaoAPIProxy";
+import { HOME_UI_DOCK_RADIUS_PX } from "../../utils/homeHotStripLayout";
 
 /** 왼쪽 검색 방식 버튼 순환: 자동 → 빠른(카카오) → AI 고정 */
 const SEARCH_CHANNEL_ORDER = ["auto", "basic", "ai"];
@@ -42,8 +42,6 @@ export default function SearchBar({
   suggestions = [],
   showSuggestions = false,
   setShowSuggestions = () => {},
-  matchedContexts = [],
-  onContextTagClick = null,
   onKakaoPlaceSelect = null,
   showKakaoSearch = true,
   onRealTimeSearch = null,
@@ -61,10 +59,16 @@ export default function SearchBar({
   placeholder = 'Search for places...',
   /** 홈 등: 입력·포커스 시 보조 플로팅 힌트 닫기 */
   onUserInteractWithSearch = null,
+  /** 홈 검색 모드(상단 오버레이) 진입 */
+  onInputFocus = null,
   /** 검색 중 하단 GPT 스타일 상태 문구 */
   loadingStatusText = "",
   /** 타이핑 자동완성 후보를 지도 마커로 올릴 때 부모에 전달 (빈 배열이면 제거) */
   onKakaoTypingPreviewPlacesChange = null,
+  /** 홈 인트로 등에서 검색 입력으로 포커스 이동 */
+  searchInputRef = null,
+  /** 맞춤 추천 시트가 바로 위에 붙을 때 — 상단 모서리 직각(시트와 연결) */
+  sheetDockedAbove = false,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -90,6 +94,7 @@ export default function SearchBar({
   const channelPopoverCloseTimerRef = useRef(null);
   const firstAiTipTimerRef = useRef(null);
   const [showFirstAiSearchTip, setShowFirstAiSearchTip] = useState(false);
+  const allowPlaceSuggestions = showKakaoSearch;
 
   useEffect(() => {
     if (!isLoading) {
@@ -158,7 +163,6 @@ export default function SearchBar({
   // UI 상태 관리
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [appliedFilters, setAppliedFilters] = useState([]); // 적용된 필터 칩
 
   // 카카오 장소 검색 — JS SDK 우선, 없거나 0건이면 REST 프록시(/api/kakao/search)
   const searchKakaoPlaces = (keyword) => {
@@ -328,7 +332,7 @@ export default function SearchBar({
       }, 500); // 500ms 디바운스
     }
 
-    if (showKakaoSearch) {
+    if (allowPlaceSuggestions) {
       if (kakaoSearchDebounceRef.current) {
         clearTimeout(kakaoSearchDebounceRef.current);
       }
@@ -336,6 +340,10 @@ export default function SearchBar({
         kakaoSearchDebounceRef.current = null;
         searchKakaoPlaces(value);
       }, 300);
+    } else {
+      setKakaoResults([]);
+      setShowKakaoResultsState(false);
+      setSelectedKakaoIndex(-1);
     }
   };
 
@@ -359,63 +367,12 @@ export default function SearchBar({
       setIsSearching(true); // 검색 상태로 변경
       
       onSubmit(query);
-      
-      // 필터 칩 생성 (검색어 분석)
-      const filters = [];
-      if (query.includes('뒷풀이') || query.includes('회식')) {
-        filters.push({ icon: '🎉', label: '뒷풀이', type: 'context' });
-      }
-      if (query.includes('데이트') || query.includes('연인')) {
-        filters.push({ icon: '💕', label: '데이트', type: 'context' });
-      }
-      if (query.includes('혼술') || query.includes('혼자')) {
-        filters.push({ icon: '🍶', label: '혼술', type: 'context' });
-      }
-      if (query.includes('해장') || query.includes('숙취')) {
-        filters.push({ icon: '💊', label: '해장', type: 'context' });
-      }
-      
-      setAppliedFilters(filters);
-      
+
       // 검색 실행 후 모든 자동완성 UI 숨김
       setShowSuggestions(false);
       setShowKakaoResultsState(false);
       setSelectedKakaoIndex(-1);
       setIsSearching(false);
-    }
-  };
-
-  // 상황 태그 클릭 핸들러
-  const handleContextTagClick = (contextKey, contextName) => {
-    console.log(`🏷️ 상황 태그 클릭: ${contextKey} - ${contextName}`);
-    
-    // 상황별 추천 검색어 생성
-    const contextQueries = {
-      after_party: '강남역 뒷풀이 술집',
-      date: '홍대 데이트 맛집',
-      hangover: '해장 맛집',
-      solo: '혼술하기 좋은 곳',
-      group: '대규모 단체 모임 장소',
-      must_go: '인생 맛집',
-      terrace: '루프탑 바'
-    };
-
-    const searchQuery = contextQueries[contextKey] || contextName;
-    setQuery(searchQuery);
-
-    cancelPendingKakaoSearch();
-
-    // 태그 클릭 시 즉시 검색 실행
-    onSubmit(searchQuery);
-    
-    // 모든 자동완성 UI 숨김
-    setShowSuggestions(false);
-    setShowKakaoResultsState(false);
-    setSelectedKakaoIndex(-1);
-    
-    // 부모 컴포넌트에 알림
-    if (onContextTagClick) {
-      onContextTagClick(contextKey, contextName);
     }
   };
 
@@ -427,13 +384,14 @@ export default function SearchBar({
 
       cancelPendingKakaoSearch();
 
-      // 장소 자동완성이 열려 있으면 엔터 = 목록에서 1건 확정(마커·모달은 부모 onKakaoPlaceSelect).
-      // 화살표로 고른 항목이 있으면 그걸, 없으면 첫 번째 후보(키보드만으로도 선택 가능).
-      if (showKakaoResults && kakaoResults.length > 0) {
-        const idx =
-          selectedKakaoIndex >= 0
-            ? Math.min(selectedKakaoIndex, kakaoResults.length - 1)
-            : 0;
+      // 장소 자동완성이 열려 있어도, 화살표로 항목을 고르기 전엔 엔터 = 입력 그대로 상위 검색(코스·문장 등).
+      // 예전: 무조건 첫 POI 확정 → `onSubmit`이 안 불려 «검색어를 못 듣는» 것처럼 보임.
+      if (
+        showKakaoResults &&
+        kakaoResults.length > 0 &&
+        selectedKakaoIndex >= 0
+      ) {
+        const idx = Math.min(selectedKakaoIndex, kakaoResults.length - 1);
         handleKakaoPlaceSelect(kakaoResults[idx]);
         return;
       }
@@ -495,7 +453,7 @@ export default function SearchBar({
   // 타이핑 자동완성 → 지도 후보 동기화
   useEffect(() => {
     if (typeof onKakaoTypingPreviewPlacesChange !== "function") return;
-    if (!showKakaoSearch || !showKakaoResults || kakaoResults.length === 0) {
+    if (!allowPlaceSuggestions || !showKakaoResults || kakaoResults.length === 0) {
       onKakaoTypingPreviewPlacesChange([]);
       return;
     }
@@ -503,7 +461,7 @@ export default function SearchBar({
   }, [
     kakaoResults,
     showKakaoResults,
-    showKakaoSearch,
+    allowPlaceSuggestions,
     onKakaoTypingPreviewPlacesChange,
   ]);
 
@@ -780,7 +738,7 @@ export default function SearchBar({
     <section ref={searchRootRef} style={{ ...styles.section, position: "relative" }}>
       {/* 상태별 UI 렌더링 */}
       <AnimatePresence>
-        {/* 입력 중 상태: 자동완성 + 상황 태그 */}
+        {/* 입력 중 상태: 자동완성 등 */}
         {showSuggestions && (
           <TypingState
             query={query}
@@ -790,27 +748,15 @@ export default function SearchBar({
             selectedKakaoIndex={selectedKakaoIndex}
             setSelectedKakaoIndex={setSelectedKakaoIndex}
             onKakaoPlaceClick={handleKakaoPlaceSelect}
-            matchedContexts={matchedContexts}
-            onContextTagClick={handleContextTagClick}
             userLocation={userLocation}
             onNearbySearch={handleNearbySearch}
-          />
-        )}
-
-        {/* 검색 후 상태: 필터 칩 */}
-        {!query && !isSearching && appliedFilters.length > 0 && (
-          <SearchCompleteState
-            appliedFilters={appliedFilters}
-            onFilterRemove={(index) => {
-              setAppliedFilters(prev => prev.filter((_, i) => i !== index));
-            }}
           />
         )}
       </AnimatePresence>
 
       {/* 카카오 장소 검색 결과 - 위쪽으로 표시 */}
       <AnimatePresence>
-        {showKakaoSearch && showKakaoResults && kakaoResults.length > 0 && (
+        {allowPlaceSuggestions && showKakaoResults && kakaoResults.length > 0 && (
           <motion.div
             ref={kakaoResultsScrollRef}
             style={{
@@ -910,10 +856,26 @@ export default function SearchBar({
         )}
       </AnimatePresence>
 
-      <div style={{
-        ...styles.searchWrap,
-        borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px" // 바텀시트 있을 때만 상단 각지게
-      }}>
+      <div
+        style={{
+          ...styles.searchWrap,
+          ...(sheetDockedAbove
+            ? {
+                borderRadius: showKakaoResults
+                  ? `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`
+                  : `0 0 ${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px`,
+                borderTop: showKakaoResults
+                  ? "1px solid rgba(255,255,255,0.08)"
+                  : "none",
+                boxShadow: showKakaoResults
+                  ? styles.searchWrap.boxShadow
+                  : "0 4px 20px rgba(0,0,0,0.22)",
+              }
+            : {
+                borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px",
+              }),
+        }}
+      >
         <style>{`
           .judoSearchBarInput::placeholder {
             color: rgba(255, 255, 255, 0.42);
@@ -1115,21 +1077,25 @@ export default function SearchBar({
             onClick={handleSubmit}
             style={styles.iconButton}
             aria-label="검색"
+            title="검색"
             disabled={isLoading}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <motion.span
-              style={styles.icon}
-              animate={{ rotate: isLoading ? 360 : 0 }}
-              transition={{
-                duration: 1,
-                repeat: isLoading ? Infinity : 0,
-                ease: "linear",
-              }}
-            >
-              {isLoading ? "🔄" : "🔎"}
-            </motion.span>
+            {isLoading ? (
+              <motion.span
+                style={styles.loadingSpinner}
+                animate={{ rotate: 360 }}
+                transition={{
+                  duration: 0.9,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+                aria-hidden
+              />
+            ) : (
+              <span style={styles.icon}>🔎</span>
+            )}
           </motion.button>
         )}
 
@@ -1152,6 +1118,7 @@ export default function SearchBar({
             }}
           >
           <motion.input
+            ref={searchInputRef}
             className="judoSearchBarInput"
             value={query}
             onChange={handleInputChange}
@@ -1167,7 +1134,8 @@ export default function SearchBar({
             }
             onFocus={() => {
               onUserInteractWithSearch?.();
-              if (!showKakaoSearch) return;
+              onInputFocus?.();
+              if (!allowPlaceSuggestions) return;
               // 포커스만으로 showKakaoResults를 켜면 결과가 없을 때도 전체 화면 백드롭이 올라가 지도 터치 드래그가 막힘(모바일)
               if (kakaoResults.length > 0) setShowKakaoResultsState(true);
             }}
@@ -1184,47 +1152,6 @@ export default function SearchBar({
           />
           </div>
         </div>
-
-        {useChannelToggle && query.trim() ? (
-          <motion.button
-            type="button"
-            onClick={handleSubmit}
-            style={styles.inlineSubmitButton}
-            aria-label="검색 실행"
-            disabled={isLoading}
-            whileTap={{ scale: 0.9 }}
-            whileHover={{ scale: 1.04 }}
-          >
-            <motion.span
-              style={styles.icon}
-              animate={{ rotate: isLoading ? 360 : 0 }}
-              transition={{
-                duration: 1,
-                repeat: isLoading ? Infinity : 0,
-                ease: "linear",
-              }}
-            >
-              {isLoading ? "🔄" : "🔎"}
-            </motion.span>
-          </motion.button>
-        ) : null}
-
-        {query ? (
-          <motion.button
-            type="button"
-            onClick={handleClear}
-            style={styles.clearButton}
-            aria-label="검색어 지우기"
-            whileHover={{ scale: 1.1, rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
-            initial={{ opacity: 0, scale: 0 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            ✕
-          </motion.button>
-        ) : null}
 
         {rightActions ? (
           <div
@@ -1379,6 +1306,18 @@ const styles = {
     opacity: 0.9,
     flexShrink: 0,
     color: "#ffffff",
+  },
+
+  loadingSpinner: {
+    width: "14px",
+    height: "14px",
+    borderRadius: "50%",
+    border: "2px solid rgba(255,255,255,0.2)",
+    borderTopColor: "rgba(255,255,255,0.95)",
+    borderRightColor: "rgba(134,239,172,0.9)",
+    boxSizing: "border-box",
+    flexShrink: 0,
+    display: "inline-block",
   },
 
   input: {

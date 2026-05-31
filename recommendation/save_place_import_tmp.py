@@ -10,8 +10,28 @@ def _compact(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").strip())
 
 
+def _pick_canonical_place_name(x: dict[str, Any]) -> str:
+    """
+    CrewAI/에이전트가 title·name에 분위기 문장을 넣어도,
+    place_name·official_name 등이 있으면 그걸 상호로 쓴다.
+    """
+    for k in (
+        "place_name",
+        "official_name",
+        "business_name",
+        "store_name",
+        "name",
+    ):
+        v = x.get(k)
+        if v and str(v).strip():
+            return str(v).strip()
+    t = (x.get("title") or "").strip()
+    return t
+
+
 def extract_signals_from_text(text: str) -> list[str]:
     c = _compact(text)
+    low = (text or "").lower()
     if not c:
         return []
     out: list[str] = []
@@ -22,6 +42,13 @@ def extract_signals_from_text(text: str) -> list[str]:
             seen.add(label)
             out.append(label)
 
+    if "노포" in c or "오래된" in c or "since" in low or "단골" in c:
+        add("노포")
+    if "포차" in c or "실비" in c:
+        add("포차 감성")
+    if "야외" in c or "테라스" in c or "바깥자리" in c:
+        add("야장")
+
     if "조용" in c:
         add("조용한 분위기")
     elif "분위기" in c:
@@ -30,6 +57,10 @@ def extract_signals_from_text(text: str) -> list[str]:
         add("데이트")
     if "2차" in c:
         add("2차")
+    if "낮술" in c or "낮에술" in c:
+        add("낮술")
+    if "야장" in c:
+        add("야장")
     if "가성비" in c:
         add("가성비")
     if "화장실" in c:
@@ -56,9 +87,10 @@ def build_place_row_from_item(i: dict[str, Any]) -> dict[str, Any]:
     desc = (i.get("description") or "").strip()
     blob = f"{title} {desc}".strip()
     signals = extract_signals_from_text(blob)
-    name = i.get("place_name") or i.get("name")
+    name = _pick_canonical_place_name(i)
     return {
         "name": name,
+        "place_name": name,
         "score": i.get("score", 0),
         "reason": reason_from_signals(signals, str(name or "")),
         "signals": signals,
@@ -73,7 +105,7 @@ def places_payload_from_items(items):
 
 def _finalize_place_dict(d: dict[str, Any]) -> dict[str, Any]:
     x = dict(d)
-    name = x.get("name") or x.get("place_name")
+    name = _pick_canonical_place_name(x)
     title = (x.get("title") or "").strip()
     desc = (x.get("description") or "").strip()
     blob = f"{title} {desc}".strip()
@@ -85,6 +117,7 @@ def _finalize_place_dict(d: dict[str, Any]) -> dict[str, Any]:
         reason = reason_from_signals(signals, str(name or ""))
     return {
         "name": name,
+        "place_name": name,
         "score": x.get("score", 0),
         "reason": reason,
         "signals": signals,

@@ -5,6 +5,18 @@ import {
 } from "./placeCoords";
 import { isHiddenInternalPlaceTag } from "./placeUiTags";
 
+function curatorRowPublicKey(curatorPlace) {
+  const nm = String(curatorPlace?.curators?.name ?? "").trim();
+  const dn = String(
+    curatorPlace?.curators?.display_name ??
+      curatorPlace?.curators?.displayName ??
+      ""
+  ).trim();
+  const un = String(curatorPlace?.curators?.username ?? "").trim();
+  const legacy = String(curatorPlace?.curator_id ?? "").trim();
+  return nm || dn || un || legacy || "";
+}
+
 /**
  * curator_places × places JOIN 행 → 지도·리스트용 장소 객체 (동기, 외부 API 없음).
  */
@@ -27,13 +39,15 @@ export function buildFormattedPlacesFromJoin(joinRows) {
     if (placeMap.has(key)) {
       const existing = placeMap.get(key);
       existing.curatorCount = (existing.curatorCount || 0) + 1;
-      existing.curators.push(curatorPlace.curator_id);
+      const ck = curatorRowPublicKey(curatorPlace);
+      if (ck) existing.curators.push(ck);
       existing.curatorPlaces.push(curatorPlace);
     } else {
+      const ck = curatorRowPublicKey(curatorPlace);
       placeMap.set(key, {
         ...place,
         curatorCount: 1,
-        curators: [curatorPlace.curator_id],
+        curators: ck ? [ck] : [],
         curatorPlaces: [curatorPlace],
       });
     }
@@ -45,9 +59,16 @@ export function buildFormattedPlacesFromJoin(joinRows) {
 
     place.curatorPlaces.forEach((curatorPlace) => {
       const curatorName =
-        curatorPlace.curators?.display_name ||
-        curatorPlace.display_name ||
-        curatorPlace.curator_id;
+        String(curatorPlace.curators?.name ?? "").trim() ||
+        String(
+          curatorPlace.curators?.display_name ??
+            curatorPlace.curators?.displayName ??
+            ""
+        ).trim() ||
+        String(curatorPlace.curators?.username ?? "").trim() ||
+        String(curatorPlace.display_name ?? "").trim() ||
+        String(curatorPlace.curator_id ?? "").trim() ||
+        "";
 
       curatorNames.push(curatorName);
       curatorReasons[curatorName] =
@@ -68,7 +89,7 @@ export function buildFormattedPlacesFromJoin(joinRows) {
         if (s && !isHiddenInternalPlaceTag(s)) tagSet.add(s);
       }
     };
-    addStrTags(place.tags);
+    if (Array.isArray(place.tags)) addStrTags(place.tags);
     if (Array.isArray(place.vibes)) {
       for (const v of place.vibes) {
         const s = typeof v === "string" ? v.trim() : "";
@@ -76,9 +97,10 @@ export function buildFormattedPlacesFromJoin(joinRows) {
       }
     }
     place.curatorPlaces?.forEach((cp) => {
-      addStrTags(cp.tags);
-      if (Array.isArray(cp.moods)) {
-        for (const m of cp.moods) {
+      if (Array.isArray(cp.tags)) addStrTags(cp.tags);
+      const moods = cp.moods;
+      if (Array.isArray(moods)) {
+        for (const m of moods) {
           const s = typeof m === "string" ? m.trim() : "";
           if (s) vibeSet.add(s);
         }
@@ -127,9 +149,13 @@ export function buildFormattedPlacesFromJoin(joinRows) {
         for (const cp of place.curatorPlaces || []) {
           add(cp.curator_id);
           add(cp.curators?.username);
+          add(cp.curators?.name);
           add(cp.curators?.display_name);
+          add(cp.curators?.displayName);
           add(cp.curators?.user_id);
           add(cp.curators?.id);
+          const pub = curatorRowPublicKey(cp);
+          if (pub) add(pub);
         }
         return ids;
       })(),

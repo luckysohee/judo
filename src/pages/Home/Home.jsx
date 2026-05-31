@@ -6,46 +6,42 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
 
-import MarkerLegend from "../../components/Map/MarkerLegend";
 import SearchBar from "../../components/SearchBar/SearchBar";
-import CuratorFilterBar from "../../components/CuratorFilterBar/CuratorFilterBar";
-import CuratorApplicationButton from "../../components/CuratorApplicationButton/CuratorApplicationButton";
+import HomeCuratorFilterRow from "../../components/Home/HomeCuratorFilterRow";
+import HomeSearchAuthSlot from "../../components/Home/HomeSearchAuthSlot";
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
-import { RecommendedPlacesList } from "../../components/Recommendation/RecommendedPlacesList";
-import { SelectedRecommendedPlaceDetailCard } from "../../components/Recommendation/SelectedRecommendedPlaceDetailCard";
+import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
+import HomeMapFloatingActions from "../../components/Home/HomeMapFloatingActions";
+import HomeDustIntroOverlay from "../../components/Home/HomeDustIntroOverlay";
+import CourseSecondFindModal from "../../components/Home/CourseSecondFindModal";
+import HomeMapLegendBar from "../../components/Home/HomeMapLegendBar";
+import HomeCourseMergedSheet from "../../components/Home/HomeCourseMergedSheet";
+import HomeAiBottomSheetCluster from "../../components/Home/HomeAiBottomSheetCluster";
+import HomeSearchOverlay from "../../components/Home/HomeSearchOverlay";
+import KakaoPlaceSuggestPanel from "../../components/Home/KakaoPlaceSuggestPanel";
 import { RecommendationMapOverlay } from "../../components/Recommendation/RecommendationMapOverlay";
 import PlacePreviewCard from "../../components/PlaceCard/PlacePreviewCard";
-import PlaceDetail from "../../components/PlaceDetail/PlaceDetail";
-import SaveFolderModal from "../../components/SaveFolderModal/SaveFolderModal";
-import SavedPlaces from "../../components/SavedPlaces/SavedPlaces";
-import AddPlaceForm from "../../components/AddPlaceForm/AddPlaceForm";
+import HomeBottomModalStack from "../../components/Home/HomeBottomModalStack";
 import AnimatedToast from "../../components/AnimatedToast/AnimatedToast";
-import CheckinRanking from "../../components/CheckinRanking/CheckinRanking";
-import HotPlaceMarker from "../../components/HotPlaceMarker/HotPlaceMarker";
 import CheckInToast from "../../components/CheckInToast/CheckInToast";
-import FeatureLoginPrompt from "../../components/LoginPrompt/FeatureLoginPrompt";
-
-import { places as dummyPlaces } from "../../data/places";
 
 import { useAuth } from "../../context/AuthContext";
 
 import { supabase } from "../../lib/supabase";
 import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
+import { followUser } from "../../utils/userProfileFollows";
 
 import {
-  getFolders,
-  getSavedPlacesMap,
   getPlaceFolderIds,
   getPrimarySavedFolderColor,
   isPlaceSaved,
   savePlaceToFolder,
 } from "../../utils/storage";
 
-import { getCustomPlaces } from "../../utils/customPlacesStorage";
 import { curatorPlaceMatchesLoggedInCurator } from "../../utils/curatorPlacesIdentity";
 import { mapClickCoordToPreviewPlace } from "../../utils/mapClickCoordToPreviewPlace";
 import {
@@ -64,17 +60,25 @@ import {
   extractHomeMapLocationName,
   normalizeHangulSearchCompounds,
   shouldKeepExtractedLocationForMapSearch,
-  isSimpleLocationMenuMapQuery,
   isLikelyNaturalLanguageSearchQuery,
-  inferSearchPipelineMode,
+  HOME_SEARCH_KIND,
+  detectHomeSearchExecutionKind,
   isMapGeographicPanOnlyQuery,
   getKakaoKeywordSuffix,
   stripPartyAndChatterForKeywordSearch,
+  homeSearchQueryHasMoodIntentHint,
   lockKeywordToClientForKakaoHint,
   filterPlacesByParsedIntent,
   buildRecommendationWhyLine,
   expandFoodKakaoQueries,
+  kakaoMapSearchWantsBroadPlaceCategories,
   kakaoQueryHasGeographicAnchor,
+  buildAiParseMapFallbackQueries,
+  filterPlacesForUnifiedMapBackupRestore,
+  filterMapSearchPlacesByRegionProximity,
+  mapSearchMaxDistanceKmForLocation,
+  resolveParsedRegionsFromQuery,
+  queryUsesUnmappedMapAnchor,
   queryWantsSeafoodFocus,
   isObviousNonSeafoodKakaoPlace,
   queryWantsYajangFocus,
@@ -88,10 +92,48 @@ import { getSearchLoadingMessage } from "../../utils/searchLoadingMessage";
 import { fetchSearchIntentAssist } from "../../utils/searchAIAssistant";
 import { buildExpansionSuggestions } from "../../utils/searchExpansionSuggestions";
 import { insertSearchLog, insertPlaceClickLog } from "../../utils/searchAnalytics";
-import CuratorPicksStrip from "../../components/Home/CuratorPicksStrip";
+import {
+  normalizeQueryForFeedback,
+  fetchSearchFeedbackBoostMap,
+  placeKeyFromSearchLogResultId,
+  intentTagsFromFacets,
+  placeKeyForFeedback,
+  computeSearchFeedbackBoost,
+  rpcIncrementSearchPlaceFeedbackImpressions,
+} from "../../utils/searchPlaceFeedback";
+import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
+import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
+import HomeCoursesDiscoveryPanel, {
+  HomeCourseStampResumeChip,
+  HomeCoursesEntryChip,
+} from "../../components/Home/HomeCoursesDiscovery";
+import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
+import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
+import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
+import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
-import { mergeIntentAssistIntoSearchPhrases } from "../../utils/mergeIntentAssistSearchPhrases";
+import {
+  mergeMapSearchPlacesDedupe,
+  mapPlaceStableDedupeKey,
+} from "../../utils/mergeMapSearchPlacesDedupe";
+import {
+  dampedSearchSocialScoreDelta,
+  fetchSearchSocialBoostByPlaces,
+} from "../../utils/searchSocialBoost";
+import {
+  emitSearchTelemetry,
+  KEYWORD_SEARCH_FALLBACK_MIN_RESULTS,
+  summarizeSearchResultQualityForTelemetry,
+  deriveSearchClickPath,
+  shouldPreferFallbackSearchResults,
+} from "../../utils/searchBranchTelemetry.js";
+import {
+  mergeIntentAssistIntoSearchPhrases,
+  rawQueryBlindDateSecondVenueContext,
+  rawQueryExplicitCafeMealCoffee,
+} from "../../utils/mergeIntentAssistSearchPhrases";
+import { enrichPlacesWithReason } from "../../utils/recommendReasonSignals";
 import {
   fetchCuratorPlaceDbSearch,
   mergeDbPlaceIdsFirst,
@@ -99,61 +141,88 @@ import {
 import {
   resolvePlaceWgs84,
   haversineMeters,
-  kakaoNumericPlaceId,
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
-import {
-  fetchCuratorPlaceRowsInBounds,
-  padLatLngBounds,
-  filterJoinRowsToBounds,
-} from "../../utils/fetchCuratorPlacesInBounds";
+import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
+import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
 import { debounce } from "../../utils/debounce";
+import { getLimitByZoom } from "../../api/places";
+import { fetchCuratorCourseById } from "../../api/curatorCourses";
 import {
-  fetchPlaceDetail,
-  fetchPlaceUuidByKakaoPlaceId,
-  fetchPlacesByBounds,
-  getLimitByZoom,
-} from "../../api/places";
+  fetchMyCoursePlaceStamps,
+  fetchCourseStampSteps,
+  areAllCourseStepsStamped,
+  resetCourseStampsForReplay,
+  resolveCourseGuideStepIndex,
+} from "../../api/coursePlaceStamps";
+import { hasUserCompletedCourseInLogs } from "../../api/completedCourseLogs";
+import {
+  abandonCourseSession,
+  getMyActiveCourseSession,
+  startCourseSession,
+} from "../../api/courseSessions";
+import { curatorCourseRowToDrivingMap } from "../../utils/curatorCourseHomeMap";
+import {
+  enrichBrowseDetailWithStepThumbs,
+  normalizeHomeCourseBrowseDetail,
+} from "../../utils/homeCourseBrowseDetail";
+import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
+import {
+  enrichDrivingMapWithStepThumbs,
+} from "../../utils/courseStepThumb";
+import {
+  homeRailCourseMapFitPadding,
+  homeRailCourseSheetHeightPx,
+} from "../../utils/homeRailCourseUi";
+import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStripLayout";
+import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
-  isWalkingRouteReasonable,
   walkingRouteDisplayMinutes,
+  getCourseLongWalkStrollHint,
 } from "../../utils/courseWalkingRouteQuality.js";
-import {
-  getKakaoPlaceDetailsViaProxy,
-  searchKakaoKeywordViaProxy,
-  searchKakaoAddressViaProxy,
-} from "../../utils/kakaoAPIProxy";
+import { verifyTopKakaoSearchCandidates } from "../../utils/verifyTopKakaoSearchCandidates";
 import {
   mergePickedPlaceWithCuratorCatalog,
   findCuratorCatalogMatch,
   dedupeMapPlacesByKakaoId,
   normalizeKakaoPlaceId,
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
+import { collectReasonEvidence } from "../../utils/reasonEvidence.js";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
-import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
-import { saveUserPreferences, getUserPreferences, hasCompletedOnboarding } from "../../utils/userPreferences";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useCourseSearch } from "../../hooks/useCourseSearch";
+import { saveHomeRecommendedCourseDraft } from "../../utils/saveHomeRecommendedCourseDraft";
 import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useRecommendation } from "../../hooks/useRecommendation";
 import { useSelectedRecommendedPlace } from "../../hooks/useSelectedRecommendedPlace";
 import { useMapCenterOnFirstHighlighted } from "../../hooks/useMapCenterOnFirstHighlighted";
-import { getMarkerTier, isCuratorListedPlace } from "../../utils/createMarker";
 import { isCourseQuery } from "../../utils/isCourseQuery";
 import {
-  formatCourseStayMinutes,
-  formatCourseWalkApprox,
-  getCourseOpenStatusText,
-  getCourseWalkComfortHint,
-  getCourseLegMeters,
-  formatCourseLegDistanceSummary,
-} from "../../utils/formatCourseUi";
-import { fetchCourseWalkingRoute } from "../../utils/fetchCourseWalkingRoute.js";
+  detectIntents,
+  classifyCategory,
+  applyIntentAxisScoresWithSignals,
+  buildReasonFromSignals,
+  INTENT_SIGNAL_REASON_FALLBACK,
+} from "../../utils/intentAxisScoring";
+import { getCourseLegMeters } from "../../utils/formatCourseUi";
+import {
+  fetchCourseWalkingRoute,
+  fetchChainedCourseWalkingRoutes,
+} from "../../utils/fetchCourseWalkingRoute.js";
 import { fetchRegionOutline } from "../../utils/fetchRegionOutline.js";
-import { getRegenerateSecondLabel } from "../../utils/regenerateSecondStep.js";
-import { buildCourseSummary } from "../../utils/buildCourseSummary";
+import {
+  courseDriveWaypoints,
+  courseRouteLabelPosition,
+} from "../../utils/courseDriveWaypoints";
+import {
+  buildRoutedCourseLegLabels,
+  buildStraightCourseLegLabels,
+  filterCourseRouteOverlayForStamps,
+  remainingCourseLegIndices,
+  stepLabelsFromCourseDrive,
+} from "../../utils/courseRouteLegLabels";
 import { buildCourseMapData } from "../../utils/buildCourseMapData";
 import {
   courseOptionsToMapPlaces,
@@ -165,603 +234,118 @@ import {
   SITUATION_FOLDER,
 } from "../../utils/situationPlaceFilter";
 import {
-  COURSE_SECOND_SNACK_OPTIONS,
-  STUDIO_ATMOSPHERE_OPTIONS,
-  STUDIO_LIQUOR_TYPE_OPTIONS,
-} from "../../utils/placeTaxonomy.js";
+  getJudoModeCopy,
+  getJudoOperationMode,
+} from "../../utils/judoOperationMode";
 
-/** MapView `DEFAULT_MAP_CENTER` 와 동일 — 성수 첫 진입·칩 포커스 */
-const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
-
-/** 홈 지도 위 중앙 인트로(세션당 1회) — sessionStorage */
-/** v2: 지도보다 뒤에 그려져 안 보이던 문제 — DOM 순서·z-index 수정 후 키 갱신 */
-const HOME_CENTER_DUST_INTRO_KEY = "judo_home_center_dust_intro_v2";
-
-/** 검색바 보조 플로팅 힌트 — 세션당 최대 2회(sessionStorage) */
-const HOME_SEARCH_IDLE_HINTS_KEY = "judo_home_search_idle_hint_count_v1";
-
-const SEARCH_IDLE_HINT_MESSAGES = [
-  "을지로 1차·2차 코스가 추천됐어요 — 주도 검색에서 이어가 보세요",
-  "동선·인원까지 말해 보면 코스를 짜줘요 — AI 주도 검색",
-];
-
-/** KST 기준 검색바 placeholder — 오후 / 밤 / 그 외 */
-function getHomeSearchPlaceholderKst(homeSearchChannel) {
-  let hour;
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Seoul",
-      hour: "numeric",
-      hour12: false,
-    }).formatToParts(new Date());
-    const hv = parts.find((p) => p.type === "hour")?.value;
-    hour = hv != null ? Number(hv) : new Date().getHours();
-  } catch {
-    hour = new Date().getHours();
-  }
-  let core;
-  if (hour >= 12 && hour < 18) {
-    core = "지금 한잔하기 좋은 곳";
-  } else if (hour >= 18 || hour < 5) {
-    core = "2차 어디갈까";
-  } else {
-    core = "오늘 1차 어디서 시작할까?";
-  }
-  if (homeSearchChannel === "ai") {
-    return `AI 주도 검색 · ${core}`;
-  }
-  if (homeSearchChannel === "auto") {
-    return `${core} · 엔터 한 번(자동 맞춤)`;
-  }
-  return core;
-}
-
-/** 지도 「2차 찾기」— 1차 기준 후보·카카오 검색 반경 상한 */
-const COURSE_SECOND_FIND_DISTANCE_OPTIONS = [
-  { m: 1000, label: "1km 안쪽" },
-  { m: 3000, label: "3km 안" },
-  { m: 5000, label: "5km 안" },
-];
+import {
+  AI_API_BASE,
+  appendSelectedPlacePinIfMissing,
+  applyLegendCategoryFilter,
+  attachCuratorsToCuratorPlaceRows,
+  buildMergedSavedPlaceKeySet,
+  buildHomeSearchSavedBadgeIndex,
+  buildPlaceCuratorFilterKeySet,
+  canonicalCuratorChipToken,
+  collectCuratorIdsForRescueMatch,
+  COURSE_GPS_DEFAULT_RADIUS_M,
+  DRINKS_SITUATION_CHIP_RESULT_HINTS,
+  DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
+  DRINKS_SITUATION_CHIP_UNIFIED_PHRASES,
+  EMPTY_LIVE_PLACE_IDS,
+  expandCuratorChipSelectionKeys,
+  findDbCuratorRowForChip,
+  getCourseSwipeIndexFromScroll,
+  getHomeSearchPlaceholderKst,
+  HOME_CENTER_DUST_INTRO_KEY,
+  logSignalsCheckDev,
+  mapPanAnchorKeyword,
+  MAP_PAN_STATION_ALIAS,
+  MAP_SDK_MERGE_MAX_DEFAULT,
+  MAP_SDK_MERGE_MAX_SITUATION_CHIP,
+  mergeSituationChipCuratorPlaces,
+  placeMatchesSavedKeySet,
+  readKakaoMapCenterLatLng,
+  searchMapBottomChromePx,
+  SEARCH_INTENT_ASSIST_MS,
+  SEONGSU_MAP_CENTER,
+  shuffleArray,
+  SITUATION_CHIP_CURATOR_API_MAX_DISTANCE_M,
+  SITUATION_CHIP_INTENT_RELAX_THRESHOLD,
+  SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS,
+  toHotStripRow,
+  UNIFIED_MAP_MERGE_MAX_PHRASES,
+} from "./homeModule.js";
+import { styles } from "./homeStyles.js";
+import { useAiSearchLoadingDots } from "./hooks/useAiSearchLoadingDots";
+import { useTickingNow } from "./hooks/useTickingNow";
+import { useMinuteTick } from "./hooks/useMinuteTick";
+import {
+  useAiSheetUiState,
+  AI_SHEET_PAGE_SIZE,
+} from "./hooks/useAiSheetUiState";
+import { useAuthRoleAndCurators } from "./hooks/useAuthRoleAndCurators";
+import { useKakaoSearchPlaces } from "./hooks/useKakaoSearchPlaces";
+import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
+import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
+import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
+import { useViewportWidth } from "./hooks/useViewportWidth";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
-import { snapshotFromMyOwnCourse } from "../../utils/savedMyCoursesStorage.js";
+import { importReasonLineForPlace } from "../../utils/recommendationPlaceCopy";
+import { orderPlacesByImportFirst } from "../../utils/orderPlacesByImportFirst";
+import { formatKakaoKeywordHitsForMap } from "../../utils/formatKakaoKeywordHitsForMap";
 import {
-  fetchMySavedCoursePairKeys,
-  insertSavedMyCourse,
-} from "../../utils/savedMyCoursesSupabase.js";
-import {
-  addLegacyPlaceCuratorAliasesToKeySet,
-  addLegacyPlaceCuratorIdsForUsername,
-  addLegacyPlaceCuratorIdsForCuratorProfile,
-  expandLegacyPlaceCuratorIdIfAny,
-  legacyCompactUuidToDashed,
-  legacyPlaceCuratorIdCompactsForProfile,
-} from "../../utils/curatorLegacyPlaceIds";
+  loadHomeSearchHistory,
+  recordHomeSearchHistory,
+  removeHomeSearchHistoryEntry,
+  clearHomeSearchHistory,
+} from "../../utils/homeSearchHistory";
+import { useHomeSearchMode } from "../../hooks/useHomeSearchMode";
+import { useKakaoPlaceSuggest } from "../../hooks/useKakaoPlaceSuggest";
 
-// 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
-const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(/\/$/, "");
-
-/** 내 위치 GPS 코스: 기본 3km, 시트에서 5·8km로 확장 */
-const COURSE_GPS_RADIUS_OPTIONS = [
-  { m: 3000, label: "3km" },
-  { m: 5000, label: "5km" },
-  { m: 8000, label: "8km" },
-];
-const COURSE_GPS_DEFAULT_RADIUS_M = 3000;
-
-/**
- * 전체 지도 검색에서 지도만 옮길 때 `성수 데이트 코스`처럼 긴 키워드로 카카오 keywordSearch 하면
- * 1위가 한강·랜드마크 등 지역과 무관한 POI가 되어, 뷰포트·단일 결과 미리보기가 엉뚱하게 열릴 수 있다.
- * 추출된 지역명이 있으면 역·동·구 단위 앵커로 이동한다.
- */
-const MAP_PAN_STATION_ALIAS = new Set([
-  "성수",
-  "강남",
-  "삼성",
-  "동대문",
-  "서울",
-  "을지",
-  "건대",
-  "홍대",
-  "신촌",
-  "잠실",
-  "여의도",
-  "압구정",
-  "청담",
-  "한남",
-  "이태원",
-  "연남",
-  "망원",
-  "합정",
-  "상수",
-  "영등포",
-  "건대입구",
-  "혜화",
-  "광화문",
-]);
-
-function mapPanAnchorKeyword(locationName, fallbackKeyword) {
-  const ln = String(locationName || "").trim();
-  if (!ln) return fallbackKeyword;
-  if (/역$/u.test(ln) || /동$/u.test(ln) || /구$/u.test(ln)) return ln;
-  if (MAP_PAN_STATION_ALIAS.has(ln) || ln.length <= 3) {
-    return `${ln}역`;
-  }
-  return ln;
+/** 프로덕션 번들에서 호출되어도 출력 없음 — 실패 추적은 `console.error` 유지 */
+const _nativeConsole = globalThis.console;
+const _devConsoleLog = _nativeConsole.log.bind(_nativeConsole);
+const _devConsoleWarn = _nativeConsole.warn.bind(_nativeConsole);
+function devLog(...args) {
+  if (import.meta.env.DEV) _devConsoleLog(...args);
 }
-
-/** 우측 마커 안내(단일·공동·프리미엄) 선택 시 지도에 표시할 장소만 남김 */
-function applyLegendCategoryFilter(places, legendCategory) {
-  if (!legendCategory || !Array.isArray(places)) return places;
-
-  if (
-    legendCategory === "basic" ||
-    legendCategory === "hot" ||
-    legendCategory === "premium"
-  ) {
-    return places.filter((p) => {
-      if (!isCuratorListedPlace(p)) return false;
-      return getMarkerTier(p).level === legendCategory;
-    });
-  }
-
-  return places;
-}
-
-/**
- * 미리보기 카드로 연 장소가 `mapDisplayedPlacesWithLegend`에서 빠지면 핀이 안 보임.
- * (큐레이터 전용 핀 모드에서 kPins를 비움, 범례가 큐레이터 등급만 표시 등)
- */
-function selectedVenuePinAlreadyOnMap(places, selectedPlace) {
-  if (!selectedPlace || !Array.isArray(places)) return true;
-  const wSel = resolvePlaceWgs84(selectedPlace);
-  if (!wSel) return false;
-  const selId = selectedPlace.id != null ? String(selectedPlace.id) : "";
-  const selKid = normalizeKakaoPlaceId(selectedPlace);
-  return places.some((p) => {
-    if (selId && String(p?.id ?? "") === selId) {
-      const w = resolvePlaceWgs84(p);
-      return Boolean(w && isLikelyKoreaWgs84(w.lat, w.lng));
-    }
-    const pk = normalizeKakaoPlaceId(p);
-    if (!selKid || !pk || selKid !== pk) return false;
-    const w = resolvePlaceWgs84(p);
-    return Boolean(w && isLikelyKoreaWgs84(w.lat, w.lng));
-  });
-}
-
-function appendSelectedPlacePinIfMissing(places, selectedPlace) {
-  if (!selectedPlace || !Array.isArray(places)) return places;
-  const w = resolvePlaceWgs84(selectedPlace);
-  if (!w) return places;
-  const geoOk = isLikelyKoreaWgs84(w.lat, w.lng);
-  if (!geoOk && !(Number.isFinite(w.lat) && Number.isFinite(w.lng))) {
-    return places;
-  }
-  if (selectedVenuePinAlreadyOnMap(places, selectedPlace)) return places;
-  return [
-    {
-      ...selectedPlace,
-      lat: w.lat,
-      lng: w.lng,
-      x: String(w.lng),
-      y: String(w.lat),
-    },
-    ...places,
-  ];
-}
-
-/** DB `places` 상세 fetch 결과를 미리보기 객체에 합침 — 큐레이터·태그는 `enrichedFromJoin`이 있으면 그걸로 보강 */
-function mergeDbPlaceDetailForPreview(prev, detail, enrichedFromJoin) {
-  if (!prev || !detail || typeof detail !== "object") return prev;
-  const e =
-    enrichedFromJoin && typeof enrichedFromJoin === "object"
-      ? enrichedFromJoin
-      : null;
-  const useEnriched =
-    e &&
-    Array.isArray(e.curatorPlaces) &&
-    e.curatorPlaces.length > 0;
-
-  return {
-    ...prev,
-    ...detail,
-    curatorPlaces: useEnriched ? e.curatorPlaces : prev.curatorPlaces ?? [],
-    curatorCount: useEnriched ? e.curatorCount : prev.curatorCount,
-    curatorReasons: useEnriched ? e.curatorReasons : prev.curatorReasons,
-    curatorUsernames: useEnriched ? e.curatorUsernames : prev.curatorUsernames,
-    curators: useEnriched ? e.curators : prev.curators,
-    tags:
-      e && Array.isArray(e.tags) && e.tags.length > 0
-        ? e.tags
-        : Array.isArray(prev.tags) && prev.tags.length > 0
-          ? prev.tags
-          : Array.isArray(detail.tags)
-            ? detail.tags
-            : prev.tags,
-    moods:
-      e && Array.isArray(e.moods) && e.moods.length > 0
-        ? e.moods
-        : Array.isArray(prev.moods) && prev.moods.length > 0
-          ? prev.moods
-          : detail.moods ?? prev.moods,
-    vibes:
-      e && Array.isArray(e.vibes) && e.vibes.length > 0
-        ? e.vibes
-        : Array.isArray(prev.vibes) && prev.vibes.length > 0
-          ? prev.vibes
-          : detail.vibes ?? prev.vibes,
-    is_public: prev.is_public,
-  };
-}
-
-/**
- * 장소에 붙은 추천(curator_places) ↔ 칩 키(username·display_name·auth uid) 교차 매칭.
- * curator_id 는 curators.user_id — PostgREST FK 임베드 대신 attachCuratorsToCuratorPlaceRows 로 보강.
- */
-function collapseCuratorMatchToken(s) {
-  return String(s ?? "")
-    .trim()
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\s+/gu, "");
-}
-
-function buildPlaceCuratorFilterKeySet(place, dbCurators) {
-  const keys = new Set();
-  const add = (v) => {
-    const s = String(v ?? "").trim().toLowerCase();
-    if (!s) return;
-    keys.add(s);
-    const collapsed = collapseCuratorMatchToken(s);
-    if (collapsed && collapsed !== s) keys.add(collapsed);
-  };
-  for (const v of place.curatorUsernames || []) add(v);
-  for (const v of place.curators || []) add(v);
-  for (const cp of place.curatorPlaces || []) {
-    add(cp.curator_id);
-    add(cp.curators?.username);
-    add(cp.curators?.display_name);
-    add(cp.curators?.user_id);
-    add(cp.curators?.id);
-  }
-  if (Array.isArray(dbCurators) && dbCurators.length > 0) {
-    for (const cp of place.curatorPlaces || []) {
-      const cid = String(cp.curator_id ?? "").trim().toLowerCase();
-      if (!cid) continue;
-      for (const c of dbCurators) {
-        const rowUid = String(c.userId ?? "").trim().toLowerCase();
-        const rowPk = String(c.id ?? "").trim().toLowerCase();
-        if ((rowUid && rowUid === cid) || (rowPk && rowPk === cid)) {
-          add(c.username);
-          add(c.displayName);
-          add(c.filterKey);
-          add(c.name);
-          add(c.slug);
-          add(c.id);
-          if (rowUid) add(rowUid);
-        }
-      }
-    }
-  }
-  addLegacyPlaceCuratorAliasesToKeySet(keys);
-  return keys;
-}
-
-/** 칩에서 넘긴 문자열(@제거·소문자)을 dbCurators 행의 모든 별칭으로 확장 */
-function expandCuratorChipSelectionKeys(raw, dbCurators) {
-  const sel = String(raw ?? "")
-    .trim()
-    .replace(/^@+/u, "")
-    .toLowerCase();
-  const out = new Set();
-  if (!sel) return out;
-  out.add(sel);
-  const selCollapsed = collapseCuratorMatchToken(sel);
-  if (selCollapsed && selCollapsed !== sel) out.add(selCollapsed);
-  expandLegacyPlaceCuratorIdIfAny(sel, (x) => out.add(x));
-  addLegacyPlaceCuratorIdsForUsername(sel, (x) => out.add(x));
-  if (selCollapsed && selCollapsed !== sel) {
-    addLegacyPlaceCuratorIdsForUsername(selCollapsed, (x) => out.add(x));
-  }
-  for (const c of dbCurators || []) {
-    const aliases = [
-      c.username,
-      c.displayName,
-      c.name,
-      c.filterKey,
-      c.slug,
-      c.id,
-      c.userId,
-    ]
-      .map((x) =>
-        String(x ?? "")
-          .trim()
-          .replace(/^@+/u, "")
-          .toLowerCase()
-      )
-      .filter(Boolean);
-    const aliasMatch = new Set(aliases);
-    for (const a of aliases) {
-      const ac = collapseCuratorMatchToken(a);
-      if (ac) aliasMatch.add(ac);
-    }
-    if (!aliasMatch.has(sel) && !aliasMatch.has(selCollapsed)) continue;
-    aliases.forEach((a) => {
-      out.add(a);
-      const ac = collapseCuratorMatchToken(a);
-      if (ac) out.add(ac);
-    });
-    const handleLc =
-      String(c.username ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/^@+/u, "") ||
-      String(c.slug ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/^@+/u, "") ||
-      String(c.filterKey ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/^@+/u, "");
-    if (handleLc) {
-      addLegacyPlaceCuratorIdsForUsername(handleLc, (x) => out.add(x));
-    }
-    addLegacyPlaceCuratorIdsForCuratorProfile(c, (x) => out.add(x));
-  }
-  return out;
-}
-
-/**
- * PostgREST 임베드가 «칩·필터에 쓸 표시명/핸들»까지 있는지.
- * id·user_id 만 오고 username/display_name 이 비는 경우가 있어, 그때는 attach 로 덮어쓴다.
- */
-function curatorJoinRowLooksComplete(c) {
-  if (c == null) return false;
-  if (Array.isArray(c)) {
-    if (c.length === 0) return false;
-    return curatorJoinRowLooksComplete(c[0]);
-  }
-  if (typeof c !== "object") return false;
-  const u = c.username != null ? String(c.username).trim() : "";
-  const d = c.display_name != null ? String(c.display_name).trim() : "";
-  return Boolean(u || d);
-}
-
-/**
- * curator_places.curator_id (= curators.user_id) 로 curators 행을 붙임 (임베드 없이).
- */
-function attachCuratorsToCuratorPlaceRows(rows, curatorRows) {
-  const map = new Map();
-  for (const c of curatorRows || []) {
-    const uid = String(c.user_id ?? "").trim().toLowerCase();
-    const pk = String(c.id ?? "").trim().toLowerCase();
-    if (uid) map.set(uid, c);
-    if (pk) map.set(pk, c);
-    for (const lc of legacyPlaceCuratorIdCompactsForProfile(c)) {
-      const dashed = legacyCompactUuidToDashed(lc);
-      if (!dashed) continue;
-      map.set(dashed, c);
-      map.set(lc, c);
-    }
-  }
-  return (rows || []).map((row) => {
-    const key = String(row?.curator_id ?? "").trim().toLowerCase();
-    const compact = key.replace(/-/g, "");
-    const hit = key
-      ? map.get(key) || (compact ? map.get(compact) : null)
-      : null;
-    if (!hit) return row;
-    if (curatorJoinRowLooksComplete(row?.curators)) return row;
-    return { ...row, curators: hit };
-  });
-}
-
-/** 칩 문자열·uuid → `dbCurators` 포맷 행 한 개 (필터 구조 보강용) */
-function findDbCuratorRowForChip(rawSel, dbCurators) {
-  const raw = String(rawSel ?? "").trim();
-  if (!raw) return null;
-  const selLower = raw.toLowerCase();
-  const selCollapsed = collapseCuratorMatchToken(raw);
-  for (const c of dbCurators || []) {
-    const parts = [
-      c.username,
-      c.displayName,
-      c.name,
-      c.filterKey,
-      c.slug,
-      c.id != null ? String(c.id).trim() : "",
-      c.userId != null ? String(c.userId).trim() : "",
-    ].filter(Boolean);
-    for (const p of parts) {
-      const pl = String(p).trim().toLowerCase();
-      if (pl === selLower) return c;
-      if (collapseCuratorMatchToken(p) === selCollapsed) return c;
-    }
-  }
-  const compact = selLower.replace(/-/g, "");
-  if (/^[0-9a-f]{32}$/.test(compact)) {
-    for (const c of dbCurators || []) {
-      const idc = String(c.id ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/-/g, "");
-      const uidc = String(c.userId ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/-/g, "");
-      if (idc && idc === compact) return c;
-      if (uidc && uidc === compact) return c;
-    }
-  }
-  return null;
-}
-
-/** `curator_places.curator_id`(= user_id) 와 직접 비교할 auth·프로필 uuid 집합 */
-function collectCuratorIdsForRescueMatch(c) {
-  const s = new Set();
-  const add = (v) => {
-    const t = String(v ?? "").trim().toLowerCase();
-    if (!t) return;
-    s.add(t);
-    s.add(t.replace(/-/g, ""));
-  };
-  if (!c) return s;
-  add(c.userId);
-  const profile = {
-    username: c.username,
-    display_name: c.displayName,
-    displayName: c.displayName,
-    name: c.name,
-    slug: c.slug,
-    filterKey: c.filterKey,
-  };
-  for (const lc of legacyPlaceCuratorIdCompactsForProfile(profile)) {
-    add(lc);
-    const dashed = legacyCompactUuidToDashed(lc);
-    if (dashed) add(dashed);
-  }
-  return s;
-}
-
-/**
- * 칩에서 넘긴 값을 curator_places.curator_id(= curators.user_id) 기준으로 정규화한다.
- */
-function canonicalCuratorChipToken(key, dbCurators) {
-  const k = String(key ?? "").trim();
-  if (!k) return "";
-  const kLower = k.toLowerCase();
-  const kNorm = kLower.replace(/-/g, "");
-  if (/^[0-9a-f]{32}$/.test(kNorm)) {
-    for (const c of dbCurators || []) {
-      for (const idf of [c.userId, c.id]) {
-        const t = String(idf ?? "")
-          .trim()
-          .toLowerCase()
-          .replace(/-/g, "");
-        if (t && t === kNorm) {
-          return String(c.userId || c.id || k).trim();
-        }
-      }
-    }
-  }
-  const kColl = collapseCuratorMatchToken(k);
-  for (const c of dbCurators || []) {
-    const candidates = [
-      c.filterKey,
-      c.username,
-      c.displayName,
-      c.name,
-      c.slug,
-      c.id != null ? String(c.id) : "",
-      c.userId != null ? String(c.userId) : "",
-    ]
-      .map((x) => String(x ?? "").trim())
-      .filter(Boolean);
-    for (const t of candidates) {
-      if (t.toLowerCase() === kLower) {
-        return String(c.userId || c.id || k).trim();
-      }
-      if (collapseCuratorMatchToken(t) === kColl) {
-        return String(c.userId || c.id || k).trim();
-      }
-    }
-  }
-  return k;
-}
-
-/** localStorage(savedMap) + Supabase(user_saved_places → userSavedPlaces) 저장 키 합집합 */
-function buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces) {
-  const set = new Set();
-  if (savedMap && typeof savedMap === "object") {
-    for (const [placeId, folderIds] of Object.entries(savedMap)) {
-      if (Array.isArray(folderIds) && folderIds.length > 0) {
-        set.add(String(placeId));
-      }
-    }
-  }
-  if (userSavedPlaces && typeof userSavedPlaces === "object") {
-    for (const [placeId, folders] of Object.entries(userSavedPlaces)) {
-      if (Array.isArray(folders) && folders.length > 0) {
-        set.add(String(placeId));
-      }
-    }
-  }
-  return set;
-}
-
-/** 미리보기 카드와 동일하게 UUID·카카오 id 등으로 저장 키와 매칭 */
-function placeMatchesSavedKeySet(place, savedKeySet) {
-  if (!place || !savedKeySet?.size) return false;
-  const keys = [place.id, place.place_id, place.kakao_place_id, place.kakaoId]
-    .filter((x) => x != null && x !== "")
-    .map((x) => String(x));
-  return keys.some((k) => savedKeySet.has(k));
-}
-
-const SEARCH_INTENT_ASSIST_MS = 5500;
-
-/** 코스 카드 가로 스크롤 행 — 뷰 중앙에 가장 가까운 카드 인덱스 */
-function getCourseSwipeIndexFromScroll(el) {
-  if (!el || el.children.length === 0) return 0;
-  const host = el.getBoundingClientRect();
-  const midX = host.left + host.width / 2;
-  let best = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < el.children.length; i++) {
-    const cr = el.children[i].getBoundingClientRect();
-    const cx = cr.left + cr.width / 2;
-    const d = Math.abs(cx - midX);
-    if (d < bestDist) {
-      bestDist = d;
-      best = i;
-    }
-  }
-  return best;
+function devWarn(...args) {
+  if (import.meta.env.DEV) _devConsoleWarn(...args);
 }
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const mapRef = useRef(null);
   const { showToast } = useToast();
 
   const { user, loading: authLoading, signInWithProvider, signOut } = useAuth();
 
-  const devAdminUserId = import.meta.env.VITE_ADMIN_USER_ID;
+  const {
+    folders,
+    savedMap,
+    customPlaces,
+    userSavedPlaces,
+    userSavedPlaceKakaoByUuid,
+    refreshStorage,
+    refreshCustomPlaces,
+    loadUserSavedPlaces,
+  } = useUserSavedPlacesAndFolders({ user, authLoading });
 
-  // 팔로우 알림 확인 함수
-  const checkUnreadFollowers = async (curatorId) => {
-    // 테이블이 존재하지 않으므로 바로 종료
-    console.log('ℹ️ follower_notifications 테이블이 존재하지 않아 팔로우 알림 확인을 건너뜁니다.');
-    return;
-    
-    try {
-      // 테이블이 존재하는지 확인 후 쿼리 실행
-      const { data, error } = await supabase
-        .from('follower_notifications')
-        .select('*')
-        .eq('curator_id', curatorId)
-        .eq('is_read', false);
+  /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 — useAuthRoleAndCurators에서 채움 */
+  const curatorAttachRowsRef = useRef([]);
 
-      if (error) {
-        // 테이블이 없는 경우 에러를 무시하고 로그만 남김
-        if (error.code === 'PGRST205') {
-          console.log('ℹ️ follower_notifications 테이블이 존재하지 않습니다.');
-          return;
-        }
-        console.error('팔로우 알림 확인 오류:', error);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        console.log(`🔔 새로운 팔로워 ${data.length}명이 있습니다!`);
-        // 여기에 알림 표시 로직 추가
-      }
-    } catch (error) {
-      console.error('팔로우 알림 확인 중 오류:', error);
-    }
-  };
+  const {
+    isAdmin,
+    isCurator,
+    rolesLoading,
+    curatorProfile,
+    dbCurators,
+    mapUserProfile,
+    refreshMapUserProfile,
+  } = useAuthRoleAndCurators({ user, authLoading, curatorAttachRowsRef });
 
   // 로컬 AI 검색 함수들
   const getCurrentUserLocation = () => {
@@ -914,11 +498,11 @@ export default function Home() {
             ? `${locationName} ${tailAfterLocation}`
             : locationName;
         searchLocation = null;
-        console.log("🔍 지역명 기반 검색:", searchKeyword);
+        devLog("🔍 지역명 기반 검색:", searchKeyword);
       } else {
         searchKeyword = intentPhrase || kwIn.trim();
         searchLocation = userLocation;
-        console.log("🔍 현재 위치 기반 검색:", searchKeyword);
+        devLog("🔍 현재 위치 기반 검색:", searchKeyword);
       }
 
       const kakaoSuffix = getKakaoKeywordSuffix(keyword);
@@ -971,23 +555,12 @@ export default function Home() {
               } else if (queryWantsYajangFocus(kwIn, parseSearchQuery(kwIn))) {
                 const yStrict = nearbyPlaces.filter((place) => {
                   const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
-                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
-                  if (
-                    Array.isArray(curatorPlaceCatalogForMerge) &&
-                    curatorPlaceCatalogForMerge.length
-                  ) {
-                    const m = findCuratorCatalogMatch(
-                      place,
-                      curatorPlaceCatalogForMerge
-                    );
-                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
-                  }
-                  return false;
+                  return YAJANG_PLACE_HINT_RE.test(haystack);
                 });
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
 
-              console.log(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
+              devLog(`🍺 ${locationName} 지역명 검색 결과:`, nearbyPlaces.length);
             } else {
               // 현재 위치 기반 검색은 800m 이내 필터링
               const placesWithDistance = data
@@ -1040,28 +613,17 @@ export default function Home() {
               ) {
                 const yStrict = nearbyPlaces.filter((place) => {
                   const haystack = `${place.category_name || ""} ${place.place_name || ""}`;
-                  if (YAJANG_PLACE_HINT_RE.test(haystack)) return true;
-                  if (
-                    Array.isArray(curatorPlaceCatalogForMerge) &&
-                    curatorPlaceCatalogForMerge.length
-                  ) {
-                    const m = findCuratorCatalogMatch(
-                      place,
-                      curatorPlaceCatalogForMerge
-                    );
-                    if (m && placeSignalsYajangCuratorMeta(m)) return true;
-                  }
-                  return false;
+                  return YAJANG_PLACE_HINT_RE.test(haystack);
                 });
                 if (yStrict.length > 0) nearbyPlaces = yStrict;
               }
 
-              console.log(`🍺 ${searchKeyword} 근처 검색 결과:`, nearbyPlaces.length);
+              devLog(`🍺 ${searchKeyword} 근처 검색 결과:`, nearbyPlaces.length);
             }
             
             resolve(nearbyPlaces);
           } else {
-            console.log(`🍺 ${searchKeyword} 검색 결과 없음:`, status);
+            devLog(`🍺 ${searchKeyword} 검색 결과 없음:`, status);
             resolve([]);
           }
         },
@@ -1119,220 +681,6 @@ export default function Home() {
   };
 
   // 네이버 블로그 검색 함수
-  // 카카오 API로 장소 추가 정보 가져오기
-  const enrichPlaceWithKakaoInfo = async (place) => {
-    const hasUsefulCategory = Boolean(
-      (place.category_name && String(place.category_name).trim()) ||
-        (place.category &&
-          String(place.category).trim() &&
-          place.category !== "미분류")
-    );
-    const wgs0 = resolvePlaceWgs84(place);
-    const coordsOk =
-      wgs0 && isLikelyKoreaWgs84(wgs0.lat, wgs0.lng);
-    if (place.isKakaoEnriched && hasUsefulCategory && coordsOk) {
-      return place;
-    }
-
-    const labelForSearch =
-      (place?.name && String(place.name).trim()) ||
-      (place?.place_name && String(place.place_name).trim()) ||
-      "";
-    const firstAddr = [
-      place?.address,
-      place?.road_address_name,
-      place?.address_name,
-    ]
-      .map((x) => (typeof x === "string" ? x.trim() : ""))
-      .find((s) => s.length > 0);
-
-    if (!labelForSearch && !firstAddr) {
-      return place;
-    }
-    const keywordQuery = labelForSearch || firstAddr.slice(0, 80);
-
-    try {
-      if (import.meta.env.DEV) {
-        console.log("🔍 카카오 장소 정보 조회 (서버 프록시):", keywordQuery);
-      }
-
-      const py = parseFloat(place.lat ?? place.y);
-      const px = parseFloat(place.lng ?? place.x);
-
-      const idCandidates = [
-        place.kakao_place_id,
-        place.place_id,
-        place.kakaoId,
-      ]
-        .map((x) => (x != null ? String(x).trim() : ""))
-        .filter((s) => /^\d+$/.test(s));
-
-      /** 브라우저에서 dapi.kakao.com 직접 호출은 CORS로 막히므로 백엔드 프록시 사용 */
-      let kakaoPlace = null;
-      for (const kid of idCandidates) {
-        kakaoPlace = await getKakaoPlaceDetailsViaProxy(kid, {
-          query: keywordQuery,
-          x: Number.isFinite(px) ? px : undefined,
-          y: Number.isFinite(py) ? py : undefined,
-        });
-        if (kakaoPlace && (kakaoPlace.category_name || kakaoPlace.place_name)) {
-          break;
-        }
-      }
-
-      if (!kakaoPlace) {
-        const { documents: docs } = await searchKakaoKeywordViaProxy({
-          query: keywordQuery,
-          x: Number.isFinite(px) ? px : undefined,
-          y: Number.isFinite(py) ? py : undefined,
-          radius: 500,
-          size: 15,
-        });
-
-        for (const kid of idCandidates) {
-          kakaoPlace = docs.find((d) => String(d.id) === kid);
-          if (kakaoPlace) break;
-        }
-        if (!kakaoPlace && docs.length) {
-          kakaoPlace = docs[0];
-        }
-      }
-
-      if (!kakaoPlace) {
-        const addrQ = [
-          place.address,
-          place.road_address_name,
-          place.address_name,
-        ]
-          .map((x) => (typeof x === "string" ? x.trim() : ""))
-          .find((s) => s.length >= 4);
-        if (addrQ) {
-          const { documents: adocs } = await searchKakaoAddressViaProxy({
-            query: addrQ,
-            size: 5,
-          });
-          const d0 = Array.isArray(adocs) ? adocs[0] : null;
-          if (d0) {
-            const ky = parseFloat(d0.y);
-            const kx = parseFloat(d0.x);
-            if (Number.isFinite(ky) && Number.isFinite(kx)) {
-              kakaoPlace = {
-                ...d0,
-                place_name: d0.place_name || place.name,
-                category_name:
-                  d0.category_name ||
-                  place.category_name ||
-                  place.category ||
-                  "",
-                id: d0.id,
-              };
-            }
-          }
-        }
-      }
-
-      if (kakaoPlace) {
-        if (import.meta.env.DEV) {
-          console.log("✅ 카카오 장소 정보 찾음:", kakaoPlace.place_name);
-        }
-
-        const ky = parseFloat(kakaoPlace.y);
-        const kx = parseFloat(kakaoPlace.x);
-        const catFromKakao =
-          kakaoPlace.category_name ||
-          place.category_name ||
-          place.category ||
-          "";
-
-        const resolvedName =
-          (kakaoPlace.place_name && String(kakaoPlace.place_name).trim()) ||
-          (place.name && String(place.name).trim()) ||
-          (place.place_name && String(place.place_name).trim()) ||
-          keywordQuery;
-
-        const enrichedPlace = {
-          ...place,
-          name: resolvedName,
-          category: catFromKakao || place.category,
-          category_name: catFromKakao || place.category_name,
-          phone: kakaoPlace.phone || place.phone,
-          road_address_name: kakaoPlace.road_address_name || place.address,
-          address_name: kakaoPlace.address_name || place.address,
-          place_url: kakaoPlace.place_url,
-          x: kakaoPlace.x,
-          y: kakaoPlace.y,
-          ...(Number.isFinite(ky) && Number.isFinite(kx)
-            ? { lat: ky, lng: kx }
-            : {}),
-          isKakaoEnriched: true,
-          kakaoId: kakaoPlace.id,
-        };
-
-        // Supabase places 스키마(앱 전반): name, address, lat, lng, category, kakao_place_id, phone 등만 존재.
-        // category_name / x / y / kakaoId / isKakaoEnriched 는 DB 컬럼이 아니면 400.
-        try {
-          const kid =
-            kakaoPlace.id != null ? String(kakaoPlace.id).trim() : "";
-          const nextAddr =
-            (kakaoPlace.road_address_name &&
-              String(kakaoPlace.road_address_name).trim()) ||
-            (kakaoPlace.address_name &&
-              String(kakaoPlace.address_name).trim()) ||
-            null;
-          const nextCat =
-            (kakaoPlace.category_name &&
-              String(kakaoPlace.category_name).trim()) ||
-            (place.category && String(place.category).trim()) ||
-            null;
-          const patch = {};
-          if (resolvedName) patch.name = resolvedName;
-          if (nextCat) patch.category = nextCat;
-          if (nextAddr) patch.address = nextAddr;
-          if (kakaoPlace.phone != null && String(kakaoPlace.phone).trim() !== "") {
-            patch.phone = String(kakaoPlace.phone).trim();
-          }
-          if (Number.isFinite(ky) && Number.isFinite(kx)) {
-            patch.lat = ky;
-            patch.lng = kx;
-          }
-          if (/^\d+$/.test(kid)) {
-            patch.kakao_place_id = kid;
-          }
-
-          if (Object.keys(patch).length === 0) {
-            if (import.meta.env.DEV) {
-              console.log("⏭️ Supabase places PATCH 생략: 갱신할 필드 없음");
-            }
-          } else {
-            const { error: updErr } = await supabase
-              .from("places")
-              .update(patch)
-              .eq("id", place.id);
-            if (updErr) {
-              if (import.meta.env.DEV) {
-                console.warn("⚠️ Supabase places PATCH 실패:", updErr.message);
-              }
-            } else if (import.meta.env.DEV) {
-              console.log("🔄 Supabase 장소 정보 PATCH 완료");
-            }
-          }
-        } catch (updateError) {
-          if (import.meta.env.DEV) {
-            console.log("⚠️ Supabase 업데이트 예외:", updateError.message);
-          }
-        }
-
-        return enrichedPlace;
-      }
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.log("⚠️ 카카오 장소 정보 조회 오류:", error.message);
-      }
-    }
-
-    return place;
-  };
-
   const searchBlogReviews = async (keyword) => {
     const q = typeof keyword === "string" ? keyword.trim() : "";
     if (!q) return [];
@@ -1342,7 +690,7 @@ export default function Home() {
     const timeoutId = setTimeout(() => controller.abort(), BLOG_FETCH_MS);
 
     try {
-      console.log("📝 서버 블로그 크롤 요청:", q);
+      devLog("📝 서버 블로그 크롤 요청:", q);
       const url = AI_API_BASE
         ? `${AI_API_BASE}/api/blog-reviews`
         : "/api/blog-reviews";
@@ -1353,18 +701,18 @@ export default function Home() {
         signal: controller.signal,
       });
       if (!res.ok) {
-        console.warn("📝 blog-reviews HTTP", res.status);
+        devWarn("📝 blog-reviews HTTP", res.status);
         return [];
       }
       const data = await res.json();
       const list = Array.isArray(data.blogReviews) ? data.blogReviews : [];
-      console.log("📝 블로그 리뷰 수:", list.length);
+      devLog("📝 블로그 리뷰 수:", list.length);
       return list;
     } catch (error) {
       if (error?.name === "AbortError") {
-        console.warn("📝 블로그 요청 시간 초과 — 지도 결과는 그대로 사용");
+        devWarn("📝 블로그 요청 시간 초과 — 지도 결과는 그대로 사용");
       } else {
-        console.warn("📝 네이버 블로그 요청 실패 (서버 미기동 또는 크롤러 오류):", error);
+        devWarn("📝 네이버 블로그 요청 실패 (서버 미기동 또는 크롤러 오류):", error);
       }
       return [];
     } finally {
@@ -1372,32 +720,38 @@ export default function Home() {
     }
   };
 
-  const searchMapBars = async (keyword) => {
+  const searchMapBars = async (keyword, regionAnchor = null) => {
     if (!window.kakao?.maps?.services || !mapRef.current) {
       console.error("❌ searchMapBars: 카카오 API 또는 맵 레퍼런스 없음");
       return [];
     }
 
-    const kwMap = stripPartyAndChatterForKeywordSearch(keyword) || keyword;
+    const rawKw = String(keyword || "").trim();
+    const kwMap = homeSearchQueryHasMoodIntentHint(rawKw)
+      ? rawKw
+      : stripPartyAndChatterForKeywordSearch(keyword) || keyword;
     const mapBounds = mapRef.current.getBounds();
     if (!mapBounds) {
       console.error("❌ searchMapBars: 지도 영역 없음");
       return [];
     }
 
-    const geoAnchored = kakaoQueryHasGeographicAnchor(kwMap);
+    const geoAnchored = situationChipMapSearchViewportRef.current
+      ? false
+      : kakaoQueryHasGeographicAnchor(kwMap, regionAnchor);
     const useApiBounds = !geoAnchored;
     const queries = expandFoodKakaoQueries(kwMap);
 
-    console.log("🗺️ searchMapBars:", { kwMap, geoAnchored, useApiBounds, queries });
+    devLog("🗺️ searchMapBars:", { kwMap, geoAnchored, useApiBounds, queries });
 
+    const broadCategories = kakaoMapSearchWantsBroadPlaceCategories(kwMap);
     const runOne = (q) =>
       new Promise((resolve) => {
         const ps = new window.kakao.maps.services.Places();
         const opts = {
-          category_group_code: "FD6",
           sort: window.kakao.maps.services.SortBy.ACCURACY,
         };
+        if (!broadCategories) opts.category_group_code = "FD6";
         if (useApiBounds) opts.bounds = mapBounds;
 
         ps.keywordSearch(
@@ -1431,7 +785,7 @@ export default function Home() {
         merged.push(p);
       }
     }
-    console.log("🗺️ searchMapBars 병합 건수:", merged.length, "쿼리 수:", queries.length);
+    devLog("🗺️ searchMapBars 병합 건수:", merged.length, "쿼리 수:", queries.length);
     return merged;
   };
 
@@ -1447,12 +801,19 @@ export default function Home() {
     return R * c * 1000; // 미터로 변환
   };
 
-  /** 카카오 후보 위 룰 기반 점수·한 줄 이유. 정렬: 의미 점수와 거리를 함께 반영(가까운 잡식당만 남는 현상 완화). */
+  /**
+   * 카카오·통합 검색 후보 위 룰 기반 `aiScore`.
+   * 기준: `scorePlace`(검색 파싱·facet) → 의도축(`applyIntentAxisScoresWithSignals`)·거리·피드백 등.
+   * 보조: `place_picks`(일반 1·큐레이터 4 가중 합) + `check_ins`(한잔, 건당 5 가중) — 로그·cap·패널티 게이트
+   * (`searchSocialBoost.js` + RPC `get_search_social_boost_batch`).
+   * 한 줄 이유는 `enrichPlacesWithReason`에서 별도 부착. 정렬: 의미 점수와 거리 페널티.
+   */
   const calculateLocalAIScores = (
     places,
     keyword,
     userLocation = null,
-    sortOrigin = null
+    sortOrigin = null,
+    _scoreOpts = null
   ) => {
     const LOCAL_AI_TOP_N = 18;
     const KW_OVERLAP_STOP = new Set([
@@ -1485,7 +846,16 @@ export default function Home() {
     const wantWalkable =
       /걸어|도보|근처|가까운|걸어서|걸어가|걸어갈|walking/i.test(kwSc);
     const wantQuiet = /조용|차분|한적|quiet/i.test(kwSc);
-    const parsedFacets = parseSearchQuery(keyword);
+    const parsedFacetsBase = parseSearchQuery(keyword);
+    const pinnedRegions = resolveParsedRegionsFromQuery(
+      keyword,
+      parsedFacetsBase
+    );
+    const parsedFacets = {
+      ...parsedFacetsBase,
+      regions: pinnedRegions,
+      region: pinnedRegions[0] ?? parsedFacetsBase.region ?? null,
+    };
     const wantsSeafood = queryWantsSeafoodFocus(keyword, parsedFacets);
     const wantsYajang = queryWantsYajangFocus(keyword, parsedFacets);
     const wantsDayDrink = queryWantsDayDrinkFocus(keyword);
@@ -1522,9 +892,12 @@ export default function Home() {
         .filter((s) => s.length >= 2 && !KW_OVERLAP_STOP.has(s));
       let add = 0;
       for (const p of parts) {
-        if (p && textLower.includes(p)) add += 8;
+        if (!p || !textLower.includes(p)) continue;
+        if (p === "야장" || p === "야장술집") add += 22;
+        else if (p === "데이트") add += 5;
+        else add += 8;
       }
-      return Math.min(add, 44);
+      return Math.min(add, 52);
     };
 
     const distanceRankPenalty = (distM) => {
@@ -1558,17 +931,116 @@ export default function Home() {
       return Math.min(add, 15);
     };
 
+    const blindDateSecondVenueContext =
+      rawQueryBlindDateSecondVenueContext(keyword);
+    const userAskedBudgetMeal =
+      /해장|국밥|백반|분식|김밥|순대|기사식|도시락|죽\s*집|뼈\s*해장/.test(kwSc);
+    const userExplicitCafeMealInQuery =
+      rawQueryExplicitCafeMealCoffee(keyword);
+    const barLikeReliefRe =
+      /와인바|칵테일바|이자카야|펍|라운지|주점|포차|호프|술집|wine|winebar|cocktail/i;
+    const misalignedSecondVenueMealCategoryRe =
+      /백반|기사식|기사식당|분식|해장국|해장|국밥|순대국|김밥|도시락|구내식당|뼈\s*해장|브런치|팬케이크|pancake|팬\s*케이크|한끼|밥플러스|메가\s*커피|메가커피|카페|커피숍|커피\s*전문|디저트|베이커리|토스트|샌드위치|포케|뷔페|패스트푸드|패밀리|버거|샐러드|피자|파스타|스테이크|우동|라멘|국수|돈까스|초밥|삼겹살|고깃집|한우|죽\s*전문|죽집|한식음식점|중국요리|일식음식점|양식음식점|중식|한식당|한끼식사|밥\s*집|밥집/i;
+
+    const intentAxisFlags = detectIntents(keyword);
+
     return places.map(place => {
       const catalogHit = findCuratorCatalogMatch(
         place,
         curatorPlaceCatalogForMerge || []
       );
 
+      const evidencePlace = catalogHit
+        ? {
+            ...place,
+            curatorReasons:
+              catalogHit.curatorReasons ?? place.curatorReasons,
+            curatorPlaces:
+              Array.isArray(catalogHit.curatorPlaces) &&
+              catalogHit.curatorPlaces.length
+                ? catalogHit.curatorPlaces
+                : place.curatorPlaces,
+            tags:
+              Array.isArray(catalogHit.tags) && catalogHit.tags.length
+                ? catalogHit.tags
+                : place.tags,
+            vibes:
+              Array.isArray(catalogHit.vibes) && catalogHit.vibes.length
+                ? catalogHit.vibes
+                : place.vibes,
+            moods: catalogHit.moods ?? place.moods,
+            food_types: catalogHit.food_types ?? place.food_types,
+            alcohol_types: catalogHit.alcohol_types ?? place.alcohol_types,
+            purposes: catalogHit.purposes ?? place.purposes,
+            blogInsight: place.blogInsight ?? catalogHit.blogInsight,
+          }
+        : place;
+      const reasonEvidence = collectReasonEvidence(evidencePlace);
+      const placeForReason = { ...place, reasonEvidence };
+
       const facetResult = scorePlace(place, parsedFacets);
       let score = facetResult.score;
       const cat = `${place.category_name || ""} ${place.place_name || ""}`;
       const catLower = cat.toLowerCase();
-      score += queryKeywordOverlapBoost(catLower);
+      const overlapBoost = queryKeywordOverlapBoost(catLower);
+      score += overlapBoost;
+      const fbMap = _scoreOpts?.searchFeedbackByPlaceKey;
+      let searchFeedbackBoost = 0;
+      if (fbMap && typeof fbMap === "object") {
+        const pk = placeKeyForFeedback(evidencePlace);
+        const row = pk ? fbMap[pk] : null;
+        if (row) {
+          searchFeedbackBoost = computeSearchFeedbackBoost(row);
+          if (searchFeedbackBoost !== 0) {
+            score += searchFeedbackBoost;
+          }
+        }
+      }
+      const intentRes = applyIntentAxisScoresWithSignals(
+        intentAxisFlags,
+        classifyCategory(place),
+        score
+      );
+      score = intentRes.score;
+      const aiScoreSignals = { ...intentRes.signals };
+      if (overlapBoost > 0) {
+        aiScoreSignals.overlap_boost = overlapBoost;
+      }
+      if (searchFeedbackBoost !== 0) {
+        aiScoreSignals.search_feedback_boost = searchFeedbackBoost;
+      }
+
+      const kwRawForMood = String(keyword || "");
+      const moodTextBlob = [
+        cat,
+        String(place.place_name || ""),
+        String(place.place_name || place.title || ""),
+        reasonEvidence.summary,
+        ...(reasonEvidence.atmosphere || []),
+        ...(reasonEvidence.menu || []).slice(0, 4),
+        ...(reasonEvidence.curatorLines || []).slice(0, 4),
+        ...(reasonEvidence.tags || []).slice(0, 8),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (
+        (/조용/.test(kwRawForMood) || /대화/.test(kwRawForMood)) &&
+        /조용|차분|대화|아늑/.test(moodTextBlob)
+      ) {
+        score += 12;
+        aiScoreSignals.quiet_mood = 12;
+      }
+
+      if (
+        blindDateSecondVenueContext &&
+        !userAskedBudgetMeal &&
+        !userExplicitCafeMealInQuery &&
+        misalignedSecondVenueMealCategoryRe.test(cat) &&
+        !barLikeReliefRe.test(catLower)
+      ) {
+        score -= 95;
+        aiScoreSignals.date_second_meal_mismatch = -95;
+      }
 
       if (wantsSeafood && isObviousNonSeafoodKakaoPlace(place)) {
         score -= 120;
@@ -1580,9 +1052,17 @@ export default function Home() {
         if (!curatorHit && catalogHit) {
           curatorHit = placeSignalsYajangCuratorMeta(catalogHit);
         }
-        if (textHit) score += 34;
-        if (curatorHit) score += 30;
-        if (!textHit && !curatorHit) score -= 26;
+        const dateAlso = /데이트|소개팅|맞선/i.test(kwSc);
+        const yajangTextBoost = dateAlso ? 44 : 34;
+        const yajangCuratorBoost = dateAlso ? 36 : 30;
+        const yajangMissPenalty = dateAlso ? -34 : -26;
+        if (textHit) score += yajangTextBoost;
+        if (curatorHit) score += yajangCuratorBoost;
+        if (!textHit && !curatorHit) score += yajangMissPenalty;
+        if (dateAlso && /와인바|wine\s*bar/i.test(catLower) && !textHit) {
+          score -= 22;
+          aiScoreSignals.penalty_date_wine_over_yajang = -22;
+        }
       }
 
       if (wantsDayDrink) {
@@ -1593,7 +1073,6 @@ export default function Home() {
         if (dayDrinkHit) score += 32;
       }
 
-      // 거리·도보는 파싱 축과 별도(위치기반 검색)
       if (userLocation && place.distance > 0) {
         score += Math.max(0, 50 - place.distance / 16);
       }
@@ -1620,27 +1099,63 @@ export default function Home() {
         }
       }
 
-      // 인원(근사): 좌석 수 없음 — 단체·포차류만 보조 가점
-      // 해산물 검색에서 «회식»만 맞는 치킨·회식집이 과대 가점 받는 것 방지
       if (party != null && party >= 3) {
         if (/포장마차|포차|실내포장마차|단체|대형|홀/i.test(cat)) score += 12;
         else if (/회식/i.test(cat) && !wantsSeafood) score += 12;
         if (party >= 5) score += 5;
       }
-      if (party === 2 && (kwSc.includes("데이트") || barHit)) {
+      if (
+        !wantsYajang &&
+        party === 2 &&
+        (kwSc.includes("데이트") || barHit)
+      ) {
         if (/바|와인|라운지|펍/i.test(cat)) score += 8;
       }
 
       score += blogInsightBoost(place);
 
+      const socMap = _scoreOpts?.socialBoostByStableKey;
+      if (socMap && typeof socMap === "object") {
+        const sk = mapPlaceStableDedupeKey(place);
+        const soc = sk ? socMap[sk] : null;
+        if (
+          soc &&
+          (Number(soc.pickW) > 0 || Number(soc.hanjan) > 0)
+        ) {
+          const strongPenaltyGate =
+            score <= -52 ||
+            (typeof aiScoreSignals.date_second_meal_mismatch === "number" &&
+              aiScoreSignals.date_second_meal_mismatch <= -40);
+          if (!strongPenaltyGate) {
+            const add = dampedSearchSocialScoreDelta(
+              soc.pickW,
+              soc.hanjan
+            );
+            if (add > 0) {
+              score += add;
+              aiScoreSignals.social_boost = add;
+            }
+          }
+        }
+      }
+
       const atmosphere = getAtmosphereFromCategory(place.category_name);
       const sourceKakaoId = place.id;
 
       const distM = metersForSort(place);
-      const whyRecommended = buildRecommendationWhyLine(place, parsedFacets);
+      const facetWhyLine = buildRecommendationWhyLine(place, parsedFacets);
+      const signalWhy = buildReasonFromSignals(aiScoreSignals, placeForReason);
+      const hasPositiveScoreSignal = Object.values(aiScoreSignals).some(
+        (v) => Number(v) > 0
+      );
+      const whyRecommended =
+        hasPositiveScoreSignal && signalWhy !== INTENT_SIGNAL_REASON_FALLBACK
+          ? signalWhy
+          : facetWhyLine;
 
       return {
         ...place,
+        reasonEvidence,
         distance:
           typeof place.distance === "number" &&
           Number.isFinite(place.distance) &&
@@ -1650,6 +1165,7 @@ export default function Home() {
               ? Math.round(distM)
               : place.distance,
         aiScore: Math.round(score),
+        aiScoreSignals,
         whyRecommended,
         recommendation: getLocalRecommendationReason(score, keyword, place, userLocation, {
           party,
@@ -1737,26 +1253,34 @@ export default function Home() {
     return reasons.length > 0 ? reasons.join(', ') : '검색·거리 기준 후보';
   };
 
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isCurator, setIsCurator] = useState(false);
-  const curatorWelcomeRef = useRef(false); // 큐레이터 상태 변화 감지용 ref
-  const [curatorProfile, setCuratorProfile] = useState(null); // 큐레이터 프로필 정보
-  const [dbCurators, setDbCurators] = useState([]); // DB에서 가져온 큐레이터 목록
   const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
+  /** 탭 새로고침마다 바뀌는 값 — 큐레이터 스트립 첫 후보 로테이션·동순위 섞기 */
+  const curatorSpotlightSaltRef = useRef(
+    (typeof crypto !== "undefined" && crypto.getRandomValues
+      ? crypto.getRandomValues(new Uint32Array(1))[0]
+      : Math.floor(Math.random() * 0xffffffff)) >>> 0,
+  );
+  /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
+  const forceReopenAiSheetAfterSearchRef = useRef(false);
 
-  /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 */
-  const curatorAttachRowsRef = useRef([]);
   const mapViewportLoadSeqRef = useRef(0);
+  /** `/api/places-in-bounds` 동시 요청 수 — stale 완료만으로 로딩이 영구 true 되는 것 방지 */
+  const mapViewportFetchInFlightRef = useRef(0);
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
-  const placeDetailRequestSeqRef = useRef(0);
+  /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
+  const homeSearchSkipCoursePreviewRef = useRef(false);
+  /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
+  const situationFolderFilterRef = useRef(null);
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
   /** placeholder KST 구간 갱신(분 단위) */
-  const [searchPlaceholderTick, setSearchPlaceholderTick] = useState(0);
+  const searchPlaceholderTick = useMinuteTick();
+  /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
+  const now = useTickingNow();
 
   const homeDustIntroDoneRef = useRef(false);
   const [homeDustIntroDismissed, setHomeDustIntroDismissed] = useState(() => {
@@ -1798,6 +1322,9 @@ export default function Home() {
     [finishHomeDustIntro]
   );
 
+  const homeSearchInputRef = useRef(null);
+
+  /** 인트로 질문에 답하도록 검색창 포커스 (동네·1차 시작 입력) */
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
   const loadDbPlacesForViewport = useCallback(
     async ({ boundsRaw, mapLevel }) => {
@@ -1807,7 +1334,9 @@ export default function Home() {
       const seq = ++mapViewportLoadSeqRef.current;
       const snap = curatorAttachRowsRef.current || [];
 
-      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.12);
+      const widenForSituation = Boolean(situationFolderFilterRef.current);
+      const padRatio = widenForSituation ? 0.24 : 0.12;
+      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, padRatio);
       if (!padded) {
         setMapViewportDbLoading(false);
         return;
@@ -1825,10 +1354,23 @@ export default function Home() {
               Number.isFinite(lastMapLevelRef.current)
             ? lastMapLevelRef.current
             : 6;
-      const limit = getLimitByZoom(level);
+      const hasCuratorChipFilter =
+        Array.isArray(selectedCuratorsRef.current) &&
+        selectedCuratorsRef.current.length > 0;
+      const baseLimit = getLimitByZoom(level);
+      const curatorCapByZoom =
+        level >= 8 ? 180 : level >= 6 ? 220 : 300;
+      const limit = Math.min(
+        hasCuratorChipFilter ? curatorCapByZoom : 120,
+        Math.round(
+          baseLimit *
+            (hasCuratorChipFilter ? 2.4 : widenForSituation ? 1.9 : 1)
+        )
+      );
 
-      const r6 = (n) => Number(n).toFixed(6);
-      const cacheKey = `${r6(south)}_${r6(west)}_${r6(north)}_${r6(east)}_${limit}`;
+      /** 뷰포트 캐시 버킷 — 6자리면 미세 팬마다 키가 갈라져 캐시가 거의 안 먹음, 4자리가 무난한 타협 */
+      const r4 = (n) => Number(n).toFixed(4);
+      const cacheKey = `${r4(south)}_${r4(west)}_${r4(north)}_${r4(east)}_${limit}_${hasCuratorChipFilter ? "cur" : widenForSituation ? "sit" : "all"}`;
 
       let plainRows;
       let joinResult;
@@ -1838,21 +1380,17 @@ export default function Home() {
         plainRows = cached.plainRows;
         joinResult = { rows: cached.joinRows, error: null };
       } else {
+        mapViewportFetchInFlightRef.current += 1;
         setMapViewportDbLoading(true);
         try {
-          plainRows = await fetchPlacesByBounds({
-            south,
-            west,
-            north,
-            east,
-            limit,
-          });
+          const bundle = await fetchMapPlacesInBounds(
+            { south, west, north, east, limit },
+            AI_API_BASE,
+          );
           if (seq !== mapViewportLoadSeqRef.current) return;
 
-          joinResult = await fetchCuratorPlaceRowsInBounds(supabase, padded, {
-            placesRows: plainRows,
-          });
-          if (seq !== mapViewportLoadSeqRef.current) return;
+          plainRows = bundle.places;
+          joinResult = { rows: bundle.joinRows, error: null };
 
           if (!joinResult.error) {
             mapViewportFetchCacheRef.current[cacheKey] = {
@@ -1864,7 +1402,11 @@ export default function Home() {
           console.error("❌ 뷰포트 추천 로드 실패:", e);
           return;
         } finally {
-          if (seq === mapViewportLoadSeqRef.current) {
+          mapViewportFetchInFlightRef.current = Math.max(
+            0,
+            mapViewportFetchInFlightRef.current - 1,
+          );
+          if (mapViewportFetchInFlightRef.current === 0) {
             setMapViewportDbLoading(false);
           }
         }
@@ -1876,11 +1418,14 @@ export default function Home() {
         console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
         setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
         if (import.meta.env.DEV) {
-          console.log(
+          devLog(
             "📦 bounds fetch 결과:",
             (plainRows || []).length,
             "(join 오류·places만)"
           );
+        }
+        if (mapViewportFetchInFlightRef.current === 0) {
+          setMapViewportDbLoading(false);
         }
         return;
       }
@@ -1899,13 +1444,16 @@ export default function Home() {
       setDbPlaces(merged);
 
       if (import.meta.env.DEV) {
-        console.log("📦 bounds fetch 결과:", merged.length, {
+        devLog("📦 bounds fetch 결과:", merged.length, {
           큐레이터연결: fromJoin.length,
           places만: extraPlain.length,
           캐시: Boolean(cached),
           level,
           limit,
         });
+      }
+      if (mapViewportFetchInFlightRef.current === 0) {
+        setMapViewportDbLoading(false);
       }
     },
     [authLoading, query]
@@ -1927,45 +1475,61 @@ export default function Home() {
   );
 
   /** 하단 검색바: `basic` 카카오·경량 / `ai` 기존 주도·의도·통합 검색 */
-  const [homeSearchChannel, setHomeSearchChannel] = useState("auto");
   const [selectedPlace, setSelectedPlace] = useState(null);
+  const [mutualSearchPanelOpen, setMutualSearchPanelOpen] = useState(false);
+  const viewportWidth = useViewportWidth();
   const searchSessionIdRef = useRef(null);
+  /** 직전 검색 제출 스냅샷 — 장소 클릭 시 CTR 버킷(`searchClickPath`) 연결 */
+  const lastSearchSubmitTelemetryRef = useRef(null);
+  /** 직전 `search_logs` 행 — `place_click_logs.search_log_id` */
+  const lastSearchLogIdRef = useRef(null);
+  /** 직전 검색 제출 쿼리 문자열(클릭 로그용) */
+  const lastSearchSubmitQueryRef = useRef("");
+  /** 직전 검색의 feedback RPC 컨텍스트(normalized_query, area, intent_tags) */
+  const searchFeedbackContextRef = useRef(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
-  const [folders, setFolders] = useState([]);
-  const [savedMap, setSavedMap] = useState({});
-  const [kakaoPlaces, setKakaoPlaces] = useState([]); // 카카오 장소들을 위한 state
-  /** 카카오 키워드 자동완성 후보 — 리스트와 동일하게 지도에 전부 표시 */
-  const [kakaoTypingPreviewPlaces, setKakaoTypingPreviewPlaces] = useState([]);
+  const {
+    kakaoPlaces,
+    setKakaoPlaces,
+    kakaoTypingPreviewPlaces,
+    setKakaoTypingPreviewPlaces,
+    resetAll: resetKakaoSearchPlaces,
+  } = useKakaoSearchPlaces();
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
-  const [customPlaces, setCustomPlaces] = useState([]); // 더미 데이터 제거
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
   const selectedCuratorsRef = useRef([]);
   selectedCuratorsRef.current = selectedCurators;
   const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
-  const [userSavedPlaces, setUserSavedPlaces] = useState({}); // 사용자 저장 장소 폴더 정보
-
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
   const [aiRecommendedIds, setAiRecommendedIds] = useState([]);
   /** 비-basic AI 검색: 추천 id·리스트·지도를 DB/내부와 섞지 않고 상위만 */
   const aiRecommendExclusiveRef = useRef(false);
+  /** `/recommend` 성공 시 카카오 후보를 import 순으로 재정렬하기 위한 직전 점수 리스트 */
+  const lastAiScoredPlacesForImportReorderRef = useRef(null);
   const [isAiSearching, setIsAiSearching] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   /** 단순 위치+메뉴 검색: 맞춤 피크바·자동 시트 없이 지도 마커만 */
   const [simpleMapSearchMarkersOnly, setSimpleMapSearchMarkersOnly] =
     useState(false);
-  const [loadingDots, setLoadingDots] = useState(".");
-  const [searchLoadingLabel, setSearchLoadingLabel] = useState("");
-  const [searchExpandUX, setSearchExpandUX] = useState(null);
-  /** 야장 검색 무결과 → 5km 큐레이터 폴백 안내 */
-  const [yajangFallbackBanner, setYajangFallbackBanner] = useState(null);
-  const [searchDistanceOrigin, setSearchDistanceOrigin] = useState(null); // 추천 리스트 거리·도보 표시용 기준 좌표
+  const loadingDots = useAiSearchLoadingDots(isAiSearching);
+  const {
+    searchLoadingLabel,
+    setSearchLoadingLabel,
+    searchExpandUX,
+    setSearchExpandUX,
+    yajangFallbackBanner,
+    setYajangFallbackBanner,
+    searchDistanceOrigin,
+    setSearchDistanceOrigin,
+    resetAll: resetSearchStatusMeta,
+  } = useSearchStatusMeta();
   const [isLocationBasedSearch, setIsLocationBasedSearch] = useState(false); // 위치기반 검색 여부
   /** 지역명만 검색해 줌인한 뒤 — 「여기서 검색」 */
   const [showMapSearchHereButton, setShowMapSearchHereButton] = useState(false);
@@ -1976,95 +1540,31 @@ export default function Home() {
   const [legendCategory, setLegendCategory] = useState(null);
   /** 홈 상단 술 상황 칩 — system_folders.key 와 연결 */
   const [situationFolderFilter, setSituationFolderFilter] = useState(null);
-
-  const [searchIdleHintVisible, setSearchIdleHintVisible] = useState(false);
-  const [searchIdleHintText, setSearchIdleHintText] = useState("");
-  const searchIdleHintAutoHideRef = useRef(null);
+  situationFolderFilterRef.current = situationFolderFilter;
 
   const homeSearchPlaceholderText = useMemo(
-    () => getHomeSearchPlaceholderKst(homeSearchChannel),
-    [homeSearchChannel, searchPlaceholderTick]
+    () => getHomeSearchPlaceholderKst("auto"),
+    /** searchPlaceholderTick은 시간 흐름에 따른 강제 재계산용. KST에 따라 placeholder가 바뀜 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [searchPlaceholderTick]
   );
-
-  const dismissSearchIdleHint = useCallback(() => {
-    setSearchIdleHintVisible(false);
-    if (searchIdleHintAutoHideRef.current != null) {
-      window.clearTimeout(searchIdleHintAutoHideRef.current);
-      searchIdleHintAutoHideRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setSearchPlaceholderTick((n) => n + 1);
-    }, 60000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  /** 비입력 ~2.6초 후 보조 힌트(세션 최대 2회) — 검색바가 주, 이건 보조 */
-  useEffect(() => {
-    dismissSearchIdleHint();
-    if (selectedPlace || String(query || "").trim() || isAiSearching) {
-      return undefined;
-    }
-    if (!homeDustIntroDismissed) {
-      return undefined;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-    ) {
-      return undefined;
-    }
-    let shownCount = 0;
-    try {
-      shownCount = parseInt(
-        sessionStorage.getItem(HOME_SEARCH_IDLE_HINTS_KEY) || "0",
-        10
-      );
-    } catch {
-      shownCount = 0;
-    }
-    if (shownCount >= 2) {
-      return undefined;
-    }
-
-    const delayMs = 2600;
-    const showTimer = window.setTimeout(() => {
-      const idx = Math.min(
-        shownCount,
-        Math.max(0, SEARCH_IDLE_HINT_MESSAGES.length - 1)
-      );
-      setSearchIdleHintText(SEARCH_IDLE_HINT_MESSAGES[idx] ?? "");
-      try {
-        sessionStorage.setItem(
-          HOME_SEARCH_IDLE_HINTS_KEY,
-          String(shownCount + 1)
-        );
-      } catch {
-        /* ignore */
-      }
-      setSearchIdleHintVisible(true);
-      searchIdleHintAutoHideRef.current = window.setTimeout(() => {
-        setSearchIdleHintVisible(false);
-        searchIdleHintAutoHideRef.current = null;
-      }, 6500);
-    }, delayMs);
-
-    return () => {
-      window.clearTimeout(showTimer);
-      if (searchIdleHintAutoHideRef.current != null) {
-        window.clearTimeout(searchIdleHintAutoHideRef.current);
-        searchIdleHintAutoHideRef.current = null;
-      }
-    };
-  }, [
-    query,
-    selectedPlace,
-    isAiSearching,
-    homeDustIntroDismissed,
-    dismissSearchIdleHint,
-  ]);
+  const judoMode = useMemo(() => getJudoOperationMode(now), [now]);
+  const judoCopy = useMemo(() => getJudoModeCopy(judoMode), [judoMode]);
+  const dayModeRemainingClock = useMemo(() => {
+    if (!judoMode.isDayMode) return "";
+    const target = new Date(now);
+    target.setHours(16, 0, 0, 0);
+    const diffMs = Math.max(0, target.getTime() - now.getTime());
+    const totalSec = Math.floor(diffMs / 1000);
+    const hh = String(Math.floor(totalSec / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }, [judoMode.isDayMode, now]);
+  const dayModeNoticeText = useMemo(() => {
+    if (!judoMode.isDayMode) return "";
+    return `${judoCopy.sub} (${dayModeRemainingClock})`;
+  }, [judoCopy.sub, judoMode.isDayMode, dayModeRemainingClock]);
 
   useEffect(() => {
     if (String(query || "").trim()) {
@@ -2108,7 +1608,6 @@ export default function Home() {
   const [livePlaceIds, setLivePlaceIds] = useState(() => new Set());
   const [showUserCard, setShowUserCard] = useState(false); // UserCard 표시 상태
   /** 일반 유저 공개 프로필(profiles) — 닉네임·핸들. 로그인 계정(이메일)과 UI 분리 */
-  const [mapUserProfile, setMapUserProfile] = useState(null);
   const [searchBarProfileImgFailed, setSearchBarProfileImgFailed] =
     useState(false);
 
@@ -2154,19 +1653,110 @@ export default function Home() {
     rerunDifferentCourses,
     applyAlternativeSecond,
     applyAlternativeFirst,
-    applyComposedCourseFromPicks,
+    applyComposedCourseFromSteps,
     applyMapPickAsFirstStepAsync,
     computeSecondStepCandidatesOnly,
     applySecondStepPick,
     courseQueryParsed,
   } = useCourseSearch();
 
+  const homeSearchMode = useHomeSearchMode({
+    shouldForceClose:
+      Boolean(selectedPlace) ||
+      mutualSearchPanelOpen ||
+      isCourseMode ||
+      (aiRecommendedIds.length > 0 &&
+        Boolean(String(query || "").trim()) &&
+        !simpleMapSearchMarkersOnly),
+    onClose: () => {
+      setKakaoTypingPreviewPlaces([]);
+    },
+  });
+
+  const [homeSearchHistoryList, setHomeSearchHistoryList] = useState(() =>
+    loadHomeSearchHistory(null)
+  );
+  const [homeSearchHistoryChip, setHomeSearchHistoryChip] = useState("recent");
+
+  useEffect(() => {
+    setHomeSearchHistoryList(loadHomeSearchHistory(user?.id));
+  }, [user?.id]);
+
+  const handleHomeDustIntroTapToAnswer = useCallback(() => {
+    finishHomeDustIntro();
+    homeSearchMode.open();
+    window.requestAnimationFrame(() => {
+      try {
+        homeSearchInputRef.current?.focus?.();
+      } catch {
+        // ignore
+      }
+    });
+  }, [finishHomeDustIntro, homeSearchMode]);
+
+  const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
+
+  const handleSaveSelectedCourseAsDraft = useCallback(async () => {
+    if (!user?.id) {
+      window.alert("로그인이 필요합니다.");
+      return;
+    }
+    if (!selectedCourse?.steps?.length) return;
+    setSavingRecommendedDraft(true);
+    try {
+      const r = await saveHomeRecommendedCourseDraft({
+        curatorUserId: user.id,
+        course: selectedCourse,
+        courseQueryParsed,
+        rawSearchQuery: query,
+      });
+      let msg =
+        "내 코스로 저장했어요. 제목과 설명을 수정해보세요.";
+      if (r.skippedSteps > 0) {
+        msg += ` 일부 장소 ${r.skippedSteps}곳은 좌표·식별 정보가 없어 제외했어요.`;
+      }
+      window.alert(msg);
+      navigate(
+        `/studio/courses/${encodeURIComponent(r.courseId)}/edit`
+      );
+    } catch (e) {
+      const code = e?.code;
+      if (code === "NOT_CURATOR") {
+        window.alert(
+          e?.message || "큐레이터 계정에서만 내 코스로 저장할 수 있어요."
+        );
+      } else if (code === "INSUFFICIENT_DB_PLACES") {
+        window.alert(
+          e?.message ||
+            "저장할 수 있는 장소가 부족합니다."
+        );
+      } else if (code === "NOT_AUTHENTICATED") {
+        window.alert(e?.message || "로그인이 필요합니다.");
+      } else {
+        window.alert(e?.message || "저장하지 못했습니다.");
+      }
+    } finally {
+      setSavingRecommendedDraft(false);
+    }
+  }, [user?.id, selectedCourse, courseQueryParsed, query, navigate]);
+
   const {
     recommendation: curatorImportRecommendation,
+    setRecommendation: setCuratorImportRecommendation,
     loading: recommendFetchLoading,
     error: recommendFetchError,
     fetchRecommend: fetchCuratorImportRecommend,
   } = useRecommendation();
+
+  /** `/recommend` — DB에 확정 저장된 `places`보다 `raw_data` 파싱 `import_pool`이 있으면 우선 */
+  const curatorImportPlacesOrPool = useMemo(() => {
+    const r = curatorImportRecommendation;
+    if (!r?.ok) return [];
+    if (Array.isArray(r.import_pool) && r.import_pool.length > 0) {
+      return r.import_pool;
+    }
+    return Array.isArray(r.places) ? r.places : [];
+  }, [curatorImportRecommendation]);
 
   const {
     selectedRecommendedPlace,
@@ -2175,18 +1765,818 @@ export default function Home() {
     closeRecommendedPlaceDetail,
   } = useSelectedRecommendedPlace();
 
-  const courseStepPatternHint = useMemo(() => {
-    if (!isCourseMode || !courseQueryParsed) return "";
-    const mode =
-      courseQueryParsed.mode ?? courseQueryParsed.dateMode ?? "casual";
-    const walk = courseQueryParsed.walkable ? " 도보·근거리 반영." : "";
-    if (mode === "date") {
-      return `1차·2차 구분: 데이트 패턴(1차 식사·분위기 → 2차 가볍게).${walk}`;
-    }
-    return `1차·2차 구분: 일반 야장 패턴(1차 식사·안주 → 2차 술집·바).${walk}`;
-  }, [isCourseMode, courseQueryParsed]);
+  const mergedRecommendDetailPlace = useMemo(
+    () => ({
+      ...(matchedMapPlace && typeof matchedMapPlace === "object"
+        ? matchedMapPlace
+        : {}),
+      ...(selectedRecommendedPlace &&
+      typeof selectedRecommendedPlace === "object"
+        ? selectedRecommendedPlace
+        : {}),
+    }),
+    [matchedMapPlace, selectedRecommendedPlace]
+  );
+
+  const recommendDetailIsSaved = useMemo(() => {
+    if (!selectedRecommendedPlace && !matchedMapPlace) return false;
+    const savedKeySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
+    return placeMatchesSavedKeySet(mergedRecommendDetailPlace, savedKeySet);
+  }, [
+    selectedRecommendedPlace,
+    matchedMapPlace,
+    mergedRecommendDetailPlace,
+    savedMap,
+    userSavedPlaces,
+  ]);
+
+  /** 코스 세션과 `/recommend`·import 오버레이가 겹치면 단일 가게·미리보기가 뜨는 문제 방지 */
+  const clearImportRecommendationOverlay = useCallback(() => {
+    closeRecommendedPlaceDetail();
+    setCuratorImportRecommendation(null);
+  }, [closeRecommendedPlaceDetail, setCuratorImportRecommendation]);
+
+  /** 맞춤 추천 리스트 시트 닫기 — 검색어는 유지, 추천·지도 마커만 정리 */
+  const handleDismissRecommendSheet = useCallback(() => {
+    setAiSheetOpen(false);
+    setAiSheetPage(0);
+    setAiError("");
+    setAiSummary("");
+    setAiReasons([]);
+    setAiRecommendedIds([]);
+    aiRecommendExclusiveRef.current = false;
+    setExternalPlaces([]);
+    setExternalPlacesPool([]);
+    setYajangFallbackBanner(null);
+    resetKakaoSearchPlaces();
+    clearImportRecommendationOverlay();
+  }, [clearImportRecommendationOverlay, resetKakaoSearchPlaces]);
 
   const [courseMapOverlay, setCourseMapOverlay] = useState(null);
+  /** 홈 「지금 뜨는 코스」 탭에서 고른 공개 코스 — 검색 코스 모드와 별도 */
+  const [homeRailCourseDrive, setHomeRailCourseDrive] = useState(null);
+  const [homeRailStampPlaceIds, setHomeRailStampPlaceIds] = useState(
+    () => new Set()
+  );
+  const [homeRailActiveSession, setHomeRailActiveSession] = useState(null);
+  const [homeRailCourseCompleted, setHomeRailCourseCompleted] = useState(false);
+  /** 완주 로그에 한 번이라도 남은 코스 — 다시 모으기 버튼용 */
+  const [homeRailEverCompleted, setHomeRailEverCompleted] = useState(false);
+  const [homeRailReplayBusy, setHomeRailReplayBusy] = useState(false);
+  const [homeRailFollowBusy, setHomeRailFollowBusy] = useState(false);
+  /** 지도 미리보기 닫아도 따라가기·도장 유지 */
+  const [homeCourseStampDock, setHomeCourseStampDock] = useState(null);
+  /** 따라가기 세션 — 홈 빠른가기 FAB용 (코스 시트 없을 때도 유지) */
+  const [homeGlobalFollowSession, setHomeGlobalFollowSession] = useState(null);
+  /** 숨기기 후에만 우측 빠른가기 FAB 표시 */
+  const [homeCourseFollowMinimized, setHomeCourseFollowMinimized] =
+    useState(false);
+  /** 「지금 뜨는 코스」 도킹 패널 — 핫 스트립 탭과 분리 */
+  const [homeCoursesPanelOpen, setHomeCoursesPanelOpen] = useState(false);
+  /** 코스 시트 드래그 스냅 — 접힘·최소일 때 지도 「코스」 칩 숨김 */
+  const [homeCoursesSheetSnap, setHomeCoursesSheetSnap] = useState("closed");
+  /** 패널 안 코스 상세(지도 전) */
+  const [homeCourseBrowse, setHomeCourseBrowse] = useState(null);
+  const [homeCourseBrowseLoading, setHomeCourseBrowseLoading] = useState(false);
+  /** 도장 시트 → 코스 목록 레일(따라가기·지도는 유지) */
+  const [homeCourseStampBackedToRail, setHomeCourseStampBackedToRail] =
+    useState(false);
+  /** 미리보기 도장 행 — DB 반영 후 재조회 */
+  const [homeCourseStampStateVersion, setHomeCourseStampStateVersion] =
+    useState(0);
+  const closeHomeCoursesPanel = useCallback(() => {
+    setHomeCoursesPanelOpen(false);
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    setHomeCourseStampBackedToRail(false);
+    setHomeCoursesSheetSnap("closed");
+  }, []);
+
+  /** 코스 칩으로 열 때 — 항상 「지금 뜨는 코스」 목록·펼침 시트 */
+  const [homeCoursesSheetResetKey, setHomeCoursesSheetResetKey] = useState(0);
+  const openHomeCoursesListPanel = useCallback(() => {
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    setHomeCourseStampBackedToRail(false);
+    setHomeCoursesPanelOpen(true);
+    setHomeCoursesSheetSnap("expanded");
+    setHomeCoursesSheetResetKey((n) => n + 1);
+  }, []);
+  const [homeViewportH, setHomeViewportH] = useState(() =>
+    typeof window !== "undefined" ? window.innerHeight : 800
+  );
+  const kakaoPlacesBeforeHomeRailRef = useRef(null);
+  const kakaoPlacesRef = useRef([]);
+
+  /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
+  const coursePathDismissedForCourseKeyRef = useRef(null);
+  /** 도장 시 재요청 없이 남은 구간만 그리기 — OSRM 연쇄 경로 캐시 */
+  const homeCourseWalkingRouteCacheRef = useRef(null);
+  const courseWalkingOverlayReqIdRef = useRef(0);
+  const homeRailStampPlaceIdsRef = useRef(homeRailStampPlaceIds);
+  homeRailStampPlaceIdsRef.current = homeRailStampPlaceIds;
+
+  useEffect(() => {
+    kakaoPlacesRef.current = kakaoPlaces;
+  }, [kakaoPlaces]);
+
+  const refreshHomeGlobalFollowSession = useCallback(async () => {
+    if (!user?.id) {
+      setHomeGlobalFollowSession(null);
+      return null;
+    }
+    try {
+      const s = await getMyActiveCourseSession();
+      setHomeGlobalFollowSession(s);
+      return s;
+    } catch {
+      setHomeGlobalFollowSession(null);
+      return null;
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setHomeGlobalFollowSession(null);
+      return undefined;
+    }
+    void refreshHomeGlobalFollowSession();
+    const onFocus = () => void refreshHomeGlobalFollowSession();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [user?.id, refreshHomeGlobalFollowSession]);
+
+  const refreshHomeRailCourseStampState = useCallback(async (courseId) => {
+    const cid = String(courseId || "").trim();
+    if (!cid) {
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailEverCompleted(false);
+      setHomeRailCourseCompleted(false);
+      return;
+    }
+    try {
+      const [stamps, session, everCompleted, steps] = await Promise.all([
+        fetchMyCoursePlaceStamps(cid),
+        getMyActiveCourseSession(),
+        hasUserCompletedCourseInLogs(cid),
+        fetchCourseStampSteps(cid),
+      ]);
+      setHomeRailStampPlaceIds(stamps.stampedPlaceIds);
+      const fol =
+        session && String(session.course_id || "") === cid ? session : null;
+      setHomeRailActiveSession(fol);
+      setHomeRailEverCompleted(everCompleted);
+      setHomeRailCourseCompleted(
+        areAllCourseStepsStamped(steps, stamps.stampedPlaceIds)
+      );
+    } catch {
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailEverCompleted(false);
+      setHomeRailCourseCompleted(false);
+    }
+  }, []);
+
+  const homeFollowCourseId = useMemo(
+    () =>
+      String(
+        homeGlobalFollowSession?.course_id ||
+          homeRailActiveSession?.course_id ||
+          ""
+      ).trim(),
+    [homeGlobalFollowSession?.course_id, homeRailActiveSession?.course_id]
+  );
+
+  const dismissHomeRailCourseMap = useCallback(async () => {
+    const cid = String(homeRailCourseDrive?.courseId || "").trim();
+    const followId = homeFollowCourseId;
+    const previewingOtherWhileFollowing =
+      Boolean(followId) && Boolean(cid) && followId !== cid;
+
+    setHomeRailCourseDrive(null);
+    coursePathDismissedForCourseKeyRef.current = null;
+    setCourseMapOverlay(null);
+    setCourseWalkStrollHint("");
+    if (kakaoPlacesBeforeHomeRailRef.current != null) {
+      setKakaoPlaces(kakaoPlacesBeforeHomeRailRef.current);
+      kakaoPlacesBeforeHomeRailRef.current = null;
+    }
+
+    /** 따라가기 중 다른 코스만 지도에서 내림 — 세션·도장은 유지 */
+    if (previewingOtherWhileFollowing) {
+      void refreshHomeRailCourseStampState(followId);
+      return;
+    }
+
+    let keepFollow = Boolean(followId && cid && followId === cid);
+    if (!keepFollow && cid && user?.id) {
+      try {
+        const s = await getMyActiveCourseSession();
+        keepFollow = Boolean(
+          s && String(s.course_id || "").trim() === cid
+        );
+      } catch {
+        keepFollow = false;
+      }
+    }
+
+    setHomeCourseStampDock(null);
+    if (keepFollow && cid) {
+      void refreshHomeRailCourseStampState(cid);
+    } else {
+      setHomeCoursesPanelOpen(false);
+      setHomeCourseBrowse(null);
+      setHomeCourseBrowseLoading(false);
+      setHomeCourseFollowMinimized(false);
+      setHomeRailStampPlaceIds(new Set());
+      setHomeRailActiveSession(null);
+      setHomeRailCourseCompleted(false);
+    }
+  }, [
+    setKakaoPlaces,
+    homeRailCourseDrive,
+    homeFollowCourseId,
+    user?.id,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  /** 시트 ×·맨 아래 드래그·지도 탭 — 패널 닫기 + (따라가기 미리보기 제외) 지도 코스 미리보기 해제 */
+  const dismissHomeCoursesDiscovery = useCallback(() => {
+    const followId = String(homeFollowCourseId || "").trim();
+    const following = Boolean(followId);
+    const previewOpen =
+      homeCourseBrowseLoading || Boolean(homeCourseBrowse);
+
+    closeHomeCoursesPanel();
+
+    if (following && previewOpen) {
+      return;
+    }
+    if (homeRailCourseDrive) {
+      void dismissHomeRailCourseMap();
+    }
+  }, [
+    homeFollowCourseId,
+    homeCourseBrowse,
+    homeCourseBrowseLoading,
+    homeRailCourseDrive,
+    closeHomeCoursesPanel,
+    dismissHomeRailCourseMap,
+  ]);
+
+  const showHomeRailCourseOnMap = useCallback(
+    async (courseId, options = {}) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      const forBrowsePreview = Boolean(options.forBrowsePreview);
+      try {
+        const row = await fetchCuratorCourseById(id);
+        let drive = curatorCourseRowToDrivingMap(row);
+        if (!drive) {
+          showToast(
+            "지도에 표시할 좌표가 있는 장소가 2곳 이상 필요해요.",
+            "info",
+            3200
+          );
+          return;
+        }
+        drive = await enrichDrivingMapWithStepThumbs(drive);
+        setSelectedPlace(null);
+        clearImportRecommendationOverlay();
+        if (kakaoPlacesBeforeHomeRailRef.current == null) {
+          kakaoPlacesBeforeHomeRailRef.current = kakaoPlacesRef.current;
+        }
+        coursePathDismissedForCourseKeyRef.current = null;
+        setCourseMapOverlay(null);
+        setCourseWalkStrollHint("");
+        setHomeRailCourseDrive(drive);
+        if (!forBrowsePreview) {
+          setHomeCourseStampDock(null);
+          const followId = String(homeFollowCourseId || "").trim();
+          if (!followId || followId === id) {
+            setHomeCourseFollowMinimized(false);
+            setHomeCourseStampBackedToRail(false);
+          }
+        }
+        setHomeCoursesPanelOpen(true);
+        setKakaoPlaces(courseOptionsToMapPlaces([drive]));
+        void refreshHomeRailCourseStampState(id);
+        /** `homeCourseBrowse` 유지 — 지도에서 보기 후에도 미리보기 시트 그대로 */
+      } catch (e) {
+        showToast(
+          e?.message || "코스를 지도에 불러오지 못했어요.",
+          "warning",
+          3200
+        );
+      }
+    },
+    [
+      clearImportRecommendationOverlay,
+      showToast,
+      setKakaoPlaces,
+      refreshHomeRailCourseStampState,
+      homeFollowCourseId,
+    ]
+  );
+
+  /** 코스 카드 탭 — 미리보기 시트 + 지도(따라가기·도장 중이어도 미리보기 우선) */
+  const selectHomeCourseInPanel = useCallback(
+    async (courseId) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      setHomeCourseStampBackedToRail(true);
+      setHomeCoursesPanelOpen(true);
+      setHomeCourseBrowseLoading(true);
+      try {
+        const row = await fetchCuratorCourseById(id);
+        let detail = normalizeHomeCourseBrowseDetail(row);
+        if (!detail) {
+          showToast("코스 정보를 불러오지 못했어요.", "warning", 3200);
+          setHomeCourseBrowse(null);
+          return;
+        }
+        detail = await enrichBrowseDetailWithStepThumbs(detail);
+        setHomeCourseBrowse(detail);
+        await showHomeRailCourseOnMap(id, { forBrowsePreview: true });
+        void refreshHomeRailCourseStampState(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+      } catch (e) {
+        showToast(
+          e?.message || "코스를 불러오지 못했어요.",
+          "warning",
+          3200
+        );
+        setHomeCourseBrowse(null);
+      } finally {
+        setHomeCourseBrowseLoading(false);
+      }
+    },
+    [showToast, showHomeRailCourseOnMap, refreshHomeRailCourseStampState]
+  );
+
+  const clearHomeCourseBrowse = useCallback(() => {
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    /** 미리보기 ← 목록 — 따라가기 중이면 도장 시트가 아니라 코스 레일 */
+    setHomeCourseStampBackedToRail(true);
+    const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+    const followingThis =
+      Boolean(homeFollowCourseId) &&
+      browseId &&
+      homeFollowCourseId === browseId;
+    if (browseId && mapId === browseId && !followingThis) {
+      void dismissHomeRailCourseMap();
+    }
+  }, [
+    homeCourseBrowse?.courseId,
+    homeRailCourseDrive?.courseId,
+    homeFollowCourseId,
+    dismissHomeRailCourseMap,
+  ]);
+
+  useEffect(() => {
+    const previewId = String(homeRailCourseDrive?.courseId || "").trim();
+    const stampCourseId = previewId || homeFollowCourseId;
+    if (!stampCourseId) {
+      setHomeRailStampPlaceIds(new Set());
+      if (!homeFollowCourseId) {
+        setHomeRailActiveSession(null);
+        setHomeRailCourseCompleted(false);
+      }
+      return undefined;
+    }
+    void refreshHomeRailCourseStampState(stampCourseId);
+    return undefined;
+  }, [
+    homeRailCourseDrive?.courseId,
+    homeFollowCourseId,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  /** 지도 시트에 띄운 코스(미리보기) */
+  const homeRailActiveCourseId = useMemo(
+    () => String(homeRailCourseDrive?.courseId || "").trim(),
+    [homeRailCourseDrive?.courseId]
+  );
+
+  const homeRailGuideStepIndex = useMemo(() => {
+    if (!homeRailCourseDrive) return 0;
+    const sheetSteps = sheetStepsFromDrivingMap(homeRailCourseDrive);
+    return resolveCourseGuideStepIndex(
+      sheetSteps.length,
+      homeRailStampPlaceIds,
+      sheetSteps.map((s, i) => ({ place_id: s.place_id, order_index: i }))
+    );
+  }, [homeRailCourseDrive, homeRailStampPlaceIds]);
+
+  const homeRailFollowingThisCourse = useMemo(
+    () =>
+      Boolean(
+        homeFollowCourseId &&
+          homeRailActiveCourseId &&
+          homeFollowCourseId === homeRailActiveCourseId
+      ),
+    [homeFollowCourseId, homeRailActiveCourseId]
+  );
+
+  const handleHomeRailStartFollow = useCallback(async (courseIdOverride) => {
+    const id = String(
+      courseIdOverride ||
+        homeRailActiveCourseId ||
+        homeFollowCourseId ||
+        homeCourseBrowse?.courseId ||
+        ""
+    ).trim();
+    if (!id) return;
+    if (!user?.id) {
+      showToast("로그인하면 코스를 따라갈 수 있어요.", "info", 3200);
+      return;
+    }
+    setHomeRailFollowBusy(true);
+    let sessionStarted = false;
+    try {
+      const s = await startCourseSession(id, { replaceExisting: false });
+      setHomeRailActiveSession(s);
+      setHomeGlobalFollowSession(s);
+      setHomeCourseFollowMinimized(false);
+      setHomeCourseStampBackedToRail(false);
+      sessionStarted = true;
+      showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
+    } catch (e) {
+      if (e?.code === "ACTIVE_SESSION_EXISTS") {
+        if (
+          !window.confirm(
+            "현재 진행 중인 코스를 종료하고 이 코스를 시작할까요?"
+          )
+        ) {
+          return;
+        }
+        const s = await startCourseSession(id, { replaceExisting: true });
+        setHomeRailActiveSession(s);
+        setHomeGlobalFollowSession(s);
+        setHomeCourseFollowMinimized(false);
+        setHomeCourseStampBackedToRail(false);
+        sessionStarted = true;
+        showToast("이 코스 따라가기를 시작했어요.", "success", 2800);
+      } else {
+        showToast(e?.message || "시작하지 못했어요.", "warning", 3200);
+      }
+    } finally {
+      setHomeRailFollowBusy(false);
+      if (sessionStarted) {
+        void refreshHomeRailCourseStampState(id);
+        void refreshHomeGlobalFollowSession();
+      }
+    }
+
+    if (!sessionStarted) return;
+
+    setHomeCoursesPanelOpen(true);
+    setHomeCoursesSheetSnap("expanded");
+
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    if (browseId !== id) {
+      await selectHomeCourseInPanel(id);
+      return;
+    }
+    const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+    if (mapId !== id) {
+      await showHomeRailCourseOnMap(id, { forBrowsePreview: true });
+    }
+  }, [
+    homeRailActiveCourseId,
+    homeFollowCourseId,
+    homeCourseBrowse?.courseId,
+    homeRailCourseDrive?.courseId,
+    user?.id,
+    showToast,
+    refreshHomeRailCourseStampState,
+    refreshHomeGlobalFollowSession,
+    selectHomeCourseInPanel,
+    showHomeRailCourseOnMap,
+  ]);
+
+  /** 코스 상세(스튜디오 보기 등) → 「코스 따라가기」로 홈 진입 */
+  useEffect(() => {
+    const courseId = readHomeStartCourseFollowId(location.state);
+    if (!courseId) return;
+
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: {} }
+    );
+
+    void handleHomeRailStartFollow(courseId);
+  }, [
+    location.state,
+    location.pathname,
+    location.search,
+    navigate,
+    handleHomeRailStartFollow,
+  ]);
+
+  const handleBrowseToggleFollow = useCallback(
+    async (enabled) => {
+      const id = String(homeCourseBrowse?.courseId || "").trim();
+      if (!id) return;
+      if (!user?.id) {
+        showToast("로그인하면 코스를 따라갈 수 있어요.", "info", 3200);
+        return;
+      }
+      if (enabled) {
+        await handleHomeRailStartFollow(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+        return;
+      }
+      const session = homeGlobalFollowSession || homeRailActiveSession;
+      const sid = String(session?.course_id || "").trim();
+      if (session?.id && sid === id) {
+        await abandonCourseSession(session.id);
+        await refreshHomeGlobalFollowSession();
+      }
+      await refreshHomeRailCourseStampState(id);
+      setHomeCourseStampStateVersion((v) => v + 1);
+    },
+    [
+      homeCourseBrowse?.courseId,
+      user?.id,
+      showToast,
+      handleHomeRailStartFollow,
+      homeGlobalFollowSession,
+      homeRailActiveSession,
+      refreshHomeGlobalFollowSession,
+      refreshHomeRailCourseStampState,
+    ]
+  );
+
+  const bumpHomeCourseStampState = useCallback(() => {
+    const id = String(
+      homeCourseBrowse?.courseId || homeFollowCourseId || ""
+    ).trim();
+    if (id) void refreshHomeRailCourseStampState(id);
+    setHomeCourseStampStateVersion((v) => v + 1);
+  }, [
+    homeCourseBrowse?.courseId,
+    homeFollowCourseId,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  const homeCheckinCourseIdHint = useMemo(
+    () => String(homeFollowCourseId || "").trim(),
+    [homeFollowCourseId]
+  );
+
+  const handleHomeCheckinCourseStampProgress = useCallback(() => {
+    bumpHomeCourseStampState();
+  }, [bumpHomeCourseStampState]);
+
+  const dismissHomeCourseStampDock = useCallback(() => {
+    setHomeCourseStampDock(null);
+    setHomeCourseFollowMinimized(false);
+    setHomeRailStampPlaceIds(new Set());
+    setHomeRailActiveSession(null);
+    setHomeRailEverCompleted(false);
+    setHomeRailCourseCompleted(false);
+  }, []);
+
+  const handleHomeRailReplayStamps = useCallback(
+    async (courseId) => {
+      const id = String(
+        courseId || homeRailActiveCourseId || ""
+      ).trim();
+      if (!id) return;
+      if (!user?.id) {
+        showToast("로그인하면 다시 모을 수 있어요.", "info", 3200);
+        return;
+      }
+      if (
+        !window.confirm(
+          "도장을 모두 지우고 처음부터 다시 모을까요? 완주 기록은 그대로 남아요."
+        )
+      ) {
+        return;
+      }
+      setHomeRailReplayBusy(true);
+      try {
+        const r = await resetCourseStampsForReplay(id);
+        if (!r?.ok) {
+          const msg =
+            r?.reason === "delete_blocked"
+              ? "도장을 지울 수 없어요. DB에 삭제 권한 마이그레이션을 적용했는지 확인해 주세요."
+              : r?.reason === "session_reopen_failed"
+                ? "따라가기 세션을 다시 열지 못했어요. 잠시 후 다시 시도해 주세요."
+                : "다시 모으기에 실패했어요.";
+          showToast(msg, "warning", 3200);
+          return;
+        }
+        setHomeRailStampPlaceIds(new Set());
+        setHomeRailCourseCompleted(false);
+        setHomeCourseFollowMinimized(false);
+        setHomeCourseStampDock(null);
+
+        if (r.session) {
+          setHomeRailActiveSession(r.session);
+          setHomeGlobalFollowSession(r.session);
+        }
+
+        const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+        if (mapId !== id) {
+          await showHomeRailCourseOnMap(id);
+        } else {
+          setHomeCoursesPanelOpen(true);
+        }
+
+        showToast("도장을 처음부터 다시 모을 수 있어요.", "success", 2800);
+        await refreshHomeRailCourseStampState(id);
+        setHomeCourseStampStateVersion((v) => v + 1);
+        void refreshHomeGlobalFollowSession();
+      } catch {
+        showToast("다시 모으기에 실패했어요.", "warning", 2800);
+      } finally {
+        setHomeRailReplayBusy(false);
+      }
+    },
+    [
+      homeRailActiveCourseId,
+      homeRailCourseDrive?.courseId,
+      user?.id,
+      showToast,
+      refreshHomeRailCourseStampState,
+      refreshHomeGlobalFollowSession,
+      showHomeRailCourseOnMap,
+    ]
+  );
+
+  const homeCourseFollowQuickTitle = useMemo(() => {
+    const t =
+      homeGlobalFollowSession?.course?.title ||
+      homeRailActiveSession?.course?.title ||
+      homeCourseStampDock?.title ||
+      homeRailCourseDrive?.title ||
+      "";
+    return String(t).trim() || "코스 따라가기";
+  }, [
+    homeGlobalFollowSession?.course?.title,
+    homeRailActiveSession?.course?.title,
+    homeCourseStampDock?.title,
+    homeRailCourseDrive?.title,
+  ]);
+
+  /** 도장 시트에서 코스 목록 레일로 — 지도·따라가기 유지(숨기기와 달리 패널·이어찍기 칩 유지) */
+  const handleBackFromStampSheetToRail = useCallback(() => {
+    setHomeCourseStampBackedToRail(true);
+    setHomeCoursesPanelOpen(true);
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+  }, []);
+
+  /** 도장 시트만 접기 — 지도 코스·따라가기 세션은 유지 */
+  const handleMinimizeStampSheet = useCallback((opts = {}) => {
+    const cid = String(
+      homeFollowCourseId || homeRailCourseDrive?.courseId || ""
+    ).trim();
+    if (!cid) return;
+    const title =
+      String(
+        homeRailCourseDrive?.title ||
+          homeGlobalFollowSession?.course?.title ||
+          homeRailActiveSession?.course?.title ||
+          homeCourseStampDock?.title ||
+          "코스"
+      ).trim() || "코스";
+    setHomeCourseFollowMinimized(true);
+    if (!opts.keepBrowsePanel) {
+      setHomeCoursesPanelOpen(false);
+      setHomeCourseBrowse(null);
+      setHomeCourseBrowseLoading(false);
+    }
+    setHomeCourseStampDock({ courseId: cid, title });
+    void refreshHomeRailCourseStampState(cid);
+  }, [
+    homeFollowCourseId,
+    homeRailCourseDrive?.courseId,
+    homeRailCourseDrive?.title,
+    homeGlobalFollowSession?.course?.title,
+    homeRailActiveSession?.course?.title,
+    homeCourseStampDock?.title,
+    refreshHomeRailCourseStampState,
+  ]);
+
+  const toggleHomeCoursesPanel = useCallback(() => {
+    if (!homeCoursesPanelOpen) {
+      openHomeCoursesListPanel();
+      return;
+    }
+    dismissHomeCoursesDiscovery();
+  }, [
+    homeCoursesPanelOpen,
+    openHomeCoursesListPanel,
+    dismissHomeCoursesDiscovery,
+  ]);
+
+  const handleOpenCourseFollowQuick = useCallback(async () => {
+    let session = homeGlobalFollowSession || homeRailActiveSession;
+    if (!session?.course_id && user?.id) {
+      session = await refreshHomeGlobalFollowSession();
+    }
+    const cid = String(
+      session?.course_id ||
+        homeFollowCourseId ||
+        homeCourseStampDock?.courseId ||
+        ""
+    ).trim();
+    if (!cid) return;
+
+    setHomeCourseFollowMinimized(false);
+    setHomeCourseStampDock(null);
+    setHomeCourseStampBackedToRail(false);
+
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    if (browseId !== cid) {
+      await selectHomeCourseInPanel(cid);
+      return;
+    }
+    setHomeCoursesPanelOpen(true);
+  }, [
+    homeGlobalFollowSession,
+    homeRailActiveSession,
+    homeFollowCourseId,
+    homeCourseStampDock?.courseId,
+    homeCourseBrowse?.courseId,
+    user?.id,
+    refreshHomeGlobalFollowSession,
+    selectHomeCourseInPanel,
+  ]);
+
+  const homeRailCourseSheetPx = useMemo(
+    () => homeRailCourseSheetHeightPx(homeViewportH, false, false),
+    [homeViewportH]
+  );
+
+  const homeCoursesBrowseActive =
+    homeCourseBrowseLoading || Boolean(homeCourseBrowse);
+
+  /** 미리보기 시트 안 도장 UI(별도 도장 시트 없음) */
+  const homeCoursesBrowseFollowActive = useMemo(() => {
+    const browseId = String(homeCourseBrowse?.courseId || "").trim();
+    const followId = String(homeFollowCourseId || "").trim();
+    return (
+      homeCoursesBrowseActive &&
+      Boolean(browseId) &&
+      Boolean(followId) &&
+      browseId === followId &&
+      !homeCourseFollowMinimized
+    );
+  }, [
+    homeCoursesBrowseActive,
+    homeCourseBrowse?.courseId,
+    homeFollowCourseId,
+    homeCourseFollowMinimized,
+  ]);
+
+  const homeCoursesStampSheetActive = homeCoursesBrowseFollowActive;
+
+  useEffect(() => {
+    if (!homeRailCourseDrive) return undefined;
+    const onResize = () => setHomeViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [homeRailCourseDrive]);
+
+  useEffect(() => {
+    if (!homeRailCourseDrive || isCourseMode) return undefined;
+    const pins = courseOptionsToMapPlaces([homeRailCourseDrive]);
+    if (!pins.length || !mapRef.current?.fitToPlaces) return undefined;
+    const browseStampUi =
+      homeCoursesBrowseFollowActive && homeRailCourseDrive;
+    const sheetPx = browseStampUi
+      ? homeCoursesDiscoveryStampSheetHeightPx(
+          sheetStepsFromDrivingMap(homeRailCourseDrive).length,
+          { completed: homeRailCourseCompleted }
+        )
+      : homeRailCourseSheetHeightPx(
+          typeof window !== "undefined" ? window.innerHeight : homeViewportH,
+          false,
+          false
+        );
+    const padding = homeRailCourseMapFitPadding(sheetPx);
+    const t = window.setTimeout(() => {
+      mapRef.current?.fitToPlaces?.(pins, padding);
+    }, 180);
+    return () => window.clearTimeout(t);
+  }, [
+    homeRailCourseDrive,
+    isCourseMode,
+    homeViewportH,
+    homeCoursesBrowseFollowActive,
+    homeCourseFollowMinimized,
+    homeRailCourseCompleted,
+  ]);
+
+  /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */
+  const [courseWalkStrollHint, setCourseWalkStrollHint] = useState("");
   /** 미리보기 「도착 길찾기」: 내 위치 → 선택 장소 (지도 주황 폴리라인) */
   const [arrivalWalkingOverlay, setArrivalWalkingOverlay] = useState(null);
   const arrivalWalkReqIdRef = useRef(0);
@@ -2194,8 +2584,17 @@ export default function Home() {
   const lastPreviewPlaceRouteKeyRef = useRef("");
   /** 지역명만 검색 시 OSM 기반 행정구역 경계(맵 Polygon) */
   const [regionBoundaryOverlay, setRegionBoundaryOverlay] = useState(null);
-  /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
-  const coursePathDismissedForCourseKeyRef = useRef(null);
+  /**
+   * 검색 제출 후 `mapDisplayedPlacesWithLegend`가 커밋된 뒤, 실제 지도에 올라간 마커 좌표로
+   * `fitToPlaces`를 한 번 더 호출하기 위한 틱(스케줄만 맞추면 마커와 뷰가 어긋나는 문제 완화).
+   */
+  const [mapSearchMarkerFitTick, setMapSearchMarkerFitTick] = useState(0);
+  const lastHandledMapSearchFitTickRef = useRef(0);
+  /** 술 상황 칩: 카카오·통합 결과로 `places-auto-fit`/`fitToPlaces`가 줌아웃하지 않도록 */
+  const [preserveMapViewportSituationChip, setPreserveMapViewportSituationChip] =
+    useState(false);
+  /** 칩 세션 동안 `searchMapBars`에 항상 현재 지도 bounds 사용(키워드에 `구`/`로` 있어도 전국 검색 안 함) */
+  const situationChipMapSearchViewportRef = useRef(false);
   const [mapCourseFirstBusy, setMapCourseFirstBusy] = useState(false);
   /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 「2차는 여기로」 */
   const [courseSecondPickMode, setCourseSecondPickMode] = useState(false);
@@ -2217,11 +2616,20 @@ export default function Home() {
   /** 2차 찾기: 1차 좌표 기준 최대 거리(m) — 후보 스코어·카카오 주변 검색 반경 */
   const [courseSecondFindMaxDistanceM, setCourseSecondFindMaxDistanceM] =
     useState(3000);
-  /** 코스 카드에서 각각 담은 코스 조합 (미리보기 후 적용) */
-  const [courseComposePick1, setCourseComposePick1] = useState(null);
-  const [courseComposePick2, setCourseComposePick2] = useState(null);
+  /** 코스 카드에서 스텝 단위로 담는 조합 — 1차 칸 비면 거기, 차면 2차 칸(원래 코스의 몇 차인지 무관) */
+  const [courseComposeSlotFirst, setCourseComposeSlotFirst] =
+    useState(null);
+  /** 쩜오차(1차·2차 사이) — `courseIncludeHalfStep`일 때만 사용 */
+  const [courseComposeSlotBridge, setCourseComposeSlotBridge] =
+    useState(null);
+  const [courseComposeSlotSecond, setCourseComposeSlotSecond] =
+    useState(null);
   /** 내 위치 GPS로 연 코스 검색 시 좌표 보관(반경 5·8km 재검색) */
   const courseGpsUserOriginRef = useRef(null);
+  /** 마지막 코스 검색에 쓴 loadOpts — 쩜오차 토글 시 동일 반경·GPS로 재검색 */
+  const courseLastLoadOptsRef = useRef(null);
+  /** 1차·2차 사이 쩜오차(카페·디저트) 구간 포함 */
+  const [courseIncludeHalfStep, setCourseIncludeHalfStep] = useState(false);
   const [courseGpsRadiusM, setCourseGpsRadiusM] = useState(
     COURSE_GPS_DEFAULT_RADIUS_M
   );
@@ -2234,24 +2642,170 @@ export default function Home() {
     setCourseSecondPulseMapPlaces([]);
   }, []);
 
+  /**
+   * 첫 칸 비면 1차, 다음은 쩜오 토글 시 쩜오차·2차 순. 같은 가게 다시 누르면 해당 칸에서 뺌.
+   * 세 칸 다 찼을 때 새 담기는 2차(마지막)만 갱신.
+   */
+  const assignCourseStepToComposeAuto = useCallback(
+    (step) => {
+      if (!step?.place) return;
+      const clone = { ...step, place: step.place };
+      const pid = placeId(step.place);
+      const fp = placeId(courseComposeSlotFirst?.place);
+      const bp = placeId(courseComposeSlotBridge?.place);
+      const sp = placeId(courseComposeSlotSecond?.place);
+
+      if (pid != null && pid === fp) {
+        setCourseComposeSlotFirst(null);
+        return;
+      }
+      if (courseIncludeHalfStep && pid != null && pid === bp) {
+        setCourseComposeSlotBridge(null);
+        return;
+      }
+      if (pid != null && pid === sp) {
+        setCourseComposeSlotSecond(null);
+        return;
+      }
+
+      if (!courseComposeSlotFirst?.place) {
+        setCourseComposeSlotFirst(clone);
+        return;
+      }
+      if (courseIncludeHalfStep) {
+        if (!courseComposeSlotBridge?.place) {
+          setCourseComposeSlotBridge(clone);
+          return;
+        }
+        if (!courseComposeSlotSecond?.place) {
+          setCourseComposeSlotSecond(clone);
+          return;
+        }
+        setCourseComposeSlotSecond(clone);
+        return;
+      }
+      if (!courseComposeSlotSecond?.place) {
+        setCourseComposeSlotSecond(clone);
+        return;
+      }
+      setCourseComposeSlotSecond(clone);
+    },
+    [
+      courseIncludeHalfStep,
+      courseComposeSlotFirst,
+      courseComposeSlotBridge,
+      courseComposeSlotSecond,
+    ]
+  );
+
   useEffect(() => {
     if (!isCourseMode) {
-      setCourseComposePick1(null);
-      setCourseComposePick2(null);
+      setCourseComposeSlotFirst(null);
+      setCourseComposeSlotBridge(null);
+      setCourseComposeSlotSecond(null);
       clearCourseSecondPickPulse();
       setCourseSecondFindModalOpen(false);
+      setCourseIncludeHalfStep(false);
+      courseLastLoadOptsRef.current = null;
+      setCourseWalkStrollHint("");
     }
   }, [isCourseMode, clearCourseSecondPickPulse]);
 
-  /** 조합 미리보기: 1차/2차 담기만 해도 지도 마커·경로에 반영 */
+  /** 조합 미리보기: 쩜오 토글 시 1·쩜오·2 세 칸, 아니면 1·2만 지도에 반영 */
   const composePreviewCourse = useMemo(() => {
-    if (!courseComposePick1 && !courseComposePick2) return null;
-    if (courseComposePick1 && courseComposePick2) {
-      const st0 = courseComposePick1.steps?.[0];
-      const st1 = courseComposePick2.steps?.[1];
-      if (!st0?.place || !st1?.place) return null;
-      const w0 = resolvePlaceWgs84(st0.place);
-      const w1 = resolvePlaceWgs84(st1.place);
+    const a = courseComposeSlotFirst;
+    const b = courseComposeSlotSecond;
+    const mid = courseIncludeHalfStep ? courseComposeSlotBridge : null;
+    if (!a && !b && !mid) return null;
+
+    const legMeters = (p0, p1) => {
+      const w0 = resolvePlaceWgs84(p0);
+      const w1 = resolvePlaceWgs84(p1);
+      if (!w0 || !w1) return NaN;
+      return haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
+    };
+
+    if (a?.place && mid?.place && b?.place) {
+      const d01 = legMeters(a.place, mid.place);
+      const d12 = legMeters(mid.place, b.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          { ...a, step: 1, label: "1차", place: a.place },
+          {
+            ...mid,
+            step: 2,
+            label: "쩜오차",
+            place: mid.place,
+            stayMinutes: Number.isFinite(Number(mid.stayMinutes))
+              ? Number(mid.stayMinutes)
+              : 25,
+            walkDistanceMeters: Number.isFinite(d01)
+              ? Math.round(d01)
+              : mid.walkDistanceMeters,
+          },
+          {
+            ...b,
+            step: 3,
+            label: "2차",
+            place: b.place,
+            walkDistanceMeters: Number.isFinite(d12)
+              ? Math.round(d12)
+              : b.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
+    if (a?.place && mid?.place) {
+      const d01 = legMeters(a.place, mid.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          { ...a, step: 1, label: a.label ?? "1차", place: a.place },
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+            stayMinutes: Number.isFinite(Number(mid.stayMinutes))
+              ? Number(mid.stayMinutes)
+              : 25,
+            walkDistanceMeters: Number.isFinite(d01)
+              ? Math.round(d01)
+              : mid.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
+    if (mid?.place && b?.place) {
+      const d = legMeters(mid.place, b.place);
+      return {
+        key: "__compose_preview__",
+        steps: [
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+          },
+          {
+            ...b,
+            step: 3,
+            label: b.label ?? "2차",
+            place: b.place,
+            walkDistanceMeters: Number.isFinite(d)
+              ? Math.round(d)
+              : b.walkDistanceMeters,
+          },
+        ],
+      };
+    }
+
+    if (a?.place && b?.place) {
+      const w0 = resolvePlaceWgs84(a.place);
+      const w1 = resolvePlaceWgs84(b.place);
       const d =
         w0 && w1
           ? haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng)
@@ -2259,58 +2813,79 @@ export default function Home() {
       return {
         key: "__compose_preview__",
         steps: [
-          { ...st0, step: 1, label: st0.label ?? "1차", place: st0.place },
+          { ...a, step: 1, label: a.label ?? "1차", place: a.place },
           {
-            ...st1,
+            ...b,
             step: 2,
-            label: st1.label ?? "2차",
-            place: st1.place,
-            walkDistanceMeters: Number.isFinite(d) ? Math.round(d) : st1.walkDistanceMeters,
+            label: b.label ?? "2차",
+            place: b.place,
+            walkDistanceMeters: Number.isFinite(d)
+              ? Math.round(d)
+              : b.walkDistanceMeters,
           },
         ],
       };
     }
-    if (courseComposePick1?.steps?.[0]?.place) {
-      const st0 = courseComposePick1.steps[0];
+    if (a?.place) {
       return {
         key: "__compose_preview__",
-        steps: [{ ...st0, step: 1, label: st0.label ?? "1차" }],
+        steps: [{ ...a, step: 1, label: a.label ?? "1차", place: a.place }],
       };
     }
-    if (courseComposePick2?.steps?.[1]?.place) {
-      const st1 = courseComposePick2.steps[1];
+    if (b?.place) {
       return {
         key: "__compose_preview__",
-        steps: [{ ...st1, step: 2, label: st1.label ?? "2차" }],
+        steps: [{ ...b, step: 2, label: b.label ?? "2차", place: b.place }],
+      };
+    }
+    if (mid?.place) {
+      return {
+        key: "__compose_preview__",
+        steps: [
+          {
+            ...mid,
+            step: 2,
+            label: mid.label ?? "쩜오차",
+            place: mid.place,
+          },
+        ],
       };
     }
     return null;
-  }, [courseComposePick1, courseComposePick2]);
+  }, [
+    courseComposeSlotFirst,
+    courseComposeSlotBridge,
+    courseComposeSlotSecond,
+    courseIncludeHalfStep,
+  ]);
 
   const courseDrivingMap = composePreviewCourse ?? selectedCourse;
-
-  const [savedMyCoursesTick, setSavedMyCoursesTick] = useState(0);
-  const [savedMyCoursePairKeys, setSavedMyCoursePairKeys] = useState(
-    () => new Set()
+  const canAddHalfStepNow = Boolean(
+    isCourseMode &&
+      courseDrivingMap &&
+      Array.isArray(courseDrivingMap.steps) &&
+      courseDrivingMap.steps.length === 2 &&
+      !courseIncludeHalfStep
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!isCourseMode || !user?.id) {
-        setSavedMyCoursePairKeys(new Set());
-        return;
-      }
-      const keys = await fetchMySavedCoursePairKeys(supabase, user.id);
-      if (!cancelled) setSavedMyCoursePairKeys(keys);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isCourseMode, user?.id, savedMyCoursesTick]);
 
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
+    if (
+      homeRailCourseDrive &&
+      !isCourseMode &&
+      typeof window !== "undefined"
+    ) {
+      if (
+        homeRailFollowingThisCourse &&
+        !homeCourseFollowMinimized
+      ) {
+        return homeCoursesDiscoveryStampSheetHeightPx(
+          sheetStepsFromDrivingMap(homeRailCourseDrive).length,
+          { completed: homeRailCourseCompleted }
+        );
+      }
+      return homeRailCourseSheetHeightPx(homeViewportH, false);
+    }
     if (!isCourseMode || !String(query || "").trim() || isAiSearching) return 0;
     if (typeof window === "undefined") return 360;
     const h = window.innerHeight;
@@ -2318,10 +2893,168 @@ export default function Home() {
       return Math.min(Math.round(h * 0.58) + 52, 560);
     }
     return Math.min(Math.round(h * 0.17) + 56, 180);
-  }, [isCourseMode, query, isAiSearching, aiSheetOpen]);
+  }, [
+    isCourseMode,
+    query,
+    isAiSearching,
+    aiSheetOpen,
+    homeRailCourseDrive,
+    homeViewportH,
+    homeRailFollowingThisCourse,
+    homeCourseFollowMinimized,
+    homeRailCourseCompleted,
+  ]);
+
+  const mapOverlayCourseDrive = isCourseMode
+    ? courseDrivingMap
+    : homeRailCourseDrive;
+
+  /** rising curator / 코스 검색 모드 진입 시 홈 레일 코스 미리보기 정리 */
+  useEffect(() => {
+    if (!isCourseMode && !homeRailCourseDrive) return;
+    if (isCourseMode && homeRailCourseDrive) {
+      dismissHomeRailCourseMap();
+    }
+  }, [isCourseMode, homeRailCourseDrive, dismissHomeRailCourseMap]);
+
+  /** 도장 시트 ← 목록 — 따라가기 중 코스 레일을 볼 때도 패널 유지 */
+  const homeCourseStampRailOpen =
+    Boolean(homeFollowCourseId) &&
+    homeCourseStampBackedToRail &&
+    homeCoursesPanelOpen;
+
+  /**
+   * 코스/도보 경로·2차 UI가 지도에 있을 때 — 술 상황 칩이 폴리라인에 가리지 않게 숨김.
+   * 미리보기·도장 시트 중에는 `courseMapOverlay` 가 있어도 discovery 패널 유지.
+   */
+  const hideSituationFolderStripForMapCourseUi = useMemo(() => {
+    const keepDiscoveryPanel =
+      Boolean(homeRailCourseDrive) &&
+      !isCourseMode &&
+      (homeCoursesBrowseActive ||
+        homeCoursesStampSheetActive ||
+        homeCourseFollowMinimized ||
+        homeCourseStampRailOpen);
+    const pathOverlayHidesChrome =
+      Boolean(courseMapOverlay) && !keepDiscoveryPanel;
+    return (
+      pathOverlayHidesChrome ||
+      Boolean(arrivalWalkingOverlay) ||
+      courseSecondPickMode ||
+      courseSecondFindModalOpen
+    );
+  }, [
+    courseMapOverlay,
+    arrivalWalkingOverlay,
+    courseSecondPickMode,
+    courseSecondFindModalOpen,
+    homeCoursesBrowseActive,
+    homeCoursesStampSheetActive,
+    homeCourseFollowMinimized,
+    homeCourseStampBackedToRail,
+    homeCoursesPanelOpen,
+    homeFollowCourseId,
+    homeRailCourseDrive,
+    isCourseMode,
+    homeCourseStampRailOpen,
+  ]);
+
+  const homeCoursesDiscoveryHostVisible =
+    !mutualSearchPanelOpen && !hideSituationFolderStripForMapCourseUi;
+  const homeCoursesSheetChromeOk =
+    !isCourseMode &&
+    !Boolean(selectedPlace) &&
+    !String(query || "").trim() &&
+    !isAiSearching &&
+    homeCoursesDiscoveryHostVisible;
+  const homeCoursesSheetOpen = useMemo(() => {
+    if (Boolean(selectedPlace)) return false;
+    if (homeCourseFollowMinimized) {
+      return (
+        (homeCoursesPanelOpen || homeCoursesBrowseActive) &&
+        !mutualSearchPanelOpen &&
+        !isCourseMode &&
+        homeCoursesSheetChromeOk
+      );
+    }
+    return (
+      (homeCoursesBrowseActive && !mutualSearchPanelOpen && !isCourseMode) ||
+      (homeCoursesSheetChromeOk &&
+        (homeCoursesPanelOpen ||
+          homeCoursesStampSheetActive ||
+          homeCoursesBrowseActive))
+    );
+  }, [
+    homeCourseFollowMinimized,
+    homeCoursesBrowseActive,
+    mutualSearchPanelOpen,
+    isCourseMode,
+    homeCoursesSheetChromeOk,
+    homeCoursesPanelOpen,
+    homeCoursesStampSheetActive,
+    homeCourseStampRailOpen,
+    homeFollowCourseId,
+    homeCourseStampBackedToRail,
+    homeCoursesPanelOpen,
+    selectedPlace,
+  ]);
+  const hideHomeMapChromeForCourses = homeCoursesSheetOpen;
+  /** 코스 시트 중간·최소 — 핫 스트립 등 홈 하단 시트 겹침 제거 */
+  const hideHomeMapChromeForDockedCourseSheet =
+    homeCoursesSheetOpen && homeCoursesSheetSnap !== "expanded";
+  const homeCoursesEntryChipOpen =
+    homeCoursesPanelOpen &&
+    homeCoursesSheetOpen &&
+    !homeCoursesStampSheetActive;
+  const homeCoursesEntryVisible =
+    homeCoursesSheetChromeOk &&
+    (!homeCoursesSheetOpen || homeCoursesStampSheetActive) &&
+    (!homeCoursesSheetOpen || homeCoursesSheetSnap === "expanded");
+
+  const showHomeCourseStampResume = useMemo(() => {
+    if (!homeCourseFollowMinimized) return false;
+    const canResume = Boolean(
+      homeFollowCourseId || homeCourseStampDock?.courseId
+    );
+    if (!canResume) return false;
+    if (isCourseMode) return false;
+    if (mutualSearchPanelOpen) return false;
+    return true;
+  }, [
+    homeFollowCourseId,
+    homeCourseStampDock?.courseId,
+    homeCourseFollowMinimized,
+    isCourseMode,
+    mutualSearchPanelOpen,
+  ]);
+
+  const homeCoursesRailVisible =
+    homeCoursesSheetOpen &&
+    !homeCoursesStampSheetActive &&
+    !homeCoursesBrowseActive;
+
+  const handleHomeMapBackgroundClick = useCallback(() => {
+    setMarkerGuideMapCloseTick((t) => t + 1);
+    if (homeCoursesSheetOpen) {
+      dismissHomeCoursesDiscovery();
+    }
+  }, [homeCoursesSheetOpen, dismissHomeCoursesDiscovery]);
+
+  /** 일반 검색 마커 setBounds — 헤더·하단 검색바에 가리지 않게 */
+  const mapSearchPlacesFitPadding = useMemo(() => {
+    if (isCourseMode || !String(query || "").trim()) return null;
+    return {
+      top: 88,
+      right: 18,
+      bottom: searchMapBottomChromePx(),
+      left: 18,
+    };
+  }, [isCourseMode, query]);
 
   /** 코스 카드 가로 스와이프 — 스크롤이 멈춘 뒤에만 선택·지도 반영 (스크롤 중 휙휙 변경 방지) */
   const courseSwipeRowRef = useRef(null);
+  /** 직행↔쩜오 등 재로딩 직전 `scrollLeft` — 갱신 후 자동 센터링 대신 복원 */
+  const courseSwipePreserveScrollLeftRef = useRef(null);
   const courseSwipeSettleTimerRef = useRef(null);
   const courseMergedHeaderRef = useRef(null);
   const coursePullStripRef = useRef(null);
@@ -2345,37 +3078,6 @@ export default function Home() {
     }, 220);
   }, [settleCourseFromSwipe]);
 
-  const handleSaveMyOwnCourse = useCallback(
-    async (course, e) => {
-      e?.stopPropagation?.();
-      if (!user?.id) {
-        showToast("코스 저장은 로그인 후 이용할 수 있어요.", "error", 2800);
-        return;
-      }
-      const snap = snapshotFromMyOwnCourse(course);
-      if (!snap.pairKey) {
-        showToast("저장할 장소 정보가 부족해요.", "error", 2500);
-        return;
-      }
-      const r = await insertSavedMyCourse(supabase, user.id, snap);
-      if (r.ok) {
-        showToast("코스를 저장했어요.", "success", 2600);
-        setSavedMyCoursesTick((x) => x + 1);
-      } else if (r.reason === "exists") {
-        showToast("이미 저장된 조합이에요.", "info", 2400);
-      } else if (r.reason === "auth") {
-        showToast("로그인이 필요해요.", "error", 2500);
-      } else {
-        showToast(
-          r.message ? `저장 실패: ${r.message}` : "저장하지 못했어요.",
-          "error",
-          3200
-        );
-      }
-    },
-    [user?.id, showToast]
-  );
-
   /** 1차·2차 장소가 모두 잡힌 선택 코스 */
   const courseHasFinalTwoSteps = useMemo(() => {
     const steps = selectedCourse?.steps;
@@ -2383,18 +3085,30 @@ export default function Home() {
     return Boolean(steps[0]?.place && steps[1]?.place);
   }, [selectedCourse]);
 
-  /**
-   * 검색 문장은 두고 코스만 비움. 먼저 초기화 확인 후, 저장 여부를 묻고(로그인 시 저장 시도) 리셋.
-   */
+  /** 경로 × — 도보 루트·1·2차 마커·펄스 등 지도 코스 UI 전부 내림 */
   const dismissCourseMapPath = useCallback(() => {
+    clearCourseSecondPickPulse();
+    if (!isCourseMode && homeRailCourseDrive) {
+      void dismissHomeRailCourseMap();
+      return;
+    }
     const k = String(courseDrivingMap?.key ?? "");
     if (k) coursePathDismissedForCourseKeyRef.current = k;
     setCourseMapOverlay(null);
-    /** 경로 × — 2차 후보 펄스·후보 마커도 같이 종료 */
-    clearCourseSecondPickPulse();
-  }, [courseDrivingMap?.key, clearCourseSecondPickPulse]);
+    setCourseWalkStrollHint("");
+    if (isCourseMode) {
+      setKakaoPlaces([]);
+    }
+  }, [
+    courseDrivingMap?.key,
+    clearCourseSecondPickPulse,
+    dismissHomeRailCourseMap,
+    homeRailCourseDrive,
+    isCourseMode,
+    setKakaoPlaces,
+  ]);
 
-  const handleResetCoursePickWithSavePrompt = useCallback(async () => {
+  const handleResetCoursePickWithSavePrompt = useCallback(() => {
     const course = selectedCourse;
     if (!course?.steps?.[0]?.place || !course?.steps?.[1]?.place) return;
 
@@ -2403,29 +3117,11 @@ export default function Home() {
     );
     if (!okClear) return;
 
-    const wantSave = window.confirm(
-      "이 코스 조합을 내 코스에 저장할까요?\n\n「확인」저장한 뒤 비우기\n「취소」저장 없이 비우기"
-    );
-    if (wantSave) {
-      if (!user?.id) {
-        showToast("코스 저장은 로그인 후에 할 수 있어요.", "info", 2800);
-      } else {
-        await handleSaveMyOwnCourse(course, null);
-      }
-    }
-
     clearCourseSecondPickPulse();
     resetCourseSearch();
     setSelectedPlace(null);
     setAiSheetOpen(false);
-  }, [
-    selectedCourse,
-    user?.id,
-    handleSaveMyOwnCourse,
-    showToast,
-    clearCourseSecondPickPulse,
-    resetCourseSearch,
-  ]);
+  }, [selectedCourse, clearCourseSecondPickPulse, resetCourseSearch]);
 
   useEffect(() => {
     if (!isCourseMode || !aiSheetOpen || courseOptions.length < 2) {
@@ -2526,16 +3222,25 @@ export default function Home() {
   );
 
   useLayoutEffect(() => {
-    if (
-      !isCourseMode ||
-      !aiSheetOpen ||
-      !courseOptions?.length ||
-      !selectedCourse
-    ) {
+    if (!isCourseMode || !aiSheetOpen) {
       return;
     }
     const el = courseSwipeRowRef.current;
     if (!el) return;
+    const preserved = courseSwipePreserveScrollLeftRef.current;
+    if (preserved != null && Number.isFinite(preserved)) {
+      if (!courseOptions?.length || !selectedCourse) {
+        courseSwipePreserveScrollLeftRef.current = null;
+        return;
+      }
+      courseSwipePreserveScrollLeftRef.current = null;
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      el.scrollLeft = Math.max(0, Math.min(Math.round(preserved), maxScroll));
+      return;
+    }
+    if (!courseOptions?.length || !selectedCourse) {
+      return;
+    }
     const idx = courseOptions.findIndex((c) => c.key === selectedCourse.key);
     if (idx < 0) return;
     const child = el.children[idx];
@@ -2545,17 +3250,21 @@ export default function Home() {
     const pad = 12;
     const needs = cr.left < host.left + pad || cr.right > host.right - pad;
     if (needs) {
-      child.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
+      const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      const targetLeft = Math.round(
+        child.offsetLeft - (el.clientWidth - child.offsetWidth) / 2
+      );
+      el.scrollLeft = Math.max(0, Math.min(targetLeft, maxScroll));
     }
+    /** key 변화에만 반응 — selectedCourse 객체 reference 갱신만으로 스크롤 재정렬 트리거 X */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCourseMode, aiSheetOpen, selectedCourse?.key, courseOptions]);
 
   useEffect(() => {
     let cancelled = false;
-    const myKey = String(courseDrivingMap?.key ?? "");
+    const reqId = ++courseWalkingOverlayReqIdRef.current;
+    setCourseWalkStrollHint("");
+    const myKey = String(mapOverlayCourseDrive?.key ?? "");
     const dismissed = coursePathDismissedForCourseKeyRef.current;
     if (dismissed != null && dismissed !== myKey) {
       coursePathDismissedForCourseKeyRef.current = null;
@@ -2570,80 +3279,177 @@ export default function Home() {
       };
     }
 
-    const base = buildCourseMapData(courseDrivingMap);
+    const base = buildCourseMapData(mapOverlayCourseDrive);
     if (!base?.polylinePath?.length) {
       setCourseMapOverlay(null);
       return undefined;
     }
-    const a = base.polylinePath[0];
-    const b = base.polylinePath[base.polylinePath.length - 1];
+
+    const waypoints = courseDriveWaypoints(mapOverlayCourseDrive);
+    const stepLabels = stepLabelsFromCourseDrive(mapOverlayCourseDrive);
+    const straightM = getCourseLegMeters(mapOverlayCourseDrive);
+    const overlayCourseId = String(mapOverlayCourseDrive?.courseId || "").trim();
+    const followId = String(homeFollowCourseId || "").trim();
+    const stampedIdsForRoute =
+      overlayCourseId &&
+      (overlayCourseId === homeRailActiveCourseId ||
+        (followId && overlayCourseId === followId))
+        ? homeRailStampPlaceIdsRef.current
+        : new Set();
+    const stampKeyPart = [...stampedIdsForRoute].sort().join("|");
+
+    const applyCourseMapOverlay = (polylinePath, legLabelEntries, keySuffix, strollHint) => {
+      if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
+      if (skipDismissed()) return;
+      setCourseWalkStrollHint(strollHint || "");
+      setCourseMapOverlay({
+        polylinePath,
+        legLabels: legLabelEntries,
+        key: `${myKey}-${keySuffix}-st${stampKeyPart || "0"}`,
+      });
+    };
+
+    const applyFilteredOverlay = (
+      rawPath,
+      legLabelEntries,
+      keySuffix,
+      strollHint,
+      routeForFilter = null
+    ) => {
+      const { path, legLabels } = filterCourseRouteOverlayForStamps(
+        mapOverlayCourseDrive,
+        {
+          path: rawPath,
+          legLabels: legLabelEntries,
+          route: routeForFilter,
+          waypoints,
+          stepLabels,
+        },
+        stampedIdsForRoute
+      );
+      if (!path || path.length < 2) {
+        const remaining = remainingCourseLegIndices(
+          mapOverlayCourseDrive,
+          stampedIdsForRoute
+        );
+        const allStamped =
+          remaining.length === 0 && stampedIdsForRoute.size > 0;
+        if (allStamped) {
+          if (
+            !cancelled &&
+            reqId === courseWalkingOverlayReqIdRef.current &&
+            !skipDismissed()
+          ) {
+            setCourseMapOverlay(null);
+            setCourseWalkStrollHint("");
+          }
+          return;
+        }
+        const fallbackPath = base?.polylinePath;
+        const fallbackLabels = buildStraightCourseLegLabels(
+          waypoints,
+          stepLabels
+        );
+        if (
+          Array.isArray(fallbackPath) &&
+          fallbackPath.length >= 2 &&
+          !cancelled &&
+          reqId === courseWalkingOverlayReqIdRef.current &&
+          !skipDismissed()
+        ) {
+          applyCourseMapOverlay(
+            fallbackPath,
+            fallbackLabels,
+            `${keySuffix}-fallback`,
+            strollHint
+          );
+        } else if (
+          !cancelled &&
+          reqId === courseWalkingOverlayReqIdRef.current &&
+          !skipDismissed()
+        ) {
+          setCourseMapOverlay(null);
+          setCourseWalkStrollHint("");
+        }
+        return;
+      }
+      applyCourseMapOverlay(path, legLabels, keySuffix, strollHint);
+    };
 
     if (!skipDismissed()) {
-      setCourseMapOverlay({
-        polylinePath: base.polylinePath,
-        legLabel: base.legLabel,
-        labelPosition: base.labelPosition,
-        key: `${myKey}-straight`,
-      });
+      applyFilteredOverlay(
+        base.polylinePath,
+        buildStraightCourseLegLabels(waypoints, stepLabels),
+        "straight",
+        "",
+        null
+      );
     }
 
-    fetchCourseWalkingRoute(a.lat, a.lng, b.lat, b.lng).then((route) => {
-      if (cancelled) return;
+    const fallbackStraight = () => {
       if (skipDismissed()) return;
-      const straightM = getCourseLegMeters(courseDrivingMap);
-      const fallbackStraight = () => {
-        if (skipDismissed()) return;
-        setCourseMapOverlay({
-          polylinePath: base.polylinePath,
-          legLabel: base.legLabel,
-          labelPosition: base.labelPosition,
-          key: `${myKey}-straight`,
-        });
-      };
+      applyFilteredOverlay(
+        base.polylinePath,
+        buildStraightCourseLegLabels(waypoints, stepLabels),
+        "straight",
+        "",
+        null
+      );
+    };
 
+    const applyWalkingRouteToOverlay = (route) => {
+      if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
+      if (skipDismissed()) return;
       if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
-        const mid = route.path[Math.floor(route.path.length / 2)];
-        const lp = {
-          lat: Number(mid.lat),
-          lng: Number(mid.lng),
-        };
-        const reasonable = isWalkingRouteReasonable({
+        const walkMin = walkingRouteDisplayMinutes(dm, ds);
+        const strollHint = getCourseLongWalkStrollHint({
           routedMeters: dm,
           straightMeters: straightM,
-          durationSeconds: ds,
+          walkDisplayMinutes: walkMin,
         });
-        let legLabel;
-        if (reasonable && dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `길 따라 ${distStr} · 도보 약 ${walkMin}분`;
-        } else if (dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `보행 경로 ${distStr} · 도보 약 ${walkMin}분`;
-        } else {
-          legLabel = base.legLabel;
-        }
-        if (skipDismissed()) return;
-        setCourseMapOverlay({
-          polylinePath: route.path,
-          legLabel,
-          labelPosition: lp,
-          key: `${myKey}-routed`,
-        });
+        const legLabelEntries = buildRoutedCourseLegLabels(
+          route,
+          waypoints,
+          stepLabels
+        );
+        applyFilteredOverlay(
+          route.path,
+          legLabelEntries,
+          "routed",
+          strollHint,
+          route
+        );
       } else {
         fallbackStraight();
       }
-    });
+    };
+
+    if (waypoints.length >= 2) {
+      const cached = homeCourseWalkingRouteCacheRef.current;
+      if (cached?.key === myKey && cached.route) {
+        applyWalkingRouteToOverlay(cached.route);
+      } else {
+        fetchChainedCourseWalkingRoutes(waypoints).then((route) => {
+          if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
+          if (skipDismissed()) return;
+          homeCourseWalkingRouteCacheRef.current = { key: myKey, route };
+          applyWalkingRouteToOverlay(route);
+        });
+      }
+    }
 
     return () => {
       cancelled = true;
     };
-  }, [courseDrivingMap]);
+  }, [
+    mapOverlayCourseDrive,
+    homeCourseStampStateVersion,
+    homeRailActiveCourseId,
+    homeFollowCourseId,
+    homeRailCourseDrive?.key,
+  ]);
 
   const previewPlaceRouteKey = useMemo(() => {
     if (!selectedPlace) return "";
@@ -2694,15 +3500,11 @@ export default function Home() {
           ? `약 ${(straightM / 1000).toFixed(1)}km`
           : `약 ${Math.round(straightM)}m`;
       const walkStraightMin = Math.max(1, Math.round(straightM / 70));
-      const mid = {
-        lat: (a.lat + b.lat) / 2,
-        lng: (a.lng + b.lng) / 2,
-      };
       const reqId = ++arrivalWalkReqIdRef.current;
       setArrivalWalkingOverlay({
         polylinePath: straightPath,
         legLabel: `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`,
-        labelPosition: mid,
+        labelPosition: courseRouteLabelPosition(straightPath, straightPath),
         key: `${reqId}-straight`,
       });
 
@@ -2714,7 +3516,7 @@ export default function Home() {
           setArrivalWalkingOverlay({
             polylinePath: straightPath,
             legLabel: `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`,
-            labelPosition: mid,
+            labelPosition: courseRouteLabelPosition(straightPath, straightPath),
             key: `${reqId}-straight`,
           });
         };
@@ -2725,29 +3527,18 @@ export default function Home() {
         }
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
-        const routeMid = route.path[Math.floor(route.path.length / 2)];
-        const lp = {
-          lat: Number(routeMid.lat),
-          lng: Number(routeMid.lng),
-        };
-        const reasonable = isWalkingRouteReasonable({
-          routedMeters: dm,
-          straightMeters: straightM,
-          durationSeconds: ds,
-        });
+        const lp = courseRouteLabelPosition(straightPath, route.path);
+        const walkMin = walkingRouteDisplayMinutes(
+          dm > 0 ? dm : straightM,
+          ds
+        );
         let legLabel;
-        if (reasonable && dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
+        if (dm > 0) {
           const distStr2 =
             dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
           legLabel = `내 위치 → 도착 · 길 따라 ${distStr2} · 도보 약 ${walkMin}분`;
-        } else if (dm > 0) {
-          const walkMin = walkingRouteDisplayMinutes(dm, ds);
-          const distStr2 =
-            dm >= 1000 ? `약 ${(dm / 1000).toFixed(1)}km` : `약 ${Math.round(dm)}m`;
-          legLabel = `내 위치 → 도착 · 보행 ${distStr2} · 도보 약 ${walkMin}분`;
         } else {
-          legLabel = `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkStraightMin}분`;
+          legLabel = `내 위치 → 도착 · 직선 ${distStr} · 도보 약 ${walkMin}분`;
         }
         if (reqId !== arrivalWalkReqIdRef.current) return;
         setArrivalWalkingOverlay({
@@ -2776,25 +3567,85 @@ export default function Home() {
       driveKey &&
       coursePathDismissedForCourseKeyRef.current === driveKey
     ) {
-      const pickDismissed = courseDrivingMap ?? courseOptions[0];
-      if (pickDismissed?.steps?.some((s) => s?.place)) {
-        setKakaoPlaces(courseOptionsToMapPlaces([pickDismissed]));
-      } else {
-        setKakaoPlaces([]);
-      }
+      setKakaoPlaces([]);
       return;
     }
     const pick = courseDrivingMap ?? courseOptions[0];
     if (!pick?.steps?.length) return;
 
     setKakaoPlaces(courseOptionsToMapPlaces([pick]));
+    /** setKakaoPlaces는 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCourseMode, courseDrivingMap, courseOptions, courseSecondPulseMapPlaces]);
 
   // 현재 위치 상태
   const [currentLocation, setCurrentLocation] = useState(null);
+
+  const overlayKakaoSuggest = useKakaoPlaceSuggest({
+    query,
+    enabled: homeSearchMode.isOpen,
+    userLocation: currentLocation,
+    mapRef,
+  });
+
+  useEffect(() => {
+    if (!homeSearchMode.isOpen) return;
+    if (!String(query || "").trim() || !overlayKakaoSuggest.hasResults) {
+      setKakaoTypingPreviewPlaces([]);
+      return;
+    }
+    setKakaoTypingPreviewPlaces(
+      formatKakaoKeywordHitsForMap(overlayKakaoSuggest.results)
+    );
+  }, [
+    homeSearchMode.isOpen,
+    query,
+    overlayKakaoSuggest.hasResults,
+    overlayKakaoSuggest.results,
+  ]);
+
   const [mapLocationLoading, setMapLocationLoading] = useState(false);
   const [mapViewportCenterFromUser, setMapViewportCenterFromUser] =
     useState(null);
+
+  /**
+   * 로그인 전에도 첫 입장 시 1회 브라우저 위치 권한·좌표 확보(주변 검색·코스 기준점 보조).
+   * 같은 탭에서 중복 프롬프트 방지 — React Strict 이중 effect 겸용.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined" || !navigator.geolocation) return;
+    try {
+      if (window.sessionStorage.getItem("judo_entry_geo_attempted") === "1") {
+        return;
+      }
+      window.sessionStorage.setItem("judo_entry_geo_attempted", "1");
+    } catch {
+      /* 비저장 모드 등 — 아래에서 그대로 1회 시도 */
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        setCurrentLocation((prev) =>
+          prev &&
+          Number.isFinite(prev.lat) &&
+          Number.isFinite(prev.lng)
+            ? prev
+            : { lat, lng }
+        );
+      },
+      () => {
+        /* 거부·타임아웃 — 알림 없이 (로그인 전 입장 플로우) */
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 15000,
+        maximumAge: 120000,
+      }
+    );
+  }, []);
 
   const handleCourseGpsRadiusChange = useCallback(
     async (meters) => {
@@ -2810,31 +3661,154 @@ export default function Home() {
         return;
       }
       setCourseGpsRadiusM(meters);
-      setIsAiSearching(true);
-      setSearchLoadingLabel("반경 넓혀 코스 다시 짜는 중…");
+      const sheetOpenBefore = aiSheetOpen;
+      const swipeRow = courseSwipeRowRef.current;
+      courseSwipePreserveScrollLeftRef.current =
+        swipeRow && Number.isFinite(swipeRow.scrollLeft)
+          ? swipeRow.scrollLeft
+          : null;
+      /** `isAiSearching` 켜면 코스 시트가 통째로 사라져 레이아웃이 밀림 — `useCourseSearch`의 `isLoadingCourse`만 사용 */
       try {
+        clearImportRecommendationOverlay();
         const res = await runCourseSearch(q, {
           userOrigin: origin,
           maxDistanceMeters: meters,
           strictNearbyOnly: true,
+          includeHalfStep: courseIncludeHalfStep,
+          preserveSelectionFromCourse: selectedCourse,
+          keepExistingOptionsUntilLoaded: true,
         });
+        if (!res.handled) {
+          courseSwipePreserveScrollLeftRef.current = null;
+        }
         if (res.handled) {
+          if (sheetOpenBefore) setAiSheetOpen(true);
+          const n = res.options?.[0]?.steps?.length ?? 0;
           setAiSummary(
             res.options?.length
-              ? `내 위치 기준 ${Math.round(meters / 1000)}km 안에서 짠 2단계 코스예요.`
+              ? n >= 3
+                ? `내 위치 기준 ${Math.round(meters / 1000)}km 안에서 짠 3단계(쩜오차 포함) 코스예요.`
+                : `내 위치 기준 ${Math.round(meters / 1000)}km 안에서 짠 2단계 코스예요.`
               : ""
           );
         }
       } catch (e) {
-        console.warn("course radius change:", e);
-      } finally {
-        setIsAiSearching(false);
-        setSearchLoadingLabel(
-          q ? getSearchLoadingMessage(q) : "검색하는 중"
-        );
+        courseSwipePreserveScrollLeftRef.current = null;
+        devWarn("course radius change:", e);
       }
     },
-    [query, runCourseSearch, showToast]
+    [
+      query,
+      runCourseSearch,
+      showToast,
+      courseIncludeHalfStep,
+      clearImportRecommendationOverlay,
+      selectedCourse,
+      aiSheetOpen,
+    ]
+  );
+
+  const handleCourseIncludeHalfStepChange = useCallback(
+    async (next) => {
+      if (courseIncludeHalfStep === next) return;
+      const previousSelection = selectedCourse;
+      const sheetOpenBefore = aiSheetOpen;
+      setCourseIncludeHalfStep(next);
+      setCourseComposeSlotFirst(null);
+      setCourseComposeSlotBridge(null);
+      setCourseComposeSlotSecond(null);
+      const q = String(query || "").trim();
+      // 지도에서 2차를 먼저 고른 뒤(일반 검색어 상태)도 현재 코스를 기준으로 즉시 쩜오 재계산.
+      const searchQueryForRerun = isCourseQuery(q) ? q : "코스 짜기";
+      /** `isAiSearching` 켜면 코스 카드·시트가 언마운트되어 화면이 밀림 — 훅의 `isLoadingCourse`로만 대기 표시 */
+      try {
+        clearImportRecommendationOverlay();
+        const swipeRow = courseSwipeRowRef.current;
+        courseSwipePreserveScrollLeftRef.current =
+          swipeRow && Number.isFinite(swipeRow.scrollLeft)
+            ? swipeRow.scrollLeft
+            : null;
+        const base = courseLastLoadOptsRef.current || {};
+        const stepsPrev = previousSelection?.steps || [];
+        const wFirst = stepsPrev[0]?.place
+          ? resolvePlaceWgs84(stepsPrev[0].place)
+          : null;
+        const wLast =
+          stepsPrev.length > 1
+            ? resolvePlaceWgs84(
+                stepsPrev[stepsPrev.length - 1]?.place
+              )
+            : null;
+        /** 쩜오 토글만으로 `코스 짜기`를 다시 돌리면 앵커가 없어 전국 풀 → 임의 동네 코스가 됨. 현재 1·2차 좌표로 좁힘. */
+        let mergedLoad = { ...base };
+        if (wFirst) {
+          let maxM = Number(mergedLoad.maxDistanceMeters);
+          if (!Number.isFinite(maxM) || maxM <= 0) maxM = 4500;
+          if (wLast) {
+            const leg = haversineMeters(
+              wFirst.lat,
+              wFirst.lng,
+              wLast.lat,
+              wLast.lng
+            );
+            if (Number.isFinite(leg)) {
+              maxM = Math.min(12000, Math.max(maxM, Math.ceil(leg) + 2000));
+            }
+          }
+          mergedLoad = {
+            ...mergedLoad,
+            userOrigin: { lat: wFirst.lat, lng: wFirst.lng },
+            maxDistanceMeters: maxM,
+            strictNearbyOnly: true,
+          };
+        }
+        const res = await runCourseSearch(searchQueryForRerun, {
+          ...mergedLoad,
+          includeHalfStep: next,
+          preserveSelectionFromCourse: previousSelection,
+          keepExistingOptionsUntilLoaded: true,
+          halfStepEditMode: next ? "insert" : "strip",
+          halfStepBaseCourses: courseOptions,
+        });
+        if (!res.handled) {
+          courseSwipePreserveScrollLeftRef.current = null;
+        }
+        if (res.handled) {
+          if (sheetOpenBefore) setAiSheetOpen(true);
+          if (res.parsed) {
+            setCourseIncludeHalfStep(Boolean(res.parsed.includeHalfStep));
+          }
+          courseLastLoadOptsRef.current = {
+            ...mergedLoad,
+            includeHalfStep: next,
+          };
+          if (res.options?.length) {
+            showToast(
+              next
+                ? "쩜오차(달달 구간)를 넣은 코스로 다시 짰어요."
+                : "1차→2차만 있는 코스로 다시 짰어요.",
+              "success",
+              2200
+            );
+          }
+        }
+      } catch (e) {
+        courseSwipePreserveScrollLeftRef.current = null;
+        devWarn("course half-step toggle:", e);
+        setCourseIncludeHalfStep(() => !next);
+        showToast("코스를 다시 짜는 데 실패했어요. 잠시 후 다시 시도해 주세요.", "error", 2800);
+      }
+    },
+    [
+      query,
+      runCourseSearch,
+      showToast,
+      courseIncludeHalfStep,
+      clearImportRecommendationOverlay,
+      selectedCourse,
+      aiSheetOpen,
+      courseOptions,
+    ]
   );
 
   const onMapViewportChange = useCallback(
@@ -2866,13 +3840,14 @@ export default function Home() {
     }
   }, [query]);
 
+  /** 검색어 없을 때: 뷰포트·술 상황 칩 변경 시 DB 후보 재조회(칩 ON이면 bbox 패딩·limit 확대) */
   useEffect(() => {
     if (String(query || "").trim()) return;
     const b = lastMapBoundsRef.current;
     if (b?.sw && b?.ne) {
       scheduleDbPlacesForBounds(b, lastMapLevelRef.current);
     }
-  }, [query, scheduleDbPlacesForBounds]);
+  }, [query, situationFolderFilter, scheduleDbPlacesForBounds]);
 
   useEffect(() => {
     if (!dbCurators.length) return;
@@ -2882,93 +3857,47 @@ export default function Home() {
     }
   }, [dbCurators.length, query, scheduleDbPlacesForBounds]);
 
-  /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
+  /** 큐레이터 칩 on/off 시점에는 뷰포트 후보 풀을 즉시 다시 불러와 필터 0건 착시를 줄인다. */
   useEffect(() => {
-    const place = selectedPlace;
-    if (!place) return;
-
-    const seq = ++placeDetailRequestSeqRef.current;
-    let cancelled = false;
-
-    (async () => {
-      let uuid = null;
-      const idStr = place?.id != null ? String(place.id) : "";
-      if (
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          idStr
-        )
-      ) {
-        uuid = idStr;
-      } else {
-        const kid = normalizeKakaoPlaceId(place);
-        if (!kid) return;
-        uuid = await fetchPlaceUuidByKakaoPlaceId(kid);
-        if (!uuid) return;
-      }
-
-      if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
-
-      try {
-        const { place: detail, curatorPlaceRows } = await fetchPlaceDetail(uuid);
-        if (cancelled || seq !== placeDetailRequestSeqRef.current) return;
-
-        const joinRows = (curatorPlaceRows || []).map((cp) => ({
-          ...cp,
-          places: { ...detail },
-        }));
-        const attached = attachCuratorsToCuratorPlaceRows(
-          joinRows,
-          curatorAttachRowsRef.current
-        );
-        const formatted = buildFormattedPlacesFromJoin(attached);
-        const enriched = formatted[0] ?? null;
-
-        setSelectedPlace((prev) => {
-          if (!prev) return prev;
-          if (cancelled || seq !== placeDetailRequestSeqRef.current) return prev;
-
-          const prevUuid =
-            prev?.id != null &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              String(prev.id)
-            )
-              ? String(prev.id)
-              : null;
-          const prevKid = normalizeKakaoPlaceId(prev);
-          const detailKid = normalizeKakaoPlaceId(detail);
-
-          const sameVenue =
-            (prevUuid && prevUuid === uuid) ||
-            (prevKid && detailKid && prevKid === detailKid);
-          if (!sameVenue) return prev;
-
-          return mergeDbPlaceDetailForPreview(prev, detail, enriched);
+    if (String(query || "").trim()) return;
+    const b = lastMapBoundsRef.current;
+    if (b?.sw && b?.ne) {
+      const hasCuratorChipFilter =
+        Array.isArray(selectedCurators) && selectedCurators.length > 0;
+      if (hasCuratorChipFilter) {
+        /** 칩 클릭 직후는 디바운스 우회해서 즉시 1회 로드(체감 지연 완화) */
+        void loadDbPlacesForViewport({
+          boundsRaw: b,
+          mapLevel: lastMapLevelRef.current,
         });
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("fetchPlaceDetail:", e?.message ?? e);
-        }
+      } else {
+        scheduleDbPlacesForBounds(b, lastMapLevelRef.current);
       }
-    })();
+    }
+  }, [
+    selectedCurators,
+    showSavedOnly,
+    query,
+    scheduleDbPlacesForBounds,
+    loadDbPlacesForViewport,
+  ]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPlace?.id, selectedPlace?.place_id, selectedPlace?.kakao_place_id]);
+  /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
+  usePlaceDetailEnrichment(selectedPlace, setSelectedPlace, curatorAttachRowsRef);
 
   const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
   const rankingTop5 = useMemo(
     () => (Array.isArray(checkinRanking) ? checkinRanking.slice(0, 5) : []),
     [checkinRanking]
   );
-
   const [risingCurators, setRisingCurators] = useState([]);
+
   const loadRisingCurators = useCallback(async () => {
     const { data, error } = await supabase.rpc("home_rising_curators", {
       p_limit: 8,
     });
     if (error) {
-      console.warn("home_rising_curators:", error.message);
+      devWarn("home_rising_curators:", error.message);
       setRisingCurators([]);
       return;
     }
@@ -2979,14 +3908,38 @@ export default function Home() {
     void loadRisingCurators();
   }, [loadRisingCurators, checkinRanking]);
 
-  const handleRisingCuratorPick = useCallback((row) => {
-    const u = String(row?.username ?? "").trim();
-    if (!u) return;
-    setShowSavedOnly(false);
-    setLegendCategory(null);
-    setShowAll(false);
-    setSelectedCurators([canonicalCuratorChipToken(u, dbCurators)]);
-  }, [dbCurators]);
+  const handleRisingCuratorPick = useCallback(
+    (row) => {
+      const candidates = [
+        row?.curator_id,
+        row?.user_id,
+        row?.slug,
+        row?.username,
+        row?.display_name,
+        row?.name,
+      ]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean);
+      if (candidates.length === 0) return;
+      let selectedToken = "";
+      for (const c of candidates) {
+        const normalized = canonicalCuratorChipToken(c, dbCurators);
+        if (normalized) {
+          selectedToken = normalized;
+          break;
+        }
+      }
+      if (!selectedToken) {
+        /** dbCurators 매칭 실패 시에도 RPC가 준 auth uid(curator_id)로 직접 필터 시도 */
+        selectedToken = candidates[0];
+      }
+      setShowSavedOnly(false);
+      setLegendCategory(null);
+      setShowAll(false);
+      setSelectedCurators([selectedToken]);
+    },
+    [dbCurators]
+  );
 
   const hotRankTopPlaceIds = useMemo(
     () => new Set(rankingTop5.map((r) => String(r.place_id))),
@@ -3028,7 +3981,7 @@ export default function Home() {
   );
 
   const setSelectedPlaceWithAnalytics = useCallback(
-    (place, clickSource = "map_click") => {
+    (place, clickSource = "map_click", clickMeta = null) => {
       if (
         place &&
         !place.courseSecondCandidatePick &&
@@ -3092,6 +4045,30 @@ export default function Home() {
           curatorId = cp.curator_id ?? cp.curatorId ?? null;
         }
         if (sid && placeId != null && String(placeId) !== "") {
+          const cr = clickMeta?.clickedRank;
+          let visible = clickMeta?.userVisibleCandidateCount;
+          /* 실보이 수 미전달 시에만: 파이프라인 화면 슬롯 수로 대리(의미는 userVisible ≠ pipeline — 집계 시 라벨 구분) */
+          if (
+            !(Number.isFinite(visible) && visible >= 0) &&
+            sid &&
+            lastSearchSubmitTelemetryRef.current &&
+            String(lastSearchSubmitTelemetryRef.current.sessionId) ===
+              String(sid)
+          ) {
+            const u =
+              lastSearchSubmitTelemetryRef.current.pipelineScreenRowCount;
+            if (typeof u === "number" && u >= 0) visible = u;
+          }
+          const clickPath = deriveSearchClickPath(
+            clickSource,
+            sid,
+            lastSearchSubmitTelemetryRef.current
+          );
+          const fbCtx = searchFeedbackContextRef.current;
+          const normalizedForClickLog =
+            (fbCtx?.normalizedQuery && String(fbCtx.normalizedQuery).trim()) ||
+            normalizeQueryForFeedback(lastSearchSubmitQueryRef.current || "") ||
+            null;
           insertPlaceClickLog({
             sessionId: sid,
             clickedPlaceId: placeId,
@@ -3099,6 +4076,16 @@ export default function Home() {
             placeName,
             source: clickSource,
             user,
+            searchLogId: lastSearchLogIdRef.current,
+            userQueryForLog: lastSearchSubmitQueryRef.current || null,
+            normalizedQueryForLog: normalizedForClickLog,
+            searchFeedbackRpcArea: fbCtx?.area ?? null,
+            searchFeedbackRpcIntentTags: fbCtx?.intentTags ?? null,
+            searchClickPath: clickPath,
+            ...(Number.isFinite(cr) && cr > 0 ? { clickedRank: Math.round(cr) } : {}),
+            ...(Number.isFinite(visible) && visible >= 0
+              ? { userVisibleCandidateCount: Math.round(visible) }
+              : {}),
           });
         }
       }
@@ -3274,14 +4261,6 @@ export default function Home() {
     [setSelectedPlaceWithAnalytics, courseSecondPickMode]
   );
 
-  const livePlaceIdsText = useMemo(() => {
-    try {
-      return Array.from(livePlaceIds || []).join(", ");
-    } catch {
-      return "";
-    }
-  }, [livePlaceIds]);
-
   useEffect(() => {
     let mounted = true;
     let cleanup = null;
@@ -3371,319 +4350,9 @@ export default function Home() {
       setSearchExpandUX(null);
       setSearchDistanceOrigin(null);
     }
+    /** setSearchExpandUX/setSearchDistanceOrigin은 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
-
-  useEffect(() => {
-    refreshStorage();
-    refreshCustomPlaces();
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => refreshStorage();
-    window.addEventListener("judo_storage_updated", refresh);
-    return () => window.removeEventListener("judo_storage_updated", refresh);
-  }, []);
-
-  useEffect(() => {
-    if (!isAiSearching) {
-      setLoadingDots(".");
-      return;
-    }
-
-    const frames = [".", "..", "..."];
-    let index = 0;
-
-    const timer = setInterval(() => {
-      index = (index + 1) % frames.length;
-      setLoadingDots(frames[index]);
-    }, 350);
-
-    return () => clearInterval(timer);
-  }, [isAiSearching]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const checkAdmin = async () => {
-      if (authLoading) return;
-      if (!user?.id) {
-        setIsAdmin(false);
-        return;
-      }
-
-      // 개발 환경에서는 VITE_ADMIN_USER_ID로 바로 admin 인식
-      if (import.meta.env.DEV && import.meta.env.VITE_ADMIN_USER_ID === user.id) {
-        console.log("🔧 개발 환경: Admin 계정 자동 인식");
-        setIsAdmin(true);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (error) {
-        console.error("admin check error:", error);
-        setIsAdmin(false);
-        return;
-      }
-
-      setIsAdmin(data?.role === "admin");
-      console.log("👑 Admin check 결과:", { userId: user.id, isAdmin: data?.role === "admin" });
-    };
-
-    const checkCurator = async () => {
-      if (authLoading) return;
-      if (!user?.id) {
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      console.log("Checking curator for user ID:", user.id); // 디버깅용
-
-      const { data, error } = await supabase
-        .from("curators")
-        .select("*") // 모든 필드 가져오기
-        .eq("user_id", user.id) // user_id로 조회
-        .maybeSingle();
-
-      console.log("Curator check result:", { data, error }); // 디버깅용
-
-      if (cancelled) return;
-      if (error) {
-        console.error("curator check error:", error);
-        setIsCurator(false);
-        setCuratorProfile(null);
-        return;
-      }
-
-      const isUserCurator = !!data;
-      const wasCuratorBefore = curatorWelcomeRef.current;
-
-      setIsCurator(isUserCurator);
-      curatorWelcomeRef.current = isUserCurator;
-
-      if (isUserCurator && !wasCuratorBefore) {
-        console.log("🎉 새로운 큐레이터 환영 메시지 표시");
-
-        const welcomeKey = `curator_welcome_${user.id}`;
-        const hasShownWelcome = localStorage.getItem(welcomeKey);
-
-        if (!hasShownWelcome) {
-          setTimeout(() => {
-            const emailPrefix = user?.email ? user.email.split('@')[0] : 'user';
-            alert(`🎉 큐레이터가 되신 것을 환영합니다!\n\n이제 스튜디오에서 장소를 등록하고\n팔로워들과 멋진 장소를 공유할 수 있어요!\n\n스튜디오 입장 → @${emailPrefix} 버튼을 눌러서 입장하세요!`);
-            localStorage.setItem(welcomeKey, 'shown');
-          }, 1000);
-        }
-
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: data.username,
-          displayName: data.display_name,
-          bio: data.bio,
-          image: data.image
-        });
-        console.log("✅ 큐레이터 프로필 로드됨:", data.username);
-
-        // 큐레이터 로그인 시 팔로우 알림 확인
-        setTimeout(() => {
-          checkUnreadFollowers(data.id);
-        }, 1500);
-      } else if (isUserCurator) {
-        // 기존 큐레이터도 팔로우 알림 확인
-        setCuratorProfile({
-          id: data.id,
-          user_id: data.user_id,
-          username: data.username,
-          displayName: data.display_name,
-          bio: data.bio,
-          image: data.image
-        });
-
-        setTimeout(() => {
-          checkUnreadFollowers(data.id);
-        }, 1500);
-      }
-
-      // 반려된 신청 확인 로직 (Strict Mode 이중 effect·병렬 checkCurator 대비)
-      const checkRejectedApplication = async () => {
-        try {
-          const { data: rejectedRows, error } = await supabase
-            .from("curator_applications")
-            .select("*")
-            .eq("user_id", user.id)
-            .eq("status", "rejected")
-            .order("created_at", { ascending: false })
-            .limit(1);
-          const rejectedApp = Array.isArray(rejectedRows) ? rejectedRows[0] : null;
-
-          if (cancelled) return;
-
-          if (error) {
-            console.error("반려 신청 확인 오류:", error);
-            return;
-          }
-
-          if (rejectedApp) {
-            const rejectKey = `curator_rejected_${user.id}_${rejectedApp.id}`;
-            if (localStorage.getItem(rejectKey)) return;
-
-            // setTimeout 전에 예약: 동시에 두 번 돌아온 호출이 둘 다 alert를 잡지 않도록
-            localStorage.setItem(rejectKey, "shown");
-
-            setTimeout(() => {
-              if (cancelled) return;
-              const customReason =
-                rejectedApp.rejection_reason &&
-                String(rejectedApp.rejection_reason).trim();
-              const reasonLine = customReason
-                ? customReason
-                : "검토 결과 큐레이터 신청 기준에 맞지 않아 반려되었습니다.";
-              alert(
-                `😔 큐레이터 신청이 반려되었습니다.\n\n신청자: ${rejectedApp.name}\n반려 사유: ${reasonLine}\n\n내용을 보완한 뒤 다시 신청하실 수 있습니다.`
-              );
-            }, 1500);
-          }
-        } catch (error) {
-          console.error("반려 확인 중 오류:", error);
-        }
-      };
-
-      checkRejectedApplication();
-    };
-
-    checkAdmin();
-    checkCurator();
-    
-    // 모든 큐레이터 데이터 가져오기
-    const loadCurators = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("curators")
-          .select(
-            "id, user_id, username, slug, name, display_name, bio, image, grade"
-          )
-          .order("created_at", { ascending: false });
-          
-        if (error) {
-          console.error("큐레이터 로드 오류:", error);
-          curatorAttachRowsRef.current = [];
-          setDbCurators([]);
-          return;
-        }
-
-        curatorAttachRowsRef.current = data || [];
-
-        // CuratorFilterBar: 칩 키는 username → slug → display_name → name → id 순
-        const formattedCurators = data.map((curator) => {
-          const slug =
-            curator.slug != null ? String(curator.slug).trim() : "";
-          const u =
-            curator.username != null ? String(curator.username).trim() : "";
-          const d =
-            curator.display_name != null
-              ? String(curator.display_name).trim()
-              : "";
-          const nm =
-            curator.name != null ? String(curator.name).trim() : "";
-          const pk = curator.id != null ? String(curator.id).trim() : "";
-          const userId =
-            curator.user_id != null ? String(curator.user_id).trim() : "";
-          const filterKey = u || slug || d || nm || pk;
-          return {
-            id: pk || filterKey,
-            filterKey,
-            name: filterKey,
-            slug: slug || null,
-            username: u || slug || null,
-            userId: userId || null,
-            displayName: d || nm || u || slug || "큐레이터",
-            bio: curator.bio,
-            avatar: curator.image,
-            grade: curator.grade || "default",
-            color: "#2ECC71",
-          };
-        });
-        
-        setDbCurators(formattedCurators);
-        console.log("✅ 큐레이터 목록 로드:", formattedCurators.length, "개");
-        console.log("📝 큐레이터 데이터:", formattedCurators); 
-      } catch (error) {
-        console.error("큐레이터 로드 실패:", error);
-        curatorAttachRowsRef.current = [];
-        setDbCurators([]);
-      }
-    };
-
-    loadCurators();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, user?.id]);
-
-  // 큐레이터 프로필 로드
-  useEffect(() => {
-    if (user && isCurator) {
-      // 큐레이터 프로필 로드 (Supabase DB에서 직접)
-      const loadCuratorProfile = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('curators')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
-          
-          if (error) {
-            console.error("큐레이터 프로필 조회 실패:", error);
-            return;
-          }
-          
-          if (data) {
-            const profile = {
-              id: data.id,
-              user_id: data.user_id,
-              username: data.username,
-              displayName: data.display_name,
-              bio: data.bio,
-              image: data.avatar
-            };
-            
-            setCuratorProfile(profile);
-            console.log("🎭 큐레이터 프로필 로드:", profile);
-          }
-        } catch (error) {
-          console.error("큐레이터 프로필 로드 실패:", error);
-        }
-      };
-      
-      loadCuratorProfile();
-    }
-  }, [user, isCurator]);
-
-  const refreshMapUserProfile = useCallback(async () => {
-    if (!user?.id) {
-      setMapUserProfile(null);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("username, display_name, auth_provider, avatar_url")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (!error && data) setMapUserProfile(data);
-    else setMapUserProfile(null);
-  }, [user?.id]);
-
-  useEffect(() => {
-    refreshMapUserProfile();
-  }, [refreshMapUserProfile]);
 
   // Admin/큐레이터/일반 사용자에 따른 표시 로직
   const getDisplayUsername = () => {
@@ -3757,98 +4426,20 @@ export default function Home() {
     return "user";
   };
   useEffect(() => {
-    localStorage.removeItem("judo_custom_places");
-    setCustomPlaces([]);
+    refreshCustomPlaces();
 
     // 최초 방문 확인
     const hasVisitedBefore = localStorage.getItem("judo_has_visited");
     const isFirstVisit = !hasVisitedBefore;
     
     if (isFirstVisit) {
-      // 최초 방문이면 전체 선택
-      setShowAll(true);
-      setSelectedCurators([]);
       localStorage.setItem("judo_has_visited", "true");
-      console.log("🎯 최초 방문: 전체 선택");
-    } else {
-      // 재방문이면 전체 선택 상태로 시작
-      setShowAll(true);
-      setSelectedCurators([]);
-      console.log("🎯 재방문: 전체 선택 상태로 시작");
     }
-  }, []);
-
-  // 사용자 저장 장소 폴더 정보 로드
-  const loadUserSavedPlaces = async () => {
-    try {
-      if (!user?.id) {
-        setUserSavedPlaces({});
-        return;
-      }
-
-      // 임시: RPC 함수 없이 직접 쿼리 (getUser() 생략 — useAuth user로 락 경쟁 완화)
-      const { data, error } = await supabase
-        .from('user_saved_places')
-        .select(`
-          place_id,
-          user_saved_place_folders(
-            folder_key,
-            system_folders(
-              name,
-              color,
-              icon
-            )
-          )
-        `)
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('❌ 사용자 저장 장소 로드 실패:', error);
-        setUserSavedPlaces({});
-        return;
-      }
-
-      // place_id 기반으로 폴더 정보 맵핑
-      const folderMap = {};
-      data?.forEach(item => {
-        const folders = item.user_saved_place_folders?.map(upf => ({
-          key: upf.folder_key,
-          name: upf.system_folders?.name,
-          color: upf.system_folders?.color,
-          icon: upf.system_folders?.icon
-        })) || [];
-        folderMap[item.place_id] = folders;
-      });
-
-      setUserSavedPlaces(folderMap);
-      console.log('✅ 사용자 저장 장소 로드:', folderMap);
-    } catch (error) {
-      console.error('❌ 사용자 저장 장소 로드 중 오류:', error);
-      setUserSavedPlaces({});
-    }
-  };
-
-  // 페이지 로드 시 UI 초기화
-  useEffect(() => {
-    console.log("🔄 페이지 로드 - 데이터 초기화");
-    setSelectedCurators([]);
     setShowAll(true);
-
-    setTimeout(() => {
-      console.log("🔍 dbCurators 데이터:", dbCurators.map(c => ({ id: c.id, name: c.name })));
-    }, 1000);
+    setSelectedCurators([]);
+    /** mount-only — refreshCustomPlaces는 hook이 안정화한 reference라 deps 누락 무관 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (authLoading) return;
-    loadUserSavedPlaces();
-  }, [authLoading, user?.id]);
-
-  // 상태 변화 감지
-  useEffect(() => {
-    console.log("🔄 상태 변화:", { showAll, selectedCurators, dbCuratorsLength: dbCurators.length });
-    console.log("📋 dbCurators 상세:", dbCurators);
-  }, [showAll, selectedCurators, dbCurators]);
 
   /** 큐레이터 목록이 늦게 오면 닉네임으로만 저장된 선택을 user_id / id 로 맞춤 */
   useEffect(() => {
@@ -3865,26 +4456,10 @@ export default function Home() {
     });
   }, [dbCurators]);
 
-  const refreshStorage = () => {
-    setFolders(getFolders());
-    setSavedMap(getSavedPlacesMap());
-  };
-
-  const refreshCustomPlaces = () => {
-    // localStorage에 저장된 더미 데이터 정리
-    localStorage.removeItem("judo_custom_places");
-    setCustomPlaces([]); // 빈 배열로 설정
-  };
-
-  const allPlaces = useMemo(() => {
-  const result = [...customPlaces, ...dbPlaces];
-  console.log("📦 allPlaces 상태:", { 
-    customPlacesLength: customPlaces.length, 
-    dbPlacesLength: dbPlaces.length, 
-    totalLength: result.length 
-  });
-  return result;
-}, [customPlaces, dbPlaces]);
+  const allPlaces = useMemo(
+    () => [...customPlaces, ...dbPlaces],
+    [customPlaces, dbPlaces],
+  );
 
   const savedPlacesByFolder = useMemo(() => {
     const result = {};
@@ -3933,6 +4508,8 @@ export default function Home() {
       if (c && !folderColor) folderColor = c;
     }
     return { isSaved: isSavedFlag, folderColor };
+    /** savedMap 자체는 사용 안 하지만 isPlaceSaved가 그 storage를 참조 — 해당 변화는 refreshStorage로 별도 트리거 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlace, folders, savedMap]);
 
   const filteredByCuratorPlaces = useMemo(() => {
@@ -3957,7 +4534,7 @@ export default function Home() {
           }
           return false;
         });
-        console.log("⭐ 저장만 보기(큐레이터·내 추천·비공개 포함):", myPlaces.length);
+        devLog("⭐ 저장만 보기(큐레이터·내 추천·비공개 포함):", myPlaces.length);
         return myPlaces;
       }
 
@@ -3965,7 +4542,7 @@ export default function Home() {
       const folderSaved = dbPlaces.filter((p) =>
         placeMatchesSavedKeySet(p, savedKeySet)
       );
-      console.log("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
+      devLog("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
       return folderSaved;
     }
 
@@ -3999,9 +4576,13 @@ export default function Home() {
           const ids = collectCuratorIdsForRescueMatch(row);
           return (place.curatorPlaces || []).some((cp) => {
             const cid = String(cp.curator_id ?? "").trim().toLowerCase();
-            if (!cid) return false;
-            const cCompact = cid.replace(/-/g, "");
-            return ids.has(cid) || ids.has(cCompact);
+            if (cid) {
+              const cCompact = cid.replace(/-/g, "");
+              return ids.has(cid) || ids.has(cCompact);
+            }
+            const cpUser = String(cp.curators?.username ?? "").trim().toLowerCase();
+            const rowUser = String(row.username ?? "").trim().toLowerCase();
+            return Boolean(cpUser && rowUser && cpUser === rowUser);
           });
         })
       );
@@ -4009,6 +4590,8 @@ export default function Home() {
     }
 
     return filtered;
+    /** curatorProfile 전체 reference 변경에는 반응 X — id/user_id/username만 추적 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     showSavedOnly,
     showAll,
@@ -4019,22 +4602,114 @@ export default function Home() {
     isCurator,
     curatorProfile?.id,
     curatorProfile?.user_id,
+    curatorProfile?.username,
     savedMap,
     userSavedPlaces,
   ]);
 
   const curatorSpotlightPlaces = useMemo(() => {
-    return [...dbPlaces]
+    const salt = curatorSpotlightSaltRef.current >>> 0;
+    const fnvId = (place) => {
+      const s = String(place?.id ?? place?.place_id ?? "");
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+      }
+      return h >>> 0;
+    };
+    const ranked = [...dbPlaces]
       .filter((p) => (p.curatorCount || 0) >= 1)
-      .sort((a, b) => (b.curatorCount || 0) - (a.curatorCount || 0))
-      .slice(0, 12);
+      .sort((a, b) => {
+        const dc = (b.curatorCount || 0) - (a.curatorCount || 0);
+        if (dc !== 0) return dc;
+        const ta = (fnvId(a) ^ salt) >>> 0;
+        const tb = (fnvId(b) ^ salt) >>> 0;
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+    const pool = ranked.slice(0, 56);
+    const win = 12;
+    const n = pool.length;
+    if (n <= win) return pool;
+    const maxOff = n - win;
+    const off = (salt % (maxOff + 1)) | 0;
+    return pool.slice(off, off + win);
   }, [dbPlaces]);
 
   // 외부 데이터를 저장할 상태 추가
   const [externalPlaces, setExternalPlaces] = useState([]);
+  const [externalPlacesPool, setExternalPlacesPool] = useState([]);
+
+  const homeSearchPlaceCatalog = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const add = (p) => {
+      if (!p || typeof p !== "object") return;
+      const id = String(p.id ?? p.place_id ?? "").trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(p);
+    };
+    for (const p of allPlaces) add(p);
+    for (const p of kakaoPlaces) add(p);
+    for (const p of externalPlaces) add(p);
+    for (const p of externalPlacesPool) add(p);
+    return out;
+  }, [allPlaces, kakaoPlaces, externalPlaces, externalPlacesPool]);
+
+  /** 검색 모드 카카오 제안 — 저장(픽) 배지 (카카오 id ↔ DB uuid 연결) */
+  const homeSearchSavedBadgeIndex = useMemo(
+    () =>
+      buildHomeSearchSavedBadgeIndex(
+        savedMap,
+        userSavedPlaces,
+        folders,
+        homeSearchPlaceCatalog,
+        userSavedPlaceKakaoByUuid
+      ),
+    [
+      savedMap,
+      userSavedPlaces,
+      folders,
+      homeSearchPlaceCatalog,
+      userSavedPlaceKakaoByUuid,
+    ]
+  );
 
   const displayedPlaces = useMemo(() => {
-    if (!query.trim()) return filteredByCuratorPlaces;
+    if (!query.trim()) {
+      /** 술 칩(`omitSearchBarText`)은 query가 비지만 `externalPlacesPool`에 검색 풀이 있음 — DB 뷰포트 목록으로 덮어쓰면 안 됨 */
+      if (
+        preserveMapViewportSituationChip &&
+        Array.isArray(externalPlacesPool) &&
+        externalPlacesPool.length > 0
+      ) {
+        const out = [];
+        const seen = new Set();
+        for (const p of externalPlacesPool) {
+          const id = String(p?.id ?? "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(p);
+        }
+        return out;
+      }
+      return filteredByCuratorPlaces;
+    }
+    // 엔터 검색 결과는 풀 후보(externalPlacesPool)를 우선 유지한다.
+    // (aiRecommendedIds만 남기면 마커/바텀시트가 과도하게 줄어듦)
+    if (Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0) {
+      const out = [];
+      const seen = new Set();
+      for (const p of externalPlacesPool) {
+        const id = String(p?.id ?? "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(p);
+      }
+      return out;
+    }
     if (aiRecommendedIds.length === 0) return filteredByCuratorPlaces;
 
     const idSet = new Set(aiRecommendedIds.map(String));
@@ -4042,8 +4717,14 @@ export default function Home() {
       aiRecommendedIds.map((id, index) => [String(id), index])
     );
 
+    // 외부 풀(엔진 전체 후보) → 화면용 `externalPlaces`는 동일 id가 없을 수 있어 풀 우선
+    const kakaoExternalSource =
+      Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0
+        ? externalPlacesPool
+        : externalPlaces;
+
     // 외부 데이터에서 AI 추천 장소 찾기
-    const externalRecommendedPlaces = externalPlaces
+    const externalRecommendedPlaces = kakaoExternalSource
       .filter((place) => idSet.has(String(place.id)))
       .sort(
         (a, b) => idOrderMap.get(String(a.id)) - idOrderMap.get(String(b.id))
@@ -4059,14 +4740,14 @@ export default function Home() {
         deduped.push(p);
       }
       if (import.meta.env.DEV) {
-        console.log("🔍 displayedPlaces(추천 id만):", deduped.length, {
+        devLog("🔍 displayedPlaces(추천 id만):", deduped.length, {
           external: deduped.length,
           internal: 0,
           naver: 0,
           aiIdCount: aiRecommendedIds.length,
         });
       }
-      return deduped.slice(0, 5);
+      return deduped;
     }
 
     // 내부 데이터에서 AI 추천 장소 찾기
@@ -4097,7 +4778,7 @@ export default function Home() {
     }
 
     if (import.meta.env.DEV) {
-      console.log("🔍 displayedPlaces(추천 id만):", deduped.length, {
+      devLog("🔍 displayedPlaces(추천 id만):", deduped.length, {
         external: externalRecommendedPlaces.length,
         internal: internalRecommendedPlaces.length,
         naver: naverPlaces.length,
@@ -4105,24 +4786,263 @@ export default function Home() {
       });
     }
     return deduped;
-  }, [filteredByCuratorPlaces, aiRecommendedIds, query, externalPlaces]);
+  }, [
+    filteredByCuratorPlaces,
+    aiRecommendedIds,
+    query,
+    externalPlaces,
+    externalPlacesPool,
+    preserveMapViewportSituationChip,
+  ]);
+
+  /**
+   * 지도 마커 = `displayedPlaces`(카카오·merge). import `places[].name`은 요약/블로그 제목일 수 있어
+   * 검색으로 고른 ID가 있으면 바텀시트도 동일 소스로 맞춤. import만 쓰는 건 «추천」만 눌렀을 때 등.
+   */
+  const aiSheetUsesDisplayedPlaces =
+    String(query || "").trim().length > 0 &&
+    Array.isArray(displayedPlaces) &&
+    displayedPlaces.length > 0;
 
   const useImportRecPlacesForAiSheet =
     Boolean(curatorImportRecommendation?.ok) &&
-    Array.isArray(curatorImportRecommendation?.places) &&
-    curatorImportRecommendation.places.length > 0;
+    curatorImportPlacesOrPool.length > 0 &&
+    !aiSheetUsesDisplayedPlaces;
 
-  const aiBottomSheetPlaces = useMemo(
+  /** 맞춤 추천 시트 ↔ 검색바 한 덩어리(모서리 radius 맞춤) */
+  const recommendSheetDocked = useMemo(
     () =>
-      useImportRecPlacesForAiSheet
-        ? curatorImportRecommendation.places
-        : displayedPlaces,
+      (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
+      Boolean(String(query || "").trim()) &&
+      !simpleMapSearchMarkersOnly &&
+      !selectedPlace &&
+      !mutualSearchPanelOpen,
     [
+      aiRecommendedIds.length,
       useImportRecPlacesForAiSheet,
-      curatorImportRecommendation,
-      displayedPlaces,
-    ],
+      query,
+      simpleMapSearchMarkersOnly,
+      selectedPlace,
+      mutualSearchPanelOpen,
+    ]
   );
+
+  /** 낮 모드 상단 바(z≈24980)가 맞춤·코스 추천 시트(≈320) 위를 가리지 않게 */
+  const showJudoDayNoticeBar = useMemo(() => {
+    if (!judoMode.isDayMode) return false;
+    if (homeSearchMode.isOpen) return false;
+    if (isAiSearching) return false;
+    if (Boolean(selectedPlace)) return false;
+    const q = String(query || "").trim();
+    if (q && (aiRecommendedIds.length > 0 || recommendSheetDocked)) return false;
+    if (q && isCourseMode) return false;
+    if (useImportRecPlacesForAiSheet) return false;
+    return true;
+  }, [
+    judoMode.isDayMode,
+    homeSearchMode.isOpen,
+    isAiSearching,
+    selectedPlace,
+    query,
+    aiRecommendedIds.length,
+    recommendSheetDocked,
+    isCourseMode,
+    useImportRecPlacesForAiSheet,
+  ]);
+
+  const aiBottomSheetPlaces = useMemo(() => {
+    const importPlaces = curatorImportPlacesOrPool;
+    const looksKeywordLikeTitle = (name) => {
+      const s = String(name || "").trim().toLowerCase();
+      if (!s) return true;
+      if (s.length < 2) return true;
+      if (
+        /(맛집|추천|데이트|분위기|핫플|가볼만|소개팅|모임|검색결과|키워드)/i.test(
+          s
+        )
+      ) {
+        return true;
+      }
+      if (/역맛집/.test(s)) return true;
+      return false;
+    };
+    const hasAddressInfo = (p) =>
+      Boolean(
+        String(p?.address || p?.address_name || p?.road_address_name || "").trim()
+      );
+    const sanitizedImportName = (v) =>
+      String(v || "")
+        .replace(
+          /^(?:.*?(?:역맛집|맛집|추천|데이트|분위기)\s+)+/i,
+          ""
+        )
+        .replace(/^[-:|/·\s]+/, "")
+        .trim();
+    const pinTop3FromImport = (rows) => {
+      const base = Array.isArray(rows) ? rows : [];
+      if (!base.length || importPlaces.length === 0) return base;
+      const extraPool = Array.isArray(externalPlacesPool)
+        ? externalPlacesPool
+        : [];
+      const pool = [...base, ...extraPool];
+      const pinned = [];
+      const usedBaseIdx = new Set();
+      const usedPoolKey = new Set();
+      const placePoolKey = (p) =>
+        String(
+          p?.id ||
+            `${String(p?.name || p?.place_name || "").trim().toLowerCase()}__${String(
+              p?.address || p?.address_name || p?.road_address_name || ""
+            )
+              .trim()
+              .toLowerCase()}`
+        );
+      const orderedNames = Array.isArray(curatorImportRecommendation?.content_order_names)
+        ? curatorImportRecommendation.content_order_names
+        : [];
+      const top3 = importPlaces.slice(0, 3);
+      const top3Wanted = orderedNames.length > 0
+        ? orderedNames.slice(0, 3).map((n, i) => ({
+            id: String(top3[i]?.id || "").trim(),
+            name: String(n || "").trim(),
+            raw: top3[i] || null,
+          }))
+        : top3.map((ip) => ({
+            id: String(ip?.id || "").trim(),
+            name: String(ip?.name || ip?.place_name || "").trim(),
+            raw: ip,
+          }));
+      if (import.meta.env.DEV) {
+        devLog(
+          "[aiSheet pinTop3FromImport/wanted]",
+          top3Wanted.map((w) => ({ id: w.id, name: w.name }))
+        );
+      }
+      for (const w of top3Wanted) {
+        const iid = String(w?.id || "").trim();
+        const inameRaw = String(w?.name || "")
+          .trim()
+          .toLowerCase();
+        const iname = sanitizedImportName(inameRaw).toLowerCase();
+        if (!iname || looksKeywordLikeTitle(iname)) continue;
+        const foundIdx = pool.findIndex((p) => {
+          const pid = String(p?.id || "").trim();
+          if (iid && pid && iid === pid) return true;
+          const pname = String(p?.name || p?.place_name || "")
+            .trim()
+            .toLowerCase();
+          return (
+            Boolean(iname) &&
+            Boolean(pname) &&
+            (pname.includes(iname) || iname.includes(pname))
+          );
+        });
+        if (foundIdx >= 0) {
+          const found = pool[foundIdx];
+          const k = placePoolKey(found);
+          if (!k || usedPoolKey.has(k)) continue;
+          usedPoolKey.add(k);
+          pinned.push(found);
+          const baseIdx = base.findIndex((x) => placePoolKey(x) === k);
+          if (baseIdx >= 0) usedBaseIdx.add(baseIdx);
+        } else if (w?.raw && typeof w.raw === "object") {
+          // 미매칭 import row는 상호·주소 신뢰성이 있을 때만 상단 고정 허용
+          if (!hasAddressInfo(w.raw)) continue;
+          if (looksKeywordLikeTitle(iname)) continue;
+          const fallback = {
+            ...w.raw,
+            name: sanitizedImportName(w.name || w.raw?.name || w.raw?.place_name),
+            place_name: sanitizedImportName(
+              w.name || w.raw?.place_name || w.raw?.name
+            ),
+          };
+          const k = placePoolKey(fallback);
+          if (!k || usedPoolKey.has(k)) continue;
+          usedPoolKey.add(k);
+          pinned.push(fallback);
+        }
+      }
+      if (import.meta.env.DEV) {
+        devLog("[aiSheet pinTop3FromImport]", {
+          orderedNames: orderedNames.slice(0, 3),
+          pinnedCount: pinned.length,
+          baseCount: base.length,
+          poolCount: pool.length,
+        });
+      }
+      const rest = base.filter((_, idx) => !usedBaseIdx.has(idx));
+      const out = [];
+      const seen = new Set();
+      for (const p of [...pinned, ...rest]) {
+        const key = String(
+          p?.id ||
+            `${String(p?.name || p?.place_name || "").trim().toLowerCase()}__${String(
+              p?.address || p?.address_name || ""
+            )
+              .trim()
+              .toLowerCase()}`
+        );
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(p);
+      }
+      if (import.meta.env.DEV) {
+        devLog(
+          "[aiSheet pinTop3FromImport/pinned]",
+          pinned.map((p) => String(p?.name || p?.place_name || "").trim())
+        );
+        devLog(
+          "[aiSheet pinTop3FromImport/finalTop3]",
+          out.slice(0, 3).map((p) => String(p?.name || p?.place_name || "").trim())
+        );
+      }
+      return out;
+    };
+
+    if (
+      aiSheetUsesDisplayedPlaces &&
+      ((Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0) ||
+        (Array.isArray(displayedPlaces) && displayedPlaces.length > 0))
+    ) {
+      const sourceRows =
+        Array.isArray(externalPlacesPool) && externalPlacesPool.length > 0
+          ? externalPlacesPool
+          : displayedPlaces;
+      return pinTop3FromImport(sourceRows);
+    }
+    if (importPlaces.length > 0) {
+      return importPlaces;
+    }
+    return displayedPlaces;
+  }, [
+    aiSheetUsesDisplayedPlaces,
+    displayedPlaces,
+    curatorImportRecommendation,
+    curatorImportPlacesOrPool,
+    externalPlacesPool,
+  ]);
+
+  /** 바텀시트 한 페이지 행 수 — 엔진 후보 풀은 `externalPlacesPool`·`aiRecommendedIds`에 전부 실음 */
+  const {
+    aiSheetPage,
+    setAiSheetPage,
+    aiSheetTotalPages,
+    aiBottomSheetPagedPlaces,
+    aiSheetExpandedReasonByKey,
+    setAiSheetExpandedReasonByKey,
+    aiSheetPhotoByKey,
+    aiSheetPlacePreviewKey,
+    aiSheetPhotoViewerOpen,
+    setAiSheetPhotoViewerOpen,
+    aiSheetPhotoViewerIndex,
+    setAiSheetPhotoViewerIndex,
+    aiSheetPhotoViewerSuppressOpenUntilRef,
+    aiSheetPhotoViewerItems,
+    closeAiSheetPhotoViewer,
+  } = useAiSheetUiState({
+    aiSheetOpen: aiSheetOpen || recommendSheetDocked,
+    aiBottomSheetPlaces,
+  });
 
   /** 2차 픽 모드: 카드 열 때마다 새 배열을 만들면 MapView `places`가 매번 바뀌어 펄스 interval이 끊김 */
   const courseSecondPulsePlacesForMap = useMemo(() => {
@@ -4142,7 +5062,8 @@ export default function Home() {
         ? filterPlacesBySituationFolder(
             rows,
             situationFolderFilter,
-            userSavedPlaces
+            userSavedPlaces,
+            { varietySeed: situationFolderFilter }
           )
         : rows;
 
@@ -4166,18 +5087,55 @@ export default function Home() {
     const kPins = curatorPinsOnly ? [] : kakaoPlaces;
     const kTypingPins = curatorPinsOnly ? [] : kakaoTypingPreviewPlaces;
 
+    /**
+     * 술 상황 칩: `omitSearchBarText`로 `query`가 비어도 `aiRecommendedIds`가 채워지면
+     * 아래 「AI+기존 마커 병합」 분기로 들어가 뷰포트 DB `displayedPlaces`(~120)까지 합쳐진다.
+     * 칩 의도는 「펼친 화면 안 검색 핀만」이므로 베이스는 붙이지 않는다.
+     */
+    if (
+      preserveMapViewportSituationChip &&
+      !showSavedOnly &&
+      !isCourseMode &&
+      !curatorPinsOnly
+    ) {
+      const chipOnly = mergePlaces(kPins, kTypingPins);
+      return appendSelectedPlacePinIfMissing(
+        applySituation(
+          applyLegendCategoryFilter(
+            dedupeMapPlacesByKakaoId(chipOnly),
+            legendCategory
+          )
+        ),
+        selectedPlace
+      );
+    }
+
     // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
     if (showSavedOnly) {
       if (import.meta.env.DEV) {
-        console.log("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
+        devLog("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
       }
       // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return appendSelectedPlacePinIfMissing(
         applySituation(
           applyLegendCategoryFilter(
             dedupeMapPlacesByKakaoId(
-              mergePlaces(mergePlaces(kPins, displayedPlaces), kTypingPins)
+              mergePlaces(mergePlaces(displayedPlaces, kPins), kTypingPins)
             ),
+            legendCategory
+          )
+        ),
+        selectedPlace
+      );
+    }
+
+    /** 홈 「지금 뜨는 코스」 탭 미리보기 — 검색 코스 모드와 동일하게 코스 핀만 */
+    if (homeRailCourseDrive && !isCourseMode) {
+      const railPins = courseOptionsToMapPlaces([homeRailCourseDrive]);
+      return appendSelectedPlacePinIfMissing(
+        applySituation(
+          applyLegendCategoryFilter(
+            dedupeMapPlacesByKakaoId(railPins),
             legendCategory
           )
         ),
@@ -4232,12 +5190,32 @@ export default function Home() {
           selectedPlace
         );
       }
+      /** 검색 로딩 중·추천 id 아직 없음: 뷰포트 DB 전부 깔지 않음 → 소개팅 등에서 백반집 착시 방지 */
+      /** 확장 제안 패널(결과 부족)일 때도 동일 — 추천 0인데 베이스 120개 깔리면 혼란 */
+      if (
+        (isAiSearching && aiRecommendedIds.length === 0) ||
+        (searchExpandUX &&
+          !isAiSearching &&
+          aiRecommendedIds.length === 0 &&
+          String(query || "").trim().length > 0)
+      ) {
+        const waitMerged = mergePlaces(kPins, kTypingPins);
+        return appendSelectedPlacePinIfMissing(
+          applySituation(
+            applyLegendCategoryFilter(
+              dedupeMapPlacesByKakaoId(waitMerged),
+              legendCategory
+            )
+          ),
+          selectedPlace
+        );
+      }
       const merged = mergePlaces(
-        mergePlaces(kPins, filteredBase),
+        mergePlaces(filteredBase, kPins),
         kTypingPins
       );
       if (import.meta.env.DEV) {
-        console.log("🔍 AI+기존 마커 병합:", merged.length, {
+        devLog("🔍 AI+기존 마커 병합:", merged.length, {
           base: filteredBase.length,
           kakao: kPins.length,
         });
@@ -4263,14 +5241,14 @@ export default function Home() {
       return place.is_public !== false;
     });
     if (import.meta.env.DEV) {
-      console.log("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
+      devLog("🗺️ 일반 모드 지도 장소(필터 후):", filtered.length);
     }
 
     const result = dedupeMapPlacesByKakaoId(
-      mergePlaces(mergePlaces(kPins, filtered), kTypingPins)
-    ); // 동일 id면 kakaoPlaces·DB가 타이핑 미리보기보다 우선; 카카오 숫자 id로 이중 마커 제거
+      mergePlaces(mergePlaces(filtered, kPins), kTypingPins)
+    ); // 동일 id면 확정 검색·displayedPlaces 쪽을 먼저 두어 예전 kPins(DB 오좌표)가 덮어쓰지 않게 함
     if (import.meta.env.DEV) {
-      console.log("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
+      devLog("🗺️ mapDisplayedPlacesWithLegend 최종:", result.length);
     }
 
     return appendSelectedPlacePinIfMissing(
@@ -4294,6 +5272,85 @@ export default function Home() {
     selectedPlace,
     situationFolderFilter,
     userSavedPlaces,
+    isAiSearching,
+    searchExpandUX,
+    preserveMapViewportSituationChip,
+    homeRailCourseDrive,
+  ]);
+
+  const hotStripPlaceRows = useMemo(() => {
+    const byId = new Map();
+    const ingest = (raw, bonus = 0) => {
+      const row = toHotStripRow(raw, bonus);
+      if (!row) return;
+      const prev = byId.get(row.place_id);
+      if (!prev || Number(row._score) > Number(prev._score)) {
+        byId.set(row.place_id, row);
+      }
+    };
+
+    for (const r of rankingTop5) ingest(r, 120);
+    for (const p of curatorSpotlightPlaces || []) ingest(p, 90);
+    for (const p of mapDisplayedPlacesWithLegend.slice(0, 80)) {
+      const rawPickish =
+        Number(
+          p?.pick_weighted ?? p?.pick_w ?? p?.pick_count ?? p?.total_picks ?? 0
+        ) || 0;
+      const savedBonus = userSavedPlaces?.[p?.id] ? 45 : 0;
+      ingest(p, rawPickish * 2 + savedBonus + 15);
+    }
+
+    const pool = Array.from(byId.values()).sort((a, b) => b._score - a._score);
+    const stripScore = (item) => {
+      const rest = { ...item };
+      delete rest._score;
+      return rest;
+    };
+    if (pool.length <= 5) return pool.map(stripScore);
+
+    const topBucket = pool.slice(0, Math.min(14, pool.length));
+    const picked = shuffleArray(topBucket).slice(0, 5);
+    return picked.map(stripScore);
+  }, [
+    rankingTop5,
+    curatorSpotlightPlaces,
+    mapDisplayedPlacesWithLegend,
+    userSavedPlaces,
+  ]);
+
+  useLayoutEffect(() => {
+    const tick = mapSearchMarkerFitTick;
+    if (tick === 0) return;
+
+    const pad = mapSearchPlacesFitPadding;
+    const rows = mapDisplayedPlacesWithLegend.filter((p) => {
+      const w = resolvePlaceWgs84(p);
+      return w && isLikelyKoreaWgs84(w.lat, w.lng);
+    });
+    if (rows.length === 0) return;
+
+    if (lastHandledMapSearchFitTickRef.current >= tick) return;
+    lastHandledMapSearchFitTickRef.current = tick;
+
+    const run = () => {
+      try {
+        mapRef.current?.relayout?.();
+        mapRef.current?.fitToPlaces?.(rows, pad ?? undefined);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          devWarn("[map] fit to displayed search markers", e);
+        }
+      }
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.setTimeout(run, 48);
+      });
+    });
+  }, [
+    mapSearchMarkerFitTick,
+    mapDisplayedPlacesWithLegend,
+    mapSearchPlacesFitPadding,
   ]);
 
   const recommendHighlightedMapPlaces = useMemo(() => {
@@ -4340,24 +5397,32 @@ export default function Home() {
   // 카카오 자동완성 후보가 전국·광역으로 퍼질 수 있어 fitToPlaces(setBounds)를 쓰면
   // 타이핑만 해도 지도가 줌아웃됨. 검색어가 있을 땐 MapView `preserveViewportOnPlacesChange`로
   // 마커만 갱신하고 줌/센터는 유지.
+  // 검색 제출로 확정된 추천 마커는 `mapSearchMarkerFitTick` → 레이아웃 이후 `fitToPlaces`로 맞춤.
 
-const topReasonMap = useMemo(() => {
-  const map = {};
-  aiReasons.forEach((item) => {
-    if (item?.placeId && item?.reason) {
-      map[item.placeId] = item.reason;
-    }
-  });
-  return map;
-}, [aiReasons]);
+  const topReasonMap = useMemo(() => {
+    const map = {};
+    aiReasons.forEach((item) => {
+      if (item?.placeId && item?.reason) {
+        map[item.placeId] = item.reason;
+      }
+    });
+    return map;
+  }, [aiReasons]);
 
   const searchResultSheetExtras = useMemo(() => {
     const q = String(query || "").trim();
     if (!q) return { parsed: null, byId: new Map() };
     const parsed = parseSearchQuery(q);
+    const importPlaces =
+      curatorImportRecommendation?.ok && curatorImportPlacesOrPool.length > 0
+        ? curatorImportPlacesOrPool
+        : null;
     const byId = new Map();
     for (const p of displayedPlaces) {
       const id = String(p.id);
+      const fromImport = importPlaces
+        ? importReasonLineForPlace(p, importPlaces)
+        : "";
       byId.set(id, {
         matched:
           Array.isArray(p.matchedFacetLabels) && p.matchedFacetLabels.length > 0
@@ -4371,11 +5436,14 @@ const topReasonMap = useMemo(() => {
               p.atmosphere || getAtmosphereFromCategory(p.category_name),
           }),
         why:
-          p.whyRecommended || buildRecommendationWhyLine(p, parsed),
+          fromImport ||
+          p.reasonShort ||
+          p.whyRecommended ||
+          buildRecommendationWhyLine(p, parsed),
       });
     }
     return { parsed, byId };
-  }, [displayedPlaces, query]);
+  }, [displayedPlaces, query, curatorImportRecommendation, curatorImportPlacesOrPool]);
 
   const curatorSearchHighlightList = useMemo(
     () => buildCuratorSearchHighlights(query, dbPlaces, dbCurators),
@@ -4430,8 +5498,9 @@ const handleClearSearch = () => {
   searchSessionIdRef.current = null;
   setQuery("");
   setSelectedPlace(null);
-  setKakaoPlaces([]); // 카카오 장소들도 정리
-  setKakaoTypingPreviewPlaces([]);
+  setMapSearchMarkerFitTick(0);
+  lastHandledMapSearchFitTickRef.current = 0;
+  resetKakaoSearchPlaces();
   setAiError("");
   setAiSummary("");
   setAiReasons([]);
@@ -4440,14 +5509,13 @@ const handleClearSearch = () => {
   setAiSheetOpen(false);
   setSimpleMapSearchMarkersOnly(false);
   setIsAiSearching(false);
-  setSearchLoadingLabel("");
-  setSearchExpandUX(null);
-  setYajangFallbackBanner(null);
-  setSearchDistanceOrigin(null);
+  resetSearchStatusMeta();
   setMapViewportCenterFromUser(null);
   setShowMapSearchHereButton(false);
   searchHereArmedRef.current = false;
   setMapViewportSearchLock(false);
+  setPreserveMapViewportSituationChip(false);
+  situationChipMapSearchViewportRef.current = false;
   setRegionBoundaryOverlay(null);
   courseGpsUserOriginRef.current = null;
   setCourseGpsRadiusM(COURSE_GPS_DEFAULT_RADIUS_M);
@@ -4526,6 +5594,8 @@ const handleClearSearch = () => {
       setSelectedPlaceWithAnalytics(forMap, "kakao_autocomplete");
       /** 지도 이동은 MapView `selectedPlace` effect(카드 높이만큼 pan 보정)에 맡김 — 여기서 setCenter를 반복하면 보정이 깨짐 */
     },
+    /** setKakaoPlaces·setKakaoTypingPreviewPlaces는 useState setter — render 사이 stable */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       curatorPlaceCatalogForMerge,
       setSelectedPlaceWithAnalytics,
@@ -4534,7 +5604,18 @@ const handleClearSearch = () => {
 
   /** 검색바 엔터/검색 버튼으로 나온 결과: 후보가 1곳일 때만 미리보기 카드 자동 오픈 (여러 핀일 땐 사용자가 핀 선택) */
   const openPreviewForFirstSearchResult = useCallback(
-    (kakaoFormattedPlaces, analyticsSource = "search_bar_submit") => {
+    (
+      kakaoFormattedPlaces,
+      analyticsSource = "search_bar_submit",
+      rawQuery
+    ) => {
+      const rq = typeof rawQuery === "string" ? rawQuery.trim() : "";
+      if (
+        rq &&
+        isCourseQuery(rq) &&
+        !homeSearchSkipCoursePreviewRef.current
+      )
+        return;
       if (
         !Array.isArray(kakaoFormattedPlaces) ||
         kakaoFormattedPlaces.length === 0
@@ -4549,14 +5630,17 @@ const handleClearSearch = () => {
         first,
         curatorPlaceCatalogForMerge
       );
-      setSelectedPlaceWithAnalytics(merged, analyticsSource);
+      setSelectedPlaceWithAnalytics(merged, analyticsSource, {
+        clickedRank: 1,
+        userVisibleCandidateCount: kakaoFormattedPlaces.length,
+      });
     },
     [curatorPlaceCatalogForMerge, setSelectedPlaceWithAnalytics]
   );
 
   // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
   const handleQuickSave = (place) => {
-    console.log('📍 쾌속 잔 채우기 요청:', place);
+    devLog('📍 쾌속 잔 채우기 요청:', place);
     
     // PlacePreviewCard의 로직과 동일하게 처리
     // localStorage에 저장하는 로직을 구현해야 함
@@ -4564,16 +5648,41 @@ const handleClearSearch = () => {
     alert('쾌속 잔 채우기 기능은 개발 중입니다.');
   };
 
-  const handleSearchSubmit = async (value) => {
+  const handleSearchSubmit = async (value, options = {}) => {
     const nextQuery = normalizeHangulSearchCompounds(value.trim());
+    const skipCourseRecommendation = Boolean(options?.skipCourseRecommendation);
+    const omitSearchBarText = Boolean(options?.omitSearchBarText);
+    const chipResultProfile = String(options?.chipResultProfile || "").trim();
+    homeSearchSkipCoursePreviewRef.current = skipCourseRecommendation;
+
     const naturalQ = parseNaturalQuery(nextQuery);
+    /** 칩 단발: GPS·내 위치 핀 무시하고 **현재 지도 화면** 기준 검색만 */
+    const chipAnchorsMapViewport = Boolean(options?.mapViewportChipSearch);
+    if (chipAnchorsMapViewport) {
+      setPreserveMapViewportSituationChip(true);
+      situationChipMapSearchViewportRef.current = true;
+    } else {
+      setPreserveMapViewportSituationChip(false);
+      situationChipMapSearchViewportRef.current = false;
+    }
+    const effectiveLocationPinned = chipAnchorsMapViewport
+      ? false
+      : isLocationBasedSearch;
+
+    /** 칩 단발 검색 등: `1차`가 있어도 코스 루트로 보내지 않음 */
+    const useCoursePipeline =
+      !skipCourseRecommendation && isCourseQuery(nextQuery);
     const namesGeographicArea =
       Boolean(naturalQ.region) || Boolean(findAreaKeywordInQuery(nextQuery));
     const explicitNearMe =
+      !chipAnchorsMapViewport &&
       /내\s*위치|내위치|내\s*근처|내\s*주변|내\s*주위|여기\s*근처|현재\s*위치/i.test(
         nextQuery
       );
     const vagueNear = /근처|주변|주위/.test(nextQuery);
+    /** 홈 검색바 플레이스홀더·즉시 술집 탐색 문장 — 동네명 없으면 내 위치 반경 검색이 자연스러움 */
+    const implicitNearbyNowIntent =
+      /지금\s*한잔\s*하기\s*좋은|한잔하기\s*좋은\s*곳/i.test(nextQuery);
     /** `parseNaturalQuery`의 도보 의도(걸어·가까운 등) + 문장형(걸어가기 좋은) */
     const walkIntent =
       Boolean(naturalQ.wantsWalkingDistance) ||
@@ -4581,9 +5690,9 @@ const handleClearSearch = () => {
 
     /** 코스+주변 의도: 검색 직후 브라우저 위치 권한 요청 (내 위치·근처·도보 등) */
     const wantsCourseGps =
-      isCourseQuery(nextQuery) &&
+      useCoursePipeline &&
       (explicitNearMe ||
-        isLocationBasedSearch ||
+        effectiveLocationPinned ||
         walkIntent ||
         vagueNear);
     let courseGpsPromise = null;
@@ -4604,49 +5713,99 @@ const handleClearSearch = () => {
 
     /** 파서/지역 사전이 «강남» 등을 잡아도, «내 위치·내 주변»이면 GPS 주변 검색으로 간다 */
     const nearbyOverridesNamedArea =
-      explicitNearMe || isLocationBasedSearch;
+      explicitNearMe || effectiveLocationPinned;
 
-    const shouldUseLocationSearch =
-      (!namesGeographicArea || nearbyOverridesNamedArea) &&
-      (isLocationBasedSearch ||
-        explicitNearMe ||
-        walkIntent ||
-        vagueNear ||
-        hasSearchPinAnchor);
+    const shouldUseLocationSearch = chipAnchorsMapViewport
+      ? false
+      : (!namesGeographicArea || nearbyOverridesNamedArea) &&
+        (effectiveLocationPinned ||
+          explicitNearMe ||
+          walkIntent ||
+          vagueNear ||
+          hasSearchPinAnchor ||
+          implicitNearbyNowIntent);
 
     /** 주변 검색(핀·카드 앵커 제외): 검색 클릭 직후 브라우저 위치 권한(getCurrentPosition) 요청 */
     const wantsNearbyStrictGps =
-      !isCourseQuery(nextQuery) &&
+      !useCoursePipeline &&
       shouldUseLocationSearch &&
       !hasSearchPinAnchor &&
       (explicitNearMe ||
-        isLocationBasedSearch ||
+        effectiveLocationPinned ||
         walkIntent ||
-        vagueNear);
+        vagueNear ||
+        implicitNearbyNowIntent);
     let nearbyGpsPromise = null;
     if (wantsNearbyStrictGps) {
       nearbyGpsPromise = getCurrentUserLocationStrict();
     }
 
     /** UI에서 '내 주변'을 켠 경우에만 GPS 우선(렌더 시점 값 — 아래 setState 전에 캡처) */
-    const userPinnedLocationSearchMode = isLocationBasedSearch;
+    const userPinnedLocationSearchMode = effectiveLocationPinned;
 
-    setQuery(nextQuery);
-    
+    const applyChipResultProfileBias = (rows) => {
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) return list;
+      const hints = DRINKS_SITUATION_CHIP_RESULT_HINTS[chipResultProfile];
+      if (!hints) return list;
+
+      const include = Array.isArray(hints.include) ? hints.include : [];
+      const exclude = Array.isArray(hints.exclude) ? hints.exclude : [];
+      const scored = list.map((place) => {
+        const hay = [
+          place?.place_name,
+          place?.name,
+          place?.category_name,
+          place?.category,
+          place?.address_name,
+          place?.road_address_name,
+          Array.isArray(place?.tags) ? place.tags.join(" ") : "",
+        ]
+          .map((v) => String(v || "").toLowerCase())
+          .join(" ");
+        let score = 0;
+        for (const token of include) {
+          if (hay.includes(String(token).toLowerCase())) score += 2;
+        }
+        for (const token of exclude) {
+          if (hay.includes(String(token).toLowerCase())) score -= 1;
+        }
+        return { place, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      const preferred = scored.filter((x) => x.score > 0).map((x) => x.place);
+      if (preferred.length >= 3) return preferred;
+      if (preferred.length > 0) {
+        const preferredSet = new Set(preferred.map((p) => String(p?.id || "")));
+        const rest = scored
+          .map((x) => x.place)
+          .filter((p) => !preferredSet.has(String(p?.id || "")));
+        return [...preferred, ...rest.slice(0, Math.max(0, 8 - preferred.length))];
+      }
+      return list;
+    };
+
+    setQuery(omitSearchBarText ? "" : nextQuery);
+    lastSearchSubmitQueryRef.current = nextQuery;
+
     // 검색 시작 시 모든 상태 초기화
     setSelectedPlace(null);
     setAiError("");
     setAiSummary("");
     setAiReasons([]);
+    setAiSheetExpandedReasonByKey({});
     setAiRecommendedIds([]);
+    setAiSheetPage(0);
+    lastAiScoredPlacesForImportReorderRef.current = null;
     setAiSheetOpen(false);
     setSimpleMapSearchMarkersOnly(false);
     setRegionBoundaryOverlay(null);
 
     // 이전 검색 결과 강제 초기화
     setExternalPlaces([]);
-    setKakaoPlaces([]);
-    setKakaoTypingPreviewPlaces([]);
+    setExternalPlacesPool([]);
+    resetKakaoSearchPlaces();
     setBlogReviews([]);
     setSearchExpandUX(null);
     setYajangFallbackBanner(null);
@@ -4656,15 +5815,20 @@ const handleClearSearch = () => {
     setCourseGpsRadiusM(COURSE_GPS_DEFAULT_RADIUS_M);
     setCourseSearchUsedGpsOrigin(false);
 
-    console.log('🧹 모든 검색 상태 초기화 완료');
+    devLog('🧹 모든 검색 상태 초기화 완료');
 
     if (!nextQuery) {
+      homeSearchSkipCoursePreviewRef.current = false;
       aiRecommendExclusiveRef.current = false;
+      forceReopenAiSheetAfterSearchRef.current = false;
       return;
     }
 
     const searchSessionId = crypto.randomUUID();
     searchSessionIdRef.current = searchSessionId;
+    lastSearchSubmitTelemetryRef.current = null;
+    lastSearchLogIdRef.current = null;
+    searchFeedbackContextRef.current = null;
 
     const searchUiStartedAt = Date.now();
     const MIN_SEARCH_LOADING_MS = 1800;
@@ -4672,18 +5836,28 @@ const handleClearSearch = () => {
     let searchHadError = false;
     let searchResultIdsForLog = [];
     let searchModeForLog = shouldUseLocationSearch ? "nearby" : "map";
-    const inferredPipeline = inferSearchPipelineMode(nextQuery, naturalQ);
+    /** 단일 검색창: 입력만으로 keyword_search vs ai_parse_search (채널 버튼 없음) */
+    const searchExecutionKind = detectHomeSearchExecutionKind(
+      nextQuery,
+      naturalQ
+    );
     const useBasicSearchPipeline =
-      homeSearchChannel === "basic"
-        ? true
-        : homeSearchChannel === "ai"
-          ? false
-          : inferredPipeline === "basic";
+      searchExecutionKind === HOME_SEARCH_KIND.KEYWORD_SEARCH;
+    /** keyword 1차 후 결과 부족 시 AI 보조로 바뀌면 false로 덮어씀 */
+    let pipelineIsBasic = useBasicSearchPipeline;
+    let telemetryKeywordAiFallback = false;
+    let telemetryPreFallbackResultCount = null;
+    let telemetryQualitySummary = null;
+    let telemetryPipelineScreenRowCount = null;
+    let telemetryEngineScoredPoolSize = null;
     if (useBasicSearchPipeline) {
       searchModeForLog = `${searchModeForLog}_basic`;
     }
     aiRecommendExclusiveRef.current = !useBasicSearchPipeline;
     let skipMinSearchLoading = useBasicSearchPipeline;
+
+    const normalizedQueryForFeedback = normalizeQueryForFeedback(nextQuery);
+    let searchScoreOptsBase = { searchFeedbackByPlaceKey: {} };
 
     try {
       setIsAiSearching(true);
@@ -4697,7 +5871,43 @@ const handleClearSearch = () => {
               : getSearchLoadingMessage(nextQuery)
       );
 
-      if (isCourseQuery(nextQuery)) {
+      try {
+        searchScoreOptsBase = {
+          searchFeedbackByPlaceKey: await fetchSearchFeedbackBoostMap(
+            normalizedQueryForFeedback
+          ),
+        };
+      } catch (fbPreErr) {
+        if (import.meta.env.DEV) {
+          devWarn("[search-feedback] prefetch:", fbPreErr);
+        }
+      }
+
+      const withSearchSocialBoost = async (places, extra = {}) => {
+        const base = { ...searchScoreOptsBase, ...extra };
+        try {
+          const social = await fetchSearchSocialBoostByPlaces(
+            supabase,
+            places
+          );
+          if (
+            social &&
+            typeof social === "object" &&
+            Object.keys(social).length > 0
+          ) {
+            return { ...base, socialBoostByStableKey: social };
+          }
+        } catch (socErr) {
+          if (import.meta.env.DEV) {
+            devWarn("[search] social boost prefetch:", socErr);
+          }
+        }
+        return base;
+      };
+
+      if (useCoursePipeline) {
+        clearImportRecommendationOverlay();
+        searchModeForLog = "course";
         let courseLoadOpts;
         let courseSearchOriginKind = "global";
 
@@ -4746,7 +5956,8 @@ const handleClearSearch = () => {
             ) {
               courseLoadOpts = {
                 userOrigin: coords,
-                maxDistanceMeters: 5000,
+                /** 을지로 등 지명 앵커 시 성수·성동 쪽까지 넓게 잡히지 않게 상한을 낮춤 */
+                maxDistanceMeters: 3200,
                 strictNearbyOnly: true,
               };
               courseSearchOriginKind = "named_area";
@@ -4757,7 +5968,7 @@ const handleClearSearch = () => {
             }
           } catch (panErr) {
             if (import.meta.env.DEV) {
-              console.warn("코스 지명 앵커:", panErr);
+              devWarn("코스 지명 앵커:", panErr);
             }
           }
         }
@@ -4779,7 +5990,7 @@ const handleClearSearch = () => {
               mapRef.current.moveToLocation(pos.lat, pos.lng);
             }
           } catch (locErr) {
-            console.warn("코스 주변 위치:", locErr);
+            devWarn("코스 주변 위치:", locErr);
             const denied = Number(locErr?.code) === 1;
             const timedOut = Number(locErr?.code) === 3;
             showToast(
@@ -4794,12 +6005,20 @@ const handleClearSearch = () => {
           }
         }
 
-        const res = await runCourseSearch(nextQuery, courseLoadOpts);
+        const mergedCourseLoadOpts = {
+          ...(courseLoadOpts || {}),
+          includeHalfStep: courseIncludeHalfStep,
+        };
+        courseLastLoadOptsRef.current = mergedCourseLoadOpts;
+        const res = await runCourseSearch(nextQuery, mergedCourseLoadOpts);
         if (res.handled) {
-          searchModeForLog = "course";
           setExternalPlaces([]);
+          setExternalPlacesPool([]);
           setAiRecommendedIds([]);
           aiRecommendExclusiveRef.current = false;
+          if (res.parsed) {
+            setCourseIncludeHalfStep(Boolean(res.parsed.includeHalfStep));
+          }
           searchResultIdsForLog = [
             ...new Set(
               (res.options || []).flatMap((c) =>
@@ -4807,16 +6026,21 @@ const handleClearSearch = () => {
               ),
             ),
           ];
-          shouldOpenAiSheetAfterLoad = true;
+          shouldOpenAiSheetAfterLoad = Boolean(res.options?.length);
+          const stepCount = res.options?.[0]?.steps?.length ?? 0;
+          const stageLabel =
+            stepCount >= 3 ? "3단계(쩜오차 포함)" : "2단계";
+          const summaryFromAssist = String(res.composeSummary || "").trim();
           setAiSummary(
-            res.options?.length
-              ? courseSearchOriginKind === "named_area"
-                ? `「${namedLocationForCourse}」 일대를 기준으로 짠 2단계 코스예요.`
-                : courseLoadOpts?.userOrigin &&
-                    courseSearchOriginKind === "gps"
-                  ? `내 위치 기준 ${COURSE_GPS_DEFAULT_RADIUS_M / 1000}km 안에서 짠 2단계 코스예요.`
-                  : "큐레이터·태그·거리 기준으로 짠 2단계 코스예요."
-              : ""
+            summaryFromAssist ||
+              (res.options?.length
+                ? courseSearchOriginKind === "named_area"
+                  ? `「${namedLocationForCourse}」 일대를 기준으로 짠 ${stageLabel} 코스예요.`
+                  : courseLoadOpts?.userOrigin &&
+                      courseSearchOriginKind === "gps"
+                    ? `내 위치 기준 ${COURSE_GPS_DEFAULT_RADIUS_M / 1000}km 안에서 짠 ${stageLabel} 코스예요.`
+                    : `큐레이터·태그·거리 기준으로 짠 ${stageLabel} 코스예요.`
+                : "")
           );
         }
         return;
@@ -4834,7 +6058,7 @@ const handleClearSearch = () => {
       // 검색 모드에 따라 다르게 처리
       if (shouldUseLocationSearch) {
         // 내 위치 중심 검색 (빨강 핀 클릭 후) - 위치 기반 검색
-        console.log("🔍 내 위치 중심 검색 시작:", nextQuery);
+        devLog("🔍 내 위치 중심 검색 시작:", nextQuery);
 
         let strictNearbyOrigin = null;
         let strictNearbyGpsFailed = false;
@@ -4850,7 +6074,7 @@ const handleClearSearch = () => {
             }
           } catch (locErr) {
             strictNearbyGpsFailed = true;
-            console.warn("주변 검색 위치:", locErr);
+            devWarn("주변 검색 위치:", locErr);
             const denied = Number(locErr?.code) === 1;
             const timedOut = Number(locErr?.code) === 3;
             showToast(
@@ -4883,14 +6107,8 @@ const handleClearSearch = () => {
           const useDeviceGps =
             explicitNearMe || userPinnedLocationSearchMode;
           if (!useDeviceGps) {
-            const mc = mapRef.current?.getCenter?.();
-            if (
-              mc &&
-              Number.isFinite(Number(mc.lat)) &&
-              Number.isFinite(Number(mc.lng))
-            ) {
-              return { lat: Number(mc.lat), lng: Number(mc.lng) };
-            }
+            const fromMap = readKakaoMapCenterLatLng(mapRef);
+            if (fromMap) return fromMap;
             if (
               mapViewportCenterFromUser &&
               Number.isFinite(mapViewportCenterFromUser.lat) &&
@@ -4903,14 +6121,8 @@ const handleClearSearch = () => {
             }
           }
           if (useDeviceGps && strictNearbyGpsFailed) {
-            const mc = mapRef.current?.getCenter?.();
-            if (
-              mc &&
-              Number.isFinite(Number(mc.lat)) &&
-              Number.isFinite(Number(mc.lng))
-            ) {
-              return { lat: Number(mc.lat), lng: Number(mc.lng) };
-            }
+            const fromMap = readKakaoMapCenterLatLng(mapRef);
+            if (fromMap) return fromMap;
             if (
               mapViewportCenterFromUser &&
               Number.isFinite(mapViewportCenterFromUser.lat) &&
@@ -4939,7 +6151,7 @@ const handleClearSearch = () => {
           resolveNearbySearchOrigin(),
           intentAssistPromise,
         ]);
-        console.log("📍 주변 검색 기준 좌표:", userLocation, {
+        devLog("📍 주변 검색 기준 좌표:", userLocation, {
           fromSelectedPlaceCard: Boolean(searchAnchorCoords),
           preferDeviceGps: Boolean(
             explicitNearMe || userPinnedLocationSearchMode
@@ -4981,19 +6193,24 @@ const handleClearSearch = () => {
             userLocation
           );
         }
-        nearbyPlaces = filterPlacesByParsedIntent(
-          nearbyPlaces,
-          naturalQ.facets || parseSearchQuery(nextQuery),
-          nextQuery,
-          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
-        );
-        console.log('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
+            nearbyPlaces = filterPlacesByParsedIntent(
+              nearbyPlaces,
+              naturalQ.facets || parseSearchQuery(nextQuery),
+              nextQuery
+            );
+        devLog('🍺 위치 기반 검색 결과:', nearbyPlaces.length, {
           keyword: nearbyKeyword,
           intentAssist: !!intentAssist,
         });
 
         // 3. AI 스코어링 + 결과 없으면 확장 쿼리로 자동 1~2회 재시도
-        let scoredPlaces = calculateLocalAIScores(nearbyPlaces, nextQuery, userLocation);
+        let scoredPlaces = calculateLocalAIScores(
+          nearbyPlaces,
+          nextQuery,
+          userLocation,
+          null,
+          await withSearchSocialBoost(nearbyPlaces)
+        );
         let relaxationUsed = null;
         if (scoredPlaces.length === 0) {
           const parsedEmpty = naturalQ.facets;
@@ -5010,9 +6227,14 @@ const handleClearSearch = () => {
               np,
               naturalQ.facets || parseSearchQuery(nextQuery),
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
             );
-            const sp = calculateLocalAIScores(npFiltered, nextQuery, userLocation);
+            const sp = calculateLocalAIScores(
+              npFiltered,
+              nextQuery,
+              userLocation,
+              null,
+              await withSearchSocialBoost(npFiltered)
+            );
             if (sp.length > 0) {
               scoredPlaces = sp;
               relaxationUsed = r;
@@ -5060,7 +6282,7 @@ const handleClearSearch = () => {
           setYajangFallbackBanner(null);
         }
 
-        console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
+        devLog('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsed || "");
 
         const anchorKakaoId = selectedPlaceSnapshot
           ? normalizeKakaoPlaceId(selectedPlaceSnapshot)
@@ -5075,14 +6297,87 @@ const handleClearSearch = () => {
           scoredPlaces = withoutSelf;
         }
 
-        const scoredForUi = useBasicSearchPipeline
-          ? scoredPlaces
-          : scoredPlaces.slice(0, 5);
+        if (
+          useBasicSearchPipeline &&
+          scoredPlaces.length < KEYWORD_SEARCH_FALLBACK_MIN_RESULTS
+        ) {
+          telemetryPreFallbackResultCount = scoredPlaces.length;
+          try {
+            const intentAssistFb = await Promise.race([
+              fetchSearchIntentAssist(nextQuery),
+              new Promise((resolve) =>
+                setTimeout(() => resolve(null), SEARCH_INTENT_ASSIST_MS)
+              ),
+            ]);
+            const kakaoHintFb =
+              intentAssistFb?.kakaoKeywordHint &&
+              String(intentAssistFb.kakaoKeywordHint).trim();
+            let nk = kakaoHintFb || nextQuery;
+            let np = await mergeNearbyKakaoForOrQuery(nk, userLocation);
+            if (
+              np.length === 0 &&
+              kakaoHintFb &&
+              kakaoHintFb !== nextQuery.trim()
+            ) {
+              np = await mergeNearbyKakaoForOrQuery(nextQuery, userLocation);
+            }
+            if (
+              np.length === 0 &&
+              intentAssistFb?.broadKakaoKeyword &&
+              String(intentAssistFb.broadKakaoKeyword).trim() &&
+              String(intentAssistFb.broadKakaoKeyword).trim() !==
+                String(nk || "").trim()
+            ) {
+              np = await mergeNearbyKakaoForOrQuery(
+                String(intentAssistFb.broadKakaoKeyword).trim(),
+                userLocation
+              );
+            }
+            np = filterPlacesByParsedIntent(
+              np,
+              naturalQ.facets || parseSearchQuery(nextQuery),
+              nextQuery,
+            );
+            const spFb = calculateLocalAIScores(
+              np,
+              nextQuery,
+              userLocation,
+              null,
+              await withSearchSocialBoost(np, { keywordAiFallback: true })
+            );
+            if (shouldPreferFallbackSearchResults(scoredPlaces, spFb)) {
+              scoredPlaces = spFb;
+              pipelineIsBasic = false;
+              telemetryKeywordAiFallback = true;
+              aiRecommendExclusiveRef.current = true;
+            }
+          } catch (nearFbErr) {
+            if (import.meta.env.DEV) {
+              devWarn("[search] keyword→AI 주변 보조:", nearFbErr);
+            }
+          }
+        }
 
-        // 결과 설정 (리스트·병합 시에도 빨간 핀 플래그 유지)
-        setExternalPlaces(
-          scoredForUi.map((p) => ({ ...p, isKakaoPlace: true }))
-        );
+        scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+
+        telemetryQualitySummary =
+          summarizeSearchResultQualityForTelemetry(scoredPlaces);
+
+        scoredPlaces = enrichPlacesWithReason(nextQuery, scoredPlaces, {
+          keywordAiFallback: telemetryKeywordAiFallback,
+        });
+        logSignalsCheckDev(scoredPlaces);
+
+        telemetryEngineScoredPoolSize = scoredPlaces.length;
+        telemetryPipelineScreenRowCount = scoredPlaces.length;
+
+        if (!pipelineIsBasic) {
+          lastAiScoredPlacesForImportReorderRef.current = scoredPlaces;
+        }
+        // 결과 설정 — 엔진 풀 전부(바텀시트는 페이지당 5개, 이전 상위 5행 제한 제거)
+        const kakaoRowFlag = (p) => ({ ...p, isKakaoPlace: true });
+        setExternalPlaces(scoredPlaces.map(kakaoRowFlag));
+        setExternalPlacesPool(scoredPlaces.map(kakaoRowFlag));
         const intentLineNear = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
           if (!s) return "";
@@ -5100,10 +6395,11 @@ const handleClearSearch = () => {
                 : `주변 추천 · ${nextQuery.slice(0, 24)}${nextQuery.length > 24 ? "…" : ""}`
         );
         setAiReasons(["거리·검색어 점수", "카테고리 매칭", "의도 키워드 반영"]);
-        const kakaoIdsAll = scoredPlaces.map((p) => p.id);
+        const biasedScoredPlaces = applyChipResultProfileBias(scoredPlaces);
+        const kakaoIdsAll = biasedScoredPlaces.map((p) => p.id);
         let mergedNear = kakaoIdsAll;
-        if (!useBasicSearchPipeline) {
-          setAiRecommendedIds(scoredForUi.map((p) => p.id));
+        if (!pipelineIsBasic) {
+          setAiRecommendedIds(biasedScoredPlaces.map((p) => p.id));
         } else {
           const dbSearchNear = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
@@ -5119,23 +6415,12 @@ const handleClearSearch = () => {
           setAiRecommendedIds(mergedNear);
         }
         setBlogReviews([]);
-        shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
-        {
-          const markersOnlySimpleSearch =
-            isSimpleLocationMenuMapQuery(nextQuery) &&
-            !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ);
-          if (markersOnlySimpleSearch) {
-            shouldOpenAiSheetAfterLoad = false;
-            setSimpleMapSearchMarkersOnly(true);
-          }
-        }
-        if (useBasicSearchPipeline) {
-          shouldOpenAiSheetAfterLoad = false;
-          setSimpleMapSearchMarkersOnly(true);
-        }
+        shouldOpenAiSheetAfterLoad = biasedScoredPlaces.length > 0;
+        /** 단순 지명+메뉴 검색이어도 맞춤 피크·바텀시트는 연다(마커만 UX는 이제 쓰지 않음). */
+        setSimpleMapSearchMarkersOnly(false);
 
         // 지도에 바로 마커 표시
-        const kakaoFormattedPlaces = scoredForUi.map((place) => ({
+        const kakaoFormattedPlaces = biasedScoredPlaces.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -5150,21 +6435,29 @@ const handleClearSearch = () => {
           kakao_place_id: place.kakao_place_id,
           isKakaoPlace: true,
         }));
-        
+
         setKakaoPlaces(kakaoFormattedPlaces);
-        if (!isCourseQuery(nextQuery)) {
+        if (kakaoFormattedPlaces.length > 0 && !chipAnchorsMapViewport) {
+          setMapSearchMarkerFitTick((x) => x + 1);
+        }
+        if (
+          !chipAnchorsMapViewport &&
+          !useCoursePipeline &&
+          !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ)
+        ) {
           openPreviewForFirstSearchResult(
             kakaoFormattedPlaces,
-            "search_bar_submit_nearby"
+            "search_bar_submit_nearby",
+            nextQuery
           );
         }
-        searchResultIdsForLog = (!useBasicSearchPipeline
-          ? scoredForUi.map((p) => String(p.id))
+        searchResultIdsForLog = (!pipelineIsBasic
+          ? biasedScoredPlaces.map((p) => String(p.id))
           : mergedNear.map((id) => String(id)));
 
       } else {
         // 전체 지도 범용 검색 (바로 검색) - 미리보기 리스트 후 마커
-        console.log("🔍 전체 지도 범용 검색 시작:", nextQuery);
+        devLog("🔍 전체 지도 범용 검색 시작:", nextQuery);
 
         const kwForMap = stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery;
         let locationName = extractLocationAnchorFromQuery(kwForMap);
@@ -5253,6 +6546,10 @@ const handleClearSearch = () => {
               .trim()
           : kwForMap.trim();
 
+        const moodPreserveMap =
+          homeSearchQueryHasMoodIntentHint(nextQuery) ||
+          homeSearchQueryHasMoodIntentHint(kwForMap);
+
         const geoOnlyMapPan = isMapGeographicPanOnlyQuery({
           locationName,
           intentPhraseMap,
@@ -5273,7 +6570,9 @@ const handleClearSearch = () => {
                     data.length > 0
                   ) {
                     const fr = data[0];
-                    mapRef.current.moveToLocation(fr.y, fr.x);
+                    mapRef.current.moveToLocation(fr.y, fr.x, {
+                      bottomChromePx: searchMapBottomChromePx(),
+                    });
                     mapRef.current.setZoomLevel?.(5);
                   }
                   resolve();
@@ -5281,7 +6580,7 @@ const handleClearSearch = () => {
               });
               await new Promise((r) => setTimeout(r, 280));
             } catch (geoErr) {
-              if (import.meta.env.DEV) console.warn("지역명 줌인:", geoErr);
+              devWarn("지역명 줌인:", geoErr);
             }
           }
           if (outlineQuery) {
@@ -5300,7 +6599,7 @@ const handleClearSearch = () => {
                 }
               } catch (outlineErr) {
                 if (import.meta.env.DEV) {
-                  console.warn("행정구역 경계:", outlineErr);
+                  devWarn("행정구역 경계:", outlineErr);
                 }
                 if (searchSessionIdRef.current !== outlineSessionId) return;
                 setRegionBoundaryOverlay(null);
@@ -5311,6 +6610,7 @@ const handleClearSearch = () => {
           setShowMapSearchHereButton(true);
           setMapViewportSearchLock(false);
           setExternalPlaces([]);
+          setExternalPlacesPool([]);
           setAiRecommendedIds([]);
           aiRecommendExclusiveRef.current = false;
           setAiSummary("");
@@ -5326,16 +6626,33 @@ const handleClearSearch = () => {
         }
 
         const intentAssist = await intentAssistPromise;
-        const mapOriginPromise = getCurrentUserLocation();
         const searchHereArmedAtMapStart = searchHereArmedRef.current;
+
+        const situationChipUnifiedPhrases =
+          chipAnchorsMapViewport &&
+          chipResultProfile &&
+          DRINKS_SITUATION_CHIP_UNIFIED_PHRASES[chipResultProfile]
+            ? DRINKS_SITUATION_CHIP_UNIFIED_PHRASES[chipResultProfile]
+            : null;
+
+        /** 사전에 없는 지명 — 통합·AI 전국 검색 대신 카카오 「지역+와인바」 키워드만 신뢰 */
+        const kakaoGeographicOnly =
+          queryUsesUnmappedMapAnchor(nextQuery) &&
+          Boolean(String(locationName || "").trim()) &&
+          !chipAnchorsMapViewport &&
+          !situationChipUnifiedPhrases?.length;
 
         let searchKeyword;
         if (locationName) {
-          searchKeyword = intentPhraseMap
-            ? `${locationName} ${intentPhraseMap}`
-            : tailAfterLocationMap
-              ? `${locationName} ${tailAfterLocationMap}`
-              : locationName;
+          if (moodPreserveMap && tailAfterLocationMap) {
+            searchKeyword = `${locationName} ${tailAfterLocationMap}`.trim();
+          } else {
+            searchKeyword = intentPhraseMap
+              ? `${locationName} ${intentPhraseMap}`
+              : tailAfterLocationMap
+                ? `${locationName} ${tailAfterLocationMap}`
+                : locationName;
+          }
         } else if (intentPhraseMap) {
           searchKeyword = intentPhraseMap;
         } else {
@@ -5349,8 +6666,10 @@ const handleClearSearch = () => {
                   kwForMap.includes("바") ||
                   kwForMap.includes("포차")
                 ? "술집"
-                : "음식점";
-          searchKeyword = businessKeyword || nextQuery;
+                : null;
+          /** 업종·패턴에 안 걸리면 원문 그대로 검색(가게명·지역+상호 등). 예전 기본값 `음식점`은 상위 5개가 엉뚱해짐 */
+          const trimmedKw = String(kwForMap || nextQuery || "").trim();
+          searchKeyword = businessKeyword || trimmedKw || "음식점";
         }
 
         const mapPlaceSuffix = getKakaoKeywordSuffix(nextQuery);
@@ -5363,10 +6682,15 @@ const handleClearSearch = () => {
           ? `${searchKeyword} ${mapPlaceSuffix}`.trim()
           : searchKeyword;
 
-        console.log("🔍 추출된 지역명:", locationName);
-        console.log("🔍 최종 검색 키워드:", searchKeywordApi);
+        devLog("🔍 추출된 지역명:", locationName);
+        devLog("🔍 최종 검색 키워드:", searchKeywordApi);
         // 2. 지역명으로 지도 이동 및 줌인 (「여기서 검색」모드면 이미 맞춘 화면 유지)
-        if (locationName && mapRef.current && !searchHereArmedAtMapStart) {
+        if (
+          locationName &&
+          mapRef.current &&
+          !searchHereArmedAtMapStart &&
+          !chipAnchorsMapViewport
+        ) {
           try {
             const panKw = mapPanAnchorKeyword(locationName, searchKeywordApi);
             // 카카오 장소 검색으로 지역명 좌표 찾기
@@ -5376,11 +6700,13 @@ const handleClearSearch = () => {
               ps.keywordSearch(panKw, (data, status) => {
                 if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
                   const firstResult = data[0];
-                  // 지도 이동 및 줌인
-                  mapRef.current.moveToLocation(firstResult.y, firstResult.x);
+                  // 지도 이동 및 줌인 (하단 검색·피크 바 높이만큼 중심 보정)
+                  mapRef.current.moveToLocation(firstResult.y, firstResult.x, {
+                    bottomChromePx: searchMapBottomChromePx(),
+                  });
                   mapRef.current.setZoomLevel(5); // 지역명 검색 시 더 좁은 범위
                   
-                  console.log(`🗺️ ${panKw}으로 지도 이동 및 줌인 완료`);
+                  devLog(`🗺️ ${panKw}으로 지도 이동 및 줌인 완료`);
                 }
                 resolve(); // 항상 resolve 호출
               });
@@ -5398,28 +6724,173 @@ const handleClearSearch = () => {
         const kakaoHint =
           intentAssist?.kakaoKeywordHint &&
           String(intentAssist.kakaoKeywordHint).trim();
-        let mapQuery = lockKeywordToClientForKakaoHint(nextQuery, facetsForFilter)
-          ? clientMapQuery
-          : kakaoHint
-            ? mapPlaceSuffix
-              ? `${kakaoHint} ${mapPlaceSuffix}`.trim()
-              : kakaoHint
-            : searchKeywordApi;
-
-        const kwUnified =
-          stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
-        const phrasesForUnified = mergeIntentAssistIntoSearchPhrases(
-          kwUnified,
-          intentAssist
+        const lockKw = lockKeywordToClientForKakaoHint(
+          nextQuery,
+          facetsForFilter
         );
-        const mapBoundsLive = mapRef.current?.getBounds?.();
+        let mapQuery;
+        let mapFallbackQueries = [];
+        if (situationChipUnifiedPhrases?.length) {
+          /** 의도 보조 힌트(`지역 포차` 등)·자연어 폴백 없이 칩 전용 phrase만 사용 */
+          mapQuery = situationChipUnifiedPhrases[0];
+          mapFallbackQueries = situationChipUnifiedPhrases.slice(1);
+        } else if (kakaoGeographicOnly) {
+          mapQuery = clientMapQuery;
+          mapFallbackQueries = buildAiParseMapFallbackQueries(
+            nextQuery,
+            locationName,
+            facetsForFilter
+          ).filter((q) => q && q !== mapQuery);
+          if (import.meta.env.DEV) {
+            devLog("[map-search] kakao geographic only", {
+              locationName,
+              mapQuery,
+              fallbacks: mapFallbackQueries,
+            });
+          }
+        } else {
+          mapQuery = lockKw
+            ? clientMapQuery
+            : kakaoHint
+              ? mapPlaceSuffix
+                ? `${kakaoHint} ${mapPlaceSuffix}`.trim()
+                : kakaoHint
+              : searchKeywordApi;
+
+          const noIntentAssistAiParse =
+            !useBasicSearchPipeline && !intentAssist;
+          if (
+            noIntentAssistAiParse &&
+            !kakaoHint &&
+            !lockKw &&
+            isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ)
+          ) {
+            mapFallbackQueries = buildAiParseMapFallbackQueries(
+              nextQuery,
+              locationName,
+              facetsForFilter
+            );
+            if (mapFallbackQueries.length > 0) {
+              mapQuery = mapFallbackQueries[0];
+            } else if (locationName) {
+              mapQuery = `${locationName} 맛집`;
+              mapFallbackQueries = [mapQuery];
+            }
+            if (import.meta.env.DEV && mapFallbackQueries.length > 0) {
+              devLog("[map-fallback-query]", {
+                rawQuery: nextQuery,
+                region: locationName || null,
+                fallbackQueries: mapFallbackQueries,
+              });
+            }
+          }
+        }
+
+        const runSdkMapSearchWithFallbacks = async (primary, fallbacks) => {
+          const fb = Array.isArray(fallbacks) ? fallbacks : [];
+          const list = [primary, ...fb.filter((q) => q && q !== primary)];
+          const sdkMergeMax = chipAnchorsMapViewport
+            ? MAP_SDK_MERGE_MAX_SITUATION_CHIP
+            : MAP_SDK_MERGE_MAX_DEFAULT;
+          let acc = [];
+          for (const q of list) {
+            if (acc.length >= sdkMergeMax) break;
+            acc = mergeMapSearchPlacesDedupe(
+              acc,
+              await searchMapBars(q, locationName || null)
+            );
+          }
+          return acc;
+        };
+
+        const kwUnified = situationChipUnifiedPhrases?.length
+          ? situationChipUnifiedPhrases[0]
+          : moodPreserveMap
+            ? (stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery).trim()
+            : stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
+        const phrasesForUnified = situationChipUnifiedPhrases?.length
+          ? situationChipUnifiedPhrases
+          : mergeIntentAssistIntoSearchPhrases(
+              kwUnified,
+              intentAssist,
+              {
+                maxPhrases: UNIFIED_MAP_MERGE_MAX_PHRASES,
+                rawQuery: nextQuery,
+              }
+            );
+        /**
+         * 상황 칩: 내 위치 버튼 직후 등 지도 팬이 한 프레임 늦게 반영될 수 있음 —
+         * bounds/sort 기준을 잡기 전에 레이아웃 한 틱 양보.
+         */
+        if (chipAnchorsMapViewport && typeof requestAnimationFrame !== "undefined") {
+          await new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+        }
+        const mapBoundsLiveSnapshot = mapRef.current?.getBounds?.();
+        const viewportCenterLatLngFromBounds = (b) => {
+          if (!b || !window.kakao?.maps) return null;
+          try {
+            const ne = b.getNorthEast?.();
+            const sw = b.getSouthWest?.();
+            if (!ne || !sw) return null;
+            return {
+              lat: (ne.getLat() + sw.getLat()) / 2,
+              lng: (ne.getLng() + sw.getLng()) / 2,
+            };
+          } catch {
+            return null;
+          }
+        };
+        /** 칩은 반드시 펼친 뷰포트 안만 유지해야 함 (`로` 포함 키워드가 역/동 등과 무관하게 앵커로 오인되어 필터 비활성화되는 버그 방지) */
         const geoAnchoredUnified =
+          !chipAnchorsMapViewport &&
           !searchHereArmedAtMapStart &&
-          kakaoQueryHasGeographicAnchor(kwUnified);
+          kakaoQueryHasGeographicAnchor(kwUnified, locationName);
+
+        let sortOrigin = await (async () => {
+          /** 칩: 화면에 보이는 지도만 — GPS·성수 기본으로 거리 가중 주면 엇나감 */
+          if (chipAnchorsMapViewport) {
+            const vc = viewportCenterLatLngFromBounds(
+              mapRef.current?.getBounds?.() ?? mapBoundsLiveSnapshot
+            );
+            if (vc) return vc;
+          }
+          const fromMap = readKakaoMapCenterLatLng(mapRef);
+          if (fromMap) return fromMap;
+          if (
+            mapViewportCenterFromUser &&
+            Number.isFinite(mapViewportCenterFromUser.lat) &&
+            Number.isFinite(mapViewportCenterFromUser.lng)
+          ) {
+            return {
+              lat: mapViewportCenterFromUser.lat,
+              lng: mapViewportCenterFromUser.lng,
+            };
+          }
+          const clat = currentLocation?.lat;
+          const clng = currentLocation?.lng;
+          if (
+            clat != null &&
+            clng != null &&
+            Number.isFinite(Number(clat)) &&
+            Number.isFinite(Number(clng))
+          ) {
+            return { lat: Number(clat), lng: Number(clng) };
+          }
+          return {
+            lat: SEONGSU_MAP_CENTER.lat,
+            lng: SEONGSU_MAP_CENTER.lng,
+          };
+        })();
 
         const filterPlacesByMapViewport = (places) => {
+          const bounds =
+            chipAnchorsMapViewport
+              ? mapRef.current?.getBounds?.() ?? mapBoundsLiveSnapshot
+              : mapBoundsLiveSnapshot;
           if (
-            !mapBoundsLive ||
+            !bounds ||
             !window.kakao?.maps ||
             geoAnchoredUnified ||
             !Array.isArray(places)
@@ -5430,16 +6901,34 @@ const handleClearSearch = () => {
             const lat = parseFloat(place.y);
             const lng = parseFloat(place.x);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-            return mapBoundsLive.contain(
+            return bounds.contain(
               new window.kakao.maps.LatLng(lat, lng)
             );
           });
         };
 
+        const mapIntentFilterOpts = {
+          curatorCatalogForYajang: curatorPlaceCatalogForMerge,
+          ...(String(locationName || "").trim()
+            ? {
+                sortOrigin,
+                maxDistanceKm:
+                  mapSearchMaxDistanceKmForLocation(locationName),
+              }
+            : {}),
+        };
+
         let mapPlaces = [];
+        /** 뷰포트/의도 필터로 0이 됐을 때 통합 API 후보를 버리지 않기 위한 스냅샷 */
+        let unifiedMapPlacesBackup = [];
         let unifiedBlogFromServer = [];
         let unifiedApiRespondedOk = false;
-        if (!useBasicSearchPipeline) {
+        /** 상황 칩·사전 미등록 지명: 통합 API 전국 편향 — 카카오 SDK 「지역+업종」만 */
+        if (
+          !useBasicSearchPipeline &&
+          !chipAnchorsMapViewport &&
+          !kakaoGeographicOnly
+        ) {
           try {
             const unified = await fetchUnifiedMapSearch(
               {
@@ -5454,17 +6943,18 @@ const handleClearSearch = () => {
             if (unified?.ok === true && Array.isArray(unified.places)) {
               unifiedApiRespondedOk = true;
               mapPlaces = unified.places.map((p) => ({ ...p, distance: 0 }));
+              unifiedMapPlacesBackup = mapPlaces.map((p) => ({ ...p }));
               unifiedBlogFromServer = Array.isArray(unified.blogReviews)
                 ? unified.blogReviews
                 : [];
-              console.log("🗺️ 통합 검색(네이버+카카오+블로그):", {
+              devLog("🗺️ 통합 검색(네이버+카카오+블로그):", {
                 places: mapPlaces.length,
                 blog: unifiedBlogFromServer.length,
                 meta: unified.meta,
               });
             }
           } catch (unifiedErr) {
-            console.warn(
+            devWarn(
               "🗺️ 통합 검색 실패, 카카오 지도 SDK만 사용:",
               unifiedErr?.message
             );
@@ -5472,46 +6962,202 @@ const handleClearSearch = () => {
         }
 
         if (mapPlaces.length === 0) {
-          mapPlaces = await searchMapBars(mapQuery);
+          mapPlaces = await runSdkMapSearchWithFallbacks(
+            mapQuery,
+            mapFallbackQueries
+          );
           if (
             mapPlaces.length === 0 &&
             kakaoHint &&
             kakaoHint !== nextQuery.trim()
           ) {
-            mapPlaces = await searchMapBars(searchKeywordApi);
+            mapPlaces = await searchMapBars(
+              searchKeywordApi,
+              locationName || null
+            );
+          }
+          /** SDK 0건인데 통합만 성공했던 경우 — 백업으로 복구(지역·거리 검증) — 칩은 뷰포트 밖 후보 금지 */
+          if (
+            mapPlaces.length === 0 &&
+            unifiedMapPlacesBackup.length > 0 &&
+            !chipAnchorsMapViewport
+          ) {
+            const gated = filterPlacesForUnifiedMapBackupRestore(
+              unifiedMapPlacesBackup,
+              {
+                sortOrigin,
+                locationName: locationName || "",
+                maxDistanceKm: 12,
+              }
+            );
+            if (import.meta.env.DEV && gated.checks?.length) {
+              for (const row of gated.checks) {
+                devLog("[backup-restore-check]", row);
+              }
+            }
+            mapPlaces = gated.kept.map((p) => ({ ...p }));
+          }
+        } else if (!useBasicSearchPipeline && mapPlaces.length < 12) {
+          /**
+           * 통합 API만 쓰면 후보가 1~2곳으로 끊기는 경우가 있다(블로그·REST 편향 등).
+           * 이때도 지도 SDK는 bounds·다중 쿼리로 넓게 받을 수 있으므로 합친다.
+           */
+          let sdkMore = await runSdkMapSearchWithFallbacks(
+            mapQuery,
+            mapFallbackQueries
+          );
+          mapPlaces = mergeMapSearchPlacesDedupe(mapPlaces, sdkMore);
+          if (
+            mapPlaces.length < 10 &&
+            kakaoHint &&
+            kakaoHint !== nextQuery.trim()
+          ) {
+            sdkMore = await searchMapBars(
+              searchKeywordApi,
+              locationName || null
+            );
+            mapPlaces = mergeMapSearchPlacesDedupe(mapPlaces, sdkMore);
+          }
+        }
+
+        /**
+         * 술 상황 칩 + 통합 검색: REST 키워드 검색은 전국 accuracy 편향 → 뷰포트 안 0건이 되기 쉬움.
+         * 사용자가 본 지도 bounds 기준 카카오 SDK 후보를 항상 합친다(의도 불일치·잘못된 확장 검색 완화).
+         */
+        if (chipAnchorsMapViewport && mapPlaces.length > 0) {
+          try {
+            const sdkForChipViewport = await runSdkMapSearchWithFallbacks(
+              mapQuery,
+              mapFallbackQueries
+            );
+            mapPlaces = mergeMapSearchPlacesDedupe(
+              mapPlaces,
+              sdkForChipViewport
+            );
+          } catch (blendErr) {
+            if (import.meta.env.DEV) {
+              devWarn("[chip-search] 통합·SDK 블렌드:", blendErr);
+            }
           }
         }
 
         mapPlaces = filterPlacesByMapViewport(mapPlaces);
+        const chipViewportPlacesBeforeIntent =
+          chipAnchorsMapViewport ? mapPlaces.slice() : null;
         mapPlaces = filterPlacesByParsedIntent(
           mapPlaces,
           facetsForFilter,
           nextQuery,
-          { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
+          mapIntentFilterOpts
         );
-        console.log("🗺️ 전체 지도 검색 결과:", mapPlaces.length, {
+        if (
+          chipAnchorsMapViewport &&
+          chipViewportPlacesBeforeIntent &&
+          mapPlaces.length < SITUATION_CHIP_INTENT_RELAX_THRESHOLD &&
+          chipViewportPlacesBeforeIntent.length > mapPlaces.length
+        ) {
+          const afterIntent = mapPlaces.length;
+          mapPlaces = chipViewportPlacesBeforeIntent.slice(
+            0,
+            SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS
+          );
+          if (import.meta.env.DEV) {
+            devLog("[chip-search] relaxed parsed-intent filter", {
+              afterIntent,
+              viewportOnly: chipViewportPlacesBeforeIntent.length,
+              kept: mapPlaces.length,
+            });
+          }
+        }
+        /** 통합 후보는 있는데 뷰포트만 비운 경우: 의도 필터만 다시 적용해 스코어링에 넘김 */
+        if (
+          mapPlaces.length === 0 &&
+          unifiedMapPlacesBackup.length > 0 &&
+          !chipAnchorsMapViewport
+        ) {
+          const gated = filterPlacesForUnifiedMapBackupRestore(
+            unifiedMapPlacesBackup,
+            {
+              sortOrigin,
+              locationName: locationName || "",
+              maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
+            }
+          );
+          if (import.meta.env.DEV && gated.checks?.length) {
+            for (const row of gated.checks) {
+              devLog("[backup-restore-check]", row);
+            }
+          }
+          mapPlaces = filterPlacesByParsedIntent(
+            gated.kept,
+            facetsForFilter,
+            nextQuery,
+            mapIntentFilterOpts
+          );
+          if (import.meta.env.DEV) {
+            devLog(
+              "[map-search] viewport emptied list; scoring uses unified backup only",
+              { restored: mapPlaces.length, backup: unifiedMapPlacesBackup.length }
+            );
+          }
+        }
+        /** 칩: 블렌드·통합 백업까지 막혔으면 한 번 더 SDK-only(뷰포트)·의도 과하면 SDK만이라도 노출 */
+        if (chipAnchorsMapViewport && mapPlaces.length === 0) {
+          try {
+            let sdkChip = await runSdkMapSearchWithFallbacks(
+              mapQuery,
+              mapFallbackQueries
+            );
+            sdkChip = filterPlacesByMapViewport(sdkChip);
+            const withIntent = filterPlacesByParsedIntent(
+              sdkChip,
+              facetsForFilter,
+              nextQuery,
+              mapIntentFilterOpts
+            );
+            mapPlaces = withIntent.length > 0 ? withIntent : sdkChip;
+            if (import.meta.env.DEV) {
+              devLog("[chip-viewport-empty-recovery]", {
+                sdkInView: sdkChip.length,
+                afterIntent: withIntent.length,
+                kept: mapPlaces.length,
+              });
+            }
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              devWarn("[chip-search] viewport empty recovery:", e);
+            }
+          }
+        }
+        devLog("🗺️ 전체 지도 검색 결과:", mapPlaces.length, {
           mapQuery,
           intentAssist: !!intentAssist,
         });
 
-        const mapOriginForSort = await mapOriginPromise;
-        const mapCenterFromRef = mapRef.current?.getCenter?.();
-        const sortOrigin =
-          mapCenterFromRef &&
-          Number.isFinite(mapCenterFromRef.lat) &&
-          Number.isFinite(mapCenterFromRef.lng)
-            ? { lat: mapCenterFromRef.lat, lng: mapCenterFromRef.lng }
-            : mapOriginForSort;
+        if (import.meta.env.DEV) {
+          devLog("[scoring-input]", {
+            unifiedBackupCount: unifiedMapPlacesBackup.length,
+            mapPlacesCount: mapPlaces.length,
+          });
+        }
+
+        if (chipAnchorsMapViewport) {
+          const vc = viewportCenterLatLngFromBounds(
+            mapRef.current?.getBounds?.() ?? mapBoundsLiveSnapshot
+          );
+          if (vc) sortOrigin = vc;
+        }
 
         // 4. AI 스코어링 + 결과 없으면 확장 쿼리 자동 재시도 (추천 순서: 가까운 거리순)
         let scoredPlaces = calculateLocalAIScores(
           mapPlaces,
           nextQuery,
           null,
-          sortOrigin
+          sortOrigin,
+          await withSearchSocialBoost(mapPlaces)
         );
         let relaxationUsedMap = null;
-        if (scoredPlaces.length === 0) {
+        if (scoredPlaces.length === 0 && !chipAnchorsMapViewport) {
           const parsedEmpty = naturalQ.facets;
           const expandPack = buildExpansionSuggestions(
             nextQuery,
@@ -5541,20 +7187,21 @@ const handleClearSearch = () => {
               }
             }
             if (mp.length === 0) {
-              mp = await searchMapBars(r);
+              mp = await searchMapBars(r, locationName || null);
             }
             const mpViewport = filterPlacesByMapViewport(mp);
             const mpFiltered = filterPlacesByParsedIntent(
               mpViewport,
               facetsForFilter,
               nextQuery,
-              { curatorCatalogForYajang: curatorPlaceCatalogForMerge }
+              mapIntentFilterOpts
             );
             const sp = calculateLocalAIScores(
               mpFiltered,
               nextQuery,
               null,
-              sortOrigin
+              sortOrigin,
+              await withSearchSocialBoost(mpFiltered)
             );
             if (sp.length > 0) {
               scoredPlaces = sp;
@@ -5581,6 +7228,9 @@ const handleClearSearch = () => {
               4200
             );
           }
+        } else if (scoredPlaces.length === 0 && chipAnchorsMapViewport) {
+          /** 칩은 화면 기준 검색만 — 무관 한 확장 토스트·UX 억제(예: 「서울 맥주」) */
+          setSearchExpandUX(null);
         } else {
           setSearchExpandUX(null);
         }
@@ -5603,21 +7253,153 @@ const handleClearSearch = () => {
           setYajangFallbackBanner(null);
         }
 
-        console.log('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
+        if (
+          useBasicSearchPipeline &&
+          scoredPlaces.length < KEYWORD_SEARCH_FALLBACK_MIN_RESULTS &&
+          !kakaoGeographicOnly
+        ) {
+          telemetryPreFallbackResultCount = scoredPlaces.length;
+          try {
+            const intentAssistFb = await Promise.race([
+              fetchSearchIntentAssist(nextQuery),
+              new Promise((resolve) =>
+                setTimeout(() => resolve(null), SEARCH_INTENT_ASSIST_MS)
+              ),
+            ]);
+            const kwUnifiedFb = moodPreserveMap
+              ? (stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery).trim()
+              : stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
+            const phrasesFb = mergeIntentAssistIntoSearchPhrases(
+              kwUnifiedFb,
+              intentAssistFb,
+              {
+                maxPhrases: UNIFIED_MAP_MERGE_MAX_PHRASES,
+                rawQuery: nextQuery,
+              }
+            );
+            const unifiedFb = await fetchUnifiedMapSearch(
+              {
+                query: nextQuery,
+                searchPhrases:
+                  phrasesFb.length > 0 ? phrasesFb : [kwUnifiedFb],
+                includeBlog: false,
+                blogTimeoutMs: 9000,
+              },
+              AI_API_BASE
+            );
+            let fbPlaces = [];
+            if (unifiedFb?.ok === true && Array.isArray(unifiedFb.places)) {
+              fbPlaces = unifiedFb.places.map((p) => ({ ...p, distance: 0 }));
+            }
+            const sdkFb = await searchMapBars(mapQuery, locationName || null);
+            let mergedFb = mergeMapSearchPlacesDedupe(fbPlaces, sdkFb);
+            mergedFb = filterPlacesByMapViewport(mergedFb);
+            mergedFb = filterPlacesByParsedIntent(
+              mergedFb,
+              facetsForFilter,
+              nextQuery,
+              mapIntentFilterOpts
+            );
+            const rescored = calculateLocalAIScores(
+              mergedFb,
+              nextQuery,
+              null,
+              sortOrigin,
+              await withSearchSocialBoost(mergedFb, { keywordAiFallback: true })
+            );
+            if (shouldPreferFallbackSearchResults(scoredPlaces, rescored)) {
+              scoredPlaces = rescored;
+              pipelineIsBasic = false;
+              telemetryKeywordAiFallback = true;
+              aiRecommendExclusiveRef.current = true;
+            }
+          } catch (mapFbErr) {
+            if (import.meta.env.DEV) {
+              devWarn("[search] keyword→AI 지도 보조:", mapFbErr);
+            }
+          }
+        }
 
-        const scoredForUiMap = useBasicSearchPipeline
-          ? scoredPlaces
-          : scoredPlaces.slice(0, 5);
+        if (locationName && String(locationName).trim()) {
+          const beforeGate = scoredPlaces.length;
+          scoredPlaces = filterMapSearchPlacesByRegionProximity(scoredPlaces, {
+            sortOrigin,
+            locationName: String(locationName).trim(),
+            maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
+          });
+          if (import.meta.env.DEV && beforeGate !== scoredPlaces.length) {
+            devLog("[map-region-gate]", {
+              locationName: String(locationName).trim(),
+              dropped: beforeGate - scoredPlaces.length,
+              kept: scoredPlaces.length,
+            });
+          }
+        }
 
+        scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+
+        telemetryQualitySummary =
+          summarizeSearchResultQualityForTelemetry(scoredPlaces);
+
+        devLog('🎯 AI 최종 추천:', scoredPlaces.length, relaxationUsedMap || "");
+
+        scoredPlaces = enrichPlacesWithReason(nextQuery, scoredPlaces, {
+          keywordAiFallback: telemetryKeywordAiFallback,
+        });
+        logSignalsCheckDev(scoredPlaces);
+
+        let biasedScoredPlaces = applyChipResultProfileBias(scoredPlaces);
+
+        if (chipAnchorsMapViewport && AI_API_BASE) {
+          try {
+            const dbChipBlend = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
+              query: nextQuery,
+              limit: 14,
+              mode: "auto",
+              maxDistanceM: SITUATION_CHIP_CURATOR_API_MAX_DISTANCE_M,
+              originLat: sortOrigin?.lat,
+              originLng: sortOrigin?.lng,
+            });
+            if (dbChipBlend.ok && dbChipBlend.rows?.length) {
+              biasedScoredPlaces = mergeSituationChipCuratorPlaces(
+                biasedScoredPlaces,
+                dbChipBlend.rows,
+                dbPlaces,
+                SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS,
+                sortOrigin
+              );
+            }
+          } catch (blendCurErr) {
+            if (import.meta.env.DEV) {
+              devWarn("[chip-search] curator blend:", blendCurErr);
+            }
+          }
+        }
+
+        if (
+          chipAnchorsMapViewport &&
+          biasedScoredPlaces.length > SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS
+        ) {
+          biasedScoredPlaces = biasedScoredPlaces.slice(
+            0,
+            SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS,
+          );
+        }
+        telemetryEngineScoredPoolSize = biasedScoredPlaces.length;
+        telemetryPipelineScreenRowCount = biasedScoredPlaces.length;
+
+        if (!pipelineIsBasic) {
+          lastAiScoredPlacesForImportReorderRef.current = biasedScoredPlaces;
+        }
         setSearchDistanceOrigin({
           lat: sortOrigin.lat,
           lng: sortOrigin.lng,
         });
 
-        // 결과 설정 (미리보기 리스트 + 실시간 마커)
-        setExternalPlaces(
-          scoredForUiMap.map((p) => ({ ...p, isKakaoPlace: true }))
-        );
+        // 결과 설정 — 엔진 풀 전부(바텀시트는 AI_SHEET_PAGE_SIZE로 페이징)
+        const kakaoRowMap = (p) => ({ ...p, isKakaoPlace: true });
+        setExternalPlaces(biasedScoredPlaces.map(kakaoRowMap));
+        setExternalPlacesPool(biasedScoredPlaces.map(kakaoRowMap));
         const intentLineMap = (() => {
           const s = intentAssist?.intentSummary && String(intentAssist.intentSummary).trim();
           if (!s) return "";
@@ -5625,16 +7407,16 @@ const handleClearSearch = () => {
         })();
         setAiSummary(
           yajangBannerPayloadMap
-            ? `5km 안 큐레이터 야장 ${scoredPlaces.length}곳 · ${searchKeywordApi}`
+            ? `5km 안 큐레이터 야장 ${biasedScoredPlaces.length}곳 · ${searchKeywordApi}`
             : intentLineMap
               ? `${searchKeywordApi} 검색 · ${intentLineMap}`
               : `${searchKeywordApi} 검색 결과`
         );
         setAiReasons([`${searchKeywordApi} 지역 검색`, `지도 이동 및 줌인`]);
-        const kakaoIdsAllMap = scoredPlaces.map((p) => p.id);
+        const kakaoIdsAllMap = biasedScoredPlaces.map((p) => p.id);
         let mergedMap = kakaoIdsAllMap;
-        if (!useBasicSearchPipeline) {
-          setAiRecommendedIds(scoredForUiMap.map((p) => p.id));
+        if (!pipelineIsBasic) {
+          setAiRecommendedIds(biasedScoredPlaces.map((p) => p.id));
         } else {
           const dbSearchMap = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
             query: nextQuery,
@@ -5649,23 +7431,11 @@ const handleClearSearch = () => {
             : kakaoIdsAllMap;
           setAiRecommendedIds(mergedMap);
         }
-        shouldOpenAiSheetAfterLoad = scoredPlaces.length > 0;
-        {
-          const markersOnlySimpleSearch =
-            isSimpleLocationMenuMapQuery(nextQuery) &&
-            !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ);
-          if (markersOnlySimpleSearch) {
-            shouldOpenAiSheetAfterLoad = false;
-            setSimpleMapSearchMarkersOnly(true);
-          }
-        }
-        if (useBasicSearchPipeline) {
-          shouldOpenAiSheetAfterLoad = false;
-          setSimpleMapSearchMarkersOnly(true);
-        }
+        shouldOpenAiSheetAfterLoad = biasedScoredPlaces.length > 0;
+        setSimpleMapSearchMarkersOnly(false);
 
         // 지도에도 실시간 마커 표시 + 지도 이동 (블로그 크롤 전에 먼저 반영 — 로딩 무한 방지)
-        const kakaoFormattedPlaces = scoredForUiMap.map((place) => ({
+        const kakaoFormattedPlaces = biasedScoredPlaces.map((place) => ({
           ...place,
           lat: parseFloat(place.y ?? place.lat),
           lng: parseFloat(place.x ?? place.lng),
@@ -5685,14 +7455,22 @@ const handleClearSearch = () => {
         }));
 
         setKakaoPlaces(kakaoFormattedPlaces);
-        if (!isCourseQuery(nextQuery)) {
+        if (kakaoFormattedPlaces.length > 0 && !chipAnchorsMapViewport) {
+          setMapSearchMarkerFitTick((x) => x + 1);
+        }
+        if (
+          !chipAnchorsMapViewport &&
+          !useCoursePipeline &&
+          !isLikelyNaturalLanguageSearchQuery(nextQuery, naturalQ)
+        ) {
           openPreviewForFirstSearchResult(
             kakaoFormattedPlaces,
-            "search_bar_submit_map"
+            "search_bar_submit_map",
+            nextQuery
           );
         }
-        searchResultIdsForLog = (!useBasicSearchPipeline
-          ? scoredForUiMap.map((p) => String(p.id))
+        searchResultIdsForLog = (!pipelineIsBasic
+          ? biasedScoredPlaces.map((p) => String(p.id))
           : mergedMap.map((id) => String(id)));
 
         if (searchHereArmedAtMapStart) {
@@ -5700,18 +7478,8 @@ const handleClearSearch = () => {
           setMapViewportSearchLock(false);
         }
 
-        // 검색 결과는 현재 뷰 유지 — 마커만 갱신(MapView preserveViewport와 동일 정책)
-        if (kakaoFormattedPlaces.length > 0 && mapRef.current) {
-          const c = mapRef.current.getCenter?.();
-          if (
-            c &&
-            Number.isFinite(c.lat) &&
-            Number.isFinite(c.lng)
-          ) {
-            setMapViewportCenterFromUser({ lat: c.lat, lng: c.lng });
-          }
-        } else if (kakaoFormattedPlaces.length === 0) {
-          console.log("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
+        if (kakaoFormattedPlaces.length === 0) {
+          devLog("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
             hasPlaces: kakaoFormattedPlaces.length > 0,
             hasMapRef: !!mapRef.current,
             kakaoApi: !!window.kakao?.maps,
@@ -5720,7 +7488,8 @@ const handleClearSearch = () => {
 
         if (unifiedBlogFromServer.length > 0) {
           setBlogReviews(unifiedBlogFromServer);
-        } else if (!unifiedApiRespondedOk) {
+        } else if (!unifiedApiRespondedOk && !pipelineIsBasic) {
+          /** 키워드 전용(`pipelineIsBasic`)일 땐 Node 네이버 크롤(`/api/blog-reviews`) 생략 */
           void searchBlogReviews(nextQuery)
             .then((reviews) =>
               setBlogReviews(Array.isArray(reviews) ? reviews : [])
@@ -5737,16 +7506,91 @@ const handleClearSearch = () => {
       console.error("AI 검색 오류:", error);
       alert(error?.message || "검색 처리에 실패했습니다.");
     } finally {
-      insertSearchLog({
+      const finalResultCount = searchResultIdsForLog.length;
+      const resultDelta =
+        telemetryKeywordAiFallback &&
+        typeof telemetryPreFallbackResultCount === "number"
+          ? finalResultCount - telemetryPreFallbackResultCount
+          : null;
+      emitSearchTelemetry({
+        event: "search_submit",
+        sessionId: searchSessionId,
+        query: nextQuery,
+        /** 분기 판별 직후(시작점) */
+        initialKind: searchExecutionKind,
+        detectedKind: searchExecutionKind,
+        /** fallback·UI 분기 반영 후 */
+        effectiveKind: pipelineIsBasic
+          ? HOME_SEARCH_KIND.KEYWORD_SEARCH
+          : HOME_SEARCH_KIND.AI_PARSE_SEARCH,
+        keywordAiFallback: telemetryKeywordAiFallback,
+        preFallbackResultCount: telemetryPreFallbackResultCount,
+        resultDelta,
+        resultCount: finalResultCount,
+        pipelineScreenRowCount: telemetryPipelineScreenRowCount,
+        engineScoredPoolSize: telemetryEngineScoredPoolSize,
+        ...(telemetryQualitySummary || {}),
+        clickedPlaceId: null,
+      });
+      lastSearchSubmitTelemetryRef.current = {
+        sessionId: searchSessionId,
+        initialKind: searchExecutionKind,
+        effectiveKind: pipelineIsBasic
+          ? HOME_SEARCH_KIND.KEYWORD_SEARCH
+          : HOME_SEARCH_KIND.AI_PARSE_SEARCH,
+        fallbackTriggered: telemetryKeywordAiFallback,
+        preFallbackResultCount: telemetryPreFallbackResultCount,
+        finalResultCount,
+        resultDelta,
+        pipelineScreenRowCount: telemetryPipelineScreenRowCount,
+        engineScoredPoolSize: telemetryEngineScoredPoolSize,
+        ...(telemetryQualitySummary || {}),
+      };
+      const facetsForFeedback =
+        naturalQ.facets || parseSearchQuery(nextQuery);
+      const intentTagsForFeedback = intentTagsFromFacets(facetsForFeedback);
+      const areaForFeedback =
+        naturalQ.region ?? facetsForFeedback?.region ?? null;
+      const searchLogId = await insertSearchLog({
         sessionId: searchSessionId,
         userQuery: nextQuery,
-        parsed: naturalQ.facets || parseSearchQuery(nextQuery),
+        parsed: facetsForFeedback,
         searchResultsIds: searchResultIdsForLog,
         hasResults: searchResultIdsForLog.length > 0,
         user,
         searchMode: searchModeForLog,
         hadClientError: searchHadError,
+        submitUserVisibleCandidateCount: telemetryPipelineScreenRowCount,
+        submitInitialSearchKind: searchExecutionKind,
+        submitKeywordAiFallback: telemetryKeywordAiFallback,
       });
+      lastSearchLogIdRef.current = searchLogId;
+      searchFeedbackContextRef.current = {
+        normalizedQuery: normalizedQueryForFeedback,
+        area: areaForFeedback,
+        intentTags: intentTagsForFeedback,
+      };
+      if (
+        searchLogId &&
+        Array.isArray(searchResultIdsForLog) &&
+        searchResultIdsForLog.length > 0
+      ) {
+        const impressionKeys = [
+          ...new Set(
+            searchResultIdsForLog
+              .map(placeKeyFromSearchLogResultId)
+              .filter(Boolean)
+          ),
+        ];
+        if (impressionKeys.length > 0) {
+          void rpcIncrementSearchPlaceFeedbackImpressions({
+            normalizedQuery: normalizedQueryForFeedback,
+            area: areaForFeedback,
+            intentTags: intentTagsForFeedback,
+            placeKeys: impressionKeys,
+          });
+        }
+      }
       const elapsed = Date.now() - searchUiStartedAt;
       if (elapsed < MIN_SEARCH_LOADING_MS && !skipMinSearchLoading) {
         await new Promise((r) =>
@@ -5755,11 +7599,74 @@ const handleClearSearch = () => {
       }
       setIsAiSearching(false);
       setSearchLoadingLabel("");
-      if (shouldOpenAiSheetAfterLoad) {
-        setAiSheetOpen(true);
+      homeSearchSkipCoursePreviewRef.current = false;
+
+      /** 키워드·AI 공통 — place_import_tmp 기반 `/recommend` 로 카드 한 줄(content reason) 확보 */
+      let importRec = null;
+      if (searchModeForLog !== "course" && String(nextQuery || "").trim()) {
+        try {
+          importRec = await fetchCuratorImportRecommend(nextQuery);
+        } catch {
+          /* /recommend 실패 시 extras.why 는 스코어·태그 템플릿 */
+        }
       }
+
+      const reopenSheetFromResultRefresh =
+        forceReopenAiSheetAfterSearchRef.current &&
+        searchResultIdsForLog.length > 0;
+      const openAiSheetAfterThisSearch =
+        shouldOpenAiSheetAfterLoad || reopenSheetFromResultRefresh;
+      forceReopenAiSheetAfterSearchRef.current = false;
+
+      if (openAiSheetAfterThisSearch) {
+        if (
+          searchModeForLog !== "course" &&
+          !pipelineIsBasic &&
+          String(nextQuery || "").trim()
+        ) {
+          const base = lastAiScoredPlacesForImportReorderRef.current;
+          if (importRec?.ok && Array.isArray(base) && base.length > 0) {
+            const importList =
+              Array.isArray(importRec.import_pool) &&
+              importRec.import_pool.length > 0
+                ? importRec.import_pool
+                : importRec.places;
+            if (!Array.isArray(importList) || importList.length === 0) {
+              /* skip reorder */
+            } else {
+              const ordered = orderPlacesByImportFirst(base, importList);
+              if (ordered.length > 0) {
+                setExternalPlaces(
+                  ordered.map((p) => ({ ...p, isKakaoPlace: true })),
+                );
+                setExternalPlacesPool(
+                  ordered.map((p) => ({ ...p, isKakaoPlace: true })),
+                );
+                setAiRecommendedIds(ordered.map((p) => p.id));
+              }
+            }
+          }
+        }
+        setAiSheetOpen(true);
+        setTimeout(() => mapRef.current?.relayout?.(), 100);
+      }
+      lastAiScoredPlacesForImportReorderRef.current = null;
     }
   };
+
+  const submitHomeSearch = useCallback(
+    async (value, options = {}) => {
+      const q = String(value ?? "").trim();
+      if (q) {
+        setHomeSearchHistoryList(
+          recordHomeSearchHistory({ userId: user?.id, query: q })
+        );
+      }
+      homeSearchMode.close();
+      await handleSearchSubmit(value, options);
+    },
+    [user?.id, homeSearchMode, handleSearchSubmit]
+  );
 
   // 팔로우 모달 핸들러
   const handleFollow = async (curatorName) => {
@@ -5777,33 +7684,45 @@ const handleClearSearch = () => {
     }
     
     try {
-      // 큐레이터 정보 조회 (UUID ID를 얻기 위해)
+      // 1) 큐레이터 username 우선 조회
       const { data: curatorData, error: curatorError } = await supabase
         .from('curators')
-        .select('id, username')
-        .eq('username', curatorName)
-        .single();
-      
-      if (curatorError || !curatorData) {
+        .select('id, user_id, username, slug')
+        .or(`slug.eq.${curatorName},username.eq.${curatorName}`)
+        .maybeSingle();
+      if (curatorError) {
         console.error('큐레이터 정보 조회 실패:', curatorError);
-        showToast('큐레이터 정보를 찾을 수 없습니다.', 'error', 3000);
+      }
+
+      // 2) 큐레이터가 아니면 profiles.username으로 일반 유저 조회
+      let targetUserId = String(curatorData?.user_id || "").trim();
+      if (!targetUserId) {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, username")
+          .eq("username", curatorName)
+          .maybeSingle();
+        if (profileError) {
+          console.error("일반 유저 정보 조회 실패:", profileError);
+        }
+        targetUserId = String(profileData?.id || "").trim();
+      }
+
+      if (!targetUserId) {
+        showToast("사용자 정보를 찾을 수 없습니다.", "error", 3000);
+        return;
+      }
+      if (targetUserId === user.id) {
+        showToast('자기 자신은 팔로우할 수 없습니다.', 'error', 3000);
         return;
       }
       
-      // 팔로우 추가 (UUID ID로 저장)
-      const { error: followError } = await supabase
-        .from('user_follows')
-        .insert({
-          user_id: user.id,
-          curator_id: curatorData.id, // UUID ID 저장
-          created_at: new Date().toISOString()
-        });
-      
-      if (followError) {
+      try {
+        await followUser(supabase, targetUserId);
+      } catch (followError) {
         console.error('팔로우 실패:', followError);
-        
-        // 23505 에러 (중복 팔로우) 처리
-        if (followError.code === '23505' || followError.message?.includes('duplicate')) {
+        const msg = String(followError?.message || '').toLowerCase();
+        if (followError?.code === '23505' || msg.includes('duplicate')) {
           showToast('이미 팔로우한 큐레이터입니다.', 'info', 3000);
         } else {
           showToast('팔로우에 실패했습니다.', 'error', 3000);
@@ -5825,26 +7744,26 @@ const handleClearSearch = () => {
   // 큐레이터 상세 정보 가져오기
   const fetchCuratorDetails = async (curatorName) => {
     try {
-      console.log("🔍 큐레이터 상세 정보 조회:", curatorName);
+      devLog("🔍 큐레이터 상세 정보 조회:", curatorName);
       
       // curators 테이블에서 상세 정보 조회
       const { data: curatorData, error: curatorError } = await supabase
         .from('curators')
         .select('*')
-        .eq('username', curatorName)
+        .or(`slug.eq.${curatorName},username.eq.${curatorName}`)
         .maybeSingle(); // .single() 대신 .maybeSingle() 사용
       
       if (curatorError) {
-        console.log("❌ 큐레이터 정보 조회 실패:", curatorError);
+        console.error("❌ 큐레이터 정보 조회 실패:", curatorError);
         return null;
       }
       
       if (!curatorData) {
-        console.log("❌ 큐레이터 정보 없음:", curatorName);
+        devLog("❌ 큐레이터 정보 없음:", curatorName);
         return null;
       }
       
-      console.log("✅ 큐레이터 상세 정보:", curatorData);
+      devLog("✅ 큐레이터 상세 정보:", curatorData);
       
       const curatorAuthId = curatorData.user_id;
       const { data: placesData, error: placesError } = await supabase
@@ -5854,20 +7773,39 @@ const handleClearSearch = () => {
         .eq('is_archived', false);
       
       const placeCount = placesError ? 0 : (placesData?.length || 0);
+      const curatorPlaceIds = Array.from(
+        new Set(
+          (placesData || [])
+            .map((row) => String(row?.place_id ?? "").trim())
+            .filter(Boolean)
+        )
+      );
+
+      let saveCount = 0;
+      if (curatorPlaceIds.length > 0) {
+        const { count: savedCountExact, error: savesError } = await supabase
+          .from("user_saved_places")
+          .select("place_id", { count: "exact", head: true })
+          .in("place_id", curatorPlaceIds);
+        if (!savesError) {
+          saveCount = Number(savedCountExact) || 0;
+        }
+      }
       
-      // 팔로워 수: user_follows 스키마(보통 curator_id → curators.id PK). curator_places 와 다름.
-      const { data: followersData, error: followersError } = await supabase
-        .from('user_follows')
-        .select('id')
-        .eq('curator_id', curatorData.id);
-      
-      const followerCount = followersError ? 0 : (followersData?.length || 0);
+      const { data: countRow, error: followersError } = await supabase.rpc(
+        "user_follow_counts",
+        { p_user_id: curatorData.user_id }
+      );
+      const fc = Array.isArray(countRow) ? countRow[0] : countRow;
+      const followerCount = followersError
+        ? 0
+        : Number(fc?.followers_count) || 0;
       
       return {
         ...curatorData,
         placeCount,
         followerCount,
-        saveCount: 0 // 저장 수는 다른 테이블에서 조회 필요
+        saveCount,
       };
       
     } catch (error) {
@@ -5878,11 +7816,17 @@ const handleClearSearch = () => {
 
   // 선택된 큐레이터 정보 업데이트
   useEffect(() => {
-    if (selectedCurator && !selectedCurator.placeCount) {
+    if (
+      selectedCurator &&
+      selectedCurator.isCurator !== false &&
+      !selectedCurator.placeCount
+    ) {
       // 상세 정보가 없으면 가져오기
       const loadDetails = async () => {
         try {
-          const details = await fetchCuratorDetails(selectedCurator.name);
+          const details = await fetchCuratorDetails(
+            selectedCurator.username || selectedCurator.name
+          );
           if (details) {
             setSelectedCurator(prev => ({
               ...prev,
@@ -5902,10 +7846,29 @@ const handleClearSearch = () => {
   const getModalCurator = () => {
     if (selectedCurator) {
       // 선택된 큐레이터 정보 사용 (실제 데이터)
+      const slug = String(
+        selectedCurator.slug ||
+          selectedCurator.username ||
+          selectedCurator.name ||
+          ""
+      ).trim();
+      const name = String(
+        selectedCurator.name ||
+          selectedCurator.display_name ||
+          selectedCurator.displayName ||
+          slug
+      ).trim();
       return {
-        username: selectedCurator.username || selectedCurator.name,
-        displayName: selectedCurator.displayName || selectedCurator.name,
-        level: selectedCurator.grade || 2, // 실제 등급 또는 기본값
+        username: slug,
+        displayName: name,
+        level:
+          selectedCurator.level ??
+          selectedCurator.grade_level ??
+          selectedCurator.gradeLevel ??
+          selectedCurator.tier ??
+          selectedCurator.rank ??
+          null,
+        gradeRaw: selectedCurator.grade ?? null,
         saveCount: selectedCurator.saveCount || 0, // 실제 저장 수
         placeCount: selectedCurator.placeCount || 0, // 실제 장소 수
         followerCount: selectedCurator.followerCount || 0, // 실제 팔로워 수
@@ -5921,9 +7884,10 @@ const handleClearSearch = () => {
         username: firstCurator.name,
         displayName: firstCurator.displayName || firstCurator.name,
         level: 2, // Local Curator
-        saveCount: 60,
-        placeCount: 9,
-        followerCount: 123,
+        gradeRaw: firstCurator.grade ?? null,
+        saveCount: Number(firstCurator.saveCount) || 0,
+        placeCount: Number(firstCurator.placeCount) || 0,
+        followerCount: Number(firstCurator.followerCount) || 0,
         bio: "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요."
       };
     }
@@ -5933,14 +7897,66 @@ const handleClearSearch = () => {
       username: curatorProfile?.username || "nopokiller",
       displayName: curatorProfile?.displayName || "노포킬러",
       level: 2, // Local Curator
-      saveCount: 60,
-      placeCount: 9,
-      followerCount: 123,
+      gradeRaw: curatorProfile?.grade ?? null,
+      saveCount: 0,
+      placeCount: 0,
+      followerCount: 0,
       bio: curatorProfile?.bio || "서울의 숨은 명소를 찾아다니는 큐레이터입니다. 주로 혼술하기 좋은 조용한 곳을 추천해요."
     };
   };
 
   const testCurator = getModalCurator();
+  const isGeneralUserProfile = selectedCurator?.isCurator === false;
+  const modalRoleLabel = isGeneralUserProfile ? "아는 사람 프로필" : "큐레이터 프로필";
+  const modalBioText = isGeneralUserProfile
+    ? testCurator.bio || "아는 사람 활동 미리보기"
+    : testCurator.bio || "소개가 없습니다.";
+  const resolveGradeMeta = (rawGrade, numericLevel, isGeneralUser) => {
+    if (isGeneralUser) return { label: "New Drinker", emoji: "🌱" };
+    const gRaw = String(rawGrade ?? "").trim().toLowerCase();
+    const g = gRaw.replace(/[\s_-]+/g, "");
+    if (
+      ["top", "master", "vip", "pro", "4"].includes(g) ||
+      g.includes("topcurator") ||
+      g.includes("platinum") ||
+      g.includes("diamond") ||
+      g.includes("legend")
+    ) {
+      return { label: "Top Curator", emoji: "👑" };
+    }
+    if (
+      ["trusted", "senior", "3"].includes(g) ||
+      g.includes("trustedcurator") ||
+      g.includes("gold")
+    ) {
+      return { label: "Trusted Curator", emoji: "🏆" };
+    }
+    if (
+      ["local", "default", "2"].includes(g) ||
+      g.includes("localcurator") ||
+      g.includes("silver")
+    ) {
+      return { label: "Local Curator", emoji: "⭐" };
+    }
+    if (
+      ["new", "starter", "1"].includes(g) ||
+      g.includes("newdrinker") ||
+      g.includes("bronze") ||
+      g.includes("beginner")
+    ) {
+      return { label: "New Drinker", emoji: "🌱" };
+    }
+    const lv = Number(numericLevel);
+    if (Number.isFinite(lv) && lv >= 4) return { label: "Top Curator", emoji: "👑" };
+    if (Number.isFinite(lv) && lv >= 3) return { label: "Trusted Curator", emoji: "🏆" };
+    if (Number.isFinite(lv) && lv >= 2) return { label: "Local Curator", emoji: "⭐" };
+    return { label: "New Drinker", emoji: "🌱" };
+  };
+  const modalGradeMeta = resolveGradeMeta(
+    testCurator.gradeRaw,
+    testCurator.level,
+    isGeneralUserProfile
+  );
 
   // 내 위치 버튼 클릭 핸들러 (로그인 체크)
   const handleCurrentLocationClick = () => {
@@ -5953,220 +7969,44 @@ const handleClearSearch = () => {
     return false;
   };
 
+  const showDesktopSocialStack = viewportWidth >= 1180;
+
   return (
     <>
       {/* 실시간 Toast 알림 */}
       <AnimatedToast position="top-right" />
-      
-      {/* 실시간 체크인 랭킹 */}
-      <CheckinRanking position="sidebar" />
 
-      {/* 로그인 유도 모달 */}
-      {showLoginPrompt && (
-        <FeatureLoginPrompt
-          feature={requiredFeature}
-          onClose={closeLoginPrompt}
-          onLogin={() => {
-            closeLoginPrompt();
-            // 로그인 페이지로 이동 또는 소셜 로그인 호출
-            signInWithProvider('google');
-          }}
-        />
-      )}
-      
-      {/* 팔로우 모달 */}
-      {showFollowModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => setShowFollowModal(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              padding: "25px",
-              width: "min(380px, calc(100vw - 32px))",
-              maxWidth: "100%",
-              boxSizing: "border-box",
-              textAlign: "center",
-              overflowWrap: "break-word",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 큐레이터 프로필 정보 */}
-            <div style={{ marginBottom: "20px" }}>
-              {/* 프로필 이미지와 이름 */}
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px", minWidth: 0 }}>
-                {testCurator.avatar ? (
-                  <img
-                    src={testCurator.avatar}
-                    alt={testCurator.displayName}
-                    style={{
-                      width: "48px",
-                      height: "48px",
-                      borderRadius: "50%",
-                      objectFit: "cover",
-                      border: "2px solid #2ECC71"
-                    }}
-                  />
-                ) : (
-                  <div style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: "#2ECC71",
-                    color: "white",
-                    fontSize: "18px",
-                    fontWeight: "bold",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: "2px solid #2ECC71"
-                  }}>
-                    {testCurator.displayName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
-                  <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", color: "#333", fontWeight: "bold", overflowWrap: "break-word", wordBreak: "break-word" }}>
-                    @{testCurator.username}
-                  </h3>
-                  <div style={{ 
-                    fontSize: "14px", 
-                    color: "666",
-                    fontWeight: "500"
-                  }}>
-                    {testCurator.level >= 4 ? "👑 Top Curator" : 
-                     testCurator.level >= 3 ? "🏆 Trusted Curator" : 
-                     testCurator.level >= 2 ? "⭐ Local Curator" : "🌱 New Drinker"}
-                  </div>
-                </div>
-              </div>
-              
-              {/* 자기 소개글 */}
-              <div style={{ 
-                fontSize: "14px", 
-                color: "#555",
-                lineHeight: "1.5",
-                marginBottom: "16px",
-                padding: "12px",
-                backgroundColor: "#f8f9fa",
-                borderRadius: "8px"
-              }}>
-                "{testCurator.bio}"
-              </div>
-              
-              {/* 통계 정보 */}
-              <div style={{ 
-                display: "grid", 
-                gridTemplateColumns: "repeat(3, 1fr)", 
-                gap: "12px",
-                marginBottom: "20px"
-              }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#E74C3C" }}>
-                    {testCurator.saveCount}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
-                    저장수
-                  </div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#F39C12" }}>
-                    {testCurator.placeCount}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
-                    추천 장소
-                  </div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "20px", fontWeight: "bold", color: "#9B59B6" }}>
-                    {testCurator.followerCount}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#999" }}>
-                    팔로워
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* 팔로우 버튼 */}
-            <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
-              {testCurator.username === curatorProfile?.username ? (
-                <div
-                  style={{
-                    width: "100%",
-                    maxWidth: "100%",
-                    boxSizing: "border-box",
-                    padding: "14px 12px",
-                    backgroundColor: "#e9ecef",
-                    color: "#6c757d",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: "15px",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    cursor: "not-allowed",
-                    overflowWrap: "break-word",
-                    wordBreak: "break-word",
-                    lineHeight: 1.35,
-                  }}
-                >
-                  자기 자신은 팔로우할 수 없습니다
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  style={{
-                    width: "100%",
-                    maxWidth: "100%",
-                    boxSizing: "border-box",
-                    padding: "16px",
-                    backgroundColor: "#2ECC71",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: "16px",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
-                    boxShadow: "0 4px 12px rgba(46, 204, 113, 0.3)",
-                    overflowWrap: "break-word",
-                    wordBreak: "break-word",
-                  }}
-                  onMouseOver={(e) => {
-                    e.target.style.backgroundColor = "#27AE60";
-                    e.target.style.transform = "translateY(-1px)";
-                    e.target.style.boxShadow = "0 6px 16px rgba(46, 204, 113, 0.4)";
-                  }}
-                  onMouseOut={(e) => {
-                    e.target.style.backgroundColor = "#2ECC71";
-                    e.target.style.transform = "translateY(0)";
-                    e.target.style.boxShadow = "0 4px 12px rgba(46, 204, 113, 0.3)";
-                  }}
-                  onClick={() => handleFollow(testCurator.username)}
-                >
-                  팔로우하기
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <HomeDesktopSocialStack
+        visible={showDesktopSocialStack}
+        user={user}
+        judoMode={judoMode}
+        onOpenPlaceDetail={(place, source) =>
+          setSelectedPlaceWithAnalytics(place, source)
+        }
+      />
+
+      <HomeLoginPromptGate
+        open={showLoginPrompt}
+        feature={requiredFeature}
+        onClose={closeLoginPrompt}
+        onLoginRequest={() => signInWithProvider("google")}
+      />
+
+      <HomeFollowCuratorModal
+        open={showFollowModal}
+        onClose={() => setShowFollowModal(false)}
+        roleLabel={modalRoleLabel}
+        bioText={modalBioText}
+        gradeMeta={modalGradeMeta}
+        curator={testCurator}
+        currentUserUsername={curatorProfile?.username}
+        onFollow={(username) => handleFollow(username)}
+      />
 
       <div style={styles.page}>
       <main style={styles.mainContainer}>
-        {/* 실시간 체크인 토스트 - 지도 좌측 */}
+        {/* 실시간 체크인 토스트 - 지도 좌측 (검색 모드에선 숨김) */}
+        {!homeSearchMode.isOpen ? (
         <div style={{ 
           position: 'absolute', 
           top: '62px', // 실시간 체크인 토스트 — 헤더에 더 붙이기
@@ -6177,127 +8017,165 @@ const handleClearSearch = () => {
         }}>
           <CheckInToast />
         </div>
+        ) : null}
 
+        <HomeCoursesDiscoveryPanel
+          open={homeCoursesSheetOpen}
+          onClose={dismissHomeCoursesDiscovery}
+          railVisible={homeCoursesRailVisible}
+          user={user}
+          isCurator={isCurator}
+          browseCourse={homeCourseBrowse}
+          browseLoading={homeCourseBrowseLoading}
+          onBrowseBack={clearHomeCourseBrowse}
+          onSelectCourse={(id) => void selectHomeCourseInPanel(id)}
+          onBrowseStartFollow={() => void handleBrowseToggleFollow(true)}
+          followCourseId={homeFollowCourseId}
+          followBusy={homeRailFollowBusy}
+          stampedPlaceIds={homeRailStampPlaceIds}
+          guideStepIndex={homeRailGuideStepIndex}
+          courseCompleted={homeRailCourseCompleted}
+          stampStateVersion={homeCourseStampStateVersion}
+          replayBusy={homeRailReplayBusy}
+          onReplayStamps={() =>
+            void handleHomeRailReplayStamps(
+              homeCourseBrowse?.courseId || homeRailCourseDrive?.courseId
+            )
+          }
+          onStampStateRefresh={bumpHomeCourseStampState}
+          onSnapChange={setHomeCoursesSheetSnap}
+          sheetResetKey={homeCoursesSheetResetKey}
+        />
         <HotCheckinStrip
-          rankingTop5={rankingTop5}
+          rankingTop5={hotStripPlaceRows}
           risingCurators={risingCurators}
           placesOnMap={mapDisplayedPlacesWithLegend}
           mapRef={mapRef}
-          hideWhenPreviewOpen={Boolean(selectedPlace)}
+          user={user}
+          judoMode={judoMode}
+          onOpenMutualPlaceDetail={(place, source) =>
+            setSelectedPlaceWithAnalytics(place, source)
+          }
+          onPickMutualUser={(row) => {
+            const slug = String(row?.slug || row?.username || "").trim();
+            if (!slug) return;
+            const profileName = String(
+              row?.name || row?.displayName || slug
+            ).trim();
+            setSelectedCurator({
+              userId: String(row?.userId || "").trim() || undefined,
+              name: profileName,
+              slug,
+              username: slug,
+              displayName: profileName,
+              avatar: String(row?.avatarUrl || "").trim() || undefined,
+              isCurator: Boolean(row?.isCurator),
+              followerCount: Number(row?.followerCount) || 0,
+              saveCount: Number(row?.saveCount) || 0,
+              placeCount: row?.isCurator ? undefined : 0,
+              bio: row?.isCurator ? undefined : "아는 사람 프로필 미리보기",
+            });
+            setShowFollowModal(true);
+          }}
+          onMutualSearchOpenChange={setMutualSearchPanelOpen}
+          mutualSearchExpanded={mutualSearchPanelOpen}
+          hideWhenPreviewOpen={
+            Boolean(selectedPlace) ||
+            aiSheetOpen ||
+            (aiRecommendedIds.length > 0 && Boolean(String(query || "").trim()))
+          }
+          hideWhenSearchActive={
+            Boolean(String(query || "").trim()) || isAiSearching
+          }
+          hideWhenCourseSheetDocked={hideHomeMapChromeForDockedCourseSheet}
           onPickPlace={(place) =>
             setSelectedPlaceWithAnalytics(place, "hot_strip")
           }
           onPickCurator={handleRisingCuratorPick}
         />
 
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: "100%",
-            minHeight: 0,
-          }}
-        >
+        <div style={styles.mapViewportLayer}>
           {!selectedPlace &&
           !String(query || "").trim() &&
-          !isAiSearching ? (
+          !isAiSearching &&
+          !mutualSearchPanelOpen &&
+          !hideSituationFolderStripForMapCourseUi &&
+          !hideHomeMapChromeForCourses &&
+          !hideHomeMapChromeForDockedCourseSheet ? (
             <>
-              <div
-                style={styles.drinksSituationStrip}
-                role="group"
-                aria-label="술 상황 빠른 안내"
-              >
-                <button
-                  type="button"
-                  style={{
-                    ...styles.drinksSituationChip,
-                    ...(situationFolderFilter === SITUATION_FOLDER.secondRound
-                      ? styles.drinksSituationChipActive
-                      : {}),
-                  }}
-                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.secondRound}
-                  onClick={() => {
-                    const next =
-                      situationFolderFilter === SITUATION_FOLDER.secondRound
-                        ? null
-                        : SITUATION_FOLDER.secondRound;
-                    setSituationFolderFilter(next);
-                    if (next === SITUATION_FOLDER.secondRound) {
-                      mapRef.current?.moveToLocation?.(
-                        SEONGSU_MAP_CENTER.lat,
-                        SEONGSU_MAP_CENTER.lng
-                      );
-                      showToast(
-                        "저장 폴더「2차」·태그에 맞는 장소만 지도에 표시해요.",
-                        "info",
-                        2800
-                      );
-                    }
-                  }}
+              <div style={styles.drinksSituationStripWrapper}>
+                <div
+                  style={styles.drinksSituationStrip}
+                  role="group"
+                  aria-label="술 차례별 빠른 검색 한 번 실행 (코스 짜기 아님)"
                 >
-                  <span style={styles.drinksSituationEmoji} aria-hidden>
-                    🍺
-                  </span>
-                  <span>지금 2차 가기 좋은 곳</span>
-                </button>
-                <button
-                  type="button"
-                  style={{
-                    ...styles.drinksSituationChip,
-                    ...(situationFolderFilter === SITUATION_FOLDER.firstMeal
-                      ? styles.drinksSituationChipActive
-                      : {}),
-                  }}
-                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.firstMeal}
-                  onClick={() => {
-                    const next =
-                      situationFolderFilter === SITUATION_FOLDER.firstMeal
-                        ? null
-                        : SITUATION_FOLDER.firstMeal;
-                    setSituationFolderFilter(next);
-                    if (next === SITUATION_FOLDER.firstMeal) {
-                      showToast(
-                        "저장「회식」·배 채우기 태그에 맞는 장소만 보여요.",
-                        "info",
-                        2800
+                  <button
+                    type="button"
+                    style={styles.drinksSituationChip}
+                    onClick={() => {
+                      void handleSearchSubmit(
+                        DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY[
+                          SITUATION_FOLDER.firstMeal
+                        ],
+                        {
+                          skipCourseRecommendation: true,
+                          omitSearchBarText: true,
+                          mapViewportChipSearch: true,
+                          chipResultProfile: SITUATION_FOLDER.firstMeal,
+                        }
                       );
-                    }
-                  }}
-                >
-                  <span style={styles.drinksSituationEmoji} aria-hidden>
-                    🥢
-                  </span>
-                  <span>1차로 배 채우기</span>
-                </button>
-                <button
-                  type="button"
-                  style={{
-                    ...styles.drinksSituationChip,
-                    ...(situationFolderFilter === SITUATION_FOLDER.vibe
-                      ? styles.drinksSituationChipActive
-                      : {}),
-                  }}
-                  aria-pressed={situationFolderFilter === SITUATION_FOLDER.vibe}
-                  onClick={() => {
-                    const next =
-                      situationFolderFilter === SITUATION_FOLDER.vibe
-                        ? null
-                        : SITUATION_FOLDER.vibe;
-                    setSituationFolderFilter(next);
-                    if (next === SITUATION_FOLDER.vibe) {
-                      showToast(
-                        "저장「데이트」·분위기 태그에 맞는 장소만 보여요.",
-                        "info",
-                        2800
+                    }}
+                  >
+                    <span style={styles.drinksSituationEmoji} aria-hidden>
+                      🥢
+                    </span>
+                    <span>1차로 배 채우기</span>
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.drinksSituationChip}
+                    onClick={() => {
+                      void handleSearchSubmit(
+                        DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY[
+                          SITUATION_FOLDER.secondRound
+                        ],
+                        {
+                          skipCourseRecommendation: true,
+                          omitSearchBarText: true,
+                          mapViewportChipSearch: true,
+                          chipResultProfile: SITUATION_FOLDER.secondRound,
+                        }
                       );
-                    }
-                  }}
-                >
-                  <span style={styles.drinksSituationEmoji} aria-hidden>
-                    🍷
-                  </span>
-                  <span>분위기 있게 한잔</span>
-                </button>
+                    }}
+                  >
+                    <span style={styles.drinksSituationEmoji} aria-hidden>
+                      🍺
+                    </span>
+                    <span>2차 가기 좋은 곳</span>
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.drinksSituationChip}
+                    onClick={() => {
+                      void handleSearchSubmit(
+                        DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY[
+                          SITUATION_FOLDER.vibe
+                        ],
+                        {
+                          skipCourseRecommendation: true,
+                          omitSearchBarText: true,
+                          mapViewportChipSearch: true,
+                          chipResultProfile: SITUATION_FOLDER.vibe,
+                        }
+                      );
+                    }}
+                  >
+                    <span style={styles.drinksSituationEmoji} aria-hidden>
+                      🍷
+                    </span>
+                    <span>분위기 있게 한잔</span>
+                  </button>
+                </div>
               </div>
             </>
           ) : null}
@@ -6332,7 +8210,9 @@ const handleClearSearch = () => {
             }
             curatorColorMap={curatorColorMap}
             savedColorMap={savedColorMap}
-            livePlaceIds={livePlaceIds}
+            livePlaceIds={
+              judoMode.isDayMode ? EMPTY_LIVE_PLACE_IDS : livePlaceIds
+            }
             userFolders={userSavedPlaces} // 사용자 폴더 정보 전달
             onQuickSave={handleQuickSave} // 쾌속 잔 채우기 핸들러 전달
             userRole={getUserRole?.()} // 사용자 역할 전달
@@ -6342,25 +8222,27 @@ const handleClearSearch = () => {
             onLocationButtonClick={handleCurrentLocationClick}
             onCurrentLocationChange={(location) => {
               setCurrentLocation(location);
-              console.log('📍 현재 위치 업데이트:', location);
+              devLog('📍 현재 위치 업데이트:', location);
             }}
             onMapViewportChange={onMapViewportChange}
             checkinCountByPlaceId={placeCheckinCounts}
-            hotRankTopPlaceIds={hotRankTopPlaceIds}
-            onMapBackgroundClick={() =>
-              setMarkerGuideMapCloseTick((t) => t + 1)
+            hotRankTopPlaceIds={
+              judoMode.isDayMode ? null : hotRankTopPlaceIds
             }
+            canShowLiveFlame={judoMode.canShowLiveFlame}
+            onMapBackgroundClick={handleHomeMapBackgroundClick}
             onMapBlankClick={handleMapBlankPick}
             preserveViewportOnPlacesChange={
-              Boolean(String(query || "").trim()) ||
               showMapSearchHereButton ||
-              mapViewportSearchLock
+              mapViewportSearchLock ||
+              preserveMapViewportSituationChip ||
+              (Boolean(String(query || "").trim()) &&
+                kakaoTypingPreviewPlaces.length > 0)
             }
             skipKoreaBBoxForCuratorPins={
               !isCourseMode &&
-              Array.isArray(selectedCurators) &&
-              selectedCurators.length > 0 &&
-              !showSavedOnly
+              !showSavedOnly &&
+              (selectedCurators.length > 0 || showAll)
             }
             situationFolderFilter={situationFolderFilter}
             courseOverlay={courseMapOverlay}
@@ -6372,10 +8254,13 @@ const handleClearSearch = () => {
             courseSecondPickMode={courseSecondPickMode}
             regionBoundaryOverlay={regionBoundaryOverlay}
             regionBoundaryFitBottomPaddingPx={courseMapFitBottomPaddingPx}
+            placesFitBoundsPadding={mapSearchPlacesFitPadding}
           />
           <RecommendationMapOverlay
             recommendation={
-              curatorImportRecommendation?.ok
+              !isCourseMode &&
+              curatorImportRecommendation?.ok &&
+              !aiSheetUsesDisplayedPlaces
                 ? curatorImportRecommendation
                 : null
             }
@@ -6386,6 +8271,35 @@ const handleClearSearch = () => {
               if (p) setSelectedPlaceWithAnalytics(p, "recommend_overlay");
             }}
           />
+          <HomeCourseFollowStampDock
+            visible={
+              Boolean(homeCourseStampDock) &&
+              !homeCourseFollowMinimized &&
+              !homeRailCourseDrive &&
+              !isCourseMode &&
+              !String(query || "").trim() &&
+              !isAiSearching &&
+              !mutualSearchPanelOpen
+            }
+            courseId={homeCourseStampDock?.courseId}
+            courseTitle={homeCourseStampDock?.title}
+            stampedPlaceIds={homeRailStampPlaceIds}
+            guideStepIndex={homeRailGuideStepIndex}
+            following={homeRailFollowingThisCourse}
+            followBusy={homeRailFollowBusy}
+            courseCompleted={homeRailCourseCompleted}
+            everCompleted={homeRailEverCompleted}
+            replayBusy={homeRailReplayBusy}
+            onReplayStamps={() =>
+              void handleHomeRailReplayStamps(homeCourseStampDock?.courseId)
+            }
+            user={user}
+            onStartFollow={() => void handleHomeRailStartFollow()}
+            onStampStateRefresh={() =>
+              void refreshHomeRailCourseStampState(homeCourseStampDock?.courseId)
+            }
+            onDismiss={dismissHomeCourseStampDock}
+          />
           {String(query || "").trim() && !isCourseMode ? (
             <button
               type="button"
@@ -6395,17 +8309,32 @@ const handleClearSearch = () => {
               추천
             </button>
           ) : null}
-          {curatorImportRecommendation?.ok ? (
-            <div className="pointer-events-auto absolute bottom-[calc(156px+env(safe-area-inset-bottom,0px))] left-3 right-3 z-[124] max-h-[40vh] overflow-y-auto rounded-xl border border-neutral-200/90 bg-white/95 p-3 shadow-lg md:left-auto md:right-3 md:w-80">
-              <RecommendedPlacesList
-                recommendation={curatorImportRecommendation}
-                onSelectPlace={handleRecommendPlaceFromList}
-              />
-            </div>
-          ) : null}
-          <SelectedRecommendedPlaceDetailCard
+          <HomeRecommendOverlay
+            isCourseMode={isCourseMode}
+            recommendation={curatorImportRecommendation}
+            onSelectPlace={handleRecommendPlaceFromList}
+            aiSheetUsesDisplayedPlaces={aiSheetUsesDisplayedPlaces}
             selectedRecommendedPlace={selectedRecommendedPlace}
             matchedMapPlace={matchedMapPlace}
+            mergedPlace={mergedRecommendDetailPlace}
+            isSaved={recommendDetailIsSaved}
+            canCheckIn={judoMode.canCheckIn}
+            onRequestSave={(p) => setSaveTargetPlace(p)}
+            recommendationBatchPlaces={
+              curatorImportRecommendation?.ok
+                ? curatorImportPlacesOrPool
+                : null
+            }
+            searchQuery={
+              (curatorImportRecommendation?.ok &&
+                String(curatorImportRecommendation.query || "").trim()) ||
+              String(query || "").trim()
+            }
+            importSummaryText={
+              curatorImportRecommendation?.ok
+                ? curatorImportRecommendation.summary
+                : ""
+            }
             onClose={closeRecommendedPlaceDetail}
             onViewOnMap={() => {
               const mapTarget = matchedMapPlace ?? selectedRecommendedPlace;
@@ -6421,458 +8350,61 @@ const handleClearSearch = () => {
               setSelectedPlaceWithAnalytics(mapTarget, "recommend_detail");
             }}
           />
-          {!selectedPlace &&
-          !String(query || "").trim() &&
-          !isAiSearching &&
-          !homeDustIntroDismissed ? (
-            <>
-              <style>{`
-                @keyframes homeDustIntroCycle {
-                  0% {
-                    opacity: 0;
-                    filter: blur(14px);
-                    transform: scale(0.9);
-                    letter-spacing: -0.06em;
-                  }
-                  16% {
-                    opacity: 1;
-                    filter: blur(0px);
-                    transform: scale(1);
-                    letter-spacing: -0.03em;
-                  }
-                  44% {
-                    opacity: 1;
-                    filter: blur(0px);
-                    transform: scale(1);
-                    letter-spacing: -0.03em;
-                  }
-                  100% {
-                    opacity: 0;
-                    filter: blur(26px);
-                    transform: scale(1.18);
-                    letter-spacing: 0.14em;
-                  }
-                }
-              `}</style>
-              <div
-                style={styles.homeDustIntroOverlay}
-                aria-hidden={false}
-              >
-                <div
-                  style={styles.homeDustIntroInner}
-                  onAnimationEnd={handleHomeDustIntroAnimationEnd}
-                >
-                  <p style={styles.homeDustIntroTitle}>
-                    오늘 1차 어디서 시작할까?
-                  </p>
-                  <p style={styles.homeDustIntroSub}>
-                    성수에서 한잔 시작하기
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : null}
-          {showMapSearchHereButton ? (
-            <button
-              type="button"
-              onClick={() => {
-                searchHereArmedRef.current = true;
-                setShowMapSearchHereButton(false);
-                setMapViewportSearchLock(true);
-                showToast(
-                  "다음 검색은 지금 화면 안에서만 찾아요.",
-                  "info",
-                  2600
-                );
-              }}
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)",
-                bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
-                zIndex: 130,
-                padding: "11px 18px",
-                borderRadius: 999,
-                border: "1px solid rgba(124, 58, 237, 0.55)",
-                background: "rgba(255,255,255,0.98)",
-                color: "#5b21b6",
-                fontSize: 14,
-                fontWeight: 800,
-                cursor: "pointer",
-                boxShadow: "0 4px 18px rgba(0,0,0,0.14)",
-                WebkitTapHighlightColor: "transparent",
-              }}
-            >
-              여기서 검색
-            </button>
-          ) : null}
+          <HomeDustIntroOverlay
+            visible={
+              !selectedPlace &&
+              !String(query || "").trim() &&
+              !isAiSearching &&
+              !homeDustIntroDismissed &&
+              !hideHomeMapChromeForDockedCourseSheet
+            }
+            onTapToAnswer={handleHomeDustIntroTapToAnswer}
+            onAnimationEnd={handleHomeDustIntroAnimationEnd}
+            styleMap={styles}
+          />
+          <HomeMapFloatingActions
+            showSearchHere={showMapSearchHereButton}
+            onSearchHere={() => {
+              searchHereArmedRef.current = true;
+              setShowMapSearchHereButton(false);
+              setMapViewportSearchLock(true);
+              showToast(
+                "다음 검색은 지금 화면 안에서만 찾아요.",
+                "info",
+                2600,
+              );
+            }}
+            showAddHalfStep={canAddHalfStepNow}
+            onAddHalfStep={() => {
+              void handleCourseIncludeHalfStepChange(true);
+            }}
+            halfStepDisabled={isLoadingCourse || isAiSearching}
+            halfStepStyles={styles.courseAddHalfStepFloatingBtn}
+          />
         </div>
 
-        {courseSecondFindModalOpen ? (
-          <div
-            role="presentation"
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 240,
-              background: "rgba(0,0,0,0.45)",
-              display: "flex",
-              alignItems: "flex-end",
-              justifyContent: "center",
-              padding: "12px 12px max(16px, env(safe-area-inset-bottom))",
-              pointerEvents: "auto",
-            }}
-            onClick={cancelCourseSecondFindModal}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="course-second-find-title"
-              style={{
-                width: "100%",
-                maxWidth: 420,
-                maxHeight: "min(72vh, 520px)",
-                overflow: "auto",
-                borderRadius: 16,
-                background: "rgba(255,255,255,0.98)",
-                boxShadow: "0 -8px 32px rgba(0,0,0,0.2)",
-                padding: "16px 16px 14px",
-                pointerEvents: "auto",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                id="course-second-find-title"
-                style={{
-                  fontSize: 16,
-                  fontWeight: 800,
-                  color: "#3d2914",
-                  marginBottom: 4,
-                }}
-              >
-                2차 후보 조건
-              </div>
-              <p
-                style={{
-                  margin: "0 0 14px",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  color: "#666",
-                }}
-              >
-                골라 주시면 그에 맞춰 가산점을 줘요. 분위기·주종은 잔 올리기와
-                같은 목록이에요. 거리는 1차 기준으로 후보를 잘라요. 안 고르면
-                분위기·주종·안주는 기본 룰만 쓰고, 거리는 3km로 둡니다.
-              </p>
+        <CourseSecondFindModal
+          open={courseSecondFindModalOpen}
+          onCancel={cancelCourseSecondFindModal}
+          onConfirm={confirmCourseSecondFindModal}
+          confirmBusy={mapCourseFirstBusy}
+          vibes={courseSecondFindVibes}
+          onChangeVibes={setCourseSecondFindVibes}
+          liquors={courseSecondFindLiquors}
+          onChangeLiquors={setCourseSecondFindLiquors}
+          anju={courseSecondFindAnju}
+          onChangeAnju={setCourseSecondFindAnju}
+          maxDistanceM={courseSecondFindMaxDistanceM}
+          onChangeMaxDistanceM={setCourseSecondFindMaxDistanceM}
+          preferCloser={courseSecondFindPreferCloser}
+          onChangePreferCloser={setCourseSecondFindPreferCloser}
+          prioritizeCurators={courseSecondFindPrioritizeCurators}
+          onChangePrioritizeCurators={setCourseSecondFindPrioritizeCurators}
+        />
 
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                분위기
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {STUDIO_ATMOSPHERE_OPTIONS.map((v) => {
-                  const on = courseSecondFindVibes.includes(v);
-                  return (
-                    <button
-                      key={`2fv-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindVibes((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                주종
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {STUDIO_LIQUOR_TYPE_OPTIONS.map((v) => {
-                  const on = courseSecondFindLiquors.includes(v);
-                  return (
-                    <button
-                      key={`2fl-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindLiquors((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                안주
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {COURSE_SECOND_SNACK_OPTIONS.map((v) => {
-                  const on = courseSecondFindAnju.includes(v);
-                  return (
-                    <button
-                      key={`2fa-${v}`}
-                      type="button"
-                      onClick={() =>
-                        setCourseSecondFindAnju((prev) =>
-                          prev.includes(v)
-                            ? prev.filter((x) => x !== v)
-                            : [...prev, v]
-                        )
-                      }
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#5b21b6",
-                  marginBottom: 6,
-                }}
-              >
-                1차에서 거리
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 14,
-                }}
-              >
-                {COURSE_SECOND_FIND_DISTANCE_OPTIONS.map(({ m, label }) => {
-                  const on = courseSecondFindMaxDistanceM === m;
-                  return (
-                    <button
-                      key={`2fd-${m}`}
-                      type="button"
-                      onClick={() => setCourseSecondFindMaxDistanceM(m)}
-                      style={{
-                        padding: "6px 11px",
-                        borderRadius: 999,
-                        border: on
-                          ? "1px solid rgba(124, 58, 237, 0.65)"
-                          : "1px solid rgba(92, 64, 51, 0.18)",
-                        background: on
-                          ? "rgba(250,245,255,0.98)"
-                          : "rgba(255,255,255,0.95)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: on ? "#5b21b6" : "#5c4033",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#3d2914",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={courseSecondFindPreferCloser}
-                  onChange={(e) =>
-                    setCourseSecondFindPreferCloser(e.target.checked)
-                  }
-                />
-                더 가까운 곳 우선
-              </label>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 8,
-                  marginBottom: 16,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#3d2914",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={courseSecondFindPrioritizeCurators}
-                  onChange={(e) =>
-                    setCourseSecondFindPrioritizeCurators(e.target.checked)
-                  }
-                  style={{ marginTop: 2 }}
-                />
-                <span>
-                  큐레이터 추천 우선
-                  <span
-                    style={{
-                      display: "block",
-                      marginTop: 4,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: "#777",
-                    }}
-                  >
-                    여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점
-                  </span>
-                </span>
-              </label>
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={cancelCourseSecondFindModal}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(92, 64, 51, 0.22)",
-                    background: "#fff",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#5c4033",
-                    cursor: "pointer",
-                  }}
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  disabled={mapCourseFirstBusy}
-                  onClick={confirmCourseSecondFindModal}
-                  style={{
-                    padding: "10px 16px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: "rgba(124, 58, 237, 0.92)",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    color: "#fff",
-                    cursor: mapCourseFirstBusy ? "default" : "pointer",
-                    opacity: mapCourseFirstBusy ? 0.65 : 1,
-                  }}
-                >
-                  {mapCourseFirstBusy ? "찾는 중…" : "후보 찾기"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
+        {!homeSearchMode.isOpen ? (
         <div style={styles.headerOverlay}>
-          <div style={styles.logoStack}>
+          <div style={styles.headerTopRow}>
             <button
               type="button"
               onClick={() => {
@@ -6884,10 +8416,9 @@ const handleClearSearch = () => {
             >
               JUDO
             </button>
-          </div>
 
-          <div style={styles.filterWrapper}>
-            <CuratorFilterBar
+            <HomeCuratorFilterRow
+              wrapperStyle={styles.filterWrapper}
               curators={dbCurators}
               selectedCurators={selectedCurators}
               allActive={showAll && selectedCurators.length === 0}
@@ -6928,14 +8459,26 @@ const handleClearSearch = () => {
                 handleClearSearch();
               }}
               onProfileClick={(curator) => {
-                console.log("👤 큐레이터 프로필 클릭:", curator);
-                // 선택된 큐레이터 정보 설정하고 모달 표시
+                devLog("👤 큐레이터 프로필 클릭:", curator);
                 setSelectedCurator(curator);
                 setShowFollowModal(true);
               }}
             />
           </div>
+
         </div>
+        ) : null}
+
+        {showJudoDayNoticeBar ? (
+          <div
+            style={styles.judoDayNoticeFixedBar}
+            role="status"
+            aria-live="polite"
+            title={dayModeNoticeText}
+          >
+            {dayModeNoticeText}
+          </div>
+        ) : null}
 
         <div style={styles.legendOverlay}>
           {courseSecondPickMode &&
@@ -6954,7 +8497,7 @@ const handleClearSearch = () => {
               후보 끄기
             </button>
           ) : null}
-          <MarkerLegend
+          <HomeMapLegendBar
             mapCloseTick={markerGuideMapCloseTick}
             savedOnly={showSavedOnly}
             onToggleSavedOnly={() => {
@@ -6963,7 +8506,7 @@ const handleClearSearch = () => {
                 if (next && selectedPlace) {
                   const savedKeySet = buildMergedSavedPlaceKeySet(
                     savedMap,
-                    userSavedPlaces
+                    userSavedPlaces,
                   );
                   if (!placeMatchesSavedKeySet(selectedPlace, savedKeySet)) {
                     setSelectedPlace(null);
@@ -6978,53 +8521,47 @@ const handleClearSearch = () => {
               setLegendCategory((prev) => (prev === key ? null : key));
               if (selectedPlace) setSelectedPlace(null);
             }}
+            onRequestMyLocation={() => mapRef.current?.requestMyLocation?.()}
+            mapLocationLoading={mapLocationLoading}
+            myLocationButtonStyle={styles.legendMyLocationButton}
+            myLocationSpinnerStyle={styles.legendMyLocationSpinner}
           />
-          <button
-            type="button"
-            onClick={() => mapRef.current?.requestMyLocation?.()}
-            disabled={mapLocationLoading}
-            style={{
-              ...styles.legendMyLocationButton,
-              opacity: mapLocationLoading ? 0.72 : 1,
-            }}
-            title="내 위치"
-            aria-label="내 위치로 이동"
-          >
-            {mapLocationLoading ? (
-              <span style={styles.legendMyLocationSpinner} aria-hidden />
-            ) : (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                aria-hidden
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-              </svg>
-            )}
-          </button>
+          <div style={styles.legendCoursesChipStack}>
+            <HomeCoursesEntryChip
+              visible={homeCoursesEntryVisible}
+              open={homeCoursesEntryChipOpen}
+              onToggle={toggleHomeCoursesPanel}
+              buttonStyle={styles.legendCoursesEntryButton}
+              activeButtonStyle={styles.legendCoursesEntryButtonActive}
+              labelStyle={styles.legendCoursesEntryLabel}
+            />
+            <HomeCourseStampResumeChip
+              visible={showHomeCourseStampResume}
+              title={homeCourseFollowQuickTitle}
+              onOpen={() => void handleOpenCourseFollowQuick()}
+              buttonStyle={styles.legendCourseStampResumeButton}
+              labelStyle={styles.legendCourseStampResumeLabel}
+            />
+          </div>
         </div>
 
-        {!selectedPlace ? (
+        {!selectedPlace &&
+        !mutualSearchPanelOpen &&
+        !hideHomeMapChromeForCourses &&
+        !homeSearchMode.isOpen ? (
           <div style={styles.bottomBarContainer}>
-            <div style={styles.searchWrapper}>
-              {searchIdleHintVisible && searchIdleHintText ? (
-                <div
-                  role="status"
-                  style={styles.searchIdleFloatingHint}
-                >
-                  {searchIdleHintText}
-                </div>
-              ) : null}
-              <CuratorPicksStrip
-                places={curatorSpotlightPlaces}
-                visible={!query.trim() && !isAiSearching}
-                onPick={(place) => {
+            <div
+              style={{
+                ...styles.searchWrapper,
+                ...(recommendSheetDocked ? styles.searchWrapperSheetDocked : {}),
+              }}
+            >
+              <HomeSearchAboveStrip
+                showSpotlight={
+                  !query.trim() && !isAiSearching && !mutualSearchPanelOpen
+                }
+                spotlightPlaces={curatorSpotlightPlaces}
+                onPickSpotlightPlace={(place) => {
                   setSelectedPlaceWithAnalytics(place, "curator_spotlight");
                   if (
                     mapRef?.current?.moveToLocation &&
@@ -7038,37 +8575,38 @@ const handleClearSearch = () => {
               <SearchBar
                 query={query}
                 setQuery={setQuery}
-                onSubmit={handleSearchSubmit}
+                onSubmit={submitHomeSearch}
                 onClear={handleClearSearch}
-                onExampleClick={handleSearchSubmit}
+                onExampleClick={submitHomeSearch}
                 placeholder={homeSearchPlaceholderText}
-                onUserInteractWithSearch={dismissSearchIdleHint}
-                showChannelTabs
-                searchChannel={homeSearchChannel}
-                onSearchChannelChange={setHomeSearchChannel}
+                searchInputRef={homeSearchInputRef}
                 isLoading={isAiSearching}
                 loadingStatusText={searchLoadingLabel}
                 mapRef={mapRef}
                 compactRightActions={compactSearchBarAuth}
+                sheetDockedAbove={recommendSheetDocked}
+                onInputFocus={() => {
+                  if (!isCourseMode) homeSearchMode.open();
+                }}
                 showKakaoSearch={true}
                 onKakaoPlaceSelect={handleKakaoPlaceSelect}
                 onKakaoTypingPreviewPlacesChange={setKakaoTypingPreviewPlaces}
                 userLocation={currentLocation}
                 onNearbySearch={(location) => {
-                  console.log('📍 내 주변 검색:', location);
+                  devLog('📍 내 주변 검색:', location);
                   setIsLocationBasedSearch(true);
                   // 현재 위치 상태 업데이트 (마커 표시용)
                   setCurrentLocation(location);
                   // 지도를 현재 위치로 이동
                   if (mapRef?.current?.moveToLocation) {
-                    console.log('🗺️ 지도 이동:', location.lat, location.lng);
+                    devLog('🗺️ 지도 이동:', location.lat, location.lng);
                     mapRef.current.moveToLocation(location.lat, location.lng);
                   } else {
-                    console.log('⚠️ mapRef 또는 moveToLocation 없음:', mapRef?.current);
+                    devLog('⚠️ mapRef 또는 moveToLocation 없음:', mapRef?.current);
                   }
                 }}
                 onNearbyPlacesFound={(places) => {
-                  console.log('📍 내 주변 술집 마커로 표시:', places.length, '개');
+                  devLog('📍 내 주변 술집 마커로 표시:', places.length, '개');
                   // 카카오 장소 데이터를 마커 형식으로 변환
                   const formattedPlaces = places.map(place => ({
                     id: `kakao_${place.id}`,
@@ -7100,132 +8638,64 @@ const handleClearSearch = () => {
                 onRealTimeSearch={(value) => {
                   // AI 실시간 검색 기능 추가
                   if (value.trim()) {
-                    console.log('🤖 AI 실시간 검색:', value);
+                    devLog('🤖 AI 실시간 검색:', value);
                     // 여기에 AI 검색 로직 추가
                   }
                 }}
                 onLocationModeChange={(isLocationBased) => {
                   setIsLocationBasedSearch(isLocationBased);
-                  console.log('🔍 위치기반 검색 모드:', isLocationBased);
+                  devLog('🔍 위치기반 검색 모드:', isLocationBased);
                 }}
                 rightActions={
-                  <div
-                    style={{
-                      ...styles.authRowInline,
-                      ...(compactSearchBarAuth ? styles.authRowInlineNarrow : {}),
+                  <HomeSearchAuthSlot
+                    authLoading={authLoading}
+                    rolesLoading={rolesLoading}
+                    isLoggedIn={Boolean(user)}
+                    userRole={getUserRole()}
+                    compact={compactSearchBarAuth}
+                    profileButtonHint={getProfileButtonHint()}
+                    profilePhotoUrl={searchBarProfilePhotoUrl}
+                    profilePhotoFailed={searchBarProfileImgFailed}
+                    onProfilePhotoError={() => setSearchBarProfileImgFailed(true)}
+                    profileInitial={getSearchBarProfileInitial()}
+                    onProfileClick={() => {
+                      if (authLoading || rolesLoading) return;
+                      const userRole = getUserRole();
+                      devLog(" @아이디 버튼 클릭:", {
+                        userRole,
+                        isAdmin,
+                        isCurator,
+                        rolesLoading,
+                        username: getDisplayUsername(),
+                      });
+                      if (userRole === "admin") {
+                        navigate("/admin");
+                      } else if (userRole === "curator") {
+                        navigate("/studio");
+                      } else {
+                        setShowUserCard(true);
+                      }
                     }}
-                  >
-                    {/* 모든 사용자 @아이디 버튼 */}
-                    {!authLoading && user && (
-                      <button
-                        type="button"
-                        title={getProfileButtonHint().title}
-                        aria-label={getProfileButtonHint().aria}
-                        style={{
-                          ...(getUserRole() === "admin"
-                            ? styles.adminInlineButton
-                            : getUserRole() === "curator"
-                              ? styles.curatorInlineButton
-                              : styles.userInlineButton),
-                          ...styles.searchBarProfileButton,
-                          ...(compactSearchBarAuth
-                            ? styles.searchBarProfileButtonNarrow
-                            : {}),
-                        }}
-                        onClick={() => {
-                          const userRole = getUserRole();
-                          console.log(" @아이디 버튼 클릭:", { userRole, isAdmin, isCurator, username: getDisplayUsername() });
-                          
-                          if (userRole === "admin") {
-                            // Admin은 큐레이터 신청내역 페이지로 이동
-                            navigate("/admin");
-                          } else if (userRole === "curator") {
-                            // 큐레이터는 스튜디오 페이지로 이동
-                            navigate("/studio");
-                          } else {
-                            // 일반 사용자는 UserCard 표시
-                            setShowUserCard(true);
-                          }
-                        }}
-                      >
-                        {searchBarProfilePhotoUrl && !searchBarProfileImgFailed ? (
-                          <img
-                            src={searchBarProfilePhotoUrl}
-                            alt=""
-                            style={styles.searchBarProfileImg}
-                            onError={() => setSearchBarProfileImgFailed(true)}
-                          />
-                        ) : (
-                          <span style={styles.searchBarProfileInitial}>
-                            {getSearchBarProfileInitial()}
-                          </span>
-                        )}
-                      </button>
-                    )}
-                    
-                    {/* 일반 유저에게만 큐레이터 신청 버튼 표시 */}
-                    {!authLoading && user && getUserRole() === "user" && (
-                      <CuratorApplicationButton compact={compactSearchBarAuth} />
-                    )}
-                    
-                    {authLoading ? null : user ? (
-                      <button
-                        type="button"
-                        style={{
-                          ...styles.authInlineButton,
-                          ...(compactSearchBarAuth
-                            ? styles.authInlineButtonNarrow
-                            : {}),
-                        }}
-                        title="로그아웃"
-                        onClick={() => {
-                          signOut().catch((error) => {
-                            console.error("signOut error:", error);
-                            alert(error?.message || "로그아웃에 실패했습니다.");
-                          });
-                        }}
-                      >
-                        {compactSearchBarAuth ? "나가기" : "로그아웃"}
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          style={{
-                            ...styles.authIconButton,
-                            ...styles.googleButton,
-                          }}
-                          onClick={() => {
-                            signInWithProvider("google").catch((error) => {
-                              console.error("google login error:", error);
-                              alert(error?.message || "구글 로그인에 실패했습니다.");
-                            });
-                          }}
-                          aria-label="Google 로그인"
-                          title="Google 로그인"
-                        >
-                          <span style={styles.googleG}>G</span>
-                        </button>
-                        <button
-                          type="button"
-                          style={{
-                            ...styles.authIconButton,
-                            ...styles.kakaoButton,
-                          }}
-                          onClick={() => {
-                            signInWithProvider("kakao").catch((error) => {
-                              console.error("kakao login error:", error);
-                              alert(error?.message || "카카오 로그인에 실패했습니다.");
-                            });
-                          }}
-                          aria-label="Kakao 로그인"
-                          title="Kakao 로그인"
-                        >
-                          <span style={styles.kakaoK}>K</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
+                    onSignOut={() => {
+                      signOut().catch((error) => {
+                        console.error("signOut error:", error);
+                        alert(error?.message || "로그아웃에 실패했습니다.");
+                      });
+                    }}
+                    onGoogleLogin={() => {
+                      signInWithProvider("google").catch((error) => {
+                        console.error("google login error:", error);
+                        alert(error?.message || "구글 로그인에 실패했습니다.");
+                      });
+                    }}
+                    onKakaoLogin={() => {
+                      signInWithProvider("kakao").catch((error) => {
+                        console.error("kakao login error:", error);
+                        alert(error?.message || "카카오 로그인에 실패했습니다.");
+                      });
+                    }}
+                    styleMap={styles}
+                  />
                 }
               />
             </div>
@@ -7237,23 +8707,28 @@ const handleClearSearch = () => {
             ...styles.mapCardOverlay,
             ...(isCourseMode && String(query).trim() && !isAiSearching
               ? {
-                  /** 검색바 위로 겹쳐도 됨 — 코스 UI를 화면 맨 아래에 붙여 지도 영역 최대화 */
-                  zIndex: 170,
+                  /** 접힘: 지도 넓게(170). 펼침: 핫스트립(360)보다 위 — 떠오르는 큐레이터가 코스 시트를 가리지 않게 */
+                  zIndex: aiSheetOpen ? 380 : 170,
                 }
               : aiSheetOpen ||
                   (aiRecommendedIds.length > 0 &&
                     String(query || "").trim() &&
                     !simpleMapSearchMarkersOnly)
                 ? {
-                    /** 핫스트립(85)·검색바 래퍼(160)보다 위 — 맞춤 바텀시트·피크가 가리지 않게 */
+                    /** 핫스트립(360)·검색바 래퍼(160)보다 위 — 맞춤 바텀시트·피크가 가리지 않게 */
                     zIndex: 320,
                   }
                 : {}),
             bottom: selectedPlace
-              ? "18px"
+              ? "calc(18px + env(safe-area-inset-bottom, 0px))"
               : isCourseMode && String(query).trim() && !isAiSearching
                 ? "env(safe-area-inset-bottom, 0px)"
                 : styles.mapCardOverlay.bottom,
+            ...(selectedPlace
+              ? {
+                  zIndex: 200,
+                }
+              : {}),
           }}
         >
           {selectedPlace ? (
@@ -7261,6 +8736,7 @@ const handleClearSearch = () => {
               <PlacePreviewCard
                 place={selectedPlace}
                 isSaved={previewSavedState.isSaved}
+                canCheckIn={judoMode.canCheckIn}
                 savedFolderColor={
                   previewSavedState.folderColor ??
                   savedColorMap[selectedPlace.id]
@@ -7270,6 +8746,7 @@ const handleClearSearch = () => {
                 onClose={() => setSelectedPlace(null)}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
+                searchFeedbackContextRef={searchFeedbackContextRef}
                 onCourseMapFindSecond={openCourseSecondFindModal}
                 courseMapFindSecondEnabled={Boolean(
                   resolvePlaceWgs84(selectedPlace) && !isAiSearching
@@ -7281,1274 +8758,196 @@ const handleClearSearch = () => {
                 userLocation={currentLocation}
                 onShowArrivalWalkingOnMap={handleShowArrivalWalkingOnMap}
                 arrivalWalkingRouteShown={Boolean(arrivalWalkingOverlay)}
+                courseIdHint={homeCheckinCourseIdHint}
+                onCourseStampProgress={handleHomeCheckinCourseStampProgress}
               />
             </div>
           ) : searchExpandUX && query.trim() && !isAiSearching ? (
-            <div style={styles.expandSearchWrap} role="region" aria-label="검색 확장 제안">
-              <div style={styles.expandSearchCard}>
-                <div style={styles.expandSearchTitle}>{searchExpandUX.headline}</div>
-                <p style={styles.expandSearchNote}>{searchExpandUX.dataNote}</p>
-                <p style={styles.expandSearchSub}>{searchExpandUX.subline}</p>
-                {Array.isArray(searchExpandUX.fallbackHints) &&
-                searchExpandUX.fallbackHints.length > 0 ? (
-                  <ul style={styles.expandFallbackHints} aria-label="조건 완화 아이디어">
-                    {searchExpandUX.fallbackHints.map((line, idx) => (
-                      <li key={idx}>{line}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                {searchExpandUX.quickBroadenQuery ? (
-                  <button
-                    type="button"
-                    style={styles.expandPrimaryBtn}
-                    onClick={() => {
-                      setSearchExpandUX(null);
-                      handleSearchSubmit(searchExpandUX.quickBroadenQuery);
-                    }}
-                  >
-                    {searchExpandUX.quickBroadenLabel ||
-                      `한 번에 넓게 «${searchExpandUX.quickBroadenQuery}»로 찾기`}
-                  </button>
-                ) : null}
-                <div style={styles.expandChipCol}>
-                  {(searchExpandUX.suggestions || []).map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      style={styles.expandChip}
-                      onClick={() => {
-                        setSearchExpandUX(null);
-                        handleSearchSubmit(s.query);
-                      }}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  style={styles.expandDismiss}
-                  onClick={() => setSearchExpandUX(null)}
-                >
-                  닫기
-                </button>
-              </div>
-            </div>
+            <HomeSearchExpandPanel
+              data={searchExpandUX}
+              onPick={(q) => {
+                setSearchExpandUX(null);
+                handleSearchSubmit(q);
+              }}
+              onDismiss={() => setSearchExpandUX(null)}
+            />
           ) : isCourseMode && query.trim() && !isAiSearching ? (
-            <div style={styles.courseMergedShell}>
-              <div ref={courseMergedHeaderRef} style={styles.courseMergedHeader}>
-                <button
-                  type="button"
-                  style={styles.courseSearchClearButton}
-                  onClick={handleClearSearch}
-                  aria-label="코스 추천 취소 및 검색어 지우기"
-                  title="검색어 지우고 새로 검색"
-                >
-                  ×
-                </button>
-                {courseHasFinalTwoSteps ? (
-                  <button
-                    type="button"
-                    style={styles.courseResetPickButton}
-                    onClick={() => void handleResetCoursePickWithSavePrompt()}
-                    aria-label="선택한 코스만 비우기"
-                    title="1차·2차 코스만 초기화 (검색어는 유지)"
-                  >
-                    ×
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  style={{
-                    ...styles.aiPeekBar,
-                    ...styles.courseAiPeekBar,
-                    ...styles.courseMergedPeekToggle,
-                    flex: 1,
-                    minWidth: 0,
-                    opacity: isAiSearching ? 0.92 : 1,
-                  }}
-                  onClick={() => setAiSheetOpen((open) => !open)}
-                >
-                  <div style={{ ...styles.aiPeekLeft, gap: "8px" }}>
-                    <div style={styles.aiPeekTextWrap}>
-                      <div style={{ ...styles.aiPeekTitle, ...styles.courseAiPeekTitle }}>
-                        {courseError && !courseOptions.length
-                          ? "코스를 찾지 못했어요"
-                          : `추천 코스 ${courseOptions.length}가지`}
-                      </div>
-                      <div
-                        style={{
-                          ...styles.aiPeekSubtitle,
-                          ...styles.courseAiPeekSubtitle,
-                        }}
-                      >
-                        {courseError && !courseOptions.length ? (
-                          courseError
-                        ) : (
-                          <span>
-                            {aiSummary || "눌러서 코스 상세 보기"}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
-                </button>
-              </div>
+            <HomeCourseMergedSheet
+              styles={styles}
+              isCourseMode={isCourseMode}
+              courseMergedHeaderRef={courseMergedHeaderRef}
+              handleClearSearch={handleClearSearch}
+              courseHasFinalTwoSteps={courseHasFinalTwoSteps}
+              handleResetCoursePickWithSavePrompt={handleResetCoursePickWithSavePrompt}
+              aiSheetOpen={aiSheetOpen}
+              setAiSheetOpen={setAiSheetOpen}
+              isAiSearching={isAiSearching}
+              courseError={courseError}
+              courseOptions={courseOptions}
+              aiSummary={aiSummary}
+              coursePullStripRef={coursePullStripRef}
+              courseSearchUsedGpsOrigin={courseSearchUsedGpsOrigin}
+              courseGpsRadiusM={courseGpsRadiusM}
+              handleCourseGpsRadiusChange={handleCourseGpsRadiusChange}
+              isLoadingCourse={isLoadingCourse}
+              courseQueryParsed={courseQueryParsed}
+              courseIncludeHalfStep={courseIncludeHalfStep}
+              handleCourseIncludeHalfStepChange={handleCourseIncludeHalfStepChange}
+              courseSwipeRowRef={courseSwipeRowRef}
+              onCourseSwipeRowScroll={onCourseSwipeRowScroll}
+              selectedCourse={selectedCourse}
+              chooseCourse={chooseCourse}
+              setCourseComposeSlotFirst={setCourseComposeSlotFirst}
+              setCourseComposeSlotBridge={setCourseComposeSlotBridge}
+              setCourseComposeSlotSecond={setCourseComposeSlotSecond}
+              courseComposeSlotFirst={courseComposeSlotFirst}
+              courseComposeSlotBridge={courseComposeSlotBridge}
+              courseComposeSlotSecond={courseComposeSlotSecond}
+              curatorPlaceCatalogForMerge={curatorPlaceCatalogForMerge}
+              setSelectedPlaceWithAnalytics={setSelectedPlaceWithAnalytics}
+              assignCourseStepToComposeAuto={assignCourseStepToComposeAuto}
+              courseWalkStrollHint={courseWalkStrollHint}
+              courseDrivingMap={courseDrivingMap}
+              applyComposedCourseFromSteps={applyComposedCourseFromSteps}
+              altFirstCourses={altFirstCourses}
+              altSecondCourses={altSecondCourses}
+              applyAlternativeFirst={applyAlternativeFirst}
+              applyAlternativeSecond={applyAlternativeSecond}
+              rerunDifferentCourses={rerunDifferentCourses}
+              regenerateSelectedCourseFirst={regenerateSelectedCourseFirst}
+              regenerateSelectedCourseSecond={regenerateSelectedCourseSecond}
+              isRefreshingCourses={isRefreshingCourses}
+              isRegeneratingSecond={isRegeneratingSecond}
+              isRegeneratingFirst={isRegeneratingFirst}
+              onSaveSelectedCourseAsDraft={handleSaveSelectedCourseAsDraft}
+              saveSelectedCourseDraftBusy={savingRecommendedDraft}
+            />
 
-              {aiSheetOpen ? (
-                <div style={styles.courseMergedBody}>
-                  <div
-                    ref={coursePullStripRef}
-                    style={styles.courseSheetPullStrip}
-                    aria-hidden
-                  >
-                    <div style={styles.courseSheetPullStripBar} />
-                  </div>
-                  {courseSearchUsedGpsOrigin ? (
-                    <div
-                      style={{
-                        padding: "12px 14px 4px",
-                        borderBottom: "1px solid rgba(124, 58, 237, 0.12)",
-                        background: "rgba(250,245,255,0.5)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 800,
-                          color: "#5b21b6",
-                          marginBottom: 8,
-                        }}
-                      >
-                        검색 반경 (내 위치 기준)
-                      </div>
-                      <div
-                        role="group"
-                        aria-label="코스 검색 반경"
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        {COURSE_GPS_RADIUS_OPTIONS.map(({ m, label }) => {
-                          const selected = courseGpsRadiusM === m;
-                          const busy = isLoadingCourse || isAiSearching;
-                          return (
-                            <button
-                              key={m}
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                if (m === courseGpsRadiusM) return;
-                                void handleCourseGpsRadiusChange(m);
-                              }}
-                              style={{
-                                padding: "6px 14px",
-                                borderRadius: 999,
-                                border: `1px solid ${
-                                  selected
-                                    ? "rgba(91, 33, 182, 0.85)"
-                                    : "rgba(92, 64, 51, 0.25)"
-                                }`,
-                                background: selected
-                                  ? "rgba(91, 33, 182, 0.12)"
-                                  : "rgba(255,255,255,0.95)",
-                                fontSize: 12,
-                                fontWeight: selected ? 800 : 600,
-                                color: selected ? "#4c1d95" : "#5c4033",
-                                cursor: busy ? "wait" : "pointer",
-                                opacity: busy ? 0.65 : 1,
-                              }}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p
-                        style={{
-                          margin: "8px 0 0",
-                          fontSize: 10,
-                          lineHeight: 1.4,
-                          color: "#7d6a5c",
-                        }}
-                      >
-                        기본 3km · 더 넓게 보실 땐 5km / 8km
-                      </p>
-                    </div>
-                  ) : null}
-                  {courseError ? (
-                    <p
-                      style={{
-                        margin: "12px 16px",
-                        fontSize: 14,
-                        lineHeight: 1.5,
-                        color: "#5c4033",
-                      }}
-                    >
-                      {courseError}
-                    </p>
-                  ) : null}
-                  <div style={styles.courseSheetBody}>
-                    {courseStepPatternHint ? (
-                      <p
-                        style={{
-                          margin: "6px 10px 0",
-                          padding: "8px 10px",
-                          fontSize: 11,
-                          lineHeight: 1.45,
-                          color: "#5c4033",
-                          background: "rgba(255,255,255,0.72)",
-                          borderRadius: 10,
-                          border: "1px solid rgba(124, 58, 237, 0.15)",
-                        }}
-                      >
-                        {courseStepPatternHint}
-                      </p>
-                    ) : null}
-                    {!courseError && courseOptions.length > 0 ? (
-                      <div
-                        style={{
-                          flexShrink: 0,
-                          padding: "8px 10px 10px",
-                          background: "rgba(250,245,255,0.55)",
-                          borderBottom: "1px solid rgba(124, 58, 237, 0.12)",
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 800,
-                            color: "#5b21b6",
-                            marginBottom: 6,
-                          }}
-                        >
-                          조합 만들기
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "#3d2914",
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          <span style={{ color: "#888" }}>1차</span>{" "}
-                          {courseComposePick1?.steps?.[0]?.place?.name ?? "—"}
-                          <span style={{ margin: "0 8px", color: "#d4c4f0" }}>|</span>
-                          <span style={{ color: "#888" }}>2차</span>{" "}
-                          {courseComposePick2?.steps?.[1]?.place?.name ?? "—"}
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            marginTop: 8,
-                            flexWrap: "wrap",
-                            alignItems: "center",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            disabled={!courseComposePick1 && !courseComposePick2}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                              border: "1px solid rgba(92, 64, 51, 0.2)",
-                              background: "rgba(255,255,255,0.95)",
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: "#5c4033",
-                              cursor:
-                                courseComposePick1 || courseComposePick2
-                                  ? "pointer"
-                                  : "default",
-                              opacity:
-                                courseComposePick1 || courseComposePick2 ? 1 : 0.45,
-                            }}
-                            onClick={() => {
-                              setCourseComposePick1(null);
-                              setCourseComposePick2(null);
-                            }}
-                          >
-                            초기화
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!courseComposePick1 || !courseComposePick2}
-                            style={{
-                              flex: "1 1 120px",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "none",
-                              background:
-                                courseComposePick1 && courseComposePick2
-                                  ? "rgba(124, 58, 237, 0.95)"
-                                  : "rgba(0,0,0,0.08)",
-                              fontSize: 12,
-                              fontWeight: 800,
-                              color: "#fff",
-                              cursor:
-                                courseComposePick1 && courseComposePick2
-                                  ? "pointer"
-                                  : "not-allowed",
-                              opacity:
-                                courseComposePick1 && courseComposePick2 ? 1 : 0.55,
-                            }}
-                            onClick={() => {
-                              if (
-                                !courseComposePick1 ||
-                                !courseComposePick2 ||
-                                !applyComposedCourseFromPicks(
-                                  courseComposePick1,
-                                  courseComposePick2
-                                )
-                              ) {
-                                return;
-                              }
-                              setCourseComposePick1(null);
-                              setCourseComposePick2(null);
-                            }}
-                          >
-                            이 조합으로 코스 적용
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+          ) : (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
+            !simpleMapSearchMarkersOnly ? (
+            <HomeAiBottomSheetCluster
+              styles={styles}
+              onDismissRecommendSheet={handleDismissRecommendSheet}
+              setAiSheetOpen={setAiSheetOpen}
+              isAiSearching={isAiSearching}
+              displayedPlaces={displayedPlaces}
+              setKakaoPlaces={setKakaoPlaces}
+              preserveMapViewportSituationChip={preserveMapViewportSituationChip}
+              setMapSearchMarkerFitTick={setMapSearchMarkerFitTick}
+              aiError={aiError}
+              aiBottomSheetPlaces={aiBottomSheetPlaces}
+              loadingDots={loadingDots}
+              searchLoadingLabel={searchLoadingLabel}
+              aiSummary={aiSummary}
+              yajangFallbackBanner={yajangFallbackBanner}
+              aiSheetPage={aiSheetPage}
+              setAiSheetPage={setAiSheetPage}
+              aiSheetTotalPages={aiSheetTotalPages}
+              aiSheetPageSize={AI_SHEET_PAGE_SIZE}
+              aiBottomSheetPagedPlaces={aiBottomSheetPagedPlaces}
+              getRecommendationListDistanceLabel={getRecommendationListDistanceLabel}
+              searchResultSheetExtras={searchResultSheetExtras}
+              curatorImportRecommendation={curatorImportRecommendation}
+              curatorImportPlacesOrPool={curatorImportPlacesOrPool}
+              query={query}
+              useImportRecPlacesForAiSheet={useImportRecPlacesForAiSheet}
+              handleRecommendPlaceFromList={handleRecommendPlaceFromList}
+              setSelectedPlaceWithAnalytics={setSelectedPlaceWithAnalytics}
+              mapRef={mapRef}
+              topReasonMap={topReasonMap}
+              aiSheetPlacePreviewKey={aiSheetPlacePreviewKey}
+              aiSheetPhotoByKey={aiSheetPhotoByKey}
+              aiSheetExpandedReasonByKey={aiSheetExpandedReasonByKey}
+              setAiSheetExpandedReasonByKey={setAiSheetExpandedReasonByKey}
+              aiSheetPhotoViewerSuppressOpenUntilRef={aiSheetPhotoViewerSuppressOpenUntilRef}
+              aiSheetPhotoViewerItems={aiSheetPhotoViewerItems}
+              aiSheetPhotoViewerIndex={aiSheetPhotoViewerIndex}
+              setAiSheetPhotoViewerIndex={setAiSheetPhotoViewerIndex}
+              setAiSheetPhotoViewerOpen={setAiSheetPhotoViewerOpen}
+              curatorSearchHighlightList={curatorSearchHighlightList}
+              setShowAll={setShowAll}
+              setSelectedCurators={setSelectedCurators}
+              dbCurators={dbCurators}
+              blogReviews={blogReviews}
+              aiSheetPhotoViewerOpen={aiSheetPhotoViewerOpen}
+              closeAiSheetPhotoViewer={closeAiSheetPhotoViewer}
+            />
 
-                    <>
-                    <div
-                      ref={courseSwipeRowRef}
-                      style={styles.courseOptionsSwipeRow}
-                      onScroll={onCourseSwipeRowScroll}
-                    >
-                    {courseOptions.map((course, index) => {
-                      const isSel = selectedCourse?.key === course.key;
-                      const legM = getCourseLegMeters(course);
-                      const courseWalkHint =
-                        legM != null ? getCourseWalkComfortHint(legM) : "";
-                      const legSummary = formatCourseLegDistanceSummary(course);
-                      const pick1This = courseComposePick1?.key === course.key;
-                      const pick2This = courseComposePick2?.key === course.key;
-                      const pickChip = {
-                        flexShrink: 0,
-                        padding: "4px 10px",
-                        borderRadius: 8,
-                        border: "1px solid rgba(124, 58, 237, 0.35)",
-                        background: "rgba(255,255,255,0.98)",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: "#5b21b6",
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      };
-                      return (
-                      <div
-                        key={course.key || index}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => {
-                          if (course.key !== selectedCourse?.key) {
-                            setCourseComposePick1(null);
-                            setCourseComposePick2(null);
-                          }
-                          chooseCourse(course);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            if (course.key !== selectedCourse?.key) {
-                              setCourseComposePick1(null);
-                              setCourseComposePick2(null);
-                            }
-                            chooseCourse(course);
-                          }
-                        }}
-                        style={{
-                          ...styles.courseOptionCardSwipe,
-                          padding: "10px 12px",
-                          borderRadius: 12,
-                          background: "rgba(255,255,255,0.92)",
-                          border: isSel
-                            ? "2px solid rgba(124, 58, 237, 0.55)"
-                            : "1px solid rgba(92, 64, 51, 0.12)",
-                          boxShadow: isSel
-                            ? "0 6px 18px rgba(124, 58, 237, 0.15)"
-                            : "0 4px 14px rgba(0,0,0,0.06)",
-                          cursor: "pointer",
-                          outline: "none",
-                          textAlign: "left",
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: 700,
-                            fontSize: 15,
-                            marginBottom: 6,
-                            color: "#3d2914",
-                          }}
-                        >
-                          {course.profileTitle || `코스 ${index + 1}`}
-                        </div>
-                        {course.profileDescription ? (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "#666",
-                              marginBottom: 10,
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {course.profileDescription}
-                          </div>
-                        ) : null}
-                        {legSummary ? (
-                          <div
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 700,
-                              color: "#5b21b6",
-                              marginBottom: 8,
-                              lineHeight: 1.45,
-                            }}
-                          >
-                            1차→2차 {legSummary}
-                          </div>
-                        ) : null}
-                        <p
-                          style={{
-                            margin: "0 0 12px",
-                            fontSize: 12,
-                            color: "#444",
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          {buildCourseSummary(course)}
-                        </p>
-                        {course.profileKey === "my_own" ? (
-                          <div
-                            style={{
-                              marginBottom: 10,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {(() => {
-                              const snap = snapshotFromMyOwnCourse(course);
-                              const saved =
-                                snap.pairKey &&
-                                savedMyCoursePairKeys.has(snap.pairKey);
-                              return (
-                                <button
-                                  type="button"
-                                  disabled={Boolean(saved)}
-                                  style={{
-                                    padding: "8px 14px",
-                                    borderRadius: 999,
-                                    border: saved
-                                      ? "1px solid rgba(34, 197, 94, 0.45)"
-                                      : "1px solid rgba(124, 58, 237, 0.45)",
-                                    background: saved
-                                      ? "rgba(220, 252, 231, 0.95)"
-                                      : "rgba(250,245,255,0.98)",
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                    color: saved ? "#166534" : "#5b21b6",
-                                    cursor: saved ? "default" : "pointer",
-                                    opacity: saved ? 0.9 : 1,
-                                  }}
-                                  onClick={(e) => {
-                                    if (saved) return;
-                                    void handleSaveMyOwnCourse(course, e);
-                                  }}
-                                >
-                                  {saved ? "저장됨" : "코스 저장"}
-                                </button>
-                              );
-                            })()}
-                          </div>
-                        ) : null}
-                        <div style={{ fontSize: 13, lineHeight: 1.55, color: "#333" }}>
-                          <div style={{ marginBottom: 8 }}>
-                            <strong>{course.steps[0]?.label}</strong>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                alignItems: "center",
-                                gap: 8,
-                                marginTop: 4,
-                              }}
-                            >
-                              <button
-                                type="button"
-                                style={{
-                                  flex: "1 1 120px",
-                                  minWidth: 0,
-                                  padding: 0,
-                                  border: "none",
-                                  background: "none",
-                                  color: "#6b4f2a",
-                                  fontWeight: 600,
-                                  textAlign: "left",
-                                  cursor: "pointer",
-                                  textDecoration: "underline",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const raw =
-                                    course.steps[0]?.place?._raw ||
-                                    course.steps[0]?.place;
-                                  if (!raw) return;
-                                  setSelectedPlaceWithAnalytics(
-                                    mergePickedPlaceWithCuratorCatalog(
-                                      raw,
-                                      curatorPlaceCatalogForMerge
-                                    ),
-                                    "course_step1"
-                                  );
-                                }}
-                              >
-                                {course.steps[0]?.place?.name}
-                              </button>
-                              <button
-                                type="button"
-                                style={{
-                                  ...pickChip,
-                                  background: pick1This
-                                    ? "rgba(250,245,255,0.98)"
-                                    : "rgba(255,255,255,0.98)",
-                                  border: pick1This
-                                    ? "1px solid rgba(124, 58, 237, 0.65)"
-                                    : "1px solid rgba(124, 58, 237, 0.35)",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCourseComposePick1((prev) =>
-                                    prev?.key === course.key ? null : course
-                                  );
-                                }}
-                              >
-                                {pick1This ? "1차 담음" : "1차 담기"}
-                              </button>
-                            </div>
-                            <div style={{ color: "#666", marginTop: 4 }}>
-                              체류 약{" "}
-                              {formatCourseStayMinutes(
-                                course.steps[0]?.stayMinutes
-                              )}
-                            </div>
-                            {getCourseOpenStatusText(course.steps[0]?.place) ? (
-                              <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
-                                {getCourseOpenStatusText(course.steps[0]?.place)}
-                              </div>
-                            ) : null}
-                          </div>
-                          <div
-                            style={{
-                              margin: "10px 0",
-                              fontSize: 12,
-                              color: "#666",
-                            }}
-                          >
-                            1차 → 2차{" "}
-                            {formatCourseWalkApprox(
-                              legM ?? course.steps[1]?.walkDistanceMeters
-                            )}
-                            {courseWalkHint ? (
-                              <span style={{ display: "block", marginTop: 4 }}>
-                                {courseWalkHint}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div>
-                            <strong>{course.steps[1]?.label}</strong>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                alignItems: "center",
-                                gap: 8,
-                                marginTop: 4,
-                              }}
-                            >
-                              <button
-                                type="button"
-                                style={{
-                                  flex: "1 1 120px",
-                                  minWidth: 0,
-                                  padding: 0,
-                                  border: "none",
-                                  background: "none",
-                                  color: "#6b4f2a",
-                                  fontWeight: 600,
-                                  textAlign: "left",
-                                  cursor: "pointer",
-                                  textDecoration: "underline",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const raw =
-                                    course.steps[1]?.place?._raw ||
-                                    course.steps[1]?.place;
-                                  if (!raw) return;
-                                  setSelectedPlaceWithAnalytics(
-                                    mergePickedPlaceWithCuratorCatalog(
-                                      raw,
-                                      curatorPlaceCatalogForMerge
-                                    ),
-                                    "course_step2"
-                                  );
-                                }}
-                              >
-                                {course.steps[1]?.place?.name}
-                              </button>
-                              <button
-                                type="button"
-                                style={{
-                                  ...pickChip,
-                                  background: pick2This
-                                    ? "rgba(250,245,255,0.98)"
-                                    : "rgba(255,255,255,0.98)",
-                                  border: pick2This
-                                    ? "1px solid rgba(124, 58, 237, 0.65)"
-                                    : "1px solid rgba(124, 58, 237, 0.35)",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCourseComposePick2((prev) =>
-                                    prev?.key === course.key ? null : course
-                                  );
-                                }}
-                              >
-                                {pick2This ? "2차 담음" : "2차 담기"}
-                              </button>
-                            </div>
-                            <div style={{ color: "#666", marginTop: 4 }}>
-                              체류 약{" "}
-                              {formatCourseStayMinutes(
-                                course.steps[1]?.stayMinutes
-                              )}
-                            </div>
-                            {getCourseOpenStatusText(course.steps[1]?.place) ? (
-                              <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
-                                {getCourseOpenStatusText(course.steps[1]?.place)}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                    })}
-                    </div>
-                    {selectedCourse && courseOptions.length ? (
-                      <div
-                        style={{
-                          padding: "4px 10px 8px",
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 6,
-                          alignItems: "center",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: "100%",
-                            fontSize: 11,
-                            color: "#888",
-                            lineHeight: 1.45,
-                            marginBottom: 2,
-                          }}
-                        >
-                          지도 선은 길을 따라 표시됩니다.
-                        </div>
-                        {(() => {
-                          const courseChipBusy =
-                            isRefreshingCourses ||
-                            isRegeneratingSecond ||
-                            isRegeneratingFirst;
-                          const neutralChip = {
-                            border: "1px solid rgba(92, 64, 51, 0.18)",
-                            borderRadius: 999,
-                            padding: "8px 12px",
-                            background: "rgba(255,255,255,0.95)",
-                            fontSize: 12,
-                            color: "#3d2914",
-                            cursor: courseChipBusy ? "wait" : "pointer",
-                            opacity: courseChipBusy ? 0.65 : 1,
-                          };
-                          return (
-                            <>
-                              <button
-                                type="button"
-                                disabled={courseChipBusy}
-                                style={{
-                                  border: "1px solid rgba(124, 58, 237, 0.35)",
-                                  borderRadius: 999,
-                                  padding: "8px 12px",
-                                  background: "rgba(250,245,255,0.98)",
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  color: "#5b21b6",
-                                  cursor: courseChipBusy ? "wait" : "pointer",
-                                  opacity: courseChipBusy ? 0.65 : 1,
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void rerunDifferentCourses();
-                                }}
-                              >
-                                {isRefreshingCourses
-                                  ? "다른 코스 찾는 중…"
-                                  : "다른 코스로 다시 추천"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={courseChipBusy}
-                                style={neutralChip}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void regenerateSelectedCourseFirst();
-                                }}
-                              >
-                                {isRegeneratingFirst
-                                  ? "1차 찾는 중…"
-                                  : "1차만 다시"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={courseChipBusy}
-                                style={neutralChip}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void regenerateSelectedCourseSecond("same");
-                                }}
-                              >
-                                {isRegeneratingSecond
-                                  ? "2차 추천 중…"
-                                  : "2차만 다시"}
-                              </button>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    ) : null}
-                    {altFirstCourses.length > 0 ? (
-                      <div style={{ padding: "0 12px 16px" }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#3d2914",
-                            marginBottom: 10,
-                          }}
-                        >
-                          다른 1차 추천
-                        </div>
-                        {altFirstCourses.map((course) => (
-                          <div
-                            key={course.key}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => applyAlternativeFirst(course)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                applyAlternativeFirst(course);
-                              }
-                            }}
-                            style={{
-                              border: "1px solid rgba(92, 64, 51, 0.14)",
-                              borderRadius: 14,
-                              padding: "12px 14px",
-                              background: "rgba(255,255,255,0.96)",
-                              marginBottom: 10,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <div style={{ fontSize: 12, color: "#5c4033" }}>
-                              <strong>2차 유지</strong>
-                              <div style={{ marginTop: 4 }}>
-                                {course.steps[1]?.place?.name}
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: "#6b7280",
-                                padding: "8px 0",
-                              }}
-                            >
-                              도보 약{" "}
-                              {formatCourseWalkApprox(
-                                course.steps[1]?.walkDistanceMeters
-                              )}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#5c4033" }}>
-                              <strong>새 1차</strong>
-                              <div style={{ marginTop: 4 }}>
-                                {course.steps[0]?.place?.name}
-                              </div>
-                              <div style={{ color: "#666", marginTop: 4 }}>
-                                체류 약{" "}
-                                {formatCourseStayMinutes(
-                                  course.steps[0]?.stayMinutes
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    {altSecondCourses.length > 0 ? (
-                      <div style={{ padding: "0 12px 16px" }}>
-                        <div
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "#3d2914",
-                            marginBottom: 10,
-                          }}
-                        >
-                          다른 2차 추천
-                        </div>
-                        {altSecondCourses.map((course) => (
-                          <div
-                            key={course.key}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => applyAlternativeSecond(course)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                applyAlternativeSecond(course);
-                              }
-                            }}
-                            style={{
-                              border: "1px solid rgba(92, 64, 51, 0.14)",
-                              borderRadius: 14,
-                              padding: "12px 14px",
-                              background: "rgba(255,255,255,0.96)",
-                              marginBottom: 10,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <div style={{ fontSize: 12, color: "#5c4033" }}>
-                              <strong>1차 유지</strong>
-                              <div style={{ marginTop: 4 }}>
-                                {course.steps[0]?.place?.name}
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: "#6b7280",
-                                padding: "8px 0",
-                              }}
-                            >
-                              {getRegenerateSecondLabel(course.regenerateVariant)} ·{" "}
-                              {formatCourseWalkApprox(
-                                course.steps[1]?.walkDistanceMeters
-                              )}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#5c4033" }}>
-                              <strong>새 2차</strong>
-                              <div style={{ marginTop: 4 }}>
-                                {course.steps[1]?.place?.name}
-                              </div>
-                              <div style={{ color: "#666", marginTop: 4 }}>
-                                체류 약{" "}
-                                {formatCourseStayMinutes(
-                                  course.steps[1]?.stayMinutes
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    </>
-
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : aiRecommendedIds.length > 0 && !simpleMapSearchMarkersOnly ? (
-            <>
-              <button
-                type="button"
-                style={{
-                  ...styles.aiPeekBar,
-                  opacity: isAiSearching ? 0.92 : 1,
-                }}
-                onClick={() => {
-                  setAiSheetOpen((open) => !open);
-                  if (displayedPlaces.length > 0) {
-                    const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
-                      ...place,
-                      lat: parseFloat(place.y ?? place.lat),
-                      lng: parseFloat(place.x ?? place.lng),
-                      name: place.name || place.place_name,
-                      place_name: place.place_name,
-                      address_name: place.address_name || place.road_address_name,
-                      category_name: place.category_name,
-                      phone: place.phone || "",
-                      id: place.id,
-                      isExternal: true,
-                      isLive: true,
-                      kakao_place_id: place.id,
-                      isKakaoPlace:
-                        place.isKakaoPlace ||
-                        (!place.primaryCurator &&
-                          (Boolean(place.kakao_place_id) ||
-                            place.isExternal === true)),
-                    }));
-                    console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
-                    setKakaoPlaces(kakaoFormattedPlaces);
-                  }
-                }}
-              >
-                <div style={styles.aiPeekLeft}>
-                  <span style={styles.aiPeekBadge}>맞춤</span>
-
-                  <div style={styles.aiPeekTextWrap}>
-                    <div style={styles.aiPeekTitle}>
-                      {isAiSearching
-                        ? "추천 리스트 준비 중"
-                        : aiError
-                        ? "추천 결과를 불러오지 못했어요"
-                        : `추천 결과 ${aiBottomSheetPlaces.length}곳`}
-                    </div>
-
-                    <div
-                      style={{
-                        ...styles.aiPeekSubtitle,
-                        ...(aiError ? styles.aiPeekSubtitleError : {}),
-                      }}
-                    >
-                      {isAiSearching
-                        ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
-                        : aiError
-                        ? "잠시 후 다시 시도해 주세요"
-                        : aiSummary || "눌러서 리스트 보기"}
-                    </div>
-                  </div>
-                </div>
-
-                <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
-              </button>
-
-              {aiSheetOpen ? (
-                <div style={styles.aiBottomSheet}>
-                  <div style={styles.aiSheetHandleWrap}>
-                    <div style={styles.aiSheetHandle} />
-                  </div>
-
-                  {yajangFallbackBanner ? (
-                    <div
-                      style={{
-                        margin: "0 16px 12px",
-                        padding: "12px 14px",
-                        borderRadius: 12,
-                        background: "rgba(46, 204, 113, 0.12)",
-                        border: "1px solid rgba(46, 204, 113, 0.35)",
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        color: "#1a2e22",
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                        {yajangFallbackBanner.title}
-                      </div>
-                      <div>{yajangFallbackBanner.body}</div>
-                    </div>
-                  ) : null}
-
-                  <div style={styles.aiSheetList}>
-                    {aiBottomSheetPlaces.length > 0 ? (
-                      <div style={styles.aiSheetSectionLabel}>추천 순서 · 장소</div>
-                    ) : null}
-                    {aiBottomSheetPlaces.map((place, index) => {
-                      const distanceLabel = getRecommendationListDistanceLabel(place);
-                      const extras = searchResultSheetExtras.byId.get(String(place.id)) || {
-                        matched: [],
-                        rep: "",
-                        why: "",
-                      };
-                      const storyLine =
-                        extras.why ||
-                        topReasonMap[place.id] ||
-                        place.recommendation ||
-                        null;
-                      const cc =
-                        typeof place.curatorCount === "number" &&
-                        place.curatorCount > 0
-                          ? place.curatorCount
-                          : null;
-                      const sheetTags = filterPlaceTagsForDisplay(
-                        place.tags || []
-                      );
-
-                      return (
-                      <button
-                        key={`${place?.id ?? place?.name ?? "p"}-${index}`}
-                        type="button"
-                        style={styles.aiSheetItem}
-                        onClick={() => {
-                          if (useImportRecPlacesForAiSheet) {
-                            handleRecommendPlaceFromList(place);
-                            setAiSheetOpen(false);
-                            return;
-                          }
-                          setSelectedPlaceWithAnalytics(place, "search_result");
-                          setAiSheetOpen(false);
-                          const lat = parseFloat(place.y ?? place.lat);
-                          const lng = parseFloat(place.x ?? place.lng);
-                          if (
-                            Number.isFinite(lat) &&
-                            Number.isFinite(lng) &&
-                            mapRef?.current?.moveToLocation
-                          ) {
-                            mapRef.current.moveToLocation(lat, lng);
-                          }
-                          const doRelayout = () =>
-                            mapRef.current?.relayout?.();
-                          requestAnimationFrame(doRelayout);
-                          setTimeout(doRelayout, 100);
-                          setTimeout(doRelayout, 320);
-                        }}
-                      >
-                        <div style={styles.aiSheetItemTop}>
-                          <div style={styles.aiSheetRank}>{index + 1}</div>
-
-                          <div style={styles.aiSheetMain}>
-                            <div style={styles.aiSheetNameRow}>
-                              <span style={styles.aiSheetName}>{place.name || place.place_name || '알 수 없는 장소'}</span>
-                            </div>
-
-                            <div style={styles.aiSheetMeta}>
-                              {place.address || place.address_name || '주소 정보 없음'}
-                            </div>
-
-                            {distanceLabel ? (
-                              <div style={styles.aiSheetDistance}>
-                                {distanceLabel}
-                              </div>
-                            ) : null}
-
-                            {storyLine ? (
-                              <div style={styles.aiSheetWhyRecommended}>
-                                {storyLine}
-                              </div>
-                            ) : null}
-
-                            {extras.rep ? (
-                              <div style={styles.aiSheetRepTagRow}>
-                                <span style={styles.aiSheetRepTag}>대표 · {extras.rep}</span>
-                              </div>
-                            ) : null}
-
-                            {extras.matched.length > 0 ? (
-                              <div style={styles.aiSheetMatchRow}>
-                                <span style={styles.aiSheetMatchLabel}>맞춘 조건</span>
-                                <div style={styles.aiSheetFacetPills}>
-                                  {extras.matched.map((lab) => (
-                                    <span key={lab} style={styles.aiSheetFacetPill}>
-                                      {lab}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {cc != null ? (
-                              <div style={styles.aiSheetCuratorSave}>
-                                저장한 큐레이터 {cc}명
-                              </div>
-                            ) : null}
-
-                            {sheetTags.length > 0 ? (
-                              <div style={styles.aiSheetTags}>
-                                {sheetTags.slice(0, 4).map((tag) => (
-                                  <span key={tag} style={styles.aiSheetTag}>
-                                    #{tag}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </button>
-                      );
-                    })}
-
-                    {curatorSearchHighlightList.length > 0 ? (
-                      <>
-                        <div style={{ ...styles.aiSheetSectionLabel, marginTop: 14 }}>
-                          큐레이터
-                        </div>
-                        {curatorSearchHighlightList.map((h) => (
-                          <button
-                            key={h.key}
-                            type="button"
-                            style={styles.aiCuratorHighlight}
-                            onClick={() => {
-                              setShowAll(false);
-                              setSelectedCurators([
-                                canonicalCuratorChipToken(
-                                  h.curatorUsername,
-                                  dbCurators
-                                ),
-                              ]);
-                              setAiSheetOpen(false);
-                            }}
-                          >
-                            <div style={styles.aiCuratorHighlightHead}>{h.headline}</div>
-                            <div style={styles.aiCuratorHighlightSub}>{h.sub}</div>
-                          </button>
-                        ))}
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* 네이버 블로그 리뷰 섹션 */}
-              {blogReviews.length > 0 && (
-                <div style={{
-                  marginTop: "16px",
-                  padding: "16px",
-                  backgroundColor: "#f8f9fa",
-                  borderRadius: "12px",
-                  borderTop: "1px solid #e9ecef"
-                }}>
-                  <div style={{
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    color: "#495057",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px"
-                  }}>
-                    <span>📝</span>
-                    네이버 블로그 실제 리뷰 ({blogReviews.length}개)
-                  </div>
-                  <div style={{
-                    maxHeight: "200px",
-                    overflowY: "auto",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px"
-                  }}>
-                    {blogReviews.slice(0, 3).map((review, index) => (
-                      <div key={index} style={{
-                        padding: "8px",
-                        backgroundColor: "white",
-                        borderRadius: "8px",
-                        border: "1px solid #e9ecef"
-                      }}>
-                        <div style={{
-                          fontSize: "12px",
-                          fontWeight: "500",
-                          color: "#e74c3c",
-                          marginBottom: "4px"
-                        }}>
-                          {review.place_name}
-                        </div>
-                        <div style={{
-                          fontSize: "11px",
-                          color: "#666",
-                          lineHeight: "1.4",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden"
-                        }}>
-                          {review.content && review.content !== "내용 추출 실패" 
-                            ? review.content.length > 100 
-                              ? review.content.substring(0, 100) + "..."
-                              : review.content
-                            : "리뷰 내용을 불러오지 못했습니다."
-                          }
-                        </div>
-                        {review.publish_date && review.publish_date !== "작성일 없음" && (
-                          <div style={{
-                            fontSize: "10px",
-                            color: "#999",
-                            marginTop: "4px"
-                          }}>
-                            {review.publish_date}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {blogReviews.length > 3 && (
-                    <div style={{
-                      fontSize: "11px",
-                      color: "#999",
-                      textAlign: "center",
-                      marginTop: "8px"
-                    }}>
-                      외 {blogReviews.length - 3}개의 리뷰 더보기
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
           ) : null}
         </div>
+
+        <HomeSearchOverlay
+          open={homeSearchMode.isOpen}
+          query={query}
+          onQueryChange={setQuery}
+          onClose={homeSearchMode.close}
+          onSubmit={(q) => void submitHomeSearch(q)}
+          placeholder={homeSearchPlaceholderText}
+          historyEntries={homeSearchHistoryList}
+          historyChip={homeSearchHistoryChip}
+          onHistoryChipChange={setHomeSearchHistoryChip}
+          onPickHistory={(entry) => {
+            setQuery(entry.query);
+            void submitHomeSearch(entry.query);
+          }}
+          onDeleteHistory={(id) =>
+            setHomeSearchHistoryList(
+              removeHomeSearchHistoryEntry(user?.id, id)
+            )
+          }
+          onClearAllHistory={() =>
+            setHomeSearchHistoryList(clearHomeSearchHistory(user?.id))
+          }
+          isLoading={isAiSearching}
+          inputRef={homeSearchInputRef}
+          showSuggestPanel={Boolean(String(query || "").trim())}
+          suggestPanel={
+            <KakaoPlaceSuggestPanel
+              results={overlayKakaoSuggest.results}
+              isLoading={overlayKakaoSuggest.isLoading}
+              savedBadgeIndex={homeSearchSavedBadgeIndex.index}
+              savedKeySet={homeSearchSavedBadgeIndex.keySet}
+              folders={folders}
+              userSavedPlaces={userSavedPlaces}
+              onPickPlace={(place) => {
+                homeSearchMode.close();
+                handleKakaoPlaceSelect(place);
+              }}
+            />
+          }
+        />
       </main>
 
 
-      <SavedPlaces
-        open={savedPlacesOpen}
+      <HomeBottomModalStack
+        user={user}
+        savedPlacesOpen={savedPlacesOpen}
         folders={folders}
         savedPlacesByFolder={savedPlacesByFolder}
-        onClose={() => setSavedPlacesOpen(false)}
+        onCloseSavedPlaces={() => setSavedPlacesOpen(false)}
         getUserRole={getUserRole}
-      />
-
-      <AddPlaceForm
-        open={addPlaceOpen}
+        addPlaceOpen={addPlaceOpen}
         curators={dbCurators}
-        onClose={() => setAddPlaceOpen(false)}
-        onAdded={refreshCustomPlaces}
-      />
-
-      <SaveFolderModal
-        open={!!saveTargetPlace}
-        place={saveTargetPlace}
-        folders={folders}
+        onCloseAddPlace={() => setAddPlaceOpen(false)}
+        onAddPlaceAdded={refreshCustomPlaces}
+        saveTargetPlace={saveTargetPlace}
         savedFolderIds={
           saveTargetPlace ? getPlaceFolderIds(saveTargetPlace.id) : []
         }
-        onClose={() => {
+        onCloseSaveFolder={() => {
           setSaveTargetPlace(null);
-          // 저장 완료 후 폴더 정보 다시 로드
           loadUserSavedPlaces();
         }}
         onFoldersUpdated={() => {
           refreshStorage();
-          // 폴더 업데이트 후 폴더 정보 다시 로드
           loadUserSavedPlaces();
         }}
         onSaveToFolder={(pId, fId) => {
           savePlaceToFolder(pId, fId);
           refreshStorage();
         }}
-      />
-
-      {/* UserCard - 일반 사용자용 */}
-      <UserCard
-        user={user}
-        isVisible={showUserCard}
-        onClose={() => setShowUserCard(false)}
+        showUserCard={showUserCard}
+        onCloseUserCard={() => setShowUserCard(false)}
         onPublicProfileSaved={refreshMapUserProfile}
       />
 
@@ -8557,1249 +8956,3 @@ const handleClearSearch = () => {
   );
 }
 
-const glassWhiteStrong = "rgba(255, 255, 255, 0.9)";
-const glassBorder = "1px solid rgba(255, 255, 255, 0.55)";
-const floatingShadow = "0 10px 30px rgba(0, 0, 0, 0.16)";
-
-const styles = {
-  page: {
-    width: "100%",
-    height: "100vh",
-    overflow: "hidden",
-    backgroundColor: "#000",
-  },
-
-  mainContainer: {
-    position: "relative",
-    width: "100%",
-    height: "100%",
-  },
-
-  /** 첫 진입만 — 지도 영역 정중앙, 먼지처럼 흩어지며 사라짐 */
-  homeDustIntroOverlay: {
-    position: "absolute",
-    inset: 0,
-    /** MapView·카카오 타일 레이어보다 위 — DOM에서 MapView 다음에 그림 */
-    zIndex: 8000,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-    padding: "24px 20px",
-  },
-  homeDustIntroInner: {
-    textAlign: "center",
-    maxWidth: 340,
-    animation:
-      "homeDustIntroCycle 4.1s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-    willChange: "opacity, filter, transform",
-  },
-  homeDustIntroTitle: {
-    margin: 0,
-    fontSize: "clamp(17px, 4.2vw, 20px)",
-    fontWeight: 800,
-    letterSpacing: "-0.03em",
-    color: "#0f172a",
-    lineHeight: 1.35,
-    textShadow:
-      "0 1px 0 rgba(255,255,255,0.95), 0 0 20px rgba(255,255,255,0.9), 0 0 40px rgba(255,255,255,0.45)",
-  },
-  homeDustIntroSub: {
-    margin: "10px 0 0",
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#9a3412",
-    letterSpacing: "-0.01em",
-    textShadow:
-      "0 1px 0 rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.75)",
-  },
-  drinksSituationStrip: {
-    position: "absolute",
-    left: "50%",
-    transform: "translateX(-50%)",
-    bottom: "calc(198px + env(safe-area-inset-bottom, 0px))",
-    width: "min(720px, calc(100% - 24px))",
-    zIndex: 88,
-    display: "flex",
-    flexDirection: "row",
-    gap: 8,
-    overflowX: "auto",
-    padding: "2px 0 6px",
-    pointerEvents: "auto",
-    WebkitOverflowScrolling: "touch",
-    scrollbarWidth: "none",
-    msOverflowStyle: "none",
-  },
-  drinksSituationChip: {
-    flex: "0 0 auto",
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.55)",
-    background: "rgba(255,255,255,0.42)",
-    backdropFilter: "blur(18px) saturate(180%)",
-    WebkitBackdropFilter: "blur(18px) saturate(180%)",
-    boxShadow:
-      "0 4px 18px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
-    fontSize: 12,
-    fontWeight: 750,
-    color: "#1e293b",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    WebkitTapHighlightColor: "transparent",
-  },
-  drinksSituationEmoji: {
-    fontSize: 14,
-    lineHeight: 1,
-  },
-  drinksSituationChipActive: {
-    border: "1px solid rgba(124, 58, 237, 0.55)",
-    background: "rgba(124, 58, 237, 0.14)",
-    color: "#5b21b6",
-    boxShadow:
-      "0 4px 16px rgba(124, 58, 237, 0.18), inset 0 1px 0 rgba(255,255,255,0.85)",
-  },
-
-  headerOverlay: {
-    position: "absolute",
-    top: "16px",
-    left: "16px",
-    right: "16px",
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-    /** 지도 SDK·하단 UI(z~1e4)보다 위에 두고, 새 스택킹 문맥으로 히트 테스트 안정화 */
-    zIndex: 25000,
-    isolation: "isolate",
-    pointerEvents: "auto",
-    touchAction: "manipulation",
-  },
-
-  logoStack: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: "6px",
-    flexShrink: 0,
-    pointerEvents: "auto",
-  },
-
-  /** 로고 = 홈 전체 새로고침(상태 초기화) */
-  logoHomeButton: {
-    margin: 0,
-    padding: 0,
-    border: "none",
-    background: "none",
-    font: "inherit",
-    fontSize: "30px",
-    fontWeight: 900,
-    letterSpacing: "-1.5px",
-    color: "#111",
-    lineHeight: 1,
-    flexShrink: 0,
-    cursor: "pointer",
-    WebkitTapHighlightColor: "transparent",
-  },
-
-  filterWrapper: {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    alignItems: "center",
-    overflowX: "auto",
-    msOverflowStyle: "none",
-    scrollbarWidth: "none",
-    pointerEvents: "auto",
-    position: "relative",
-    zIndex: 1,
-  },
-
-  legendOverlay: {
-    position: "absolute",
-    top: "64px",
-    right: "16px",
-    left: "auto",
-    width: "fit-content",
-    maxWidth: "min(200px, 42vw)",
-    zIndex: 55,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: "8px",
-    pointerEvents: "auto",
-  },
-
-  legendSecondPickResetButton: {
-    pointerEvents: "auto",
-    padding: "0 10px",
-    height: "28px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.28)",
-    background: "rgba(124, 58, 237, 0.35)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px rgba(0,0,0,0.14)",
-    cursor: "pointer",
-    fontSize: "11px",
-    fontWeight: 800,
-    color: "rgba(250, 245, 255, 0.96)",
-    flexShrink: 0,
-    whiteSpace: "nowrap",
-  },
-
-  legendMyLocationButton: {
-    pointerEvents: "auto",
-    width: "28px",
-    height: "28px",
-    borderRadius: "9px",
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(22, 24, 28, 0.22)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.14)",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "rgba(255,255,255,0.92)",
-    flexShrink: 0,
-    transition: "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
-  },
-
-  legendMyLocationSpinner: {
-    width: "11px",
-    height: "11px",
-    border: "2px solid rgba(255,255,255,0.2)",
-    borderTopColor: "rgba(125, 180, 255, 0.95)",
-    borderRadius: "50%",
-    animation: "judoSpin 1s linear infinite",
-    display: "inline-block",
-  },
-
-  bottomBarContainer: {
-    position: "absolute",
-    left: "50%",
-    transform: "translateX(-50%)",
-    bottom: "18px",
-    /* 헤더(16px 인셋)와 동일한 좌우 여백 — 90%는 뷰포트마다 측면이 어긋남 */
-    width: "min(720px, calc(100% - 32px))",
-    boxSizing: "border-box",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    /** 코스 시트(backdrop-filter)보다 위에 항상 그려지도록 */
-    zIndex: 160,
-  },
-
-  searchWrapper: {
-    position: "relative",
-    flex: 1,
-    minWidth: 0,
-    minHeight: "54px",
-    borderRadius: "18px",
-    background: "transparent",
-    overflow: "visible",
-  },
-
-  /** 검색바 보조 — 세션 1~2회만, 자동 사라짐 */
-  searchIdleFloatingHint: {
-    position: "absolute",
-    left: "50%",
-    bottom: "100%",
-    transform: "translateX(-50%)",
-    marginBottom: 8,
-    maxWidth: "min(340px, calc(100vw - 48px))",
-    padding: "8px 12px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 650,
-    lineHeight: 1.35,
-    letterSpacing: "-0.02em",
-    color: "#1e293b",
-    textAlign: "center",
-    background: "rgba(255,255,255,0.94)",
-    border: "1px solid rgba(148,163,184,0.35)",
-    boxShadow: "0 8px 28px rgba(0,0,0,0.12)",
-    zIndex: 12,
-    pointerEvents: "none",
-  },
-
-  authRowInline: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  },
-
-  authRowInlineNarrow: {
-    gap: "4px",
-  },
-
-  /** @핸들 등 역할 버튼 — 좁은 화면에서 검색 입력 폭 확보 */
-  inlineRoleButtonNarrow: {
-    minWidth: 0,
-    maxWidth: "78px",
-    height: "32px",
-    padding: "0 5px",
-    fontSize: "11px",
-    marginRight: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-
-  authInlineButton: {
-    border: "1px solid rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(17, 17, 17, 0.74)",
-    color: "#ffffff",
-    borderRadius: "999px",
-    height: "34px",
-    padding: "0 10px",
-    fontSize: "12px",
-    fontWeight: 800,
-    cursor: "pointer",
-    pointerEvents: "auto",
-  },
-
-  authInlineButtonNarrow: {
-    height: "32px",
-    padding: "0 6px",
-    fontSize: "10px",
-    fontWeight: 800,
-  },
-
-  authIconButton: {
-    width: "36px",
-    height: "36px",
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.16)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: "none",
-    fontSize: "14px",
-    fontWeight: 1000,
-    padding: 0,
-  },
-
-  googleButton: {
-    backgroundColor: "rgba(255,255,255,0.96)",
-    border: "1px solid rgba(0,0,0,0.12)",
-  },
-
-  kakaoButton: {
-    backgroundColor: "#FEE500",
-    border: "1px solid rgba(0,0,0,0.12)",
-  },
-
-  googleG: {
-    color: "#4285F4",
-    fontWeight: 1000,
-    lineHeight: 1,
-  },
-
-  kakaoK: {
-    color: "#111111",
-    fontWeight: 1000,
-    lineHeight: 1,
-  },
-
-  curatorFloatingWrap: {
-    position: "absolute",
-    right: "16px",
-    bottom: "200px", // 내 위치 아이콘보다 아래
-    zIndex: 10050,
-  },
-
-  curatorFloatingBtn: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "20px",
-    border: glassBorder,
-    background: "rgba(46, 204, 113, 0.9)", // 초록색
-    color: "white",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: floatingShadow,
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
-    fontSize: "12px",
-    fontWeight: "600",
-    padding: "0 12px",
-    transition: "all 0.2s ease",
-  },
-
-  curatorFloatingText: {
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    fontSize: "11px",
-  },
-
-  curatorApplyBtn: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "20px",
-    border: glassBorder,
-    background: "rgba(46, 204, 113, 0.9)", // 초록색
-    color: "white",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: floatingShadow,
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
-    fontSize: "12px",
-    fontWeight: "600",
-    padding: "0 12px",
-    transition: "all 0.2s ease",
-  },
-
-  locationBtn: {
-    width: "54px",
-    height: "54px",
-    flexShrink: 0,
-    borderRadius: "18px",
-    border: glassBorder,
-    background: glassWhiteStrong,
-    color: "#111",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: floatingShadow,
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
-  },
-
-  userInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(52, 152, 219, 0.3)",
-    background: "rgba(52, 152, 219, 0.15)",
-    color: "#3498DB",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  },
-
-  curatorInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(46, 204, 113, 0.3)",
-    background: "rgba(46, 204, 113, 0.15)",
-    color: "#2ECC71",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  },
-
-  adminInlineButton: {
-    minWidth: "80px",
-    maxWidth: "120px",
-    height: "38px",
-    borderRadius: "18px",
-    border: "1px solid rgba(255, 107, 107, 0.3)",
-    background: "rgba(255, 107, 107, 0.15)",
-    color: "#FF6B6B",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    fontWeight: 600,
-    padding: "0 12px",
-    marginRight: "8px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-  },
-
-  /** 검색바 우측 프로필 — 원형 사진(역할색 링은 위 버튼 스타일 유지) */
-  searchBarProfileButton: {
-    minWidth: "34px",
-    maxWidth: "34px",
-    width: "34px",
-    height: "34px",
-    padding: 0,
-    borderRadius: "50%",
-    overflow: "hidden",
-    flexShrink: 0,
-    fontSize: "13px",
-    fontWeight: 800,
-  },
-  searchBarProfileButtonNarrow: {
-    minWidth: "28px",
-    maxWidth: "28px",
-    width: "28px",
-    height: "28px",
-    fontSize: "11px",
-  },
-  searchBarProfileImg: {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    display: "block",
-    pointerEvents: "none",
-  },
-  searchBarProfileInitial: {
-    lineHeight: 1,
-    userSelect: "none",
-    pointerEvents: "none",
-  },
-
-  sideFabContainer: {
-    position: "absolute",
-    right: "16px",
-    bottom: "88px",
-    zIndex: 95,
-  },
-
-  fabAdd: {
-    height: "46px",
-    padding: "0 16px",
-    borderRadius: "23px",
-    border: "1px solid rgba(255,255,255,0.5)",
-    background: "rgba(255,255,255,0.88)",
-    color: "#111",
-    fontWeight: 700,
-    fontSize: "14px",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    cursor: "pointer",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
-    backdropFilter: "blur(14px)",
-    WebkitBackdropFilter: "blur(14px)",
-  },
-
-  fabPlus: {
-    fontSize: "18px",
-    lineHeight: 1,
-    marginTop: "-1px",
-  },
-
-  aiStatusBox: {
-    position: "absolute",
-    left: "16px",
-    right: "16px",
-    bottom: "82px",
-    zIndex: 72,
-    padding: "12px 14px",
-    borderRadius: "18px",
-    background: "rgba(17,17,17,0.82)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    boxShadow: "0 10px 28px rgba(0,0,0,0.2)",
-    backdropFilter: "blur(14px)",
-    WebkitBackdropFilter: "blur(14px)",
-  },
-
-  aiStatusInner: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-  },
-
-  aiSpinner: {
-    width: "18px",
-    height: "18px",
-    borderRadius: "999px",
-    border: "2px solid rgba(255,255,255,0.24)",
-    borderTop: "2px solid #34D17A",
-    flexShrink: 0,
-    animation: "judoSpin 0.9s linear infinite",
-  },
-
-  aiStatusTextWrap: {
-    minWidth: 0,
-    flex: 1,
-  },
-
-  aiStatusTitle: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#fff",
-  },
-
-  aiStatusSubtext: {
-    marginTop: "3px",
-    fontSize: "12px",
-    color: "rgba(255,255,255,0.78)",
-    lineHeight: 1.4,
-  },
-
-  aiStatusError: {
-    marginTop: "3px",
-    fontSize: "12px",
-    color: "#ffb4b4",
-    lineHeight: 1.4,
-  },
-
-  mapCardOverlay: {
-    position: "absolute",
-    left: "16px",
-    right: "16px",
-    bottom: "100px",
-    zIndex: 40,
-    pointerEvents: "none",
-    /** 코스·AI 카드: 내용을 오버레이 하단(검색바 쪽)에 붙여 지도가 위로 넓게 보이게 */
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "flex-end",
-    alignItems: "stretch",
-  },
-
-  expandSearchWrap: {
-    pointerEvents: "auto",
-    maxWidth: "100%",
-  },
-
-  expandSearchCard: {
-    borderRadius: "18px",
-    padding: "16px 16px 12px",
-    background: "rgba(22, 22, 26, 0.92)",
-    color: "#fff",
-    boxShadow: "0 12px 36px rgba(0,0,0,0.28)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    border: "1px solid rgba(255,255,255,0.08)",
-  },
-
-  expandSearchTitle: {
-    fontSize: "15px",
-    fontWeight: 800,
-    lineHeight: 1.35,
-    marginBottom: "8px",
-  },
-
-  expandSearchNote: {
-    margin: "0 0 6px",
-    fontSize: "12px",
-    lineHeight: 1.45,
-    color: "rgba(255,255,255,0.88)",
-  },
-
-  expandSearchSub: {
-    margin: "0 0 12px",
-    fontSize: "12px",
-    lineHeight: 1.45,
-    color: "rgba(255,255,255,0.62)",
-  },
-
-  expandFallbackHints: {
-    margin: "0 0 12px",
-    paddingLeft: "18px",
-    fontSize: "11px",
-    lineHeight: 1.5,
-    color: "rgba(255,255,255,0.55)",
-  },
-
-  expandChipCol: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginTop: "12px",
-  },
-
-  expandPrimaryBtn: {
-    width: "100%",
-    marginTop: "4px",
-    border: "none",
-    borderRadius: "14px",
-    padding: "14px 14px",
-    fontSize: "14px",
-    fontWeight: 800,
-    lineHeight: 1.35,
-    color: "#0d1f14",
-    background: "linear-gradient(135deg, #5ee9a8 0%, #34d17a 55%, #2bbd6e 100%)",
-    cursor: "pointer",
-    boxShadow: "0 8px 22px rgba(52, 209, 122, 0.35)",
-  },
-
-  expandChip: {
-    textAlign: "left",
-    width: "100%",
-    border: "1px solid rgba(52, 209, 122, 0.45)",
-    borderRadius: "12px",
-    padding: "11px 12px",
-    fontSize: "13px",
-    fontWeight: 600,
-    lineHeight: 1.35,
-    color: "#e8fff1",
-    background: "rgba(52, 209, 122, 0.12)",
-    cursor: "pointer",
-  },
-
-  expandDismiss: {
-    marginTop: "12px",
-    width: "100%",
-    border: "none",
-    background: "transparent",
-    color: "rgba(255,255,255,0.5)",
-    fontSize: "12px",
-    cursor: "pointer",
-    padding: "6px",
-  },
-
-  previewStack: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    pointerEvents: "none",
-    alignItems: "center",
-  },
-
-  aiPeekBar: {
-    width: "100%",
-    border: "none",
-    borderRadius: "18px",
-    padding: "14px 16px",
-    background: "rgba(17,17,17,0.82)",
-    color: "#fff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    pointerEvents: "auto",
-    cursor: "pointer",
-  },
-
-  /** 코스 모드 피크 바 — 얇게 */
-  courseAiPeekBar: {
-    padding: "7px 12px",
-    borderRadius: "14px",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.18)",
-  },
-
-  /** 코스 모드 — 검색어 지우고 완전히 취소 (작은 원형) */
-  courseSearchClearButton: {
-    flexShrink: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "26px",
-    height: "26px",
-    minWidth: "26px",
-    padding: 0,
-    borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.28)",
-    background: "rgba(0,0,0,0.28)",
-    color: "rgba(255,255,255,0.88)",
-    fontSize: "15px",
-    lineHeight: 1,
-    fontWeight: 400,
-    cursor: "pointer",
-    boxShadow: "none",
-    WebkitTapHighlightColor: "transparent",
-  },
-
-  /** 코스 모드 — 1차·2차 확정된 선택 코스만 비움 (검색어 유지). 검색 전체 취소 버튼과 구분 */
-  courseResetPickButton: {
-    flexShrink: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "26px",
-    height: "26px",
-    minWidth: "26px",
-    padding: 0,
-    borderRadius: "999px",
-    border: "1px solid rgba(196, 181, 253, 0.7)",
-    background: "rgba(124, 58, 237, 0.42)",
-    color: "rgba(255,255,255,0.96)",
-    fontSize: "15px",
-    lineHeight: 1,
-    fontWeight: 500,
-    cursor: "pointer",
-    boxShadow: "none",
-    WebkitTapHighlightColor: "transparent",
-  },
-
-  /** 코스 피크(제목) + 스와이프·액션을 한 덩어리 바텀시트로 */
-  courseMergedShell: {
-    width: "100%",
-    marginTop: "6px",
-    borderRadius: "16px 16px 0 0",
-    overflow: "hidden",
-    boxShadow: "0 -6px 24px rgba(0,0,0,0.14)",
-    background: "transparent",
-    /** 셸 전체에 auto 두면 투명 여백이 지도 팬을 가릴 수 있음 — 자식만 클릭 받음 */
-    pointerEvents: "none",
-    maxHeight: "min(58vh, 520px)",
-    display: "flex",
-    flexDirection: "column",
-  },
-
-  courseMergedHeader: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: "8px",
-    padding: "6px 8px 8px 10px",
-    background: "rgba(17,17,17,0.9)",
-    flexShrink: 0,
-    borderRadius: "16px 16px 0 0",
-    pointerEvents: "auto",
-  },
-
-  courseMergedBody: {
-    flex: 1,
-    minHeight: 0,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    borderTop: "1px solid rgba(17,17,17,0.08)",
-    background: "rgba(255,255,255,0.94)",
-    backdropFilter: "blur(14px)",
-    WebkitBackdropFilter: "blur(14px)",
-    pointerEvents: "auto",
-  },
-
-  /** 아래로 드래그해 시트 접기 — 손가락 당김 영역 */
-  courseSheetPullStrip: {
-    flexShrink: 0,
-    height: "30px",
-    touchAction: "none",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    userSelect: "none",
-    WebkitUserSelect: "none",
-  },
-
-  courseSheetPullStripBar: {
-    width: "40px",
-    height: "4px",
-    borderRadius: "999px",
-    background: "rgba(17,17,17,0.16)",
-  },
-
-  /** 헤더 안에서는 별도 떠 있는 카드처럼 보이지 않게 */
-  courseMergedPeekToggle: {
-    background: "transparent",
-    boxShadow: "none",
-    borderRadius: 0,
-    border: "none",
-  },
-
-  courseAiPeekTitle: {
-    fontSize: "12px",
-    fontWeight: 800,
-    lineHeight: 1.15,
-  },
-
-  courseAiPeekSubtitle: {
-    fontSize: "10px",
-    lineHeight: 1.2,
-    maxWidth: "min(78vw, 300px)",
-    whiteSpace: "normal",
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    marginTop: "1px",
-  },
-
-  aiPeekLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    minWidth: 0,
-  },
-
-  aiPeekBadge: {
-    width: "28px",
-    height: "28px",
-    borderRadius: "999px",
-    background: "#34D17A",
-    color: "#111",
-    fontWeight: 900,
-    fontSize: "12px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-
-  aiPeekTextWrap: {
-    minWidth: 0,
-    textAlign: "left",
-  },
-
-  aiPeekTitle: {
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#fff",
-  },
-
-  aiPeekSubtitle: {
-    fontSize: "12px",
-    color: "rgba(255,255,255,0.78)",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: "220px",
-  },
-
-  aiPeekSubtitleError: {
-    color: "#ffb4b4",
-  },
-
-  aiPeekArrow: {
-    flexShrink: 0,
-    fontSize: "12px",
-    lineHeight: 1,
-    color: "rgba(255,255,255,0.9)",
-    marginLeft: "6px",
-  },
-
-  aiBottomSheet: {
-    marginTop: "10px",
-    width: "100%",
-    maxHeight: "24vh",
-    borderRadius: "24px 24px 0 0",
-    background: "rgba(255,255,255,0.85)",
-    boxShadow: "0 -4px 20px rgba(0,0,0,0.12)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    overflow: "hidden",
-    pointerEvents: "auto",
-    position: "relative",
-    /** 부모 mapCardOverlay가 스트립보다 올라간 뒤에도 시트가 피크바 위에 보이도록 */
-    zIndex: 2,
-  },
-
-  aiSheetHandleWrap: {
-    display: "flex",
-    justifyContent: "center",
-    paddingTop: "10px",
-  },
-
-  aiSheetHandle: {
-    width: "42px",
-    height: "5px",
-    borderRadius: "999px",
-    background: "rgba(17,17,17,0.18)",
-  },
-
-  aiSheetHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "12px",
-    padding: "14px 16px 12px",
-    borderBottom: "1px solid rgba(17,17,17,0.06)",
-  },
-
-  aiSheetTitle: {
-    fontSize: "16px",
-    fontWeight: 900,
-    color: "#111",
-  },
-
-  aiSheetDesc: {
-    marginTop: "4px",
-    fontSize: "12px",
-    color: "#666",
-    lineHeight: 1.4,
-  },
-
-  aiSheetCloseBtn: {
-    border: "none",
-    background: "rgba(17,17,17,0.06)",
-    color: "#111",
-    borderRadius: "999px",
-    padding: "8px 12px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    flexShrink: 0,
-  },
-
-  aiSheetCloseBtadminChip: {
-    border: "1px solid rgba(0,0,0,0.10)",
-    backgroundColor: "rgba(255,255,255,0.86)",
-    color: "#111",
-    borderRadius: "999px",
-    padding: "4px 12px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    flexShrink: 0,
-  },
-
-  studioChip: {
-    border: "1px solid rgba(255,107,107,0.30)",
-    backgroundColor: "rgba(255,107,107,0.15)",
-    color: "#FF6B6B",
-    borderRadius: "999px",
-    padding: "4px 12px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    flexShrink: 0,
-  },
-
-  aiSheetList: {
-    maxHeight: "38vh",
-    overflowY: "auto",
-    padding: "8px 12px 14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    pointerEvents: "auto",
-  },
-
-  /** 코스 바텀시트: 가로 스와이프 카드 + 아래 액션 영역 */
-  courseSheetBody: {
-    display: "flex",
-    flexDirection: "column",
-    overflowX: "hidden",
-    overflowY: "auto",
-    flex: 1,
-    minHeight: 0,
-    pointerEvents: "auto",
-  },
-
-  courseOptionsSwipeRow: {
-    display: "flex",
-    flexDirection: "row",
-    gap: "10px",
-    overflowX: "auto",
-    overflowY: "hidden",
-    WebkitOverflowScrolling: "touch",
-    scrollSnapType: "x mandatory",
-    padding: "6px 12px 4px",
-    flexShrink: 0,
-    scrollbarWidth: "thin",
-    touchAction: "pan-x",
-    overscrollBehaviorX: "contain",
-    maxHeight: "min(30vh, 248px)",
-  },
-
-  courseOptionCardSwipe: {
-    flex: "0 0 min(calc(100vw - 56px), 288px)",
-    width: "min(calc(100vw - 56px), 288px)",
-    maxWidth: "min(calc(100vw - 56px), 288px)",
-    scrollSnapAlign: "center",
-    boxSizing: "border-box",
-    maxHeight: "min(28vh, 228px)",
-    overflowY: "auto",
-  },
-
-  aiSheetSectionLabel: {
-    fontSize: "11px",
-    fontWeight: 800,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
-    color: "rgba(17,17,17,0.45)",
-    marginBottom: "2px",
-  },
-
-  aiSheetRepTagRow: {
-    marginTop: "8px",
-  },
-
-  aiSheetRepTag: {
-    display: "inline-block",
-    fontSize: "11px",
-    fontWeight: 700,
-    color: "#1b4332",
-    background: "rgba(27, 67, 50, 0.08)",
-    borderRadius: "999px",
-    padding: "4px 10px",
-  },
-
-  aiSheetMatchRow: {
-    marginTop: "8px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-  },
-
-  aiSheetMatchLabel: {
-    fontSize: "10px",
-    fontWeight: 800,
-    color: "rgba(17,17,17,0.38)",
-    letterSpacing: "0.02em",
-  },
-
-  aiSheetFacetPills: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "6px",
-  },
-
-  aiSheetFacetPill: {
-    fontSize: "12px",
-    fontWeight: 700,
-    color: "#111",
-    border: "1px solid rgba(17,17,17,0.12)",
-    borderRadius: "999px",
-    padding: "5px 10px",
-    background: "rgba(255,255,255,0.95)",
-  },
-
-  aiSheetCuratorSave: {
-    marginTop: "8px",
-    fontSize: "12px",
-    fontWeight: 600,
-    color: "#6c5ce7",
-  },
-
-  aiCuratorHighlight: {
-    width: "100%",
-    textAlign: "left",
-    border: "1px solid rgba(108, 92, 231, 0.25)",
-    borderRadius: "16px",
-    padding: "12px 14px",
-    background: "rgba(108, 92, 231, 0.06)",
-    cursor: "pointer",
-  },
-
-  aiCuratorHighlightHead: {
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#111",
-    lineHeight: 1.4,
-  },
-
-  aiCuratorHighlightSub: {
-    marginTop: "6px",
-    fontSize: "12px",
-    fontWeight: 600,
-    color: "rgba(17,17,17,0.55)",
-  },
-
-  aiSheetItem: {
-    width: "100%",
-    border: "1px solid rgba(17,17,17,0.06)",
-    borderRadius: "24px", 
-    background: "rgba(255,255,255,0.9)",
-    padding: "8px 12px", 
-    textAlign: "left",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.08)", 
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-  },
-
-  aiSheetItemTop: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "12px",
-  },
-
-  aiSheetRank: {
-    width: "28px",
-    height: "28px",
-    borderRadius: "999px",
-    background: "#111",
-    color: "#fff",
-    fontSize: "13px",
-    fontWeight: 800,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-
-  aiSheetMain: {
-    minWidth: 0,
-    flex: 1,
-  },
-
-  aiSheetNameRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-  },
-
-  aiSheetName: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#111",
-  },
-
-  aiSavedDot: {
-    width: "9px",
-    height: "9px",
-    borderRadius: "999px",
-    flexShrink: 0,
-  },
-
-  aiSheetMeta: {
-    marginTop: "4px",
-    fontSize: "12px",
-    color: "#777",
-  },
-
-  aiSheetDistance: {
-    marginTop: "6px",
-    fontSize: "12px",
-    fontWeight: 600,
-    color: "#1b4332",
-  },
-
-  aiSheetReason: {
-    marginTop: "8px",
-    fontSize: "13px",
-    color: "#222",
-    lineHeight: 1.45,
-  },
-
-  aiSheetWhyRecommended: {
-    marginTop: "8px",
-    fontSize: "13px",
-    fontWeight: 600,
-    color: "#1a1a2e",
-    lineHeight: 1.5,
-  },
-
-  aiSheetTags: {
-    marginTop: "10px",
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "6px",
-  },
-
-  aiSheetTag: {
-    fontSize: "11px",
-    color: "#555",
-    background: "rgba(17,17,17,0.05)",
-    borderRadius: "999px",
-    padding: "6px 9px",
-  },
-};

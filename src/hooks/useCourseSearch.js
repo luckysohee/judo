@@ -6,18 +6,70 @@ import { findAreaKeywordInQuery } from "../utils/searchParser.js";
 import { normalizePlaces } from "../utils/normalizePlace";
 import {
   generateCourseOptions,
+  generateCourseCandidatePool,
   courseOptionsToMapPlaces,
   courseVenuePairKey,
+  isBudgetChainBridgeCoffeePlace,
   placeId,
+  stripHalfStepFromCourses,
+  upgradeTwoStepCoursesToHalfStep,
 } from "../utils/generateCourseOptions.js";
+import { compactCourseCandidatesForAssist } from "../utils/compactCourseCandidatesForAssist.js";
+import { raceCourseComposeAssist } from "../utils/fetchCourseComposeAssist.js";
+import { applyCourseComposeAssist } from "../utils/applyCourseComposeAssist.js";
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
 import { normalizeHangulSearchCompounds } from "../utils/searchParser.js";
 import { regenerateSecondStep } from "../utils/regenerateSecondStep.js";
 import { regenerateFirstStep } from "../utils/regenerateFirstStep.js";
 import {
   fetchKakaoPlacesForCourseSecondAround,
+  fetchKakaoPlacesForCourseBridgeAround,
   mergeCoursePlacePoolsWithKakao,
 } from "../utils/augmentCourseSecondPlacesWithKakao.js";
+
+const ENABLE_COURSE_COMPOSE_ASSIST =
+  import.meta.env.VITE_ENABLE_COURSE_COMPOSE_ASSIST !== "false";
+
+/** 쩜오차용 카카오 키워드 검색 중심 — 내 위치 우선, 없으면 코스 풀 좌표 평균 */
+function resolveCourseKakaoAnchorPlace(placesForCourse, userOrigin) {
+  if (
+    userOrigin &&
+    Number.isFinite(Number(userOrigin.lat)) &&
+    Number.isFinite(Number(userOrigin.lng))
+  ) {
+    const la = Number(userOrigin.lat);
+    const ln = Number(userOrigin.lng);
+    return {
+      name: "course_kakao_anchor_user",
+      lat: la,
+      lng: ln,
+      y: String(la),
+      x: String(ln),
+    };
+  }
+  let slat = 0;
+  let slng = 0;
+  let n = 0;
+  for (const p of (placesForCourse || []).slice(0, 40)) {
+    const c = resolvePlaceWgs84(p);
+    if (!c) continue;
+    slat += c.lat;
+    slng += c.lng;
+    n += 1;
+  }
+  if (n > 0) {
+    const la = slat / n;
+    const ln = slng / n;
+    return {
+      name: "course_kakao_anchor_centroid",
+      lat: la,
+      lng: ln,
+      y: String(la),
+      x: String(ln),
+    };
+  }
+  return placesForCourse?.[0] ?? null;
+}
 
 function appendSeenFromCourses(courses = []) {
   const keys = courses.map((c) => c.key).filter(Boolean);
@@ -25,6 +77,35 @@ function appendSeenFromCourses(courses = []) {
     .map((c) => courseVenuePairKey(c))
     .filter(Boolean);
   return { keys, pairs };
+}
+
+/** 직행↔쩜오 재검색 후에도 같은 1차·2차(3단이면 양 끝 장소)면 그 코스 카드 유지 */
+function findCoursePreservingLegEndpoints(previous, candidates) {
+  if (!previous?.steps?.length || !Array.isArray(candidates) || !candidates.length)
+    return null;
+  const os = previous.steps;
+  const oFirst = placeId(os[0]?.place);
+  const oLast = placeId(os[os.length - 1]?.place);
+  if (oFirst == null || oLast == null) return null;
+  for (const c of candidates) {
+    const ns = c.steps;
+    if (!ns?.length) continue;
+    const nFirst = placeId(ns[0]?.place);
+    const nLast = placeId(ns[ns.length - 1]?.place);
+    if (nFirst === oFirst && nLast === oLast) return c;
+  }
+  return null;
+}
+
+/**
+ * 지도에서 연 장소로「2차 찾기」할 때 넘기는 검색어(예: «합정 데이트 와인바»)는
+ * `parseCourseQuery`가 steps=1로 두어 패턴이 null → 후보 0건이 된다.
+ * `withTwoStepCourseIntent`로 steps=2로 올린 뒤, 쩜오차 코스면 `includeHalfStep`을 유지한다.
+ */
+function withTwoStepCourseIntent(parsed) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  if (parsed.steps === 2) return parsed;
+  return { ...parsed, steps: 2 };
 }
 
 /** `places`에 is_archived 컬럼이 없는 DB면 .eq 필터가 400 — select 후 로컬 필터 */
@@ -126,7 +207,16 @@ export function useCourseSearch() {
 
   /** 코스 검색·홈 「코스」바로가기 공통
    * @param {string} q
-   * @param {{ userOrigin?: { lat: number, lng: number }, maxDistanceMeters?: number, strictNearbyOnly?: boolean }} [loadOpts] — 내 주변 코스: GPS 기준 반경만 사용. strictNearby면 반경 안만 쓰고 전역 풀 폴백 안 함
+   * @param {{
+   *   userOrigin?: { lat: number, lng: number },
+   *   maxDistanceMeters?: number,
+   *   strictNearbyOnly?: boolean,
+   *   includeHalfStep?: boolean,
+   *   preserveSelectionFromCourse?: { steps?: unknown[] } | null,
+   *   keepExistingOptionsUntilLoaded?: boolean,
+   *   halfStepEditMode?: "insert" | "strip",
+   *   halfStepBaseCourses?: unknown[],
+   * }} [loadOpts] — 내 주변 코스: GPS·앵커 반경만 쓸 때 strictNearby. 검색어에 지역(`parseCourseQuery.area`)이 있으면 후보는 전역 풀에서 지역 매칭으로 좁힘(반경만 쓰면 DB 좌표 편향으로 0건이 되기 쉬움). `preserveSelectionFromCourse`가 있으면 새 후보 중 1차·2차(3단이면 양 끝) 장소 id가 같은 카드를 선택(직행↔쩜오 토글 시 스와이프 위치 유지). `keepExistingOptionsUntilLoaded`면 로딩 중에도 기존 코스 카드를 비우지 않아 바텀시트가 접힌 것처럼 보이지 않음. `halfStepEditMode`+`halfStepBaseCourses`로 쩜오 토글 시 기존 3추천을 새로 짜지 않고 끼워 넣기/제거.
    */
   const loadCourseOptionsFromQuery = useCallback(async (q, loadOpts = {}) => {
     const trimmed = normalizeHangulSearchCompounds(String(q || "")).trim();
@@ -134,8 +224,12 @@ export function useCourseSearch() {
       return { handled: false, options: [], mapPlaces: [], parsed: null };
     }
 
+    const keepExistingOptions = Boolean(loadOpts?.keepExistingOptionsUntilLoaded);
+
     setCourseError("");
-    setCourseOptions([]);
+    if (!keepExistingOptions) {
+      setCourseOptions([]);
+    }
     setAltSecondCourses([]);
     setAltFirstCourses([]);
     setSeenCourseKeys([]);
@@ -143,10 +237,37 @@ export function useCourseSearch() {
     setIsCourseMode(true);
     setIsLoadingCourse(true);
 
-    const parsed = parseCourseQuery(trimmed);
+    const parsed = parseCourseQuery(trimmed, {
+      includeHalfStep: Boolean(loadOpts?.includeHalfStep),
+    });
     setCourseQueryParsed(parsed);
 
     try {
+      if (
+        loadOpts?.halfStepEditMode === "strip" &&
+        !parsed.includeHalfStep &&
+        Array.isArray(loadOpts?.halfStepBaseCourses) &&
+        loadOpts.halfStepBaseCourses.length > 0
+      ) {
+        const base = loadOpts.halfStepBaseCourses;
+        const preservedMyOwn = base.filter((c) => c?.profileKey === "my_own");
+        const engine = base.filter((c) => c?.profileKey !== "my_own");
+        const strippedEngine = stripHalfStepFromCourses(engine);
+        const fullOptions = [...strippedEngine, ...preservedMyOwn];
+        setCourseOptions(fullOptions);
+        const preserve = loadOpts?.preserveSelectionFromCourse;
+        const matched =
+          preserve && strippedEngine.length
+            ? findCoursePreservingLegEndpoints(preserve, strippedEngine)
+            : null;
+        setSelectedCourse(matched ?? strippedEngine[0] ?? null);
+        const { keys, pairs } = appendSeenFromCourses(strippedEngine);
+        setSeenCourseKeys(keys);
+        setSeenVenuePairKeys(pairs);
+        const mapPlaces = courseOptionsToMapPlaces(strippedEngine);
+        return { handled: true, options: fullOptions, mapPlaces, parsed };
+      }
+
       const { rows, error } = await fetchCoursePlacesRows(supabase);
 
       if (error) {
@@ -159,6 +280,18 @@ export function useCourseSearch() {
       }
 
       const normalizedPlaces = normalizePlaces(rows);
+      if (!normalizedPlaces.length) {
+        setCourseError(
+          "코스용 장소 목록이 비어 있어요. Supabase `places`에 데이터가 있는지 확인해 주세요."
+        );
+        setCourseOptions((prev) =>
+          (prev || []).filter((c) => c?.profileKey === "my_own")
+        );
+        setSelectedCourse(null);
+        setCoursePlaces([]);
+        return { handled: true, options: [], mapPlaces: [], parsed };
+      }
+
       const origin = loadOpts?.userOrigin;
       const strictNearbyOnly = Boolean(loadOpts?.strictNearbyOnly);
       const maxParam = Number(loadOpts?.maxDistanceMeters);
@@ -181,21 +314,115 @@ export function useCourseSearch() {
           if (!c) return false;
           return haversineMeters(c.lat, c.lng, olat, olng) <= maxM;
         });
-        /** strict(GPS 내 위치): 반경 안만 사용. 그 외는 후보가 충분할 때만 근처 풀 */
-        if (strictNearbyOnly || near.length >= 8) {
+        const namedAreaCourse = Boolean(parsed?.area);
+        /** 지명 코스: 전역 풀 → `generateCourseOptions` 안 `resolveCourseAreaPool`. 반경만이면 비성수 DB에서 0건. */
+        if (strictNearbyOnly && !namedAreaCourse) {
           placesForCourse = near;
+        } else if (!strictNearbyOnly && !namedAreaCourse && near.length >= 8) {
+          placesForCourse = near;
+        }
+      }
+
+      let bridgeAugmentForEngine = [];
+      if (parsed.includeHalfStep && parsed.steps === 2) {
+        try {
+          const anchor = resolveCourseKakaoAnchorPlace(placesForCourse, origin);
+          if (anchor) {
+            const kakaoBridge = await fetchKakaoPlacesForCourseBridgeAround(
+              anchor,
+              { radius: 2000 }
+            );
+            if (kakaoBridge.length) {
+              bridgeAugmentForEngine = kakaoBridge.filter(
+                (p) => !isBudgetChainBridgeCoffeePlace(p)
+              );
+            }
+          }
+        } catch (e) {
+          if (import.meta.env.DEV) {
+            console.warn("course bridge kakao augment:", e);
+          }
         }
       }
 
       setCoursePlaces(placesForCourse);
 
-      const options = generateCourseOptions({
+      if (
+        loadOpts?.halfStepEditMode === "insert" &&
+        parsed.includeHalfStep &&
+        parsed.steps === 2 &&
+        Array.isArray(loadOpts?.halfStepBaseCourses) &&
+        loadOpts.halfStepBaseCourses.length > 0
+      ) {
+        const base = loadOpts.halfStepBaseCourses;
+        const preservedMyOwn = base.filter((c) => c?.profileKey === "my_own");
+        const engine = base.filter((c) => c?.profileKey !== "my_own");
+        const upgradedEngine = upgradeTwoStepCoursesToHalfStep({
+          parsedQuery: parsed,
+          places: placesForCourse,
+          bridgeAugment: bridgeAugmentForEngine,
+          existingCourses: engine,
+        });
+        const fullOptions = [...upgradedEngine, ...preservedMyOwn];
+        setCourseOptions(fullOptions);
+        const preserve = loadOpts?.preserveSelectionFromCourse;
+        const matched =
+          preserve && upgradedEngine.length
+            ? findCoursePreservingLegEndpoints(preserve, upgradedEngine)
+            : null;
+        setSelectedCourse(matched ?? upgradedEngine[0] ?? null);
+        const { keys, pairs } = appendSeenFromCourses(upgradedEngine);
+        setSeenCourseKeys(keys);
+        setSeenVenuePairKeys(pairs);
+        const mapPlaces = courseOptionsToMapPlaces(upgradedEngine);
+        return { handled: true, options: fullOptions, mapPlaces, parsed };
+      }
+
+      const pool = generateCourseCandidatePool({
         parsedQuery: parsed,
         places: placesForCourse,
+        bridgeAugment: bridgeAugmentForEngine,
+        limit: 12,
+        excludeCourseKeys: [],
+        excludeVenuePairKeys: [],
+      });
+
+      let options = generateCourseOptions({
+        parsedQuery: parsed,
+        places: placesForCourse,
+        bridgeAugment: bridgeAugmentForEngine,
         maxOptions: 3,
         excludeCourseKeys: [],
         excludeVenuePairKeys: [],
       });
+      let composeSummary = "";
+
+      if (ENABLE_COURSE_COMPOSE_ASSIST && pool.length >= 2) {
+        const assist = await raceCourseComposeAssist({
+          query: trimmed,
+          parsed: {
+            raw: parsed.raw,
+            area: parsed.area,
+            dateMode: parsed.dateMode,
+            steps: parsed.steps,
+            includeHalfStep: parsed.includeHalfStep,
+            partySize: parsed.partySize ?? null,
+          },
+          candidates: compactCourseCandidatesForAssist(pool),
+          maxPick: 3,
+        });
+        if (assist) {
+          const applied = applyCourseComposeAssist(pool, assist, {
+            maxDisplay: 3,
+          });
+          if (applied.options.length) {
+            options = applied.options;
+            composeSummary = applied.summary;
+          }
+        }
+      } else if (pool.length && !options.length) {
+        options = pool.slice(0, 3);
+      }
 
       if (!options.length) {
         setCourseError(
@@ -211,13 +438,24 @@ export function useCourseSearch() {
         const preserved = (prev || []).filter((c) => c?.profileKey === "my_own");
         return [...options, ...preserved];
       });
-      setSelectedCourse(options[0] ?? null);
+      const preserve = loadOpts?.preserveSelectionFromCourse;
+      const matched =
+        preserve && options.length
+          ? findCoursePreservingLegEndpoints(preserve, options)
+          : null;
+      setSelectedCourse(matched ?? options[0] ?? null);
       const { keys, pairs } = appendSeenFromCourses(options);
       setSeenCourseKeys(keys);
       setSeenVenuePairKeys(pairs);
 
       const mapPlaces = courseOptionsToMapPlaces(options);
-      return { handled: true, options, mapPlaces, parsed };
+      return {
+        handled: true,
+        options,
+        mapPlaces,
+        parsed,
+        composeSummary,
+      };
     } finally {
       setIsLoadingCourse(false);
     }
@@ -225,7 +463,7 @@ export function useCourseSearch() {
 
   const runCourseSearch = useCallback(
     async (query, loadOpts) => {
-      const q = String(query || "").trim();
+      const q = normalizeHangulSearchCompounds(String(query || "")).trim();
       if (!isCourseQuery(q)) {
         return { handled: false, options: [], mapPlaces: [], parsed: null };
       }
@@ -460,9 +698,32 @@ export function useCourseSearch() {
         setCoursePlaces(places);
       }
 
+      let bridgeAugmentForEngine = [];
+      if (courseQueryParsed?.includeHalfStep && courseQueryParsed?.steps === 2) {
+        try {
+          const anchor = resolveCourseKakaoAnchorPlace(places, null);
+          if (anchor) {
+            const kakaoBridge = await fetchKakaoPlacesForCourseBridgeAround(
+              anchor,
+              { radius: 2000 }
+            );
+            if (kakaoBridge.length) {
+              bridgeAugmentForEngine = kakaoBridge.filter(
+                (p) => !isBudgetChainBridgeCoffeePlace(p)
+              );
+            }
+          }
+        } catch (e) {
+          if (import.meta.env.DEV) {
+            console.warn("rerun course bridge kakao augment:", e);
+          }
+        }
+      }
+
       const results = generateCourseOptions({
         parsedQuery: courseQueryParsed,
         places,
+        bridgeAugment: bridgeAugmentForEngine,
         maxOptions: 3,
         excludeCourseKeys: seenCourseKeys,
         excludeVenuePairKeys: seenVenuePairKeys,
@@ -522,6 +783,50 @@ export function useCourseSearch() {
         ...selectedCourse,
         key: `${slotKey}-m1-${Date.now()}`,
         steps: [newStep0],
+      };
+      setCourseOptions((prev) =>
+        replaceCourseOptionsSlot(prev, slotKey, newCourse)
+      );
+      setSelectedCourse(newCourse);
+      setAltFirstCourses([]);
+      setAltSecondCourses([]);
+      return newCourse;
+    }
+
+    if (steps.length >= 3) {
+      const st1 = steps[1];
+      const st2 = steps[2];
+      const w1 = resolvePlaceWgs84(st1.place);
+      const w2 = resolvePlaceWgs84(st2.place);
+      let walk01 = st1.walkDistanceMeters;
+      let walk12 = st2.walkDistanceMeters;
+      if (w1 && Number.isFinite(w1.lat) && Number.isFinite(w1.lng)) {
+        walk01 = Math.round(haversineMeters(w.lat, w.lng, w1.lat, w1.lng));
+      }
+      if (
+        w1 &&
+        w2 &&
+        Number.isFinite(w1.lat) &&
+        Number.isFinite(w1.lng) &&
+        Number.isFinite(w2.lat) &&
+        Number.isFinite(w2.lng)
+      ) {
+        walk12 = Math.round(haversineMeters(w1.lat, w1.lng, w2.lat, w2.lng));
+      }
+      const newStep1 = {
+        ...st1,
+        step: 2,
+        walkDistanceMeters: Number.isFinite(walk01) ? walk01 : st1.walkDistanceMeters,
+      };
+      const newStep2 = {
+        ...st2,
+        step: 3,
+        walkDistanceMeters: Number.isFinite(walk12) ? walk12 : st2.walkDistanceMeters,
+      };
+      const newCourse = {
+        ...selectedCourse,
+        key: `${slotKey}-m1-${Date.now()}`,
+        steps: [newStep0, newStep1, newStep2],
       };
       setCourseOptions((prev) =>
         replaceCourseOptionsSlot(prev, slotKey, newCourse)
@@ -597,6 +902,13 @@ export function useCourseSearch() {
         if (!parsedForSecond.area) {
           parsedForSecond = parsedHintOrPlace("코스 짜기");
         }
+        parsedForSecond = withTwoStepCourseIntent(parsedForSecond);
+        if (courseQueryParsed?.includeHalfStep) {
+          parsedForSecond = {
+            ...parsedForSecond,
+            includeHalfStep: true,
+          };
+        }
         return {
           ok: true,
           courseForSecond: next,
@@ -611,7 +923,10 @@ export function useCourseSearch() {
         x: String(w.lng),
         y: String(w.lat),
       };
-      const parsed = parsedHintOrPlace("코스 짜기");
+      let parsed = withTwoStepCourseIntent(parsedHintOrPlace("코스 짜기"));
+      if (courseQueryParsed?.includeHalfStep) {
+        parsed = { ...parsed, includeHalfStep: true };
+      }
       const baseCourse = buildBootstrapOneStepCourse(mergedPlace);
       setCourseQueryParsed(parsed);
       setIsCourseMode(true);
@@ -631,51 +946,122 @@ export function useCourseSearch() {
     [selectedCourse, applyMapPickAsFirstStep, courseQueryParsed]
   );
 
-  /** 1차만·2차만에서 각각 고른 코스의 1차·2차를 한 코스로 합쳐 목록 하단에 「나만의 코스」로 추가 */
-  const applyComposedCourseFromPicks = useCallback((pick1Course, pick2Course) => {
-    if (!pick1Course || !pick2Course) return false;
-    const st0 = pick1Course.steps?.[0];
-    const st1 = pick2Course.steps?.[1];
-    if (!st0?.place || !st1?.place) return false;
+  /**
+   * 조합으로 담은 스텝으로 「나만의 코스」 추가.
+   * 2개: 1차 → 2차. 3개(쩜오): 1차 → 쩜오차 → 2차 (`stepThird` = 마지막 2차).
+   */
+  const applyComposedCourseFromSteps = useCallback(
+    (stepFirst, stepSecond, stepThirdOptional) => {
+      if (!stepFirst?.place || !stepSecond?.place) return false;
 
-    const w0 = resolvePlaceWgs84(st0.place);
-    const w1 = resolvePlaceWgs84(st1.place);
-    if (!w0 || !w1) return false;
-    const d = haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
-    if (!Number.isFinite(d)) return false;
+      if (stepThirdOptional?.place) {
+        const w0 = resolvePlaceWgs84(stepFirst.place);
+        const wb = resolvePlaceWgs84(stepSecond.place);
+        const w2 = resolvePlaceWgs84(stepThirdOptional.place);
+        if (!w0 || !wb || !w2) return false;
+        const d01 = haversineMeters(w0.lat, w0.lng, wb.lat, wb.lng);
+        const d12 = haversineMeters(wb.lat, wb.lng, w2.lat, w2.lng);
+        if (!Number.isFinite(d01) || !Number.isFinite(d12)) return false;
 
-    const idPart = `${placeId(st0.place) ?? "p0"}-${placeId(st1.place) ?? "p1"}`;
-    const newCourse = {
-      key: `my-own-${Date.now()}-${idPart}`,
-      profileKey: "my_own",
-      profileTitle: "나만의 코스",
-      profileDescription: `${st0.place?.name ?? "1차"} → ${st1.place?.name ?? "2차"}`,
-      totalScore: 0,
-      composedFromPicks: true,
-      isMyOwnCourse: true,
-      steps: [
-        {
-          ...st0,
-          step: 1,
-          label: st0.label ?? "1차",
-          place: st0.place,
-        },
-        {
-          ...st1,
-          step: 2,
-          label: st1.label ?? "2차",
-          place: st1.place,
-          walkDistanceMeters: Math.round(d),
-        },
-      ],
-    };
+        const idPart = `${placeId(stepFirst.place) ?? "p0"}-${placeId(stepSecond.place) ?? "pb"}-${placeId(stepThirdOptional.place) ?? "p2"}`;
+        const nm1 = stepFirst.place?.name ?? "1차";
+        const nmb = stepSecond.place?.name ?? "쩜오";
+        const nm2 = stepThirdOptional.place?.name ?? "2차";
+        const stayMid = Number(stepSecond.stayMinutes);
+        const newCourse = {
+          key: `my-own-${Date.now()}-${idPart}`,
+          profileKey: "my_own",
+          profileTitle: "나만의 코스",
+          profileDescription: `${nm1} → ${nmb} → ${nm2}`,
+          totalScore: 0,
+          composedFromPicks: true,
+          isMyOwnCourse: true,
+          includeHalfStep: true,
+          steps: [
+            {
+              ...stepFirst,
+              step: 1,
+              label: "1차",
+              place: stepFirst.place,
+            },
+            {
+              ...stepSecond,
+              step: 2,
+              label: "쩜오차",
+              stayMinutes: Number.isFinite(stayMid) ? stayMid : 25,
+              place: stepSecond.place,
+              walkDistanceMeters: Math.round(d01),
+            },
+            {
+              ...stepThirdOptional,
+              step: 3,
+              label: "2차",
+              place: stepThirdOptional.place,
+              walkDistanceMeters: Math.round(d12),
+            },
+          ],
+        };
 
-    setCourseOptions((prev) => [...(prev || []), newCourse]);
-    setSelectedCourse(newCourse);
-    setAltFirstCourses([]);
-    setAltSecondCourses([]);
-    return true;
-  }, []);
+        setCourseOptions((prev) => [...(prev || []), newCourse]);
+        setSelectedCourse(newCourse);
+        setAltFirstCourses([]);
+        setAltSecondCourses([]);
+        return true;
+      }
+
+      const w0 = resolvePlaceWgs84(stepFirst.place);
+      const w1 = resolvePlaceWgs84(stepSecond.place);
+      if (!w0 || !w1) return false;
+      const d = haversineMeters(w0.lat, w0.lng, w1.lat, w1.lng);
+      if (!Number.isFinite(d)) return false;
+
+      const idPart = `${placeId(stepFirst.place) ?? "p0"}-${placeId(stepSecond.place) ?? "p1"}`;
+      const newCourse = {
+        key: `my-own-${Date.now()}-${idPart}`,
+        profileKey: "my_own",
+        profileTitle: "나만의 코스",
+        profileDescription: `${stepFirst.place?.name ?? "1차"} → ${stepSecond.place?.name ?? "2차"}`,
+        totalScore: 0,
+        composedFromPicks: true,
+        isMyOwnCourse: true,
+        steps: [
+          {
+            ...stepFirst,
+            step: 1,
+            label: "1차",
+            place: stepFirst.place,
+          },
+          {
+            ...stepSecond,
+            step: 2,
+            label: "2차",
+            place: stepSecond.place,
+            walkDistanceMeters: Math.round(d),
+          },
+        ],
+      };
+
+      setCourseOptions((prev) => [...(prev || []), newCourse]);
+      setSelectedCourse(newCourse);
+      setAltFirstCourses([]);
+      setAltSecondCourses([]);
+      return true;
+    },
+    []
+  );
+
+  /** 레거시: 코스 카드 전체를 1·2번 소스로 쓸 때 */
+  const applyComposedCourseFromPicks = useCallback(
+    (pick1Course, pick2Course) => {
+      if (!pick1Course || !pick2Course) return false;
+      const st0 = pick1Course.steps?.[0];
+      const p2 = pick2Course.steps || [];
+      const st1 =
+        p2.length >= 2 ? p2[p2.length - 1] : pick2Course.steps?.[1];
+      return applyComposedCourseFromSteps(st0, st1);
+    },
+    [applyComposedCourseFromSteps]
+  );
 
   return {
     courseOptions,
@@ -703,6 +1089,7 @@ export function useCourseSearch() {
     applyAlternativeSecond,
     applyAlternativeFirst,
     applyComposedCourseFromPicks,
+    applyComposedCourseFromSteps,
     applyMapPickAsFirstStep,
     applyMapPickAsFirstStepAsync,
     computeSecondStepCandidatesOnly,

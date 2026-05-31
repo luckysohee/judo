@@ -4,9 +4,9 @@ import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { getMinutesUntilClose } from "./timeUtils.js";
 import {
   calculateCoursePlaceScore,
-  filterByArea,
   isSameVenueForCourseStep,
   placeId,
+  resolveCourseAreaPool,
 } from "./generateCourseOptions.js";
 import {
   anjuExpandedTokenMatchesHaystack,
@@ -15,6 +15,11 @@ import {
 } from "./placeTaxonomy.js";
 
 function choosePattern(parsedQuery) {
+  if (parsedQuery.includeHalfStep && parsedQuery.steps === 2) {
+    const mode = parsedQuery.mode ?? parsedQuery.dateMode;
+    if (mode === "date") return COURSE_PATTERNS.date_3step;
+    return COURSE_PATTERNS.casual_3step;
+  }
   if (parsedQuery.steps !== 2) return null;
   const mode = parsedQuery.mode ?? parsedQuery.dateMode;
   if (mode === "date") return COURSE_PATTERNS.date_2step;
@@ -94,31 +99,50 @@ export function regenerateSecondStep({
 }) {
   if (!selectedCourse?.steps?.length) return [];
 
-  const pattern = choosePattern(parsedQuery);
-  if (!pattern) return [];
+  const stepsIn = selectedCourse.steps || [];
+  const useBridgeAnchor = stepsIn.length >= 3;
+  const pattern = useBridgeAnchor
+    ? (parsedQuery.mode ?? parsedQuery.dateMode) === "date"
+      ? COURSE_PATTERNS.date_3step
+      : COURSE_PATTERNS.casual_3step
+    : choosePattern(parsedQuery);
+  if (!pattern || pattern.length < 2) return [];
 
-  const [, rule2] = pattern;
+  /** 마지막 스텝 = 실제「2차」(바·술집). 3스텝 패턴에서 `pattern[1]`은 쩜오차라서 여기 쓰면 후보 점수가 전부 0에 가깝게 나감. */
+  const rule2 = pattern[pattern.length - 1];
   const profile = chooseProfile(selectedCourse.profileKey);
 
   const firstPlace = selectedCourse.steps[0].place;
-  const currentSecond = selectedCourse.steps[1]?.place;
+  const bridgePlace = useBridgeAnchor
+    ? selectedCourse.steps[1]?.place
+    : null;
+  const currentSecond = useBridgeAnchor
+    ? selectedCourse.steps[2]?.place
+    : selectedCourse.steps[1]?.place;
+
+  const anchorPlace = useBridgeAnchor ? bridgePlace : firstPlace;
+  const wAnchor = resolvePlaceWgs84(anchorPlace);
+  if (!wAnchor) return [];
+  const distanceAnchor = { ...anchorPlace, lat: wAnchor.lat, lng: wAnchor.lng };
 
   const wFirst = resolvePlaceWgs84(firstPlace);
   if (!wFirst) return [];
   const firstAnchor = { ...firstPlace, lat: wFirst.lat, lng: wFirst.lng };
 
-  let areaPlaces = filterByArea(places, parsedQuery.area);
-  let effectiveParsed = parsedQuery;
-  if (!areaPlaces.length && parsedQuery.area) {
-    areaPlaces = places;
-    effectiveParsed = { ...parsedQuery, area: null };
-  }
+  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
+    places,
+    parsedQuery
+  );
 
   const walkable = Boolean(effectiveParsed.walkable);
   const distanceLimits = resolveSecondStepDistanceLimits(
     walkable,
     userSecondPreferences
   );
+  const hasUserMaxDistance =
+    userSecondPreferences?.maxSecondDistanceM != null &&
+    Number.isFinite(Number(userSecondPreferences.maxSecondDistanceM));
+  const prioritizeCurators = Boolean(userSecondPreferences?.prioritizeCurators);
 
   const candidates = areaPlaces
     .map((place) => {
@@ -129,6 +153,9 @@ export function regenerateSecondStep({
     .filter(Boolean)
     .filter((place) => {
       if (isSameVenueForCourseStep(firstAnchor, place)) return false;
+      if (useBridgeAnchor && bridgePlace) {
+        if (isSameVenueForCourseStep(distanceAnchor, place)) return false;
+      }
       if (!currentSecond) return true;
       const w2 = resolvePlaceWgs84(currentSecond);
       if (w2) {
@@ -143,8 +170,8 @@ export function regenerateSecondStep({
     })
     .map((place) => {
       const distance = haversineMeters(
-        Number(firstAnchor.lat),
-        Number(firstAnchor.lng),
+        Number(distanceAnchor.lat),
+        Number(distanceAnchor.lng),
         Number(place.lat),
         Number(place.lng)
       );
@@ -257,7 +284,7 @@ export function regenerateSecondStep({
 
       return {
         ...place,
-        distanceFromFirst: Math.round(distance),
+        distanceFromAnchor: Math.round(distance),
         candidateScore: baseScore + distanceBonus + extraBonus + timingBonus,
       };
     })
@@ -265,13 +292,40 @@ export function regenerateSecondStep({
     .filter((place) => place.candidateScore > 0);
 
   let filtered = [];
-
-  for (const limit of distanceLimits) {
+  if (hasUserMaxDistance) {
+    // 사용자가 최대 거리를 명시하면 그 상한까지 전체 후보를 본다(근거리 tier 조기종료 금지).
+    const userLimit = Math.max(...distanceLimits);
     filtered = candidates
-      .filter((place) => place.distanceFromFirst <= limit)
-      .sort((a, b) => b.candidateScore - a.candidateScore);
+      .filter((place) => place.distanceFromAnchor <= userLimit)
+      .sort((a, b) => {
+        if (prioritizeCurators) {
+          const aCur = Number(a.overlapCuratorCount ?? a.overlap_curator_count ?? 0);
+          const bCur = Number(b.overlapCuratorCount ?? b.overlap_curator_count ?? 0);
+          if (bCur !== aCur) return bCur - aCur;
+          const aCnt = Number(a.curatorCount ?? a.curator_count ?? 0);
+          const bCnt = Number(b.curatorCount ?? b.curator_count ?? 0);
+          if (bCnt !== aCnt) return bCnt - aCnt;
+        }
+        return b.candidateScore - a.candidateScore;
+      });
+  } else {
+    for (const limit of distanceLimits) {
+      filtered = candidates
+        .filter((place) => place.distanceFromAnchor <= limit)
+        .sort((a, b) => {
+          if (prioritizeCurators) {
+            const aCur = Number(a.overlapCuratorCount ?? a.overlap_curator_count ?? 0);
+            const bCur = Number(b.overlapCuratorCount ?? b.overlap_curator_count ?? 0);
+            if (bCur !== aCur) return bCur - aCur;
+            const aCnt = Number(a.curatorCount ?? a.curator_count ?? 0);
+            const bCnt = Number(b.curatorCount ?? b.curator_count ?? 0);
+            if (bCnt !== aCnt) return bCnt - aCnt;
+          }
+          return b.candidateScore - a.candidateScore;
+        });
 
-    if (filtered.length) break;
+      if (filtered.length) break;
+    }
   }
 
   const sid = placeId(currentSecond);
@@ -283,25 +337,50 @@ export function regenerateSecondStep({
 
   const sliceSource = top.length ? top : filtered;
 
-  return sliceSource.slice(0, 3).map((second) => ({
-    key: `${selectedCourse.key}-r2-${variant}-${placeId(second) ?? second.name}`,
-    profileKey: selectedCourse.profileKey,
-    profileTitle: selectedCourse.profileTitle,
-    profileDescription: selectedCourse.profileDescription,
-    regenerated: true,
-    regenerateVariant: variant,
-    totalScore: second.candidateScore,
-    steps: [
-      { ...selectedCourse.steps[0] },
-      {
-        step: 2,
-        label: rule2.label,
-        stayMinutes: rule2.stayMinutes,
-        walkDistanceMeters: second.distanceFromFirst,
-        place: second,
-      },
-    ],
-  }));
+  return sliceSource.slice(0, 3).map((second) => {
+    if (useBridgeAnchor) {
+      return {
+        key: `${selectedCourse.key}-r2-${variant}-${placeId(second) ?? second.name}`,
+        profileKey: selectedCourse.profileKey,
+        profileTitle: selectedCourse.profileTitle,
+        profileDescription: selectedCourse.profileDescription,
+        regenerated: true,
+        regenerateVariant: variant,
+        totalScore: second.candidateScore,
+        includeHalfStep: true,
+        steps: [
+          { ...selectedCourse.steps[0] },
+          { ...selectedCourse.steps[1] },
+          {
+            step: 3,
+            label: rule2.label,
+            stayMinutes: rule2.stayMinutes,
+            walkDistanceMeters: second.distanceFromAnchor,
+            place: second,
+          },
+        ],
+      };
+    }
+    return {
+      key: `${selectedCourse.key}-r2-${variant}-${placeId(second) ?? second.name}`,
+      profileKey: selectedCourse.profileKey,
+      profileTitle: selectedCourse.profileTitle,
+      profileDescription: selectedCourse.profileDescription,
+      regenerated: true,
+      regenerateVariant: variant,
+      totalScore: second.candidateScore,
+      steps: [
+        { ...selectedCourse.steps[0] },
+        {
+          step: 2,
+          label: rule2.label,
+          stayMinutes: rule2.stayMinutes,
+          walkDistanceMeters: second.distanceFromAnchor,
+          place: second,
+        },
+      ],
+    };
+  });
 }
 
 export function getRegenerateSecondLabel(variant) {

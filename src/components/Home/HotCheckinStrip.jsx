@@ -1,6 +1,18 @@
 import { useState, useEffect } from "react";
 import { useToast } from "../Toast/ToastProvider";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { supabase } from "../../lib/supabase";
+import {
+  getJudoModeCopy,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+  JUDO_DAY_SIDE_STRIP_HINT,
+} from "../../utils/judoOperationMode";
+import MutualCheckinsHomeSection from "./MutualCheckinsHomeSection";
+import {
+  HOME_HOT_STRIP_CONTENT_SLOT_PX,
+  HOME_HOT_STRIP_NAV_CLEARANCE_PX,
+  HOME_HOT_STRIP_TAB_ROW_PX,
+} from "../../utils/homeHotStripLayout";
 
 function placeMatchesRankId(place, rankPlaceId) {
   const rid = String(rankPlaceId);
@@ -17,9 +29,17 @@ function placeMatchesRankId(place, rankPlaceId) {
 
 const TAB_HOT = "hot";
 const TAB_CURATORS = "curators";
+const TAB_MUTUAL = "mutual";
+
+/** 한 줄 칩·탭 행 / 콘텐츠 슬롯 — `homeHotStripLayout`과 동기화 */
+const STRIP_ROW_PX = HOME_HOT_STRIP_TAB_ROW_PX;
+const STRIP_CONTENT_SLOT_H = HOME_HOT_STRIP_CONTENT_SLOT_PX;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * 지도 위 가로 스트립: 탭 — 오늘 한잔 랭킹(24h) / 떠오르는 큐레이터(7일)
+ * 지도 위 가로 스트립: 탭 — 오늘 한잔 TOP(24h) / 떠오르는 큐레이터(7일) / 아는 사람
+ * (공개 코스는 `HomeCoursesDiscovery` 진입 칩·패널로 분리)
  */
 export default function HotCheckinStrip({
   rankingTop5 = [],
@@ -28,25 +48,46 @@ export default function HotCheckinStrip({
   mapRef,
   onPickPlace,
   onPickCurator,
+  user = null,
+  onOpenMutualPlaceDetail,
+  onPickMutualUser,
+  onMutualSearchOpenChange,
+  /** 아는 사람 탭 검색 열림 — 상위 UI 겹침 방지 */
+  mutualSearchExpanded = false,
   hideWhenPreviewOpen = false,
+  /** 검색바 문장·검색 진행 중에는 아래 UI와 겹침 방지 */
+  hideWhenSearchActive = false,
+  /** 「지금 뜨는 코스」 시트가 중간·최소로 내려가 있을 때 */
+  hideWhenCourseSheetDocked = false,
+  judoMode = null,
+  /** 탭 전환 시 상위 알림 */
+  onActiveTabChange,
 }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState(TAB_HOT);
 
+  const dayLocked = Boolean(judoMode?.isDayMode);
+  const dayScheduleToast = () => {
+    const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
+    showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+  };
+
   const topFive = Array.isArray(rankingTop5) ? rankingTop5 : [];
   const curators = Array.isArray(risingCurators) ? risingCurators : [];
+  const showMutualTab = Boolean(user?.id);
 
   const showStrip =
-    !hideWhenPreviewOpen && (topFive.length > 0 || curators.length > 0);
+    !hideWhenPreviewOpen &&
+    !hideWhenSearchActive &&
+    !hideWhenCourseSheetDocked &&
+    (topFive.length > 0 || curators.length > 0 || showMutualTab);
 
   useEffect(() => {
-    if (tab === TAB_HOT && topFive.length === 0 && curators.length > 0) {
-      setTab(TAB_CURATORS);
-    }
-    if (tab === TAB_CURATORS && curators.length === 0 && topFive.length > 0) {
-      setTab(TAB_HOT);
-    }
-  }, [tab, topFive.length, curators.length]);
+    if (typeof onActiveTabChange !== "function") return;
+    onActiveTabChange(tab);
+    // tab만 구독 — 콜백은 setState 등 안정 참조 전제
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   if (!showStrip) return null;
 
@@ -56,33 +97,49 @@ export default function HotCheckinStrip({
       left: "50%",
       transform: "translateX(-50%)",
       width: "min(720px, calc(100% - 32px))",
-      bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
       zIndex: 85,
       pointerEvents: "auto",
       boxSizing: "border-box",
+      bottom: `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + env(safe-area-inset-bottom, 0px))`,
     },
     bar: {
       display: "flex",
       flexDirection: "column",
-      gap: 8,
-      padding: "8px 10px",
-      borderRadius: 16,
+      alignItems: "stretch",
+      gap: 4,
+      padding: "4px 8px",
+      borderRadius: 14,
       background: "rgba(255,255,255,0.4)",
       boxShadow:
         "0 6px 28px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.95)",
       border: "1px solid rgba(255,255,255,0.82)",
       backdropFilter: "blur(24px) saturate(200%)",
       WebkitBackdropFilter: "blur(24px) saturate(200%)",
+      boxSizing: "border-box",
+    },
+    /** 탭 아래 — 칩·아는 사람 한 줄 (높이 고정, 자동완성은 시트 아래 portal) */
+    contentSlot: {
+      width: "100%",
+      minHeight: STRIP_CONTENT_SLOT_H,
+      height: STRIP_CONTENT_SLOT_H,
+      maxHeight: STRIP_CONTENT_SLOT_H,
+      display: "flex",
+      alignItems: "stretch",
+      overflow: "hidden",
+      flexShrink: 0,
+      boxSizing: "border-box",
     },
     tabRow: {
       display: "flex",
-      gap: 6,
+      gap: 4,
       flexShrink: 0,
+      minHeight: STRIP_ROW_PX,
+      alignItems: "center",
     },
     tabBtn: (active) => ({
       flex: "1 1 0%",
       minWidth: 0,
-      padding: "6px 8px",
+      padding: "2px 7px",
       borderRadius: 999,
       border: active
         ? "1px solid rgba(225,29,72,0.35)"
@@ -91,8 +148,9 @@ export default function HotCheckinStrip({
         ? "linear-gradient(135deg, #fff1f2 0%, #fff7ed 100%)"
         : "rgba(255,255,255,0.55)",
       color: active ? "#9f1239" : "#4b5563",
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: 800,
+      lineHeight: 1.2,
       letterSpacing: "-0.02em",
       cursor: "pointer",
       whiteSpace: "nowrap",
@@ -101,73 +159,98 @@ export default function HotCheckinStrip({
     }),
     scroll: {
       display: "flex",
-      gap: 8,
+      gap: 6,
       overflowX: "auto",
-      flex: 1,
+      width: "100%",
       minWidth: 0,
-      paddingBottom: 2,
+      paddingBottom: 0,
       scrollbarWidth: "thin",
+      minHeight: STRIP_ROW_PX,
+      maxHeight: STRIP_CONTENT_SLOT_H,
+      alignItems: "center",
+      alignSelf: "stretch",
+      boxSizing: "border-box",
     },
     chipHot: {
       flexShrink: 0,
       maxWidth: 200,
-      padding: "6px 12px",
+      padding: "2px 9px",
       borderRadius: 999,
       border: "1px solid #fecaca",
       background: "linear-gradient(135deg, #fff7ed 0%, #fff1f2 100%)",
       cursor: "pointer",
       textAlign: "left",
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
+      lineHeight: 1.25,
       color: "#9f1239",
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
+      display: "inline-flex",
+      alignItems: "center",
+      minHeight: STRIP_ROW_PX,
+      boxSizing: "border-box",
     },
     chipCurator: {
       flexShrink: 0,
-      maxWidth: 220,
-      padding: "6px 12px",
+      maxWidth: 240,
+      padding: "2px 9px",
       borderRadius: 999,
       border: "1px solid #ddd6fe",
       background: "linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%)",
       cursor: "pointer",
       textAlign: "left",
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
+      lineHeight: 1.25,
       color: "#5b21b6",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      gap: 2,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
       minWidth: 0,
+      minHeight: STRIP_ROW_PX,
+      maxHeight: STRIP_ROW_PX,
+      boxSizing: "border-box",
     },
-    chipSub: {
-      fontSize: 10,
-      fontWeight: 600,
-      color: "rgba(91,33,182,0.72)",
-      maxWidth: "100%",
+    chipCuratorName: {
+      minWidth: 0,
+      flex: "1 1 auto",
       overflow: "hidden",
       textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+    chipCuratorStat: {
+      flexShrink: 0,
+      fontSize: 9,
+      fontWeight: 600,
+      color: "rgba(91,33,182,0.68)",
     },
     count: {
-      marginLeft: 6,
+      marginLeft: 4,
       fontWeight: 800,
       color: "#e11d48",
       fontVariantNumeric: "tabular-nums",
+      fontSize: 10,
     },
     empty: {
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: 600,
       color: "#6b7280",
-      padding: "4px 4px 2px",
+      padding: "2px 2px 0",
+      minHeight: STRIP_ROW_PX,
+      display: "flex",
+      alignItems: "center",
+      boxSizing: "border-box",
+      lineHeight: 1.25,
     },
   };
 
-  const handleHotChip = (row) => {
+  const handleHotChip = async (row) => {
+    if (dayLocked) {
+      dayScheduleToast();
+      return;
+    }
     const found = placesOnMap.find((p) => placeMatchesRankId(p, row.place_id));
     const wgs = found ? resolvePlaceWgs84(found) : null;
 
@@ -177,11 +260,46 @@ export default function HotCheckinStrip({
       return;
     }
 
-    showToast(
-      "지도에 표시된 가게만 이동할 수 있어요. 검색으로 불러온 뒤 다시 눌러 주세요.",
-      "info",
-      3200
-    );
+    // 지도에 마커가 없더라도 DB에서 바로 찾아 이동.
+    try {
+      const pid = String(row?.place_id ?? "").trim();
+      if (!pid) throw new Error("empty place_id");
+
+      const byIdQuery = UUID_RE.test(pid)
+        ? supabase.from("places").select("*").eq("id", pid).maybeSingle()
+        : supabase
+            .from("places")
+            .select("*")
+            .eq("kakao_place_id", pid)
+            .maybeSingle();
+      const { data: placeById, error: byIdErr } = await byIdQuery;
+      if (byIdErr) throw byIdErr;
+      let resolved = placeById;
+
+      if (!resolved && row?.place_name) {
+        const { data: byName, error: byNameErr } = await supabase
+          .from("places")
+          .select("*")
+          .eq("name", String(row.place_name).trim())
+          .limit(1);
+        if (byNameErr) throw byNameErr;
+        resolved = Array.isArray(byName) ? byName[0] : null;
+      }
+
+      if (!resolved) {
+        showToast("아직 위치를 찾지 못했어요. 잠시 후 다시 시도해 주세요.", "info", 3200);
+        return;
+      }
+
+      const rw = resolvePlaceWgs84(resolved);
+      if (rw && mapRef?.current?.moveToLocation) {
+        mapRef.current.moveToLocation(rw.lat, rw.lng);
+      }
+      onPickPlace?.(resolved, row);
+    } catch (error) {
+      console.warn("hot-strip place resolve:", error?.message || error);
+      showToast("장소 위치를 불러오지 못했어요. 다시 시도해 주세요.", "info", 3200);
+    }
   };
 
   const handleCuratorChip = (row) => {
@@ -192,120 +310,127 @@ export default function HotCheckinStrip({
 
   return (
     <div style={styles.wrap} aria-label="홈 추천 스트립">
-      <div style={styles.bar}>
-        {topFive.length > 0 && curators.length > 0 ? (
-          <div style={styles.tabRow} role="tablist" aria-label="스트립 탭">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === TAB_HOT}
-              style={styles.tabBtn(tab === TAB_HOT)}
-              onClick={() => setTab(TAB_HOT)}
-            >
-              🔥 오늘 한잔 TOP
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === TAB_CURATORS}
-              style={styles.tabBtn(tab === TAB_CURATORS)}
-              onClick={() => setTab(TAB_CURATORS)}
-            >
-              ✨ 떠오르는 큐레이터
-            </button>
-          </div>
-        ) : topFive.length > 0 ? (
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              color: "#1f2937",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
+      <div style={styles.bar} data-home-hot-strip-bar>
+        <div style={styles.tabRow} role="tablist" aria-label="스트립 탭">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === TAB_HOT}
+            style={styles.tabBtn(tab === TAB_HOT)}
+            onClick={() => setTab(TAB_HOT)}
+            title="오늘 한잔 TOP"
           >
-            <span style={{ fontSize: 15 }} aria-hidden>
-              🔥
-            </span>
-            오늘 한잔 TOP
+            🔥 오늘 한잔 TOP
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === TAB_CURATORS}
+            style={styles.tabBtn(tab === TAB_CURATORS)}
+            onClick={() => setTab(TAB_CURATORS)}
+            title="떠오르는 큐레이터"
+          >
+            ✨ 떠오르는 큐레이터
+          </button>
+          {showMutualTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === TAB_MUTUAL}
+              style={styles.tabBtn(tab === TAB_MUTUAL)}
+              onClick={() => setTab(TAB_MUTUAL)}
+              title="아는 사람 활동"
+            >
+              👀 아는 사람
+            </button>
+          ) : null}
+        </div>
+        {tab === TAB_MUTUAL && showMutualTab ? (
+          <div style={styles.contentSlot} role="tabpanel" aria-label="아는 사람 활동">
+            <MutualCheckinsHomeSection
+              compact
+              stripMode
+              user={user}
+              onOpenPlaceDetail={onOpenMutualPlaceDetail}
+              onPickUserFromSearch={onPickMutualUser}
+              onSearchOpenChange={onMutualSearchOpenChange}
+            />
           </div>
         ) : (
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              color: "#1f2937",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <span style={{ fontSize: 15 }} aria-hidden>
-              ✨
-            </span>
-            떠오르는 큐레이터
+          <div style={styles.contentSlot} role="tabpanel">
+            <div style={styles.scroll}>
+            {tab === TAB_HOT ? (
+              topFive.length === 0 ? (
+                <div style={styles.empty}>
+                  {dayLocked ? JUDO_DAY_SIDE_STRIP_HINT : "이번엔 조용해요"}
+                </div>
+              ) : (
+                topFive.map((row) => (
+                  <button
+                    key={String(row.place_id)}
+                    type="button"
+                    style={{
+                      ...styles.chipHot,
+                      ...(dayLocked
+                        ? {
+                            opacity: 0.52,
+                            cursor: "not-allowed",
+                            filter: "grayscale(0.28)",
+                          }
+                        : {}),
+                    }}
+                    title={row.place_address || row.place_name}
+                    onClick={() => handleHotChip(row)}
+                  >
+                    {row.place_name}
+                    <span style={styles.count}>{row.total_checkins}</span>
+                  </button>
+                ))
+              )
+            ) : curators.length === 0 ? (
+              <div style={styles.empty}>이번 주는 조용해요</div>
+            ) : (
+              curators.map((row) => {
+                const name =
+                  String(row.display_name || "").trim() ||
+                  `@${String(row.username || "").trim()}`;
+                const wp = Number(row.week_places) || 0;
+                const wf = Number(row.week_follows) || 0;
+                const statShort =
+                  wp > 0 && wf > 0
+                    ? `잔+${wp} · 팔+${wf}`
+                    : wp > 0
+                      ? `잔+${wp}`
+                      : wf > 0
+                        ? `팔+${wf}`
+                        : "";
+                const titleLong =
+                  wp > 0 && wf > 0
+                    ? `이번 주 잔 +${wp} · 팔로 +${wf}`
+                    : wp > 0
+                      ? `이번 주 잔 +${wp}`
+                      : wf > 0
+                        ? `팔로 +${wf}`
+                        : "";
+                return (
+                  <button
+                    key={String(row.curator_id ?? row.username)}
+                    type="button"
+                    style={styles.chipCurator}
+                    title={titleLong || name}
+                    onClick={() => handleCuratorChip(row)}
+                  >
+                    <span style={styles.chipCuratorName}>{name}</span>
+                    {statShort ? (
+                      <span style={styles.chipCuratorStat}>{statShort}</span>
+                    ) : null}
+                  </button>
+                );
+              })
+            )}
+            </div>
           </div>
         )}
-
-        <div style={styles.scroll} role="tabpanel">
-          {tab === TAB_HOT ? (
-            topFive.length === 0 ? (
-              <div style={styles.empty}>이번엔 조용해요</div>
-            ) : (
-              topFive.map((row) => (
-                <button
-                  key={String(row.place_id)}
-                  type="button"
-                  style={styles.chipHot}
-                  title={row.place_address || row.place_name}
-                  onClick={() => handleHotChip(row)}
-                >
-                  {row.place_name}
-                  <span style={styles.count}>{row.total_checkins}</span>
-                </button>
-              ))
-            )
-          ) : curators.length === 0 ? (
-            <div style={styles.empty}>이번 주는 조용해요</div>
-          ) : (
-            curators.map((row) => {
-              const name =
-                String(row.display_name || "").trim() ||
-                `@${String(row.username || "").trim()}`;
-              const wp = Number(row.week_places) || 0;
-              const wf = Number(row.week_follows) || 0;
-              const sub =
-                wp > 0 && wf > 0
-                  ? `이번 주 잔 +${wp} · 팔로 +${wf}`
-                  : wp > 0
-                    ? `이번 주 잔 +${wp}`
-                    : wf > 0
-                      ? `팔로 +${wf}`
-                      : "";
-              return (
-                <button
-                  key={String(row.curator_id ?? row.username)}
-                  type="button"
-                  style={styles.chipCurator}
-                  title={sub}
-                  onClick={() => handleCuratorChip(row)}
-                >
-                  <span
-                    style={{
-                      maxWidth: "100%",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {name}
-                  </span>
-                  {sub ? <span style={styles.chipSub}>{sub}</span> : null}
-                </button>
-              );
-            })
-          )}
-        </div>
       </div>
     </div>
   );

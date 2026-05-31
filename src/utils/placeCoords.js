@@ -24,10 +24,20 @@ export function resolvePlaceWgs84(place) {
   if (!place || typeof place !== "object") return null;
   const lat = parseCoordField(place.y ?? place.lat ?? place.latitude);
   const lng = parseCoordField(place.x ?? place.lng ?? place.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  // DB/임포트 placeholder — (0,0) 으로 200+ 건이 한 핀으로 뭉치고 지도에서 전부 탈락하는 경우 방지
-  if (lat === 0 && lng === 0) return null;
-  return { lat, lng };
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    if (lat === 0 && lng === 0) return null;
+    return { lat, lng };
+  }
+  const gc = place.geometry?.coordinates ?? place.coordinates;
+  if (Array.isArray(gc) && gc.length >= 2) {
+    const lngG = parseCoordField(gc[0]);
+    const latG = parseCoordField(gc[1]);
+    if (Number.isFinite(latG) && Number.isFinite(lngG)) {
+      if (latG === 0 && lngG === 0) return null;
+      return { lat: latG, lng: lngG };
+    }
+  }
+  return null;
 }
 
 /**

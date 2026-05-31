@@ -24,12 +24,29 @@ function buildRegionKeywords() {
   const LEGACY = {
     강남: ["강남", "강남구", "강남역", "신사", "압구정", "청담", "논현"],
     홍대: ["홍대", "홍대입구", "합정", "상수", "망원"],
-    성수: ["성수", "성수역", "성수동", "서울숲", "뚝섬"],
+    성수: ["성수", "성수역", "성수동", "성수로", "서울숲", "뚝섬"],
     을지로: ["을지로", "을지로입구", "을지로3가", "을지로4가", "을지로5가", "동대문"],
     종로: ["종로", "종로3가", "종로5가", "광화문", "시청", "서울역"],
     명동: ["명동", "명동입구", "회현", "충무로"],
     신촌: ["신촌", "이대", "아현", "공덕"],
     잠실: ["잠실", "잠실역", "송파", "문정", "복정"],
+    /** 이태원·한남 인접 권역(단일 클러스터) */
+    이태원: [
+      "이태원",
+      "이태원동",
+      "이태원로",
+      "이태원역",
+      "경리단길",
+      "한남",
+      "한남동",
+      "한남역",
+      "보행자연가",
+      "용산구",
+      "용산",
+      "효창",
+      "후암",
+    ],
+    서초: ["서초", "서초동", "서초역", "서초구", "서래마을"],
     부산: ["부산", "서면", "해운대", "광안리", "남포동"],
     대구: ["대구", "동성로", "중앙로", "반월당"],
     제주: ["제주", "제주시", "애월", "협재", "성산"],
@@ -47,17 +64,22 @@ function buildRegionKeywords() {
     const 압 = new Set(out.압구정);
     out.강남 = out.강남.filter((s) => !압.has(s));
   }
-  if (out.한남?.length && out.강남?.length) {
-    const hn = new Set(out.한남);
-    out.강남 = out.강남.filter((s) => !hn.has(s));
+  if (out.한남?.length) {
+    out.이태원 = uniqConcat(out.이태원 || [], out.한남);
+    delete out.한남;
+  }
+  if (out.이태원?.length && out.강남?.length) {
+    const itaewonHannam = new Set(out.이태원);
+    out.강남 = out.강남.filter((s) => !itaewonHannam.has(s));
   }
 
   const ORDER = [
     "압구정",
-    "한남",
+    "이태원",
     "홍대",
     "성수",
     "을지로",
+    "서초",
     "강남",
     "종로",
     "명동",
@@ -79,6 +101,219 @@ function buildRegionKeywords() {
 
 // 지역 키워드 사전 (검색 확장 UX에서도 사용)
 export const REGION_KEYWORDS = buildRegionKeywords();
+
+/** 구(舊) 단일 지역 키 → 클러스터 키 (DB·로그 호환) */
+const REGION_CLUSTER_ALIAS = {
+  한남: "이태원",
+};
+
+export function normalizeRegionClusterKey(regionKey) {
+  const k = String(regionKey || "").trim();
+  if (!k) return null;
+  return REGION_CLUSTER_ALIAS[k] || k;
+}
+
+/** 지역 고정 검색 시 좌표 폴백(대략 중심) */
+const REGION_CENTER_COORDS = {
+  /** 이태원·한남 권역 중심(대략) */
+  이태원: { lat: 37.5319, lng: 127.0008 },
+  홍대: { lat: 37.5563, lng: 126.9236 },
+  성수: { lat: 37.5445, lng: 127.0559 },
+  을지로: { lat: 37.566, lng: 126.991 },
+  강남: { lat: 37.4979, lng: 127.0276 },
+  압구정: { lat: 37.527, lng: 127.028 },
+  종로: { lat: 37.57, lng: 126.979 },
+  명동: { lat: 37.5636, lng: 126.985 },
+  신촌: { lat: 37.5558, lng: 126.9364 },
+  잠실: { lat: 37.5133, lng: 127.1002 },
+  서초: { lat: 37.4837, lng: 127.0324 },
+};
+
+/** 쿼리에 동네명이 박혀 있을 때 허용 반경(km) — 12km면 신사·종로·서초가 이태원 검색에 섞임 */
+const REGION_PROXIMITY_KM = {
+  /** 이태원↔한남 포함, 신사·서초 제외 */
+  이태원: 2.5,
+  홍대: 2.4,
+  성수: 2.5,
+  을지로: 2.8,
+  강남: 3.2,
+  압구정: 2.6,
+  종로: 3,
+  명동: 2.5,
+  신촌: 2.4,
+  잠실: 3.5,
+  서초: 2.8,
+};
+
+/**
+ * 쿼리 지역과 주소·상호가 명백히 다른 동네일 때 제외.
+ * (좌표만 가깝고 주소는 서초구인 POI — 이태원 검색 오염 방지)
+ */
+const REGION_ADDRESS_CONFLICT = {
+  이태원: [
+    /종로구|종로\d|광화문|인사동|익선/,
+    /서초구|서초[0-9가-힣]*|방배|사당|교대|양재/,
+    /신사동|신사역|신사로|가로수길/,
+    /강남구|역삼|선릉|삼성동|청담|압구정|논현|신논현/,
+    /동대문구|동대문(?!.*이태원)/,
+    /마포구|홍대|합정|망원|상수|연남/,
+    /잠실|송파구|광진구|건대|성동구(?!.*용산)/,
+    /구로|신림|노원|강서|영등포|여의도/,
+  ],
+};
+
+export function regionKeyForLocationToken(token) {
+  const ln = String(token || "").trim().toLowerCase();
+  if (!ln) return null;
+  let bestKey = null;
+  let bestLen = 0;
+  for (const [key, syns] of Object.entries(REGION_KEYWORDS)) {
+    for (const s of syns) {
+      const sl = String(s).toLowerCase();
+      if (sl.length < 2) continue;
+      const hit = ln === sl || ln.includes(sl) || sl.includes(ln);
+      if (hit && sl.length >= bestLen) {
+        bestKey = key;
+        bestLen = sl.length;
+      }
+    }
+  }
+  return bestKey;
+}
+
+/**
+ * `parseSearchQuery` + `findAreaKeywordInQuery` — EXTRA 지명(이태원 등)까지 regions에 반영.
+ */
+export function resolveParsedRegionsFromQuery(rawQuery, parsedResult = null) {
+  const p =
+    parsedResult && typeof parsedResult === "object"
+      ? parsedResult
+      : parseSearchQuery(String(rawQuery || ""));
+  const regions =
+    p.regions?.length > 0 ? [...p.regions] : p.region ? [p.region] : [];
+  const anchor = findAreaKeywordInQuery(rawQuery);
+  if (anchor) {
+    const key = regionKeyForLocationToken(anchor);
+    if (key && !regions.includes(key)) regions.push(key);
+  }
+  return uniqStrings(regions.map((r) => normalizeRegionClusterKey(r) || r));
+}
+
+/** 사전에 등록된 지역 클러스터인지 */
+export function isKnownRegionCluster(locationName) {
+  return Boolean(regionKeyForLocationToken(locationName));
+}
+
+/** 쿼리에서 뽑은 지명(역·동·EXTRA 등) */
+export function extractMapLocationAnchorFromQuery(rawQuery) {
+  const q = String(rawQuery || "").trim();
+  if (!q) return null;
+  return extractLocationAnchorFromQuery(q) || findAreaKeywordInQuery(q);
+}
+
+/** 사전엔 없지만 검색어에 지역명이 있는 경우 — 카카오 「지역+와인바」식 검색이 맞음 */
+export function queryUsesUnmappedMapAnchor(rawQuery) {
+  const anchor = extractMapLocationAnchorFromQuery(rawQuery);
+  return Boolean(anchor && !regionKeyForLocationToken(anchor));
+}
+
+/**
+ * 사전 미등록 지명 — 주소·상호에 지명이 있거나, 지도 중심에서 가까운 POI만.
+ */
+export function filterPlacesByExtractedMapAnchor(
+  places,
+  locationName,
+  { sortOrigin = null, maxDistanceKm = 3 } = {},
+) {
+  const ln = String(locationName || "").trim();
+  if (!ln || !Array.isArray(places) || places.length === 0) return places;
+
+  return places.filter((p) => {
+    if (placeMatchesMapRegionAnchor(p, ln)) return true;
+    const lat = parseFloat(p.y ?? p.lat);
+    const lng = parseFloat(p.x ?? p.lng);
+    if (
+      sortOrigin &&
+      Number.isFinite(sortOrigin.lat) &&
+      Number.isFinite(sortOrigin.lng) &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+      return (
+        haversineKm(sortOrigin.lat, sortOrigin.lng, lat, lng) <= maxDistanceKm
+      );
+    }
+    return false;
+  });
+}
+
+/** 검색어에 동네·상권명이 명시됐는지 (사전 미등록 지명 포함) */
+export function queryPinsExplicitRegion(rawQuery, parsedResult = null) {
+  if (queryUsesUnmappedMapAnchor(rawQuery)) return true;
+  return resolveParsedRegionsFromQuery(rawQuery, parsedResult).length > 0;
+}
+
+/** 지도 스코어링 후 거리 게이트 — 동네명 검색은 km를 좁힌다 */
+export function mapSearchMaxDistanceKmForLocation(locationName) {
+  const ln = String(locationName || "").trim();
+  if (!ln) return 12;
+  if (/구$|시$|도$/.test(ln) && ln.length <= 8) return 8;
+  const key = regionKeyForLocationToken(ln);
+  if (key && REGION_PROXIMITY_KM[key] != null) return REGION_PROXIMITY_KM[key];
+  if (ln.length >= 2 && ln.length <= 10) return 2.5;
+  return 12;
+}
+
+function placeConflictsWithPinnedRegion(place, regionKey) {
+  const patterns = REGION_ADDRESS_CONFLICT[regionKey];
+  if (!patterns?.length) return false;
+  const profile = buildPlaceScoringProfile(place);
+  const hay = `${profile.addressLower} ${profile.textLower}`;
+  const ownSyns = REGION_KEYWORDS[regionKey] || [];
+  const hasOwn = ownSyns.some((s) =>
+    hay.includes(String(s || "").toLowerCase())
+  );
+  if (!hasOwn && patterns.some((re) => re.test(hay))) return true;
+  return false;
+}
+
+function placeWithinRegionProximity(place, regionKey) {
+  const center = REGION_CENTER_COORDS[regionKey];
+  const maxKm = REGION_PROXIMITY_KM[regionKey];
+  if (!center || maxKm == null) return false;
+  const lat = parseFloat(place?.y ?? place?.lat);
+  const lng = parseFloat(place?.x ?? place?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return haversineKm(center.lat, center.lng, lat, lng) <= maxKm;
+}
+
+function placeMatchesPinnedRegions(place, parsedRegions, rawQuery) {
+  if (!Array.isArray(parsedRegions) || parsedRegions.length === 0) {
+    return true;
+  }
+  for (const r of parsedRegions) {
+    if (placeConflictsWithPinnedRegion(place, r)) return false;
+  }
+  if (placeMatchesAnyParsedRegion(place, parsedRegions, rawQuery)) return true;
+  return parsedRegions.some((r) => placeWithinRegionProximity(place, r));
+}
+
+/**
+ * `홍대` 클러스터 동의어에 합정·상수 등이 포함돼 있어, 쿼리에 그 동명이 직접 들어가면
+ * 상호·주소에 해당 글자가 있는 장소만 통과(「합정 와인바」인데 망원만 나오는 혼선 방지).
+ * `홍대`만 쓴 검색은 기존처럼 클러스터 전체 동의어를 허용.
+ */
+const HONGDAE_QUERY_STRICT_SUBTOKENS = [
+  "합정",
+  "상수",
+  "망원",
+  "홍대입구",
+];
+
+function queryPinsHongdaeStrictSubtoken(rawQuery) {
+  const q = String(rawQuery || "").toLowerCase();
+  return HONGDAE_QUERY_STRICT_SUBTOKENS.some((t) => q.includes(t.toLowerCase()));
+}
 
 /**
  * 쿼리에 명시된 지역·랜드마크 (Kakao 키워드 앵커).
@@ -107,6 +342,8 @@ export function findAreaKeywordInQuery(query) {
     "연남동",
     "망원동",
     "이태원",
+    "한남",
+    "한남동",
     "여의도",
     "한강공원",
     "건대입구",
@@ -183,22 +420,89 @@ export function isSimpleLocationMenuMapQuery(query) {
 }
 
 /**
- * 자연어·조건이 많은 검색으로 보이면 단순 마커 전용 UX를 쓰지 않는다.
- * (`parseNaturalQuery`의 wantsWalkingDistance에는 "근처"가 포함되어 있어 여기서는 쓰지 않음.)
+ * 원문 `query`만 보고 문장·추천·장문 의도인지 (naturalQ 없이).
+ * 분기 우선순위: 1) 사용자 원문 query → 2) naturalQ 보조 (충돌 시 query 쪽이 이 함수로 이미 고정됨).
  */
-export function isLikelyNaturalLanguageSearchQuery(query, naturalQ) {
+export function isLikelyNaturalLanguageFromQueryOnly(query) {
   const q = String(query || "").trim();
-  if (!naturalQ) return q.length > 28;
-  if (q.length > 40) return true;
-  if (naturalQ.sortBySaved) return true;
-  if (naturalQ.curator) return true;
+  if (!q) return false;
   if (
-    /걸어서|걸어가기|걸어갈|걸어다니|도보\s|가까운\s*곳|분위기|데이트|연인|회식|혼술|늦게까지|가성비|조용한|시끌|로맨틱|조용히|혼자|친구랑|가족이랑/i.test(
+    /걸어서|걸어가기|걸어갈|걸어다니|도보\s|가까운\s*곳|분위기|데이트|연인|회식|혼술|늦게까지|가성비|조용한|조용하게|시끌|로맨틱|조용히|혼자|친구랑|가족이랑|노포|옛날감성|로컬|숨은맛집|전통/i.test(
       q
     )
   ) {
     return true;
   }
+  if (/추천|알려줘|찾아줘|어디가\s*좋|골라줘|뭐가\s*좋|어디\s*갈지/i.test(q)) {
+    return true;
+  }
+  if (q.length > 34) return true;
+  if (
+    /[.!?]|습니다|해요\s*$|예요\s*$|까요\s*$|같아요|하고\s*싶|보여줘|알려줘/i.test(q)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 지역명 + 2~3 토큰 명사형 조합(와인바·이자카야·2차·소개팅 등) — 키워드 검색으로 충분한 경우.
+ * 문장 접속·서술(에서 조용하게…, 끝나고…)이 있으면 false.
+ */
+const KEYWORD_NOUN_COMPOUND_CLAUSE_RE =
+  /(?:^|\s)(?:에서|에게|한테)\s|하게|하러|해서|인데|지만|조용하게|얘기하기|대화할|가기\s*좋은|끝나고|비\s*오는데|실내에서|한잔할만|할만한|수\s*있는|추천해줘|골라줘|얘기\s*하기|대화\s*할/i;
+
+/** 명사 조합으로 보려다가는 AI로 보내야 하는 단독 꼬리 토큰(짧은 쿼리 한정) */
+const KEYWORD_NOUN_COMPOUND_TAIL_BLOCK_RE =
+  /^(노포|옛날감성|로컬|숨은맛집|전통|데이트|로맨틱|회식|혼술|뒷풀이|분위기|느낌|상황)$/i;
+
+export function isKeywordShortNounCompoundQuery(query) {
+  const q = String(query || "").trim();
+  if (!q || q.length > 28) return false;
+  if (KEYWORD_NOUN_COMPOUND_CLAUSE_RE.test(q)) return false;
+  if (
+    /[.]|[?]|습니다|해요|까요|같아요|하고\s*싶|보여줘|알려줘|추천|어디가\s*좋|찾아줘/i.test(
+      q
+    )
+  ) {
+    return false;
+  }
+
+  const loc = extractLocationAnchorFromQuery(q) || findAreaKeywordInQuery(q);
+  if (!loc) return false;
+
+  let tail;
+  try {
+    const escaped = String(loc).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    tail = q.replace(new RegExp(escaped, "g"), "").trim();
+  } catch {
+    tail = q.split(String(loc)).join("").trim();
+  }
+  if (!tail || tail.length < 2) return false;
+  const tailOne = tail.replace(/\s+/g, " ").trim();
+  if (KEYWORD_NOUN_COMPOUND_TAIL_BLOCK_RE.test(tailOne)) return false;
+
+  const words = q.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 3) return false;
+
+  return true;
+}
+
+/**
+ * 자연어·조건이 많은 검색으로 보이면 단순 마커 전용 UX를 쓰지 않는다.
+ * (`parseNaturalQuery`의 wantsWalkingDistance에는 "근처"가 포함되어 있어 여기서는 쓰지 않음.)
+ *
+ * **원문 우선**: 짧은 명사 조합(지역+업종)이면 naturalQ가 길어도 false로 두어 query가 이긴다.
+ */
+export function isLikelyNaturalLanguageSearchQuery(query, naturalQ) {
+  const q = String(query || "").trim();
+  if (!q) return false;
+  if (isKeywordShortNounCompoundQuery(q)) return false;
+  if (isLikelyNaturalLanguageFromQueryOnly(q)) return true;
+  if (!naturalQ) return q.length > 28;
+  if (naturalQ.sortBySaved) return true;
+  if (naturalQ.curator) return true;
+  if (q.length > 40) return true;
   const tags = naturalQ.tags || [];
   if (tags.length >= 4) return true;
   const rem = String(naturalQ.remainingText || "")
@@ -209,29 +513,105 @@ export function isLikelyNaturalLanguageSearchQuery(query, naturalQ) {
 }
 
 /**
- * 검색창 한 줄만 쓸 때 — 카카오 키워드 위주(빠름) vs 의도 보조·DB 병합(주도 AI) 자동 선택.
- * `Home`에서 `homeSearchChannel === "auto"`일 때 `handleSearchSubmit`이 이 결과로 파이프라인을 고른다.
+ * 홈 단일 검색창 기준 실행 종류 (UI·채널 토글 없이 입력만으로 분기).
  *
- * - 짧은 지역+메뉴·단순 키워드 → `"basic"`
- * - 문장형·분위기·큐레이터·긴 조건 → `"ai"`
- * - 애매하면 제품 방향상 의도 보조 쪽(`"ai"`)을 살짝 선호
+ * - `keyword_search`: 토큰 짧고 지역·카테고리(메뉴·술 종류) 중심 → 카카오 키워드 위주 파이프라인 (`basic`).
+ * - `ai_parse_search`: 문장·조건·분위기 서술 → 의도 파싱·통합 검색 파이프라인 (`ai`).
+ *
+ * **판별 우선순위 (충돌 시 상위가 이김)**  
+ * 1. 사용자 원문 `query` (명사형 짧은 조합·문장 신호)  
+ * 2. `naturalQ`는 보조(큐레이터·저장순·긴 remaining 등) — 원문이 이미 키워드 조합이면 naturalQ로 AI에 끌려가지 않음.
+ *
+ * 추천 이유·재정렬은 여기 붙이지 않는다 (`searchParser` = 타입 판별만).
+ *
+ * **버튼 의존 로직 제거**: 예전 `homeSearchChannel` 제거, 이 함수 + `naturalQ` 보조만 사용.
+ *
+ * @see inferSearchPipelineMode — 레거시 호환용 `"basic" | "ai"` 문자열 매핑만 담당.
  */
-export function inferSearchPipelineMode(query, naturalQ) {
+export const HOME_SEARCH_KIND = Object.freeze({
+  KEYWORD_SEARCH: "keyword_search",
+  AI_PARSE_SEARCH: "ai_parse_search",
+});
+
+/**
+ * 지도 `mapQuery`·카카오 키워드를 «지역+업종»만 남기지 않게 할 때 쓰는 힌트.
+ * `isKeywordShortNounCompoundQuery`(짧은 명사 조합)보다 먼저 검사한다.
+ */
+export const HOME_SEARCH_MOOD_INTENT_HINT_WORDS = [
+  "조용한",
+  "조용",
+  "데이트",
+  "소개팅",
+  "분위기",
+  "아늑한",
+  "차분한",
+  "대화",
+  "혼술",
+  "잔잔한",
+  "프라이빗",
+];
+
+export function homeSearchQueryHasMoodIntentHint(query) {
+  const q = String(query || "");
+  return HOME_SEARCH_MOOD_INTENT_HINT_WORDS.some((w) => q.includes(w));
+}
+
+/** 분위기·상황·행동 표현(키워드만 검색으로 처리하기 애매한 서술) */
+const AI_PARSE_MOOD_SITUATION_ACTION_RE =
+  /가볼만|가볼까|먹으러|마시러|놀러|모이기|만나기|분위기\s*좋|느낌\s*있|상황에\s*맞|같은\s*느낌|어떤\s*느낌|기분\s*전환|분위기\s*있는/i;
+
+/**
+ * @param {string} query
+ * @param {object | null | undefined} naturalQ `parseNaturalQuery` 결과(없으면 null)
+ * @returns {typeof HOME_SEARCH_KIND[keyof typeof HOME_SEARCH_KIND]}
+ */
+export function detectHomeSearchExecutionKind(query, naturalQ = null) {
   const q = String(query || "").trim();
-  if (!q) return "basic";
+  if (!q) return HOME_SEARCH_KIND.KEYWORD_SEARCH;
 
-  if (isLikelyNaturalLanguageSearchQuery(q, naturalQ)) {
-    return "ai";
+  /** 분위기·목적 단어가 있으면 지도 키워드만 파이프보다 통합·의도 파싱 우선 */
+  if (homeSearchQueryHasMoodIntentHint(q)) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
   }
 
+  /** 1차: 원문 — 짧은 지역+명사 조합은 키워드 우선 */
+  if (isKeywordShortNounCompoundQuery(q)) {
+    return HOME_SEARCH_KIND.KEYWORD_SEARCH;
+  }
+
+  /**
+   * 짧은 지명+메뉴·테마(노포·야장 등) — `isLikelyNaturalLanguageFromQueryOnly`의
+   * 노포·회식 토큰보다 먼저 두어 카카오 직검색이 AI로 잡히지 않게 함.
+   */
   if (isSimpleLocationMenuMapQuery(q)) {
-    return "basic";
+    return HOME_SEARCH_KIND.KEYWORD_SEARCH;
   }
 
-  if (naturalQ?.curator) return "ai";
-  if (naturalQ?.sortBySaved) return "ai";
+  /** 원문만으로도 문장·장문이면 AI */
+  if (isLikelyNaturalLanguageFromQueryOnly(q)) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  }
 
-  // 짧은 스택 키워드 + 지역 앵커 → 카카오 키워드가 잘 먹는 편
+  /** 2차: naturalQ 보조 (원문이 짧은 키워드 조합이면 위에서 이미 종료) */
+  if (naturalQ?.curator) return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  if (naturalQ?.sortBySaved) return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+
+  if (!naturalQ && q.length > 28) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  }
+
+  const tags = naturalQ?.tags || [];
+  const rem = String(naturalQ?.remainingText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (tags.length >= 4 || rem.length > 16) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  }
+
+  if (AI_PARSE_MOOD_SITUATION_ACTION_RE.test(q)) {
+    return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+  }
+
   if (q.length <= 24 && !/[?!]/.test(q)) {
     if (
       !/추천|알려|어디|뭐가|골라|찾아줘|해줘|좋은데|느낌|상황|뭐\s*먹/i.test(q)
@@ -239,27 +619,36 @@ export function inferSearchPipelineMode(query, naturalQ) {
       const words = q.split(/\s+/).filter(Boolean);
       if (words.length <= 4) {
         if (extractLocationAnchorFromQuery(q) || findAreaKeywordInQuery(q)) {
-          return "basic";
+          return HOME_SEARCH_KIND.KEYWORD_SEARCH;
         }
       }
     }
   }
 
-  if (q.length > 34) return "ai";
+  /** 가게명·브랜드형만 — «얘기하기 좋은 바»·«오늘 가볍게 한잔» 같은 서술은 제외 */
+  const shortVerbOrNarrativeCompact = q.replace(/\s+/g, "");
   if (
-    /[.!?]|습니다|해요\s*$|예요\s*$|까요\s*$|같아요|하고\s*싶|보여줘|알려줘/i.test(
-      q
+    q.length <= 16 &&
+    q.split(/\s+/).filter(Boolean).length <= 3 &&
+    !/하기|가볍게|한잔|끝나고|분위기|얘기하기|좋은바|오늘|실내|대화|갈만한/i.test(
+      shortVerbOrNarrativeCompact
     )
   ) {
-    return "ai";
+    return HOME_SEARCH_KIND.KEYWORD_SEARCH;
   }
 
-  // 아주 짧은 검색어(가게명·브랜드 스타일)는 키워드 우선
-  if (q.length <= 16 && q.split(/\s+/).filter(Boolean).length <= 3) {
-    return "basic";
-  }
+  return HOME_SEARCH_KIND.AI_PARSE_SEARCH;
+}
 
-  return "ai";
+/**
+ * 레거시·다른 모듈 호환: `"basic"` = keyword_search, `"ai"` = ai_parse_search.
+ * 신규 코드는 `detectHomeSearchExecutionKind` 사용을 권장.
+ */
+export function inferSearchPipelineMode(query, naturalQ) {
+  return detectHomeSearchExecutionKind(query, naturalQ) ===
+    HOME_SEARCH_KIND.KEYWORD_SEARCH
+    ? "basic"
+    : "ai";
 }
 
 /**
@@ -304,6 +693,14 @@ export function normalizeHangulSearchCompounds(query) {
     .replace(/\s+/g, " ")
     .trim();
   if (!q) return q;
+  /** «합정 + 1차 + 어디로» 가이드를 그대로 붙여넣었을 때: 양쪽 공백 있는 + 만 문장 공백으로 */
+  q = q.replace(/\s+[+＋]\s+/g, " ");
+  /** 붙여 쓴 «합정+1차» */
+  q = q.replace(
+    /([가-힣A-Za-z0-9]+)[+＋](?=1차|2차|3차|일차|이차|삼차)/giu,
+    "$1 "
+  );
+
   const pairs = [
     [/데이트코스/giu, "데이트 코스"],
     [/회식코스/giu, "회식 코스"],
@@ -514,15 +911,41 @@ export function expandFoodKakaoQueries(keyword) {
       out.add(`${compact} 야장`.replace(/\s+/g, " ").trim());
     }
   }
+  /** 「노포」는 카카오 키워드에 잘 안 붙는 경우가 많아 지명+주점류 동의어로 후보를 넓힌다. */
+  if (/노포/i.test(k)) {
+    for (const syn of ["주점", "호프", "술집", "포장마차", "이자카야"]) {
+      const next = k
+        .replace(/\s*노포\s*/gi, ` ${syn} `)
+        .replace(/\s+/g, " ")
+        .trim();
+      if (next && next !== k) out.add(next);
+    }
+  }
   return [...out].slice(0, 10);
+}
+
+/**
+ * 지도 키워드 검색에서 `category_group_code: FD6`(음식점)만 걸면
+ * 「노포·주점」처럼 이름에 음식점 키워드가 약한 술집 후보가 거의 안 나오는 경우가 있다.
+ * 이때는 카테고리 제한 없이 키워드만으로 넓게 받는다.
+ */
+export function kakaoMapSearchWantsBroadPlaceCategories(keyword) {
+  const k = String(keyword || "").trim();
+  return /노포|옛날감성|골목술|술집|호프|주점|포장마차|포차|이자카야|와인바|맥주|소주|하이볼|2차|야장|펍|클럽|라운지|칵테일|혼술|회식\s*술|술\s*마실/i.test(
+    k
+  );
 }
 
 /**
  * 역·동·구 등이 있으면 카카오 keywordSearch에 bounds를 넣지 않는다.
  * (지도 뷰가 다른 동네일 때 API가 빈 결과를 주는 문제 방지)
+ *
+ * @param {string} [regionAnchor] `extractLocationAnchorFromQuery` 등으로 뽑힌 지역 토큰(예: 성수) — 키워드에 포함되면 지리 앵커로 간주
  */
-export function kakaoQueryHasGeographicAnchor(keyword) {
+export function kakaoQueryHasGeographicAnchor(keyword, regionAnchor) {
   const k = String(keyword || "");
+  const ra = regionAnchor && String(regionAnchor).trim();
+  if (ra && k.includes(ra)) return true;
   return (
     k.includes("역") ||
     k.includes("동") ||
@@ -532,6 +955,162 @@ export function kakaoQueryHasGeographicAnchor(keyword) {
     k.includes("거리") ||
     k.includes("시장")
   );
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/** 지도 검색에서 추출된 지역명(성수 등)에 대응하는 REGION_KEYWORDS 동의어(소문자) */
+function synonymsForExtractedMapLocation(locationName) {
+  const ln = String(locationName || "").trim().toLowerCase();
+  if (!ln) return [];
+  for (const syns of Object.values(REGION_KEYWORDS)) {
+    const hit = syns.some((s) => {
+      const sl = String(s).toLowerCase();
+      return sl === ln || ln.includes(sl) || sl.includes(ln);
+    });
+    if (hit) return syns.map((s) => String(s).toLowerCase());
+  }
+  return [ln];
+}
+
+function placeMatchesMapRegionAnchor(place, locationName) {
+  const ln = String(locationName || "").trim();
+  if (!ln) return true;
+  const hay = `${place?.address_name || ""} ${place?.road_address_name || ""} ${place?.place_name || ""}`.toLowerCase();
+  const syns = synonymsForExtractedMapLocation(ln);
+  return syns.some((s) => s.length >= 2 && hay.includes(s));
+}
+
+/**
+ * 지명이 있는 전체 지도 검색에서, 스코어링 직후 후보만 남긴다.
+ * 주소·상호에 동의어가 없어도 `sortOrigin`(지도 중심) 기준 `maxDistanceKm` 안이면 유지하고,
+ * 남양주처럼 먼 좌표는 제외한다(통합 API·DB 병합 오염 방지).
+ */
+export function filterMapSearchPlacesByRegionProximity(
+  places,
+  { sortOrigin = null, locationName = "", maxDistanceKm = 12 } = {},
+) {
+  const ln = String(locationName || "").trim();
+  if (!ln || !Array.isArray(places) || places.length === 0) return places;
+
+  const regionKey = regionKeyForLocationToken(ln);
+  const parsedRegions = regionKey ? [regionKey] : [];
+
+  return places.filter((p) => {
+    if (
+      parsedRegions.length &&
+      placeConflictsWithPinnedRegion(p, parsedRegions[0])
+    ) {
+      return false;
+    }
+    const lat = parseFloat(p.y ?? p.lat);
+    const lng = parseFloat(p.x ?? p.lng);
+    const hasOrigin =
+      sortOrigin &&
+      Number.isFinite(sortOrigin.lat) &&
+      Number.isFinite(sortOrigin.lng);
+    const hasPoint = Number.isFinite(lat) && Number.isFinite(lng);
+    /** 좌표 + 기준점이 있으면 반드시 거리로 제한(텍스트만 맞고 20km 밖 남양주 등 제외) */
+    if (hasOrigin && hasPoint) {
+      return (
+        haversineKm(sortOrigin.lat, sortOrigin.lng, lat, lng) <= maxDistanceKm
+      );
+    }
+    if (placeMatchesMapRegionAnchor(p, ln)) return true;
+    if (regionKey && placeWithinRegionProximity(p, regionKey)) return true;
+    return false;
+  });
+}
+
+/**
+ * intentAssist 없이 ai_parse 지도 검색일 때 — 자연어 원문 대신 카카오에 넘길 규칙 기반 키워드 후보(우선순위 순).
+ */
+export function buildAiParseMapFallbackQueries(
+  rawQuery,
+  extractedRegion,
+  parsedFacets = null,
+) {
+  const region = String(extractedRegion || "").trim();
+  if (!region) return [];
+  const q = String(rawQuery || "");
+  const vibeList = Array.isArray(parsedFacets?.vibes)
+    ? parsedFacets.vibes
+    : [];
+  const quietFromFacets = vibeList.some((v) =>
+    /조용|차분|한적|잔잔/i.test(String(v)),
+  );
+  const quiet =
+    quietFromFacets ||
+    /조용|차분|한적|잔잔/i.test(String(parsedFacets?.vibe || "")) ||
+    /조용|차분|한적/i.test(q);
+  if (quiet) {
+    return [`${region} 조용한 카페`];
+  }
+  const dating = /소개팅|데이트/i.test(q);
+  const after =
+    /끝나고|2차|이차|이후|후\s*갈|갈만한|다음에|다음\s*에|뒷풀이|이어서/i.test(
+      q,
+    );
+  if (dating && after) {
+    return [`${region} 와인바`, `${region} 바`, `${region} 이자카야`];
+  }
+  return [];
+}
+
+/**
+ * 통합 검색 백업 복구 시 — 추출 지역과 주소·상호 불일치이거나 지도 기준점에서 너무 먼 후보 제외.
+ * @returns {{ kept: any[], checks: { name: string, address: string, distanceKm: number|null, regionMatched: boolean, kept: boolean }[] }}
+ */
+export function filterPlacesForUnifiedMapBackupRestore(
+  places,
+  { sortOrigin = null, locationName = "", maxDistanceKm = 12 } = {},
+) {
+  const ln = String(locationName || "").trim();
+  const checks = [];
+  const kept = [];
+  for (const p of places || []) {
+    const lat = parseFloat(p.y ?? p.lat);
+    const lng = parseFloat(p.x ?? p.lng);
+    let distanceKm = null;
+    if (
+      sortOrigin &&
+      Number.isFinite(sortOrigin.lat) &&
+      Number.isFinite(sortOrigin.lng) &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng)
+    ) {
+      distanceKm = haversineKm(sortOrigin.lat, sortOrigin.lng, lat, lng);
+    }
+    const regionMatched = placeMatchesMapRegionAnchor(p, ln);
+    const distOk =
+      distanceKm == null || !Number.isFinite(distanceKm)
+        ? true
+        : distanceKm <= maxDistanceKm;
+    const anchorOk = !ln || regionMatched;
+    const ok = anchorOk && distOk;
+    checks.push({
+      name: String(p.place_name || p.name || ""),
+      address: String(p.address_name || p.road_address_name || ""),
+      distanceKm,
+      regionMatched,
+      kept: ok,
+    });
+    if (ok) kept.push(p);
+  }
+  return { kept, checks };
 }
 
 /** 이름·카테고리 기준 해산물 후보(단독 `회`·`회식` 오탐 방지) */
@@ -713,7 +1292,10 @@ export function getKakaoKeywordSuffix(rawQuery) {
   ) {
     add("야장");
   }
-  if (/와인바|칵테일바|칵테일\s*바|펍(?!\w)/i.test(q)) add("바");
+  /** 이미 «와인바» «칵테일바»면 접미 «바» 생략 — «을지로 와인바 바» 중복 방지 */
+  if (!/와인바|칵테일바|칵테일\s*바/i.test(q)) {
+    if (/와인|칵테일|펍(?!\w)/i.test(q)) add("바");
+  }
 
   const party = parsePartySize(q);
   if (party != null && party >= 4) add("단체");
@@ -841,11 +1423,62 @@ function placeHaystack(place) {
 }
 
 /**
+ * 쿼리에 지역이 있으면 그 지역(동의어)이 주소·상호·카테고리에 보이는 장소만 통과.
+ * 예: "성수 … 와인바"인데 압구정만 나오는 혼선 방지. 0건이면 필터 생략.
+ *
+ * @param {string} [rawQuery] 원문 — 홍대 클러스터 하위 동명(합정 등)이 있으면 그 범위로만 한정
+ */
+export function placeMatchesAnyParsedRegion(place, parsedRegions, rawQuery) {
+  if (!Array.isArray(parsedRegions) || parsedRegions.length === 0) return true;
+  const profile = buildPlaceScoringProfile(place);
+  const hay = `${profile.addressLower} ${profile.textLower}`;
+  const q = String(rawQuery || "").toLowerCase();
+  const hongdaeStrictLiterals = HONGDAE_QUERY_STRICT_SUBTOKENS.filter((t) =>
+    q.includes(t.toLowerCase()),
+  );
+  for (const r of parsedRegions) {
+    if (!r) continue;
+    const syns = REGION_KEYWORDS[r];
+    if (!syns?.length) continue;
+    /**
+     * `inferRegionKeyFromAddress`가 망원·상수도 `홍대` 키로 묶을 수 있어,
+     * `profile.region === 홍대`를 먼저 쓰면 쿼리가「합정」일 때도 망원이 통과한다.
+     */
+    if (r === "홍대" && hongdaeStrictLiterals.length > 0) {
+      if (
+        hongdaeStrictLiterals.some((lit) =>
+          hay.includes(String(lit || "").toLowerCase()),
+        )
+      ) {
+        return true;
+      }
+      continue;
+    }
+    if (
+      profile.region === r ||
+      normalizeRegionClusterKey(profile.region) === r
+    ) {
+      return true;
+    }
+    if (
+      syns.some((syn) => hay.includes(String(syn || "").toLowerCase()))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * 파싱된 주종·쿼리와 카테고리가 어긋난 카카오 후보 제거.
  * 걸러낸 뒤 0건이면 원본을 돌려준다.
  */
 /**
- * @param {{ curatorCatalogForYajang?: object[] }} [options] 야장 의도 시 카카오 상호에 안 나와도 큐레이터 태그로 후보 유지
+ * @param {{
+ *   curatorCatalogForYajang?: object[],
+ *   sortOrigin?: { lat: number, lng: number }|null,
+ *   maxDistanceKm?: number,
+ * }} [options]
  */
 export function filterPlacesByParsedIntent(
   places,
@@ -858,6 +1491,53 @@ export function filterPlacesByParsedIntent(
 
   const q = String(rawQuery || "").toLowerCase();
   const p = parsedResult || {};
+  const explicitRegion = queryPinsExplicitRegion(rawQuery, p);
+  let geoScoped = list;
+
+  const mapAnchor = extractMapLocationAnchorFromQuery(rawQuery);
+  const unmappedAnchor =
+    mapAnchor && !regionKeyForLocationToken(mapAnchor);
+
+  if (unmappedAnchor) {
+    const maxKm =
+      options.maxDistanceKm ??
+      mapSearchMaxDistanceKmForLocation(mapAnchor);
+    geoScoped = filterPlacesByExtractedMapAnchor(list, mapAnchor, {
+      sortOrigin: options.sortOrigin ?? null,
+      maxDistanceKm: maxKm,
+    });
+  } else {
+  const parsedRegions = resolveParsedRegionsFromQuery(rawQuery, p);
+  if (parsedRegions.length) {
+    const regionPass = list.filter((pl) =>
+      placeMatchesPinnedRegions(pl, parsedRegions, rawQuery),
+    );
+    if (explicitRegion) {
+      /** 「이태원 와인바」처럼 동네가 박힌 검색 — 타 동네 혼입 차단(0건이어도 전국 풀 복구 안 함) */
+      geoScoped = regionPass;
+    } else {
+      const strictRegionEnough = regionPass.length >= 4;
+      const smallPoolMostlyInRegion =
+        list.length > 0 &&
+        list.length <= 10 &&
+        regionPass.length >= 2 &&
+        regionPass.length >= Math.ceil(list.length * 0.4);
+      const hongdaeSubPinned =
+        parsedRegions.includes("홍대") &&
+        queryPinsHongdaeStrictSubtoken(rawQuery);
+      if (
+        strictRegionEnough ||
+        smallPoolMostlyInRegion ||
+        (hongdaeSubPinned && regionPass.length > 0)
+      ) {
+        geoScoped = regionPass;
+      } else if (hongdaeSubPinned && regionPass.length === 0) {
+        geoScoped = [];
+      }
+    }
+  }
+  }
+
   const alcohols = p.alcohols?.length
     ? p.alcohols
     : [p.alcohol].filter(Boolean);
@@ -894,7 +1574,7 @@ export function filterPlacesByParsedIntent(
       t
     );
 
-  let filtered = list;
+  let filtered = geoScoped;
 
   if (wantsWineBar || wantsCocktailOnly) {
     /** "2차 술집 or 와인바"처럼 술집·바 업종을 같이 염두에 둔 경우 — 와인만 남기면 후보가 너무 줄어듦 */
@@ -904,7 +1584,7 @@ export function filterPlacesByParsedIntent(
         !wantsCocktailOnly &&
         /(?:2차|이차|술집|뒷풀이|호프|주점)/i.test(q));
 
-    filtered = list.filter((pl) => {
+    filtered = geoScoped.filter((pl) => {
       const t = placeHaystack(pl);
       if (mismatchCheapNight(t)) return false;
 
@@ -933,7 +1613,7 @@ export function filterPlacesByParsedIntent(
     alcohols.includes("양주") ||
     alcohols.includes("사케")
   ) {
-    filtered = list.filter((pl) => {
+    filtered = geoScoped.filter((pl) => {
       const t = placeHaystack(pl);
       if (mismatchCheapNight(t)) return false;
       return (
@@ -956,7 +1636,29 @@ export function filterPlacesByParsedIntent(
     );
   }
 
-  return filtered.length > 0 ? filtered : list;
+  if (filtered.length > 0) return filtered;
+
+  const appliedStrictAlcoholPlaceFilter =
+    wantsWineBar ||
+    wantsCocktailOnly ||
+    alcohols.includes("와인") ||
+    alcohols.includes("양주") ||
+    alcohols.includes("사케");
+
+  /**
+   * 와인바·칵테일 등으로 좁혔는데 한 건도 안 남으면, 아래에서 `geoScoped`/`list`로
+   * 되돌리면 학교·사무실 등 무관 POI가 다시 끼어든다(예: 을지로 와인바 검색).
+   */
+  if (appliedStrictAlcoholPlaceFilter) {
+    return [];
+  }
+
+  if (explicitRegion && geoScoped.length === 0) {
+    return [];
+  }
+
+  if (geoScoped.length > 0 && geoScoped.length < list.length) return geoScoped;
+  return list;
 }
 
 // 필터 칩 생성 함수
@@ -1113,10 +1815,9 @@ export function buildPlaceScoringProfile(place) {
   const addressLower = `${place?.address_name || ""} ${place?.road_address_name || ""} ${place?.address || ""}`.toLowerCase();
   const textLower = `${place?.place_name || place?.name || ""} ${place?.category_name || place?.category || ""} ${addressLower}`.toLowerCase();
 
-  const region =
-    place?.region ||
-    inferRegionKeyFromAddress(addressLower) ||
-    null;
+  const region = normalizeRegionClusterKey(
+    place?.region || inferRegionKeyFromAddress(addressLower) || null
+  );
 
   const mergeFacet = (explicit, dict) =>
     uniqStrings([...(Array.isArray(explicit) ? explicit : []), ...facetsFromHaystack(textLower, dict)]);
@@ -1237,7 +1938,7 @@ export function buildRecommendationWhyLabels(place, parsedResult) {
 }
 
 /**
- * 결과 카드 한 줄 — 대화체로 이어 붙임 (예: "성수에 있고 하이볼 태그가 맞아 보여요 · …").
+ * 결과 카드 한 줄 — 지역·검색어 반복 없이 짧게(가게명·검색어는 UI 상단에 이미 있음).
  */
 export function buildRecommendationWhyLine(place, parsedResult) {
   const parsed = normalizeParsedForScoring(parsedResult);
@@ -1272,20 +1973,19 @@ export function buildRecommendationWhyLine(place, parsedResult) {
   const c = profile.curator_count;
   const chunks = [];
 
+  /** 한 줄 이유: 검색 지역·키워드 반복 없이(가게명·검색어는 카드 상단에 이미 있음) */
   if (regionHit && alcHit) {
-    chunks.push(`${regionHit}에 있고 ${alcHit} 태그가 맞아 보여요`);
+    chunks.push(`${alcHit}에 맞는 업종·태그예요`);
   } else if (regionHit && vibeHit) {
-    chunks.push(
-      `${regionHit}에 있고 ${vibeHit} 분위기 태그가 잘 맞아 보여요`
-    );
+    chunks.push(`${vibeHit} 분위기 태그가 잘 맞아 보여요`);
   } else if (regionHit && purposeHit === "2차") {
-    chunks.push(`${regionHit}에 있고 2차로 쓰기 좋아 보여요`);
+    chunks.push(`2차로 쓰기 좋아 보여요`);
   } else if (regionHit) {
-    chunks.push(`${regionHit} 근처예요`);
+    chunks.push(`업종·태그가 자연스러워 보여요`);
   }
 
   if (!chunks.length && alcHit) {
-    chunks.push(`검색하신 ${alcHit}에 맞는 업종으로 보여요`);
+    chunks.push(`${alcHit}에 맞는 업종으로 보여요`);
   }
   if (!chunks.length && vibeHit) {
     chunks.push(`${vibeHit}한 분위기 태그가 많이 붙어 있어 보여요`);
@@ -1363,6 +2063,12 @@ export function scorePlace(place, parsedResult) {
       }
     }
     if (hit) score += 5;
+    else if (
+      parsed.regions.some((r) => placeConflictsWithPinnedRegion(place, r))
+    ) {
+      score -= 40;
+      reasons.push("다른 동네");
+    }
   }
 
   const alcoholMatchCount = parsed.alcohols.filter((a) =>
@@ -1378,12 +2084,11 @@ export function scorePlace(place, parsedResult) {
     reasons.push(`${parsed.alcohols[0]} 후보(업종)`);
   }
 
-  const vibeMatchCount = parsed.vibes.filter((v) => profile.vibes.includes(v)).length;
-  if (vibeMatchCount) {
-    score += vibeMatchCount * 4;
-    parsed.vibes.forEach((v) => {
-      if (profile.vibes.includes(v)) reasons.push(`${v} 분위기`);
-    });
+  for (const v of parsed.vibes) {
+    if (!profile.vibes.includes(v)) continue;
+    const vibePts = v === "야장" ? 10 : 4;
+    score += vibePts;
+    reasons.push(`${v} 분위기`);
   }
 
   const purposeMatchCount = parsed.purposes.filter((p) =>

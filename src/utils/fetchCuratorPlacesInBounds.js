@@ -1,21 +1,6 @@
 import { resolvePlaceWgs84, isLikelyKoreaWgs84 } from "./placeCoords";
 
 /**
- * places JOIN 시 최소 컬럼 — `api/places` bounds 조회와 동일 스키마만 사용.
- * (category_name·address·tags 등 미존재 컬럼 넣으면 PostgREST 42703)
- * 주소·태그 등은 `fetchPlaceDetail` / 카드 오픈 시 보강.
- */
-export const PLACES_MAP_LIST_COLUMNS = [
-  "id",
-  "name",
-  "lat",
-  "lng",
-  "category",
-].join(", ");
-
-const PLACES_SELECT = PLACES_MAP_LIST_COLUMNS;
-
-/**
  * 뷰포트에 여유를 둔 bbox (가장자리 핀 깜빡임 완화)
  */
 export function padLatLngBounds(sw, ne, padRatio = 0.12) {
@@ -37,63 +22,6 @@ export function padLatLngBounds(sw, ne, padRatio = 0.12) {
     sw: { lat: lat0 - dLat, lng: lng0 - dLng },
     ne: { lat: lat1 + dLat, lng: lng1 + dLng },
   };
-}
-
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size));
-  }
-  return out;
-}
-
-/**
- * bbox 안의 place_id 후보 → curator_places(+가벼운 places) 행.
- * `placesRows`는 호출부에서 `fetchPlacesByBounds`로 한 번만 조회해 넘긴다(중복 API 방지).
- */
-export async function fetchCuratorPlaceRowsInBounds(
-  supabase,
-  bounds,
-  { chunkSize = 120, placesRows: lightRows } = {}
-) {
-  const { sw, ne } = bounds;
-  if (!sw || !ne) return { rows: [], error: null };
-
-  if (!Array.isArray(lightRows)) {
-    return {
-      rows: [],
-      error: new Error("fetchCuratorPlaceRowsInBounds: placesRows가 필요합니다."),
-    };
-  }
-
-  const placeIds = (lightRows || [])
-    .map((r) => r?.id)
-    .filter((id) => id != null);
-
-  if (placeIds.length === 0) {
-    return { rows: [], error: null };
-  }
-
-  const allRows = [];
-  for (const ids of chunk(placeIds, chunkSize)) {
-    const { data, error } = await supabase
-      .from("curator_places")
-      .select(
-        `
-        *,
-        places (${PLACES_SELECT})
-      `
-      )
-      .eq("is_archived", false)
-      .in("place_id", ids);
-
-    if (error) {
-      return { rows: allRows, error };
-    }
-    if (data?.length) allRows.push(...data);
-  }
-
-  return { rows: allRows, error: null };
 }
 
 /**

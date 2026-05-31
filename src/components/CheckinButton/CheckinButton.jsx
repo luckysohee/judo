@@ -10,6 +10,12 @@ import {
   formatFireLine,
   normalizeHanjanStats,
 } from "../../utils/hanjanSocialCopy";
+import {
+  JUDO_CHECKIN_SCHEDULE_ERROR,
+  JUDO_CHECKIN_SCHEDULE_TOAST,
+} from "../../utils/judoOperationMode";
+import { handleCourseProgressAfterCheckIn } from "../../api/courseSessionCheckin";
+import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
 
 function parseCoord(v) {
   if (v == null || v === "") return null;
@@ -82,10 +88,18 @@ function messageForTooFarFromPlace(err) {
   return "가게 근처에 있을 때만 여기서 한잔으로 잡힙니다. 지도에서 위치를 확인해 주세요.";
 }
 
+function isScheduleClosedError(err) {
+  const msg = [err?.message, err?.code].filter(Boolean).join(" ");
+  return msg.includes(JUDO_CHECKIN_SCHEDULE_ERROR);
+}
+
 function messageForHanjanError(err) {
   const msg = [err?.message, err?.details, err?.hint, err?.code]
     .filter(Boolean)
     .join(" ");
+  if (msg.includes(JUDO_CHECKIN_SCHEDULE_ERROR)) {
+    return JUDO_CHECKIN_SCHEDULE_TOAST;
+  }
   if (msg.includes("checkin_too_far_from_place")) {
     return messageForTooFarFromPlace(err);
   }
@@ -159,12 +173,25 @@ export default function CheckinButton({
   hanjanStats: hanjanStatsProp = null,
   /** 기록 성공 후 부모가 통계 다시 불러오기 */
   onHanjanRecorded = null,
+  /** `compact` 일 때 한 줄 힌트(불꽃 수 등) 숨김 — 액션 줄 전용 */
+  hideHint = false,
+  /** `compact` 전용 — 주황/그라데이션 없이 무채 글래스 버튼 */
+  neutralCompact = false,
+  /** `compact`일 때 줄 높이만 살짝 낮춤 (추천 시트 등 3열 액션) */
+  compactRowShort = false,
+  /** 운영 시간 외(`false`)에는 한잔 RPC 미실행·토스트만 — 버튼은 숨기지 않음 */
+  canCheckIn = true,
+  /** 코스 따라가기 중일 때 — 한잔 성공 후 해당 코스 도장·완주 연동 */
+  courseIdHint = "",
+  /** 도장/완주 처리 후 부모 UI 갱신 */
+  onCourseStampProgress = null,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
     useRealtimeCheckins();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [hanjanPicked, setHanjanPicked] = useState(false);
   const [profileRow, setProfileRow] = useState(null);
   const [internalHanjan, setInternalHanjan] = useState(null);
 
@@ -214,6 +241,10 @@ export default function CheckinButton({
     void loadInternalHanjan();
   }, [placeId, hanjanStatsProp, loadInternalHanjan, placeCheckinCounts]);
 
+  useEffect(() => {
+    setHanjanPicked(false);
+  }, [placeId]);
+
   const getUserNickname = () => resolveCheckinDisplayName(user, profileRow);
 
   /** 오늘 KST 기준 이 장소에 이미 한잔 기록이 있는지 (토스트용, 버튼은 막지 않음) */
@@ -238,6 +269,11 @@ export default function CheckinButton({
   };
 
   const handleHanjan = () => {
+    if (loading) return;
+    if (!canCheckIn) {
+      showToast(JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+      return;
+    }
     if (!user?.id) {
       showToast("로그인이 필요합니다.", "warning");
       return;
@@ -273,6 +309,30 @@ export default function CheckinButton({
     }
   };
 
+  const applyCourseProgressAfterHanjan = useCallback(async () => {
+    const pid = String(placeId ?? "").trim();
+    if (!pid || !user?.id) return;
+    const hint = String(courseIdHint ?? "").trim();
+    try {
+      const r = await handleCourseProgressAfterCheckIn(pid, {
+        courseIdHint: hint || undefined,
+      });
+      if (r?.kind === "completed" && r.completion) {
+        dispatchCourseCompletedCelebration(r.completion);
+        onCourseStampProgress?.(r);
+        return;
+      }
+      if (r?.ok && r.toastMessage) {
+        showToast(r.toastMessage, "success", 3200);
+      }
+      if (r?.ok) {
+        onCourseStampProgress?.(r);
+      }
+    } catch (e) {
+      console.warn("[CheckinButton] course progress after check-in", e);
+    }
+  }, [placeId, user?.id, courseIdHint, onCourseStampProgress]);
+
   const runHanjanRpc = async ({
     plat,
     plng,
@@ -294,7 +354,9 @@ export default function CheckinButton({
       accuracyM,
       skipDistanceCheck,
     });
+    setHanjanPicked(true);
     await toastAfterSuccess(skipDistanceCheck);
+    await applyCourseProgressAfterHanjan();
   };
 
   const executeHanjan = async () => {
@@ -341,19 +403,15 @@ export default function CheckinButton({
         accuracyM = g.accuracyM;
       } catch (geoErr) {
         if (isGeoTimeoutOrDenied(geoErr)) {
-          const loose = window.confirm(
-            `${messageForHanjanError(geoErr)}\n\n위치 없이 한잔만 남길까요? (여기서 한잔 수에는 안 잡혀요.)`
-          );
-          if (loose) {
-            await runHanjanRpc({
-              plat,
-              plng,
-              userLat: null,
-              userLng: null,
-              accuracyM: null,
-              skipDistanceCheck: true,
-            });
-          }
+          // GPS 타임아웃/거부 시에는 자동으로 느슨한 저장으로 폴백 (실패 체감 최소화)
+          await runHanjanRpc({
+            plat,
+            plng,
+            userLat: null,
+            userLng: null,
+            accuracyM: null,
+            skipDistanceCheck: true,
+          });
           return;
         }
         showToast(messageForHanjanError(geoErr), "warning");
@@ -401,33 +459,45 @@ export default function CheckinButton({
             });
             strictRecovered = true;
           } catch (retryErr) {
-            if (!isTooFarRpcError(retryErr)) throw retryErr;
+            if (!isTooFarRpcError(retryErr)) {
+              // 재시도 GPS가 타임아웃/권한거부여도 느슨한 저장으로 폴백
+              if (isGeoTimeoutOrDenied(retryErr)) {
+                await runHanjanRpc({
+                  plat,
+                  plng,
+                  userLat: null,
+                  userLng: null,
+                  accuracyM: null,
+                  skipDistanceCheck: true,
+                });
+                strictRecovered = true;
+                return;
+              }
+              throw retryErr;
+            }
           }
           if (strictRecovered) {
             return;
           }
-          const loose = window.confirm(
-            "위치를 다시 받아도 거리가 멀리 잡혔습니다.\n\n위치 없이 한잔만 남길까요? (여기서 한잔 수에는 안 잡혀요.)"
-          );
-          if (loose) {
-            await runHanjanRpc({
-              plat,
-              plng,
-              userLat: null,
-              userLng: null,
-              accuracyM: null,
-              skipDistanceCheck: true,
-            });
-          } else {
-            throw rpcErr;
-          }
+          await runHanjanRpc({
+            plat,
+            plng,
+            userLat: null,
+            userLng: null,
+            accuracyM: null,
+            skipDistanceCheck: true,
+          });
         } else {
           throw rpcErr;
         }
       }
     } catch (error) {
       console.error("한잔 기록 오류:", error);
-      showToast(messageForHanjanError(error), "error");
+      if (isScheduleClosedError(error)) {
+        showToast(JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);
+      } else {
+        showToast(messageForHanjanError(error), "error");
+      }
     } finally {
       setLoading(false);
     }
@@ -437,41 +507,87 @@ export default function CheckinButton({
     ? formatFireLine(displayHanjan.fireTodayDedup, displayHanjan.fire24hDedup)
     : null;
 
+  const compactMinH = compactRowShort ? "30px" : "44px";
+  const compactFs = compactRowShort ? "10px" : "12px";
+  const compactPadX = compactRowShort ? "6px" : "10px";
+
+  const checkInLocked = !canCheckIn;
+  const showPickedVisual = hanjanPicked && !checkInLocked;
+
   const buttonStyles = compact
-    ? {
-        hanjanButton: {
-          padding: "5px 10px",
-          border: "1px solid #FF6B6B",
-          borderRadius: "999px",
-          backgroundColor: "rgba(255,255,255,0.96)",
-          color: "#FF6B6B",
-          fontSize: "12px",
-          fontWeight: "700",
-          cursor: loading ? "not-allowed" : "pointer",
-          transition: "all 0.2s ease",
-          display: "flex",
-          alignItems: "center",
-          gap: "4px",
-          minWidth: "0",
-          minHeight: "40px",
-          width: "100%",
-          boxSizing: "border-box",
-          justifyContent: "center",
-          whiteSpace: "nowrap",
-        },
-        hanjanButtonHover: {
-          backgroundColor: "#FFF5F5",
-          transform: "scale(1.02)",
-        },
-        hint: {
-          fontSize: "10px",
-          color: "rgba(255,255,255,0.45)",
-          marginTop: "2px",
-          textAlign: "center",
-          lineHeight: 1.25,
-          width: "100%",
-        },
-      }
+    ? neutralCompact
+      ? {
+          hanjanButton: {
+            padding: compactRowShort ? `0 ${compactPadX}` : "0 10px",
+            border: compactRowShort ? "1px solid #fb923c" : "2px solid #fb923c",
+            borderRadius: compactRowShort ? "8px" : "12px",
+            backgroundColor: "#1a1a1a",
+            color: "#fdba74",
+            fontSize: compactFs,
+            fontWeight: "800",
+            cursor:
+              loading || checkInLocked ? "not-allowed" : "pointer",
+            transition: "background-color 0.15s ease, border-color 0.15s ease",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            minWidth: "0",
+            minHeight: compactMinH,
+            width: "100%",
+            boxSizing: "border-box",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+            boxShadow: "none",
+          },
+          hanjanButtonHover: {
+            backgroundColor: "#222222",
+            borderColor: "#fdba74",
+          },
+          hint: {
+            fontSize: "10px",
+            color: "rgba(253, 186, 116, 0.75)",
+            marginTop: "2px",
+            textAlign: "center",
+            lineHeight: 1.25,
+            width: "100%",
+          },
+        }
+      : {
+          hanjanButton: {
+            padding: compactRowShort ? `0 ${compactPadX}` : "0 10px",
+            border: "1px solid rgba(217, 119, 6, 0.65)",
+            borderRadius: compactRowShort ? "8px" : "10px",
+            background: "linear-gradient(180deg, #fde68a 0%, #f59e0b 48%, #d97706 100%)",
+            color: "#422006",
+            fontSize: compactFs,
+            fontWeight: "800",
+            cursor:
+              loading || checkInLocked ? "not-allowed" : "pointer",
+            transition: "all 0.2s ease",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            minWidth: "0",
+            minHeight: compactMinH,
+            width: "100%",
+            boxSizing: "border-box",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+            boxShadow: "0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(180, 83, 9, 0.35)",
+          },
+          hanjanButtonHover: {
+            filter: "brightness(1.06)",
+            transform: compactRowShort ? "none" : "scale(1.02)",
+          },
+          hint: {
+            fontSize: "10px",
+            color: "rgba(255,255,255,0.45)",
+            marginTop: "2px",
+            textAlign: "center",
+            lineHeight: 1.25,
+            width: "100%",
+          },
+        }
     : {
         hanjanButton: {
           padding: "8px 16px",
@@ -481,7 +597,8 @@ export default function CheckinButton({
           color: "#FF6B6B",
           fontSize: "14px",
           fontWeight: "bold",
-          cursor: loading ? "not-allowed" : "pointer",
+          cursor:
+            loading || checkInLocked ? "not-allowed" : "pointer",
           transition: "all 0.3s ease",
           display: "flex",
           alignItems: "center",
@@ -501,6 +618,23 @@ export default function CheckinButton({
         },
       };
 
+  const hanjanButtonVisual = {
+    ...buttonStyles.hanjanButton,
+    ...(showPickedVisual
+      ? {
+          backgroundColor: "#fb923c",
+          background: "linear-gradient(180deg, #fdba74 0%, #fb923c 100%)",
+          color: "#2b1603",
+          borderColor: "#fdba74",
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px rgba(251,146,60,0.25)",
+        }
+      : {}),
+    ...(checkInLocked
+      ? { opacity: 0.5, filter: "grayscale(0.35)", cursor: "not-allowed" }
+      : {}),
+  };
+
   return (
     <div
       style={
@@ -519,24 +653,37 @@ export default function CheckinButton({
     >
       <button
         type="button"
-        style={buttonStyles.hanjanButton}
+        style={hanjanButtonVisual}
         onClick={handleHanjan}
-        disabled={loading}
+        aria-disabled={checkInLocked || loading}
         onMouseEnter={(e) => {
-          if (!loading) {
+          if (!loading && !checkInLocked) {
             Object.assign(e.target.style, buttonStyles.hanjanButtonHover);
           }
         }}
         onMouseLeave={(e) => {
           if (!loading) {
-            Object.assign(e.target.style, buttonStyles.hanjanButton);
+            e.target.style.filter = "";
+            Object.assign(e.target.style, hanjanButtonVisual);
           }
         }}
       >
-        {loading ? "처리 중…" : "🍶 한잔함"}
+        {loading
+          ? compactRowShort
+            ? "중…"
+            : "처리 중…"
+          : showPickedVisual
+            ? "🍺"
+          : compactRowShort
+            ? "한잔함"
+            : "🍺 한잔함"}
       </button>
 
-      {fireHint ? (
+      {compact && hideHint && !checkInLocked ? null : checkInLocked ? (
+        <div style={{ ...buttonStyles.hint, opacity: 0.72 }}>
+          {JUDO_CHECKIN_SCHEDULE_TOAST}
+        </div>
+      ) : fireHint ? (
         <div style={buttonStyles.hint}>{fireHint}</div>
       ) : (
         <div style={buttonStyles.hint}>

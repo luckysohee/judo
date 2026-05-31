@@ -33,4 +33,9 @@ dist-ssr
 # Additional security - prevent ALL .env files from being tracked
 .env.*
 !.env.example
+!.env.production.example
 server/.env*
+!server/.env.example
+
+# 로컬 test(resaon 폴백 검증)
+.venv/

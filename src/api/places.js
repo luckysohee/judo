@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { kakaoNumericPlaceId, resolvePlaceWgs84 } from "../utils/placeCoords";
 
 /** Kakao 지도 level(숫자 클수록 멀리 봄) → bbox places 상한 */
 export function getLimitByZoom(level) {
@@ -8,62 +9,42 @@ export function getLimitByZoom(level) {
   return 250;
 }
 
-/**
- * 현재 지도 bounds 안에 있는 장소만 가져옴 (지도용 최소 필드).
- * @param {{ south: number, west: number, north: number, east: number, limit?: number }} bounds
- */
-export async function fetchPlacesByBounds({
-  south,
-  west,
-  north,
-  east,
-  limit = 1000,
-}) {
-  const { data, error } = await supabase
-    .from("places")
-    .select("id, name, category, lat, lng")
-    .gte("lat", south)
-    .lte("lat", north)
-    .gte("lng", west)
-    .lte("lng", east)
-    .order("id", { ascending: true })
-    .limit(limit);
-
-  if (error) {
-    throw error;
-  }
-
-  return data ?? [];
-}
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 장소 상세 — 카드/시트 오픈 후 등에서만 호출
+ * 장소 상세 — 카드/시트 오픈 후 등에서만 호출.
+ * 서버 `GET /api/place-detail` (service role + 컬럼 화이트리스트, curator_id 미반환).
+ *
+ * @param {string} placeId UUID
+ * @param {string} [apiBaseUrl] `VITE_AI_API_BASE_URL` — 비우면 상대 경로(프록시)
  * @returns {Promise<{ place: object, curatorPlaceRows: object[] }>}
  */
-export async function fetchPlaceDetail(placeId) {
-  const { data: placeRow, error } = await supabase
-    .from("places")
-    .select("*")
-    .eq("id", placeId)
-    .single();
-
-  if (error) {
-    throw error;
+export async function fetchPlaceDetail(placeId, apiBaseUrl = "") {
+  const id = String(placeId ?? "").trim();
+  if (!id || !UUID_RE.test(id)) {
+    throw new Error("fetchPlaceDetail: invalid place id");
   }
-
-  const { data: cpRows, error: cpError } = await supabase
-    .from("curator_places")
-    .select("*")
-    .eq("place_id", placeId)
-    .eq("is_archived", false);
-
-  if (cpError) {
-    throw cpError;
+  const base = String(apiBaseUrl || "").replace(/\/$/, "");
+  const path = `/api/place-detail?id=${encodeURIComponent(id)}`;
+  const url = base ? `${base}${path}` : path;
+  const res = await fetch(url);
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
-
+  if (!res.ok || !data?.ok) {
+    const msg =
+      (data && data.message) || res.statusText || "place-detail failed";
+    throw new Error(msg);
+  }
   return {
-    place: placeRow,
-    curatorPlaceRows: cpRows ?? [],
+    place: data.place,
+    curatorPlaceRows: Array.isArray(data.curator_place_rows)
+      ? data.curator_place_rows
+      : [],
   };
 }
 
@@ -80,4 +61,248 @@ export async function fetchPlaceUuidByKakaoPlaceId(kakaoPlaceId) {
     .maybeSingle();
   if (error || !data?.id) return null;
   return String(data.id);
+}
+
+/** 코스 에디터 검색: 2글자 미만은 호출부에서 빈 배열 (문서화용 상수) */
+export const SEARCH_PLACES_FOR_COURSE_MIN_LEN = 2;
+
+function hasUsableCoords(lat, lng) {
+  if (lat == null || lng == null) return false;
+  const la = Number(lat);
+  const ln = Number(lng);
+  return Number.isFinite(la) && Number.isFinite(ln);
+}
+
+/**
+ * `places` 행을 코스 에디터 표시용으로 정규화.
+ * @param {object} row
+ * @returns {{ id: string, name: string, address: string, category: string, lat: number|null, lng: number|null }}
+ */
+export function mapPlaceRowForCourse(row) {
+  if (!row || typeof row !== "object") {
+    return {
+      id: "",
+      name: "",
+      address: "",
+      category: "",
+      lat: null,
+      lng: null,
+    };
+  }
+  const id = row.id != null ? String(row.id).trim() : "";
+  const nameRaw =
+    (row.name != null && String(row.name).trim() !== ""
+      ? row.name
+      : row.place_name ?? row.title) ?? "";
+  const name = String(nameRaw).trim();
+  const address = String(
+    row.address ?? row.road_address_name ?? row.address_name ?? ""
+  ).trim();
+  const category = String(row.category ?? row.category_name ?? "").trim();
+  const wgs = resolvePlaceWgs84(row);
+  const kid =
+    row.kakao_place_id != null && String(row.kakao_place_id).trim() !== ""
+      ? String(row.kakao_place_id).trim()
+      : kakaoNumericPlaceId(row);
+  return {
+    id,
+    name: name || "이름 없음",
+    address,
+    category,
+    lat: wgs?.lat ?? null,
+    lng: wgs?.lng ?? null,
+    kakao_place_id: kid || null,
+  };
+}
+
+/**
+ * 스튜디오 코스 에디터용 `places` 검색 (Supabase).
+ * 카카오 병합은 `mergeCourseSearchWithKakao` 를 사용합니다.
+ *
+ * @param {string} query
+ * @param {{ limit?: number }} [options]
+ * @returns {Promise<{ id: string, name: string, address: string, category: string, lat: number|null, lng: number|null }[]>}
+ */
+export async function searchPlacesForCourse(query, options = {}) {
+  const raw = String(query ?? "").trim();
+  if (raw.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) {
+    return [];
+  }
+
+  const limit =
+    typeof options.limit === "number" && options.limit > 0
+      ? Math.min(100, Math.floor(options.limit))
+      : 20;
+
+  const token = raw
+    .replace(/%/g, "")
+    .replace(/_/g, "")
+    .replace(/,/g, " ")
+    .trim();
+  if (token.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) {
+    return [];
+  }
+
+  const pattern = `%${token}%`;
+
+  const orWithPlaceName = `name.ilike.${pattern},place_name.ilike.${pattern},address.ilike.${pattern},category.ilike.${pattern}`;
+  const orBasic = `name.ilike.${pattern},address.ilike.${pattern},category.ilike.${pattern}`;
+
+  const run = async (selectCols, orClause) =>
+    supabase.from("places").select(selectCols).or(orClause).limit(limit);
+
+  let res = await run(
+    "id, name, place_name, address, category, lat, lng, is_archived",
+    orWithPlaceName
+  );
+  if (res.error) {
+    res = await run(
+      "id, name, address, category, lat, lng, is_archived",
+      orBasic
+    );
+  }
+  if (res.error) {
+    res = await run("id, name, address, category, lat, lng", orBasic);
+  }
+
+  const { data, error } = res;
+
+  if (error) {
+    console.error("[코스 장소 검색 실패]", error);
+    throw error;
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  const active = rows.filter((p) => p?.is_archived !== true);
+
+  const mapped = active.map(mapPlaceRowForCourse).filter((m) => m.id);
+
+  const withCoords = [];
+  const withoutCoords = [];
+  for (const m of mapped) {
+    (hasUsableCoords(m.lat, m.lng) ? withCoords : withoutCoords).push(m);
+  }
+
+  return [...withCoords, ...withoutCoords].slice(0, limit);
+}
+
+/**
+ * 카카오 로컬 키워드 검색 (REST). `VITE_KAKAO_REST_API_KEY` 없으면 `[]`.
+ * @param {string} query
+ * @param {number} [size]
+ * @returns {Promise<object[]>}
+ */
+export async function fetchKakaoKeywordDocumentsForCourseEditor(
+  query,
+  size = 12
+) {
+  const key = import.meta.env.VITE_KAKAO_REST_API_KEY;
+  const raw = String(query ?? "").trim();
+  if (!key || raw.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) return [];
+  const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
+  url.searchParams.set("query", raw.slice(0, 100));
+  url.searchParams.set(
+    "size",
+    String(Math.min(15, Math.max(1, Math.floor(size))))
+  );
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `KakaoAK ${key}` },
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json.documents) ? json.documents : [];
+  } catch (e) {
+    console.warn("[코스 카카오 검색]", e);
+    return [];
+  }
+}
+
+/**
+ * 카카오 document → 코스 검색 목록 행 (`_kakaoDoc` 로 추가 시 places upsert).
+ * @param {object} doc
+ * @returns {{ id: string, name: string, address: string, category: string, lat: number|null, lng: number|null, _kakaoDoc: object }}
+ */
+export function courseSearchHitFromKakaoDocument(doc) {
+  if (!doc || doc.id == null) {
+    return {
+      id: "",
+      name: "",
+      address: "",
+      category: "",
+      lat: null,
+      lng: null,
+      _kakaoDoc: doc,
+    };
+  }
+  const lat = parseFloat(doc.y);
+  const lng = parseFloat(doc.x);
+  return {
+    id: `kakao_${doc.id}`,
+    name: String(doc.place_name || "").trim() || "이름 없음",
+    address: String(
+      doc.road_address_name || doc.address_name || ""
+    ).trim(),
+    category: String(doc.category_name || "").trim(),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    _kakaoDoc: doc,
+  };
+}
+
+/**
+ * `searchPlacesForCourse` 결과 뒤에 카카오 키워드 후보를 붙입니다.
+ * DB에 이미 `kakao_place_id` 가 있으면 UUID 행으로 합류해 중복을 줄입니다.
+ *
+ * @param {Awaited<ReturnType<typeof searchPlacesForCourse>>} dbHits
+ * @param {string} query
+ * @param {{ maxTotal?: number, kakaoSize?: number }} [options]
+ */
+export async function mergeCourseSearchWithKakao(dbHits, query, options = {}) {
+  const maxTotal =
+    typeof options.maxTotal === "number" && options.maxTotal > 0
+      ? Math.min(48, Math.floor(options.maxTotal))
+      : 24;
+  const kakaoSize = options.kakaoSize ?? 12;
+
+  const merged = Array.isArray(dbHits) ? [...dbHits] : [];
+  const seen = new Set(
+    merged.map((h) => String(h?.id || "").trim()).filter(Boolean)
+  );
+
+  const docs = await fetchKakaoKeywordDocumentsForCourseEditor(
+    query,
+    kakaoSize
+  );
+
+  for (const doc of docs) {
+    if (merged.length >= maxTotal) break;
+    if (!doc || doc.id == null) continue;
+    const kid = String(doc.id).trim();
+    if (!/^\d+$/.test(kid)) continue;
+
+    const existingUuid = await fetchPlaceUuidByKakaoPlaceId(kid);
+    if (existingUuid) {
+      const uuidStr = String(existingUuid);
+      if (seen.has(uuidStr)) continue;
+      const { data, error } = await supabase
+        .from("places")
+        .select(
+          "id, name, place_name, address, category, lat, lng, is_archived"
+        )
+        .eq("id", uuidStr)
+        .maybeSingle();
+      if (!error && data && data.is_archived !== true) {
+        merged.push(mapPlaceRowForCourse(data));
+        seen.add(uuidStr);
+      }
+      continue;
+    }
+
+    const hit = courseSearchHitFromKakaoDocument(doc);
+    if (!hit.id || hit.id === "") continue;
+    merged.push(hit);
+  }
+
+  return merged.slice(0, maxTotal);
 }

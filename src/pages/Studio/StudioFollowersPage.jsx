@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import PickUserButton from "../../components/PickUserButton/PickUserButton";
 import {
   fetchStudioFollowersEnriched,
   fetchStudioFollowingEnriched,
@@ -16,7 +17,15 @@ function followerInitial(label) {
 
 function FollowerRow({ follower }) {
   const [imgErr, setImgErr] = useState(false);
-  const initial = followerInitial(follower.primaryText || follower.label);
+  const effectivePrimary =
+    follower.isCurator && follower.curatorName
+      ? follower.curatorName
+      : (follower.primaryText ?? follower.label);
+  const effectiveSecondary =
+    follower.isCurator && follower.curatorSlug
+      ? `@${String(follower.curatorSlug).replace(/^@+/, "")}`
+      : follower.secondaryText;
+  const initial = followerInitial(effectivePrimary || follower.label);
   return (
     <div style={styles.row}>
       <div style={styles.rowMain}>
@@ -50,10 +59,10 @@ function FollowerRow({ follower }) {
           <div style={styles.labelRow}>
             <div style={styles.nameBlock}>
               <div style={styles.primary}>
-                {follower.primaryText ?? follower.label}
+                {effectivePrimary}
               </div>
-              {follower.secondaryText ? (
-                <div style={styles.secondary}>{follower.secondaryText}</div>
+              {effectiveSecondary ? (
+                <div style={styles.secondary}>{effectiveSecondary}</div>
               ) : null}
             </div>
             {follower.isCurator ? (
@@ -79,10 +88,22 @@ export default function StudioFollowersPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const [curatorId, setCuratorId] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [handleQuery, setHandleQuery] = useState("");
+  const [handleSearchLoading, setHandleSearchLoading] = useState(false);
+  const [handleSearchError, setHandleSearchError] = useState("");
+  const [handleSearchResults, setHandleSearchResults] = useState([]);
+  const discoverMode = searchParams.get("discover") === "1";
+
+  const handleBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  }, [navigate]);
 
   /** tab picked | picks (URL ?tab=picks, 예전 following 호환) */
   const tab =
@@ -92,15 +113,20 @@ export default function StudioFollowersPage() {
       : "picked";
 
   const setTab = (next) => {
+    const nextParams = new URLSearchParams(searchParams);
     if (next === "picks") {
-      setSearchParams({ tab: "picks" }, { replace: true });
+      nextParams.set("tab", "picks");
     } else {
-      setSearchParams({}, { replace: true });
+      nextParams.delete("tab");
     }
+    if (!discoverMode) {
+      nextParams.delete("discover");
+    }
+    setSearchParams(nextParams, { replace: true });
   };
 
   const load = useCallback(async () => {
-    if (!curatorId || !user?.id) {
+    if (!user?.id) {
       setRows([]);
       setLoading(false);
       return;
@@ -111,7 +137,9 @@ export default function StudioFollowersPage() {
       const list =
         tab === "picks"
           ? await fetchStudioFollowingEnriched(supabase, user.id)
-          : await fetchStudioFollowersEnriched(supabase, curatorId);
+          : await fetchStudioFollowersEnriched(supabase, user.id, {
+              byFollowingUserId: user.id,
+            });
       setRows(list);
     } catch (e) {
       console.warn("picked / picks 목록:", e?.message || e);
@@ -120,48 +148,109 @@ export default function StudioFollowersPage() {
     } finally {
       setLoading(false);
     }
-  }, [curatorId, user?.id, tab]);
+  }, [user?.id, tab]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!user?.id) {
-      setCuratorId(null);
-      setLoading(false);
-      return undefined;
+  const runHandleSearch = useCallback(async () => {
+    const normalized = String(handleQuery || "")
+      .replace(/^@+/, "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      setHandleSearchError("핸들을 입력해 주세요.");
+      setHandleSearchResults([]);
+      return;
     }
-    (async () => {
-      const { data, error } = await supabase
-        .from("curators")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error || !data?.id) {
-        navigate("/studio", { replace: true });
-        return;
+
+    setHandleSearchLoading(true);
+    setHandleSearchError("");
+    try {
+      const [{ data: profiles, error: profileErr }, { data: curators, error: curErr }] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("id, username, display_name, avatar_url")
+            .ilike("username", `${normalized}%`)
+            .limit(30),
+          supabase
+            .from("curators")
+            .select("user_id, username, name, avatar_url")
+            .ilike("username", `${normalized}%`)
+            .limit(30),
+        ]);
+      if (profileErr) throw profileErr;
+      if (curErr) throw curErr;
+
+      const byUserId = new Map();
+      const selfId = String(user?.id || "");
+      for (const p of profiles || []) {
+        const userId = String(p?.id || "").trim();
+        if (!userId || userId === selfId) continue;
+        const username = String(p?.username || "").trim();
+        if (!username) continue;
+        const displayName = String(p?.display_name || "").trim();
+        byUserId.set(userId, {
+          userId,
+          username,
+          displayName: displayName || username || "사용자",
+          avatarUrl: String(p?.avatar_url || "").trim() || null,
+          isCurator: false,
+        });
       }
-      setCuratorId(data.id);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, navigate]);
+      for (const c of curators || []) {
+        const userId = String(c?.user_id || "").trim();
+        if (!userId || userId === selfId) continue;
+        const username = String(c?.username || "").trim();
+        if (!username) continue;
+        const displayName = String(c?.name || "").trim();
+        const prev = byUserId.get(userId);
+        byUserId.set(userId, {
+          userId,
+          username: prev?.username || username,
+          displayName: displayName || prev?.displayName || username || "사용자",
+          avatarUrl:
+            String(c?.avatar_url || "").trim() ||
+            prev?.avatarUrl ||
+            null,
+          isCurator: true,
+        });
+      }
+
+      const mapped = [...byUserId.values()]
+        .sort((a, b) => {
+          const aExact = a.username.toLowerCase() === normalized ? 0 : 1;
+          const bExact = b.username.toLowerCase() === normalized ? 0 : 1;
+          if (aExact !== bExact) return aExact - bExact;
+          return a.username.localeCompare(b.username, "ko");
+        })
+        .slice(0, 20);
+      setHandleSearchResults(mapped);
+      if (mapped.length === 0) {
+        setHandleSearchError("일치하는 @닉네임이 없어요.");
+      }
+    } catch (e) {
+      console.warn("handle search:", e?.message || e);
+      setHandleSearchError(e?.message || "사용자 검색에 실패했습니다.");
+      setHandleSearchResults([]);
+    } finally {
+      setHandleSearchLoading(false);
+    }
+  }, [handleQuery, user?.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!curatorId || tab !== "picked") return undefined;
+    if (!user?.id || tab !== "picked") return undefined;
     const channel = supabase
-      .channel(`studio_followers_page:${curatorId}`)
+      .channel(`studio_followers_page:${user.id}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: "user_follows",
-          filter: `curator_id=eq.${curatorId}`,
+          table: "user_profile_follows",
+          filter: `following_id=eq.${user.id}`,
         },
         () => {
           void load();
@@ -171,7 +260,7 @@ export default function StudioFollowersPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [curatorId, tab, load]);
+  }, [user?.id, tab, load]);
 
   useEffect(() => {
     if (!user?.id || tab !== "picks") return undefined;
@@ -182,8 +271,8 @@ export default function StudioFollowersPage() {
         {
           event: "*",
           schema: "public",
-          table: "user_follows",
-          filter: `user_id=eq.${user.id}`,
+          table: "user_profile_follows",
+          filter: `follower_id=eq.${user.id}`,
         },
         () => {
           void load();
@@ -200,16 +289,30 @@ export default function StudioFollowersPage() {
       ? "아직 picks가 없어요."
       : "아직 picked가 없어요.";
 
+  const listFilter = String(handleQuery || "")
+    .replace(/^@+/, "")
+    .trim()
+    .toLowerCase();
+  const filteredRows =
+    !listFilter || discoverMode
+      ? rows
+      : rows.filter((r) => {
+          const p = String(r?.primaryText || "").replace(/^@+/, "").toLowerCase();
+          const s = String(r?.secondaryText || "").replace(/^@+/, "").toLowerCase();
+          const l = String(r?.label || "").replace(/^@+/, "").toLowerCase();
+          return p.includes(listFilter) || s.includes(listFilter) || l.includes(listFilter);
+        });
+
   const subText =
     tab === "picks"
-      ? "최신순 · 최대 200명 · picks 큐레이터 닉네임과 @핸들"
-      : "최신순 · 최대 200명 · 닉네임과 @핸들 · 큐레이터는 뱃지로 구분";
+      ? "최신순 · 최대 200명 · 팔로우 중인 프로필(큐레이터/일반)"
+      : "최신순 · 최대 200명 · 나를 팔로우한 사람 · 큐레이터는 뱃지";
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <button type="button" onClick={() => navigate("/studio")} style={styles.backButton}>
-          ← 스튜디오
+        <button type="button" onClick={handleBack} style={styles.backButton}>
+          ← 뒤로
         </button>
         <h1 style={styles.title}>picked · picks</h1>
       </div>
@@ -244,15 +347,104 @@ export default function StudioFollowersPage() {
 
         <p style={styles.sub}>{subText}</p>
 
+        <div style={styles.searchCard}>
+          <div style={styles.searchTitle}>
+            {discoverMode ? "사용자 통합 검색 (@닉네임)" : "내 목록 검색 (@닉네임)"}
+          </div>
+          <div style={styles.searchRow}>
+            <input
+              value={handleQuery}
+              onChange={(e) => setHandleQuery(e.target.value)}
+              placeholder="@닉네임"
+              style={styles.searchInput}
+              onKeyDown={(e) => {
+                if (discoverMode && e.key === "Enter") {
+                  e.preventDefault();
+                  void runHandleSearch();
+                }
+              }}
+            />
+            {discoverMode ? (
+              <button
+                type="button"
+                onClick={() => void runHandleSearch()}
+                style={styles.searchButton}
+                disabled={handleSearchLoading}
+              >
+                {handleSearchLoading ? "검색 중…" : "검색"}
+              </button>
+            ) : null}
+          </div>
+          {!discoverMode ? (
+            <div style={styles.searchHelp}>현재 picked/picks 목록에서만 필터링해요.</div>
+          ) : null}
+          {discoverMode && handleSearchError ? (
+            <div style={styles.searchError}>{handleSearchError}</div>
+          ) : null}
+          {discoverMode && handleSearchResults.length > 0 ? (
+            <div style={styles.searchResultList}>
+              {handleSearchResults.map((u) => (
+                <div key={u.userId} style={styles.searchResultRow}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/u/${u.userId}`)}
+                    style={styles.searchResultMain}
+                  >
+                    <div
+                      style={{
+                        ...styles.avatarWrap,
+                        ...(u.isCurator ? styles.avatarWrapCurator : {}),
+                      }}
+                      aria-hidden
+                    >
+                      {u.avatarUrl ? (
+                        <img
+                          src={u.avatarUrl}
+                          alt=""
+                          style={styles.avatarImg}
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            ...styles.avatarFallback,
+                            ...(u.isCurator ? styles.avatarFallbackCurator : {}),
+                          }}
+                        >
+                          {followerInitial(u.displayName)}
+                        </span>
+                      )}
+                    </div>
+                    <div style={styles.nameBlock}>
+                      <div style={styles.primary}>{u.displayName}</div>
+                      <div style={styles.secondary}>
+                        @{u.username}
+                        {u.isCurator ? " · 큐레이터" : ""}
+                      </div>
+                    </div>
+                  </button>
+                  <PickUserButton
+                    profileUserId={u.userId}
+                    onBecomePicking={() => {
+                      void load();
+                    }}
+                    buttonStyle={styles.inlinePickButton}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         {loading ? (
           <div style={styles.muted}>불러오는 중…</div>
         ) : errorMessage ? (
           <div style={styles.error}>{errorMessage}</div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div style={styles.muted}>{emptyMessage}</div>
         ) : (
           <div style={styles.list}>
-            {rows.map((f, idx) => (
+            {filteredRows.map((f, idx) => (
               <FollowerRow
                 key={`${tab}-${String(f.curator_id ?? f.user_id)}-${idx}`}
                 follower={f}
@@ -332,6 +524,92 @@ const styles = {
     margin: "0 0 16px 0",
     fontSize: "13px",
     color: "rgba(255,255,255,0.45)",
+  },
+  searchCard: {
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    padding: "12px",
+    marginBottom: "14px",
+  },
+  searchTitle: {
+    fontSize: "13px",
+    fontWeight: 700,
+    marginBottom: "8px",
+    color: "rgba(255,255,255,0.84)",
+  },
+  searchRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: "#141414",
+    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: "10px",
+    padding: "10px 12px",
+    fontSize: "14px",
+    outline: "none",
+  },
+  searchButton: {
+    border: "none",
+    borderRadius: "10px",
+    padding: "10px 12px",
+    backgroundColor: "#2f80ed",
+    color: "#fff",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  searchError: {
+    marginTop: "8px",
+    fontSize: "12px",
+    color: "#ff8d8d",
+  },
+  searchHelp: {
+    marginTop: "8px",
+    fontSize: "12px",
+    color: "rgba(255,255,255,0.5)",
+  },
+  searchResultList: {
+    marginTop: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  searchResultRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: "10px",
+    padding: "8px",
+  },
+  searchResultMain: {
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    padding: 0,
+    minWidth: 0,
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  inlinePickButton: {
+    marginTop: 0,
+    padding: "9px 14px",
+    fontSize: "13px",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   muted: {
     fontSize: "14px",

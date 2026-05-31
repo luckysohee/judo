@@ -1,6 +1,6 @@
 /**
- * 카카오 정적 지도 — 브라우저에서 dapi 직접 호출 시 도메인 제한으로 깨지므로
- * 항상 백엔드 `/api/kakao/static-map` 프록시 URL만 반환합니다.
+ * 장소 카드 상단 미리보기 — 브라우저에서 dapi 직접 호출은 도메인 제한으로 깨짐.
+ * 백엔드 `/api/kakao/static-map` 이 좌표 기준 SVG(지도 스타일 플레이스홀더)를 내려준다.
  */
 export function buildKakaoStaticMapUrl(lat, lng, options = {}) {
   const la = Number(lat);

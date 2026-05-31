@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useDragControls } from "framer-motion";
-import { FaBookmark, FaRegBookmark, FaGlassWhiskey, FaTimes } from "react-icons/fa";
+import {
+  FaBookmark,
+  FaRegBookmark,
+  FaGlassWhiskey,
+  FaShareAlt,
+  FaTimes,
+} from "react-icons/fa";
 
 const MotionCard = motion.div;
 import { supabase } from "../../lib/supabase";
 import CheckinButton from "../CheckinButton/CheckinButton";
+import { PlacePickButton } from "../PlacePick/PlacePickButton";
+import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
 import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
@@ -27,6 +35,7 @@ import {
   normalizeHanjanStats,
   pickHanjanSocialLines,
 } from "../../utils/hanjanSocialCopy";
+import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -39,6 +48,8 @@ export default function PlacePreviewCard({
   onClose,
   getUserRole,
   searchSessionIdRef,
+  /** 직전 검색 feedback 컨텍스트 — 저장 시 `search_place_feedback.save_count` */
+  searchFeedbackContextRef = null,
   /** 지도 카드: 1차 반영 후 2차 후보 펄스까지 한 번에 (폴더 저장과 무관) */
   onCourseMapFindSecond,
   courseMapFindSecondEnabled = false,
@@ -51,9 +62,15 @@ export default function PlacePreviewCard({
   onShowArrivalWalkingOnMap,
   /** 지도에 도착 도보 경로가 떠 있을 때 — 넓은 화면에서도 핸들 스와이프로 카드 닫기 */
   arrivalWalkingRouteShown = false,
+  /** 낮 모드 등에서 한잔 불가 시 false — 버튼은 보이되 비활성 느낌 */
+  canCheckIn = true,
+  /** 코스 따라가기 — 한잔 성공 시 도장 연동 */
+  courseIdHint = "",
+  onCourseStampProgress = null,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
+  const cardRef = useRef(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [kakaoDetails, setKakaoDetails] = useState(null);
   const [isLoadingKakao, setIsLoadingKakao] = useState(false);
@@ -69,6 +86,7 @@ export default function PlacePreviewCard({
   const dragControls = useDragControls();
   const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
   const [directionsLoading, setDirectionsLoading] = useState(false);
+  const [quickSavePicked, setQuickSavePicked] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
@@ -77,6 +95,10 @@ export default function PlacePreviewCard({
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    setQuickSavePicked(false);
+  }, [place?.id, place?.place_id, place?.kakao_place_id]);
 
   const onSheetDragEnd = useCallback(
     (_, info) => {
@@ -155,6 +177,8 @@ export default function PlacePreviewCard({
       }),
     [place?.savedCount, hanjanStatsNorm]
   );
+  const primaryHanjanLine = hanjanSocialLines[0] || "";
+  const secondaryHanjanLines = hanjanSocialLines.slice(1);
 
   const internalPlaceIdForPhotos =
     typeof place?.id === "string" &&
@@ -536,6 +560,8 @@ export default function PlacePreviewCard({
   }, [mergedKakaoCuratorPhotos, googlePhotoUrls]);
 
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   useEffect(() => {
     setHeroPreviewIndex(0);
   }, [place?.id, place?.place_id, kakaoPlaceId]);
@@ -548,6 +574,42 @@ export default function PlacePreviewCard({
   const previewHasKakaoOpenablePhoto = useMemo(
     () => allPreviewUrls.some((u) => photoClickOpensKakao(u)),
     [allPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+  );
+
+  useEffect(() => {
+    if (!lightboxOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+      if (e.key === "ArrowRight") {
+        setLightboxIndex((idx) =>
+          allPreviewUrls.length
+            ? (idx + 1) % allPreviewUrls.length
+            : idx
+        );
+      }
+      if (e.key === "ArrowLeft") {
+        setLightboxIndex((idx) =>
+          allPreviewUrls.length
+            ? (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+            : idx
+        );
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen, allPreviewUrls.length]);
+
+  const openPhotoLightbox = useCallback(
+    (index) => {
+      if (!allPreviewUrls.length) return;
+      const safeIndex =
+        Number.isFinite(index) && index >= 0 && index < allPreviewUrls.length
+          ? index
+          : 0;
+      setLightboxIndex(safeIndex);
+      setLightboxOpen(true);
+    },
+    [allPreviewUrls]
   );
 
   const showGooglePhotoCredit =
@@ -781,14 +843,22 @@ export default function PlacePreviewCard({
   const isLive = (place.curators || []).some((name) => liveSet.has(name));
   const selectedCuratorNames = Array.isArray(selectedCurators) ? selectedCurators : [];
 
+  /** `curators.name`(한글 별명) → display_name/displayName → @username — 장소 행의 name 필드는 쓰지 않음 */
   const getCuratorDisplayName = (curatorPlace) => {
-    return (
-      curatorPlace?.curators?.display_name ||
-      curatorPlace?.curators?.username ||
-      curatorPlace?.display_name ||
-      curatorPlace?.curator_id ||
-      ""
-    );
+    const c = curatorPlace?.curators;
+    if (c && typeof c === "object") {
+      const byName = String(c.name ?? "").trim();
+      if (byName) return byName;
+      const byDisp = String(
+        c.display_name ?? c.displayName ?? ""
+      ).trim();
+      if (byDisp) return byDisp;
+      const byUser = String(c.username ?? "").trim();
+      if (byUser) return byUser;
+      const bySlug = String(c.slug ?? "").trim();
+      if (bySlug) return bySlug;
+    }
+    return String(curatorPlace?.curator_id ?? "").trim();
   };
 
   const selectedCuratorLower = new Set(
@@ -799,9 +869,10 @@ export default function PlacePreviewCard({
 
   const curatorPlaceMatchesSelected = (curatorPlace) => {
     const candidates = [
+      curatorPlace?.curators?.name,
       curatorPlace?.curators?.display_name,
+      curatorPlace?.curators?.displayName,
       curatorPlace?.curators?.username,
-      curatorPlace?.display_name,
       curatorPlace?.curator_id,
     ].filter(Boolean);
     return candidates.some((candidate) =>
@@ -838,7 +909,8 @@ export default function PlacePreviewCard({
     // 큐레이터 또는 관리자일 경우 쾌속 잔 채우기
     if (userRole === "curator" || userRole === "admin") {
       console.log('🎯 큐레이터/관리자 - 쾌속 잔 채우기 실행');
-      await handleSaveClick();
+      const ok = await handleSaveClick();
+      if (ok) setQuickSavePicked(true);
     } else {
       console.log('👥 일반 사용자 - 저장 모달 열기');
       // 일반 사용자는 저장 모달 열기
@@ -861,14 +933,15 @@ export default function PlacePreviewCard({
         
         // 결과에 따른 토스트 메시지 표시
         if (result === 'duplicate') {
-          alert('이미 잔 채우기 리스트에 있는 장소입니다');
+          showToast('이미 잔 채우기 리스트에 저장된 장소예요.', 'info');
+          return true;
         } else if (result === 'success') {
           showToast('잔 채우기 리스트에 임시저장되었습니다!', 'success');
+          return true;
         } else {
           alert('❌ 잔 채우기에 실패했습니다.');
+          return false;
         }
-        
-        return;
       }
       
       try {
@@ -884,23 +957,30 @@ export default function PlacePreviewCard({
             });
             
           if (error) {
+            if (error.code === "23505") {
+              showToast("이미 잔 채우기 리스트에 저장된 장소예요.", "info");
+              return true;
+            }
             console.error('잔 채우기 저장 실패:', error);
             alert('잔 채우기 저장에 실패했습니다.');
-            return;
+            return false;
           }
           
           console.log('✅ 잔 채우기 리스트에 저장 완료');
           alert('✅ 잔 채우기 리스트에 저장되었습니다!');
+          return true;
         }
       } catch (error) {
         console.error('쾌속 잔 채우기 오류:', error);
         alert('쾌속 잔 채우기에 실패했습니다.');
+        return false;
       }
-      return;
+      return false;
     }
     
     // 일반 사용자일 경우 기존 저장 모달 표시
     setShowSaveModal(true);
+    return false;
   };
 
   // 백그라운드 임시저장 함수
@@ -915,8 +995,8 @@ export default function PlacePreviewCard({
       console.log('📍 카카오 장소 ID:', place.kakao_place_id || place.id);
       console.log('📍 현재 사용자 ID:', user.id);
       
-      // 1. localStorage에서 기존 drafts 불러오기
-      const existingDrafts = JSON.parse(localStorage.getItem('studio_drafts') || '[]');
+      // 1. localStorage에서 기존 drafts 불러오기 (계정별 키)
+      const existingDrafts = readStudioDrafts(user.id);
       console.log('📍 기존 drafts:', existingDrafts.length, '개');
       
       // 2. 중복 체크 — 숫자 카카오 ID 우선, 없으면 좌표(지도 클릭 픽 등)
@@ -983,7 +1063,7 @@ export default function PlacePreviewCard({
       
       // 4. localStorage에 저장
       existingDrafts.push(newDraft);
-      localStorage.setItem('studio_drafts', JSON.stringify(existingDrafts));
+      writeStudioDrafts(user.id, existingDrafts);
       
       console.log('✅ 잔 채우기 리스트에 임시저장 완료:', newDraft);
       return 'success';
@@ -1095,13 +1175,12 @@ export default function PlacePreviewCard({
     ...styles.card,
     ...(showSaveModal
       ? {
-          maxHeight: "min(72vh, 520px)",
-          minHeight: "min(46vh, 340px)",
-          overflow: "hidden",
-          overflowX: "hidden",
-          overflowY: "hidden",
-          display: "flex",
-          flexDirection: "column",
+          backgroundColor: "transparent",
+          border: "none",
+          boxShadow: "none",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          overflow: "visible",
         }
       : {}),
   };
@@ -1111,9 +1190,20 @@ export default function PlacePreviewCard({
     !showSaveModal &&
     typeof onClose === "function";
 
+  useEffect(() => {
+    if (showSaveModal) return;
+    const el = cardRef.current;
+    if (!el) return;
+    // SaveModal에서 돌아온 직후 카드 스크롤이 잠기는 케이스 방지
+    el.style.overflowX = "hidden";
+    el.style.overflowY = "auto";
+    el.style.touchAction = "auto";
+  }, [showSaveModal]);
+
   return (
     <div style={styles.wrap}>
       <MotionCard
+        ref={cardRef}
         style={cardBaseStyle}
         drag={swipeOn ? "y" : false}
         dragControls={dragControls}
@@ -1124,18 +1214,25 @@ export default function PlacePreviewCard({
         onDragEnd={swipeOn ? onSheetDragEnd : undefined}
       >
         {showSaveModal ? (
-          <SaveModal
-            embeddedInPlaceCard
-            place={place}
-            isOpen={showSaveModal}
-            onClose={() => setShowSaveModal(false)}
-            onSaveComplete={() => {
-              setShowSaveModal(false);
-              onSavedToSupabase?.();
-            }}
-            firstSavedFrom="home"
-            searchSessionIdRef={searchSessionIdRef}
-          />
+          <div style={styles.saveModalFrame}>
+            <SaveModal
+              embeddedInPlaceCard
+              place={place}
+              isOpen={showSaveModal}
+              onClose={() => setShowSaveModal(false)}
+              onDismissAll={() => {
+                setShowSaveModal(false);
+                onClose?.();
+              }}
+              onSaveComplete={() => {
+                setShowSaveModal(false);
+                onSavedToSupabase?.();
+              }}
+              firstSavedFrom="home"
+              searchSessionIdRef={searchSessionIdRef}
+              searchFeedbackContextRef={searchFeedbackContextRef}
+            />
+          </div>
         ) : (
           <>
         {swipeOn ? (
@@ -1277,6 +1374,15 @@ export default function PlacePreviewCard({
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleShare(place)}
+                  style={styles.headerShareBtn}
+                  aria-label="공유"
+                  title="공유"
+                >
+                  <FaShareAlt size={13} />
+                </button>
+                <button
+                  type="button"
                   onClick={onClose}
                   style={styles.closeButtonInline}
                   aria-label="닫기"
@@ -1286,67 +1392,54 @@ export default function PlacePreviewCard({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onClose}
-                style={styles.closeButtonInline}
-                aria-label="닫기"
-                title="닫기"
-              >
-                <FaTimes size={14} />
-              </button>
+              <div style={styles.headerPhotoCloseCluster}>
+                <button
+                  type="button"
+                  onClick={() => handleShare(place)}
+                  style={styles.headerShareBtn}
+                  aria-label="공유"
+                  title="공유"
+                >
+                  <FaShareAlt size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={styles.closeButtonInline}
+                  aria-label="닫기"
+                  title="닫기"
+                >
+                  <FaTimes size={14} />
+                </button>
+              </div>
             )}
           </div>
         </div>
         {allPreviewUrls.length > 0 && heroPreviewUrl ? (
           <div style={styles.kakaoPreviewSection}>
             <div style={styles.photoHeroWrap}>
-              {photoClickOpensKakao(heroPreviewUrl) ? (
-                <button
-                  type="button"
-                  onClick={handleKakaoView}
-                  style={styles.kakaoPhotoHeroBtn}
-                  title="카카오맵에서 열기"
-                >
-                  <div style={styles.imageFrame}>
-                    <img
-                      key={heroPreviewUrl}
-                      src={heroPreviewUrl}
-                      alt=""
-                      style={styles.imageFill}
-                      loading="eager"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        setHeroPreviewIndex((i) =>
-                          i + 1 < allPreviewUrls.length ? i + 1 : i
-                        );
-                      }}
-                    />
-                  </div>
-                </button>
-              ) : (
-                <div
-                  style={styles.kakaoPhotoHeroStatic}
-                  role="img"
-                  aria-label="장소 사진"
-                >
-                  <div style={styles.imageFrame}>
-                    <img
-                      key={heroPreviewUrl}
-                      src={heroPreviewUrl}
-                      alt=""
-                      style={styles.imageFill}
-                      loading="eager"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        setHeroPreviewIndex((i) =>
-                          i + 1 < allPreviewUrls.length ? i + 1 : i
-                        );
-                      }}
-                    />
-                  </div>
+              <button
+                type="button"
+                onClick={() => openPhotoLightbox(heroPreviewIndex)}
+                style={styles.kakaoPhotoHeroBtn}
+                title="사진 크게 보기"
+              >
+                <div style={styles.imageFrame}>
+                  <img
+                    key={heroPreviewUrl}
+                    src={heroPreviewUrl}
+                    alt=""
+                    style={styles.imageFill}
+                    loading="eager"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      setHeroPreviewIndex((i) =>
+                        i + 1 < allPreviewUrls.length ? i + 1 : i
+                      );
+                    }}
+                  />
                 </div>
-              )}
+              </button>
               {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
                 <button
                   type="button"
@@ -1375,34 +1468,22 @@ export default function PlacePreviewCard({
                     key={`${src.slice(0, 48)}-${i}`}
                     style={styles.previewThumbWrap}
                   >
-                    {photoClickOpensKakao(src) ? (
-                      <button
-                        type="button"
-                        onClick={handleKakaoView}
-                        style={styles.kakaoPreviewThumbBtn}
-                        title="카카오맵에서 열기"
-                      >
-                        <img
-                          src={src}
-                          alt=""
-                          style={styles.kakaoPreviewThumbImg}
-                          loading="lazy"
-                        />
-                      </button>
-                    ) : (
-                      <div
-                        style={styles.kakaoPreviewThumbStatic}
-                        role="img"
-                        aria-label="큐레이터 등록 사진"
-                      >
-                        <img
-                          src={src}
-                          alt=""
-                          style={styles.kakaoPreviewThumbImg}
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idxInAll = allPreviewUrls.indexOf(src);
+                        openPhotoLightbox(idxInAll >= 0 ? idxInAll : 0);
+                      }}
+                      style={styles.kakaoPreviewThumbBtn}
+                      title="사진 크게 보기"
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        style={styles.kakaoPreviewThumbImg}
+                        loading="lazy"
+                      />
+                    </button>
                     {canUserDeleteCuratorPhotoUrl(src) ? (
                       <button
                         type="button"
@@ -1487,12 +1568,7 @@ export default function PlacePreviewCard({
               {isLive ? <div style={styles.liveBadge}>LIVE</div> : null}
 
               {isSaved ? (
-                <div
-                  style={{
-                    ...styles.savedDot,
-                    backgroundColor: savedFolderColor || "#2ECC71",
-                  }}
-                />
+                <div style={styles.savedDot} aria-label="저장됨" title="저장됨" />
               ) : null}
             </div>
           </div>
@@ -1677,7 +1753,9 @@ export default function PlacePreviewCard({
                 )}
                 {/* 카카오 장소 평점 정보 */}
                 {kakaoDetails?.rating && (
-                  <span style={styles.rating}>⭐ {kakaoDetails.rating}</span>
+                  <span style={styles.rating}>
+                    ★ {kakaoDetails.rating}
+                  </span>
                 )}
                 {kakaoDetails?.review_count && (
                   <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
@@ -1686,7 +1764,7 @@ export default function PlacePreviewCard({
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}
                     </span>
                     <span style={styles.curatorReason}>
                       "{featuredOneLineReason}"
@@ -1724,7 +1802,7 @@ export default function PlacePreviewCard({
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
                     💬 <span style={styles.curatorCommentText}>
-                      {getCuratorDisplayName(featuredCuratorCommentPlace)}님 추천
+                      {getCuratorDisplayName(featuredCuratorCommentPlace)}
                     </span>
                     <span style={styles.curatorReason}>
                       "{featuredOneLineReason}"
@@ -1750,11 +1828,12 @@ export default function PlacePreviewCard({
               ))}
           </div>
 
-          <div style={styles.curatorRow}>
+          <div className="hide-scrollbar" style={styles.curatorRow}>
             <div style={styles.curatorScrollContainer}>
               {place.curatorPlaces?.map((curatorPlace, index) => {
-                // curatorPlaces에서 직접 데이터 가져오기
-                const curatorName = curatorPlace.curators?.display_name || curatorPlace.display_name || curatorPlace.curator_id;
+                // 큐레이터 표시는 curators.name 우선
+                const curatorName =
+                  getCuratorDisplayName(curatorPlace) || curatorPlace.curator_id;
                 const curatorReason =
                   curatorPlace.one_line_reason ||
                   curatorPlace.menu_reason ||
@@ -1778,11 +1857,6 @@ export default function PlacePreviewCard({
                       >
                         {curatorName} 추천
                       </button>
-                      {curatorReason && (
-                        <div style={styles.curatorReason}>
-                          "{curatorReason}"
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -1790,23 +1864,38 @@ export default function PlacePreviewCard({
             </div>
           </div>
 
-          {hanjanSocialLines.length > 0 && (
+          <div style={styles.socialSummaryInlineRow}>
+            <PlacePickDetailSummary
+              place={place}
+              theme="darkMono"
+              compact
+              showAvatars={false}
+            />
+            {primaryHanjanLine ? (
+              <span style={styles.socialSummaryInlineSlash}>·</span>
+            ) : null}
+            {primaryHanjanLine ? (
+              <span style={styles.socialSummaryInlineText}>{primaryHanjanLine}</span>
+            ) : null}
+          </div>
+
+          {secondaryHanjanLines.length > 0 && (
             <div
               style={{
                 marginTop: "10px",
                 marginBottom: "2px",
                 padding: "8px 10px",
                 borderRadius: "10px",
-                backgroundColor: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "#222222",
+                border: "1px solid rgba(255,255,255,0.07)",
               }}
               aria-label="한잔함 요약"
             >
-              {hanjanSocialLines.map((line, idx) => (
+              {secondaryHanjanLines.map((line, idx) => (
                 <div
                   key={`${idx}-${line}`}
                   style={{
-                    color: "rgba(255,255,255,0.88)",
+                    color: "#ffffff",
                     fontSize: "12px",
                     lineHeight: 1.45,
                     fontWeight: 600,
@@ -1819,60 +1908,120 @@ export default function PlacePreviewCard({
           )}
 
           <div style={styles.actionRow}>
-            <CheckinButton
-              compact
-              place={place}
-              placeId={checkinPlaceKey ?? String(place.id ?? "")}
-              placeName={place.name}
-              placeAddress={
-                place.address ??
-                place.road_address_name ??
-                place.address_name ??
-                place.road_address ??
-                ""
-              }
-              placeLat={checkinWgs?.lat}
-              placeLng={checkinWgs?.lng}
-              kakaoPlaceId={
-                place.place_id ??
-                place.kakao_place_id ??
-                place.kakaoId ??
-                null
-              }
-              hanjanStats={hanjanStatsNorm}
-              onHanjanRecorded={refetchHanjanStats}
-            />
+            <div style={styles.actionCell}>
+              <PlacePickButton place={place} variant="blackPink" />
+            </div>
 
-            {isCurator ? (
-              /* 큐레이터용 버튼 */
-              <button
-                type="button"
-                onClick={handleQuickSaveClick}
-                style={styles.curatorSaveButton}
-              >
-                <span style={styles.curatorQuickSaveLine1}>⚡쾌속⚡</span>
-                <span style={styles.curatorQuickSaveLine2}>잔채우기</span>
-              </button>
-            ) : (
-              /* 일반 사용자용 버튼 */
-              <button
-                type="button"
-                onClick={() => setShowSaveModal(true)}
-                style={styles.quickSaveButton}
-              >
-                빠른저장
-              </button>
-            )}
+            <div style={styles.actionCell}>
+              {isCurator ? (
+                <button
+                  type="button"
+                  onClick={handleQuickSaveClick}
+                  style={
+                    quickSavePicked
+                      ? { ...styles.quickSaveOutlineButton, ...styles.quickSaveOutlineButtonPicked }
+                      : styles.quickSaveOutlineButton
+                  }
+                  title="스튜디오·내 폴더에만 반영됩니다. 공개 픽과 무관합니다."
+                  aria-label="스튜디오 잔 채우기, 내 폴더만"
+                >
+                  {quickSavePicked ? "🗂️" : "📁 잔 채우기"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowSaveModal(true)}
+                  style={styles.saveOutlineButton}
+                  title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
+                  aria-label="내 폴더에 저장"
+                >
+                  📁 저장
+                </button>
+              )}
+            </div>
 
-            <button
-              type="button"
-              onClick={() => handleShare(place)}
-              style={styles.shareButton}
-            >
-              공유하기
-            </button>
+            <div style={styles.actionCell}>
+              <CheckinButton
+                compact
+                neutralCompact
+                hideHint
+                canCheckIn={canCheckIn}
+                place={place}
+                placeId={checkinPlaceKey ?? String(place.id ?? "")}
+                placeName={place.name}
+                placeAddress={
+                  place.address ??
+                  place.road_address_name ??
+                  place.address_name ??
+                  place.road_address ??
+                  ""
+                }
+                placeLat={checkinWgs?.lat}
+                placeLng={checkinWgs?.lng}
+                kakaoPlaceId={
+                  place.place_id ??
+                  place.kakao_place_id ??
+                  place.kakaoId ??
+                  null
+                }
+                hanjanStats={hanjanStatsNorm}
+                onHanjanRecorded={refetchHanjanStats}
+                courseIdHint={courseIdHint}
+                onCourseStampProgress={onCourseStampProgress}
+              />
+            </div>
           </div>
         </div>
+        {lightboxOpen && allPreviewUrls.length > 0 ? (
+          <div style={styles.photoLightbox} onClick={() => setLightboxOpen(false)}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxOpen(false);
+              }}
+              style={styles.photoLightboxClose}
+              aria-label="사진 닫기"
+              title="닫기"
+            >
+              <FaTimes size={16} />
+            </button>
+            {allPreviewUrls.length > 1 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((idx) =>
+                    (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+                  );
+                }}
+                style={styles.photoLightboxNavLeft}
+                aria-label="이전 사진"
+              >
+                ‹
+              </button>
+            ) : null}
+            <img
+              src={allPreviewUrls[lightboxIndex]}
+              alt="장소 사진 크게 보기"
+              style={styles.photoLightboxImage}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {allPreviewUrls.length > 1 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((idx) => (idx + 1) % allPreviewUrls.length);
+                }}
+                style={styles.photoLightboxNavRight}
+                aria-label="다음 사진"
+              >
+                ›
+              </button>
+            ) : null}
+          </div>
+        ) : null}
           </>
         )}
           </>
@@ -1887,23 +2036,36 @@ const styles = {
     width: "100%",
     display: "flex",
     justifyContent: "center",
-    pointerEvents: "auto",
+    pointerEvents: "none",
   },
   card: {
-    width: "92%",
-    maxWidth: "400px",
-    maxHeight: "min(50vh, 360px)",
+    pointerEvents: "auto",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    width: "min(92vw, 600px)",
+    height: "clamp(380px, 62vh, 560px)",
+    display: "flex",
+    flexDirection: "column",
     overflowX: "hidden",
     overflowY: "auto",
     WebkitOverflowScrolling: "touch",
-    backgroundColor: "rgba(18,18,18,0.96)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "16px",
-    boxShadow: "0 14px 30px rgba(0,0,0,0.32)",
-    backdropFilter: "blur(12px)",
+    /* 큐레이터 스튜디오 톤: 셀 #1a1a1a 계열 · 보더 #222 · 가벼운 글래스 블러 */
+    backgroundColor: "rgba(26, 26, 26, 0.94)",
+    border: "1px solid #222222",
+    borderRadius: "12px",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.35)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
     animation: "judoCardUp 220ms ease-out",
     position: "relative",
-    transition: "all 0.3s ease"
+  },
+  saveModalFrame: {
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+    display: "flex",
+    flexDirection: "column",
+    pointerEvents: "auto",
   },
   sheetDragHandle: {
     display: "flex",
@@ -1925,9 +2087,13 @@ const styles = {
     alignItems: "center",
     justifyContent: "flex-end",
     flexWrap: "wrap",
-    gap: "6px",
-    padding: "4px 6px 6px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    gap: "8px",
+    padding: "8px 10px 10px",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxSizing: "border-box",
   },
   headerPhotoCloseCluster: {
     display: "flex",
@@ -1936,10 +2102,29 @@ const styles = {
     flexShrink: 0,
   },
   closeButtonInline: {
-    border: "none",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    color: "rgba(255,255,255,0.88)",
     borderRadius: "999px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+    width: "28px",
+    height: "28px",
+    padding: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+    lineHeight: 1,
+  },
+  headerShareBtn: {
+    border: "1px solid rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    color: "rgba(255,255,255,0.88)",
+    borderRadius: "999px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     width: "28px",
     height: "28px",
     padding: 0,
@@ -1957,14 +2142,14 @@ const styles = {
     height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
     borderRadius: "10px",
-    backgroundColor: "#242424",
+    backgroundColor: "#222222",
   },
   imageFrameStandalone: {
     position: "relative",
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
     overflow: "hidden",
-    backgroundColor: "#242424",
+    backgroundColor: "#222222",
   },
   imageFill: {
     position: "absolute",
@@ -1979,8 +2164,8 @@ const styles = {
   imageFallback: {
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
-    backgroundColor: "#242424",
-    color: "#8a8a8a",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1991,9 +2176,8 @@ const styles = {
   },
   kakaoPreviewSection: {
     padding: "8px 10px 6px",
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.12) 100%)",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    backgroundColor: "#222222",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
   kakaoPhotoHeroBtn: {
     display: "block",
@@ -2027,14 +2211,14 @@ const styles = {
     width: "30px",
     height: "30px",
     padding: 0,
-    border: "none",
     borderRadius: "999px",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#fff",
-    backgroundColor: "rgba(0,0,0,0.55)",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "1px solid rgba(255,255,255,0.14)",
     boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
   },
   previewThumbWrap: {
@@ -2052,14 +2236,14 @@ const styles = {
     width: "22px",
     height: "22px",
     padding: 0,
-    border: "none",
     borderRadius: "999px",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#fff",
-    backgroundColor: "rgba(192,57,43,0.92)",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "1px solid rgba(255,255,255,0.14)",
     boxShadow: "0 1px 4px rgba(0,0,0,0.35)",
   },
   kakaoPreviewStrip: {
@@ -2077,24 +2261,24 @@ const styles = {
     width: "88px",
     height: "58px",
     padding: 0,
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid #333333",
     borderRadius: "10px",
     overflow: "hidden",
     cursor: "pointer",
-    background: "rgba(0,0,0,0.35)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    background: "#1a1a1a",
+    boxShadow: "none",
   },
   kakaoPreviewThumbStatic: {
     flex: "0 0 auto",
     width: "88px",
     height: "58px",
     padding: 0,
-    border: "1px solid rgba(255,255,255,0.14)",
+    border: "1px solid #333333",
     borderRadius: "10px",
     overflow: "hidden",
     cursor: "default",
-    background: "rgba(0,0,0,0.35)",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    background: "#1a1a1a",
+    boxShadow: "none",
     flexShrink: 0,
   },
   kakaoPreviewThumbImg: {
@@ -2109,26 +2293,26 @@ const styles = {
   kakaoPreviewHint: {
     marginTop: "6px",
     fontSize: "10px",
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(255,255,255,0.5)",
     letterSpacing: "-0.02em",
     lineHeight: 1.35,
   },
   googlePhotoCredit: {
     marginTop: "4px",
     fontSize: "9px",
-    color: "rgba(255,255,255,0.35)",
+    color: "rgba(255,255,255,0.45)",
     lineHeight: 1.3,
   },
   kakaoPreviewLoading: {
     width: "100%",
     height: "clamp(104px, 36vw, 168px)",
-    backgroundColor: "#242424",
-    color: "#8a8a8a",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontSize: "12px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
   body: {
     padding: "8px 10px 10px",
@@ -2155,20 +2339,20 @@ const styles = {
     marginTop: "10px",
     padding: "8px 10px",
     borderRadius: "10px",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
-    border: "1px solid rgba(52, 152, 219, 0.28)",
+    backgroundColor: "#222222",
+    border: "1px solid rgba(255,255,255,0.07)",
   },
   blogInsightLabel: {
     fontSize: "10px",
     fontWeight: 700,
-    color: "rgba(255,255,255,0.5)",
+    color: "rgba(255,255,255,0.55)",
     marginBottom: "6px",
     letterSpacing: "-0.02em",
   },
   blogInsightSummary: {
     fontSize: "12px",
     fontWeight: 600,
-    color: "#e8f4ff",
+    color: "rgba(255,255,255,0.82)",
     lineHeight: 1.45,
     marginBottom: "8px",
   },
@@ -2180,20 +2364,20 @@ const styles = {
   blogInsightPill: {
     fontSize: "11px",
     fontWeight: 700,
-    color: "#a8d8ff",
-    border: "1px solid rgba(168,216,255,0.35)",
-    borderRadius: "999px",
-    padding: "3px 9px",
-    backgroundColor: "rgba(0,0,0,0.2)",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "12px",
+    padding: "4px 8px",
+    backgroundColor: "#333333",
   },
   blogInsightPillMuted: {
     fontSize: "11px",
     fontWeight: 600,
-    color: "rgba(255,255,255,0.72)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "999px",
-    padding: "3px 9px",
-    backgroundColor: "rgba(0,0,0,0.18)",
+    color: "#bdbdbd",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: "12px",
+    padding: "4px 8px",
+    backgroundColor: "#222222",
   },
   blogInsightEmpty: {
     fontSize: "11px",
@@ -2203,12 +2387,13 @@ const styles = {
   liveBadge: {
     height: "20px",
     padding: "0 10px",
-    borderRadius: "999px",
-    backgroundColor: "#34D17A",
-    color: "#111111",
+    borderRadius: "8px",
+    backgroundColor: "rgba(46, 204, 113, 0.12)",
+    color: "#2ECC71",
+    border: "1px solid rgba(46, 204, 113, 0.45)",
     fontSize: "11px",
-    fontWeight: 900,
-    letterSpacing: "0.5px",
+    fontWeight: 800,
+    letterSpacing: "0.4px",
     display: "flex",
     alignItems: "center",
   },
@@ -2217,16 +2402,19 @@ const styles = {
     height: "10px",
     borderRadius: "999px",
     flexShrink: 0,
+    backgroundColor: "#2ECC71",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    boxSizing: "border-box",
   },
   meta: {
     marginTop: "4px",
     fontSize: "12px",
-    color: "#a9a9a9",
+    color: "#bdbdbd",
   },
   comment: {
     marginTop: "8px",
     fontSize: "13px",
-    color: "#e8e8e8",
+    color: "rgba(255,255,255,0.76)",
     lineHeight: 1.5,
     display: "-webkit-box",
     WebkitLineClamp: 2,
@@ -2241,10 +2429,10 @@ const styles = {
   },
   tag: {
     fontSize: "11px",
-    color: "#f3f3f3",
-    backgroundColor: "#202020",
-    border: "1px solid #343434",
-    borderRadius: "999px",
+    color: "#ffffff",
+    backgroundColor: "#333333",
+    border: "none",
+    borderRadius: "12px",
     padding: "5px 8px",
   },
   curatorRow: {
@@ -2255,9 +2443,7 @@ const styles = {
     scrollbarWidth: "none", // Firefox 스크롤바 숨김
     msOverflowStyle: "none", // IE/Edge 스크롤바 숨김
     WebkitOverflowScrolling: "touch", // iOS 스크롤 부드럽게
-    "&::-webkit-scrollbar": {
-      display: "none" // Chrome/Safari 스크롤바 숨김
-    }
+    // WebKit 스크롤바는 className `hide-scrollbar`(index.css)로 처리
   },
   curatorScrollContainer: {
     display: "flex",
@@ -2276,19 +2462,19 @@ const styles = {
   },
   curatorComment: {
     fontSize: "12px",
-    color: "#3498db",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
+    color: "#ffffff",
+    backgroundColor: "#222222",
     padding: "8px 12px",
-    borderRadius: "8px",
+    borderRadius: "10px",
     marginTop: "8px",
-    border: "1px solid rgba(52, 152, 219, 0.2)",
+    border: "1px solid rgba(255,255,255,0.07)",
     display: "flex",
     alignItems: "center",
     gap: "6px",
   },
   curatorCommentText: {
     fontWeight: "600",
-    color: "#3498db",
+    color: "#2ECC71",
   },
   headerRight: {
     display: "flex",
@@ -2301,7 +2487,7 @@ const styles = {
   kakaoLink: {
     background: "none",
     border: "none",
-    color: "#3498db",
+    color: "#bdbdbd",
     fontSize: "11px",
     cursor: "pointer",
     padding: "2px 4px",
@@ -2310,19 +2496,21 @@ const styles = {
     transition: "all 0.2s"
   },
   curatorPhotoUploadBtn: {
-    background: "rgba(46, 204, 113, 0.2)",
-    border: "1px solid rgba(46, 204, 113, 0.55)",
-    color: "#2ECC71",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    color: "rgba(255,255,255,0.88)",
     fontSize: "11px",
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
-    padding: "4px 8px",
-    borderRadius: "6px",
+    padding: "6px 10px",
+    borderRadius: "8px",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
     whiteSpace: "nowrap",
   },
   category: {
     fontSize: "13px",
-    color: "#3498db",
+    color: "#bdbdbd",
     fontWeight: "500",
     marginRight: "8px",
   },
@@ -2334,7 +2522,7 @@ const styles = {
   },
   addressLineFirst: {
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     whiteSpace: "pre-wrap",
     wordBreak: "keep-all",
@@ -2342,7 +2530,7 @@ const styles = {
   },
   addressLineCont: {
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     whiteSpace: "pre-wrap",
     wordBreak: "keep-all",
@@ -2354,80 +2542,100 @@ const styles = {
     display: "block",
     width: "100%",
     fontSize: "12px",
-    color: "#999",
+    color: "#bdbdbd",
     lineHeight: 1.45,
     marginBottom: "2px",
   },
   rating: {
     fontSize: "12px",
-    color: "#f39c12",
+    color: "#ffffff",
     marginRight: "4px",
   },
   reviewCount: {
     fontSize: "11px",
-    color: "#999",
+    color: "#bdbdbd",
   },
   distance: {
     fontSize: "12px",
-    color: "#9cc8ff",
+    color: "#bdbdbd",
     marginLeft: "8px",
   },
   walkingTime: {
     fontSize: "12px",
-    color: "#9cc8ff",
+    color: "#bdbdbd",
     marginLeft: "6px",
   },
   loadingText: {
     fontSize: "11px",
-    color: "#999",
+    color: "#bdbdbd",
     fontStyle: "italic",
   },
-  curatorSaveButton: {
-    flex: 1,
-    minHeight: "40px",
-    minWidth: 0,
-    padding: "5px 6px",
-    borderRadius: "10px",
-    border: "1px solid #2a8f55",
-    backgroundColor: "#2ECC71",
+  saveOutlineButton: {
+    width: "100%",
+    height: "44px",
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
     color: "#ffffff",
+    fontSize: "12px",
+    fontWeight: 700,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "1px",
-    lineHeight: 1.15,
+    padding: "0 8px",
     cursor: "pointer",
+    boxSizing: "border-box",
   },
-  curatorQuickSaveLine1: {
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "-0.02em",
+  quickSaveOutlineButton: {
+    width: "100%",
+    height: "44px",
+    minHeight: "44px",
+    borderRadius: "12px",
+    border: "1px solid #60a5fa",
+    backgroundColor: "#0f172a",
+    color: "#dbeafe",
+    fontSize: "12px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px",
+    cursor: "pointer",
+    boxSizing: "border-box",
   },
-  curatorQuickSaveLine2: {
-    fontSize: "11px",
-    fontWeight: "700",
-    letterSpacing: "-0.01em",
+  quickSaveOutlineButtonPicked: {
+    background: "linear-gradient(180deg, #22d3ee 0%, #0891b2 100%)",
+    color: "#f0f9ff",
+    border: "1px solid #67e8f9",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.3), 0 0 0 1px rgba(34,211,238,0.32)",
+  },
+  actionCell: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "stretch",
   },
   curatorChip: {
     fontSize: "11px",
-    borderRadius: "999px",
-    border: "1px solid #343434",
-    backgroundColor: "#171717",
-    color: "#d4d4d4",
+    borderRadius: "12px",
+    border: "none",
+    backgroundColor: "#333333",
+    color: "#ffffff",
     padding: "5px 9px",
     alignSelf: "flex-start",
     whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
   },
   curatorReason: {
-    fontSize: "12px",
-    color: "#e8e8e8",
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.7)",
     fontStyle: "italic",
-    lineHeight: 1.3,
-    whiteSpace: "nowrap", // 텍스트 줄바꿈 방지
-    maxWidth: "200px", // 최대 너비 제한
-    overflow: "hidden",
-    textOverflow: "ellipsis", // 넘치는 텍스트 ...으로 표시
+    lineHeight: 1.4,
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    overflowWrap: "break-word",
+    maxWidth: "min(72vw, 260px)",
   },
   actionRow: {
     marginTop: "10px",
@@ -2435,16 +2643,36 @@ const styles = {
     gap: "8px",
     alignItems: "stretch",
   },
+  socialSummaryInlineRow: {
+    marginTop: "2px",
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: "6px",
+    rowGap: "2px",
+  },
+  socialSummaryInlineSlash: {
+    fontSize: "11px",
+    color: "rgba(255,255,255,0.38)",
+    fontWeight: 700,
+    lineHeight: 1.2,
+  },
+  socialSummaryInlineText: {
+    fontSize: "11px",
+    color: "#bdbdbd",
+    fontWeight: 600,
+    lineHeight: 1.35,
+  },
   directionsButton: {
     flex: 1,
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid #b8732a",
-    backgroundColor: "#E67E22",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
     color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: 700,
+    fontSize: "14px",
+    fontWeight: 800,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2452,57 +2680,85 @@ const styles = {
     cursor: "pointer",
     boxSizing: "border-box",
   },
+  photoLightbox: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1200,
+    background: "rgba(0,0,0,0.86)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "16px",
+  },
+  photoLightboxImage: {
+    maxWidth: "min(100%, 980px)",
+    maxHeight: "86vh",
+    borderRadius: "12px",
+    objectFit: "contain",
+    boxShadow: "0 18px 36px rgba(0,0,0,0.45)",
+  },
+  photoLightboxClose: {
+    position: "absolute",
+    right: "16px",
+    top: "16px",
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.2)",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  photoLightboxNavLeft: {
+    position: "absolute",
+    left: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.22)",
+    color: "#fff",
+    fontSize: "28px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  photoLightboxNavRight: {
+    position: "absolute",
+    right: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "36px",
+    height: "36px",
+    borderRadius: "999px",
+    border: "none",
+    background: "rgba(255,255,255,0.22)",
+    color: "#fff",
+    fontSize: "28px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
   saveButton: {
     flex: 1,
     height: "36px",
-    borderRadius: "10px",
-    border: "1px solid #343434",
+    borderRadius: "12px",
+    border: "1px solid #444444",
     backgroundColor: "#1a1a1a",
     color: "#ffffff",
     fontSize: "13px",
     fontWeight: 700,
   },
-  quickSaveButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: "40px",
-    borderRadius: "10px",
-    border: "1px solid #343434",
-    backgroundColor: "#2ECC71",
-    color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0 8px",
-    cursor: "pointer",
-    boxSizing: "border-box",
-  },
-  shareButton: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: "40px",
-    borderRadius: "10px",
-    border: "none",
-    backgroundColor: "#3498DB",
-    color: "#ffffff",
-    fontSize: "12px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0 8px",
-    cursor: "pointer",
-    boxSizing: "border-box",
-  },
   mapEmptyPrimaryBtn: {
     width: "100%",
     minHeight: "44px",
-    borderRadius: "10px",
-    border: "none",
+    borderRadius: "12px",
+    border: "1px solid #2ECC71",
     backgroundColor: "#2ECC71",
-    color: "#fff",
+    color: "#111111",
     fontSize: "14px",
     fontWeight: 700,
     cursor: "pointer",
@@ -2510,10 +2766,10 @@ const styles = {
   mapEmptySecondaryBtn: {
     width: "100%",
     minHeight: "42px",
-    borderRadius: "10px",
-    border: "1px solid rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    color: "#eee",
+    borderRadius: "12px",
+    border: "1px solid #444444",
+    backgroundColor: "#1a1a1a",
+    color: "#ffffff",
     fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
@@ -2529,29 +2785,29 @@ const styles = {
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid rgba(124, 58, 237, 0.45)",
-    background: "rgba(250,245,255,0.98)",
-    color: "#5b21b6",
-    fontSize: "14px",
-    fontWeight: 800,
+    border: "2px solid #7bed9f",
+    backgroundColor: "#1a1a1a",
+    color: "#7bed9f",
+    fontSize: "12px",
+    fontWeight: 700,
     cursor: "pointer",
     boxSizing: "border-box",
   },
   mapCollectButtonDisabled: {
     opacity: 0.45,
     cursor: "not-allowed",
-    background: "rgba(255,255,255,0.08)",
-    color: "rgba(255,255,255,0.55)",
-    border: "1px solid rgba(255,255,255,0.12)",
+    backgroundColor: "#1a1a1a",
+    color: "#bdbdbd",
+    border: "1px solid #333333",
   },
   mapConfirmSecondButton: {
     flex: 1,
     minWidth: 0,
     minHeight: "44px",
     borderRadius: "12px",
-    border: "1px solid rgba(46, 204, 113, 0.55)",
+    border: "1px solid #2ECC71",
     backgroundColor: "#2ECC71",
-    color: "#ffffff",
+    color: "#111111",
     fontSize: "14px",
     fontWeight: 800,
     cursor: "pointer",

@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import {
   STUDIO_ATMOSPHERE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
-} from "../src/utils/placeTaxonomy.js";
+} from "./utils/placeTaxonomy.js";
 
 // ES 모듈에서 __dirname 대체
 const __filename = fileURLToPath(import.meta.url);
@@ -164,6 +164,11 @@ import {
   upsertPlaceBlogInsight,
 } from "./placeBlogInsightsCache.js";
 import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
+import { handlePlacesInBounds } from "./placesInBounds.js";
+import { handleSearchPublicCourses } from "./searchPublicCourses.js";
+import { handlePlaceDetail } from "./placeDetail.js";
+import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
+import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 
 const app = express();
 app.use(cors());
@@ -386,11 +391,39 @@ function compactPlacesForAI(places) {
   }));
 }
 
-// 네이버 블로그 크롤러 실행 함수 (Python)
-function runNaverCrawler(query) {
+/** 동일 쿼리로 Python 크롤러가 연달아 뜨는 것 방지 (이중 요청·재시도 등) */
+const naverBlogCrawlInflight = new Map();
+const naverBlogCrawlRecentOk = new Map();
+const naverBlogCrawlRecentFail = new Map();
+const NAVER_BLOG_CRAWL_DEDUP_MS = 90_000;
+const NAVER_BLOG_CRAWL_FAIL_DEDUP_MS = 25_000;
+
+/**
+ * 블로그 크롤 dedupe 캐시 키 — trim, 다중 공백 1칸, NFKC, zero-width 제거, ASCII 구간만 소문자.
+ */
+function normalizeBlogCrawlCacheKey(raw) {
+  let s = String(raw || "").trim().replace(/\s+/g, " ");
+  try {
+    s = s.normalize("NFKC");
+  } catch {
+    /* ignore */
+  }
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  s = s.replace(/[A-Za-z]+/g, (m) => m.toLowerCase());
+  return s.trim();
+}
+
+function evictOldestMapEntry(m, maxSize) {
+  if (m.size <= maxSize) return;
+  const firstKey = m.keys().next().value;
+  if (firstKey != null) m.delete(firstKey);
+}
+
+// 네이버 블로그 크롤러 실행 함수 (Python) — 실제 spawn은 `runNaverCrawlerImpl`
+function runNaverCrawlerImpl(query) {
   return new Promise((resolve, reject) => {
     console.log(`🔍 네이버 블로그 크롤링 시작: ${query}`);
-    
+
     const pythonProcess = spawn("python3", [
       path.join(__dirname, "..", "naver_blog_crawler_v2.py"),
       query,
@@ -463,6 +496,77 @@ function runNaverCrawler(query) {
   });
 }
 
+function runNaverCrawler(query) {
+  const normKey = normalizeBlogCrawlCacheKey(query);
+  if (!normKey) {
+    return Promise.resolve({ success: false, error: "empty query" });
+  }
+
+  const cached = naverBlogCrawlRecentOk.get(normKey);
+  if (
+    cached &&
+    Date.now() - cached.ts < NAVER_BLOG_CRAWL_DEDUP_MS &&
+    cached.result?.success === true
+  ) {
+    console.log(
+      `🔁 네이버 블로그 크롤 스킵(최근 성공 ${Math.round(
+        (Date.now() - cached.ts) / 1000
+      )}초 이내 동일 쿼리): ${normKey}`
+    );
+    return Promise.resolve({ ...cached.result, blogCrawlDeduped: true });
+  }
+
+  const failHit = naverBlogCrawlRecentFail.get(normKey);
+  if (
+    failHit &&
+    Date.now() - failHit.ts < NAVER_BLOG_CRAWL_FAIL_DEDUP_MS &&
+    failHit.result &&
+    typeof failHit.result === "object"
+  ) {
+    console.log(
+      `🔁 네이버 블로그 크롤 실패 짧은 캐시(${NAVER_BLOG_CRAWL_FAIL_DEDUP_MS / 1000}s, ${Math.round(
+        (Date.now() - failHit.ts) / 1000
+      )}초 전): ${normKey}`
+    );
+    return Promise.resolve({
+      ...failHit.result,
+      blogCrawlDedupedFail: true,
+    });
+  }
+
+  const inflight = naverBlogCrawlInflight.get(normKey);
+  if (inflight) {
+    console.log(`🔁 네이버 블로그 크롤 인플라이트 합류: ${normKey}`);
+    return inflight;
+  }
+
+  const p = runNaverCrawlerImpl(normKey)
+    .catch((err) => ({
+      success: false,
+      error: `크롤러 프로세스 오류: ${String(err?.message || err)}`,
+    }))
+    .then((result) => {
+      if (result?.success === true && Array.isArray(result.data)) {
+        naverBlogCrawlRecentOk.set(normKey, { ts: Date.now(), result });
+        naverBlogCrawlRecentFail.delete(normKey);
+        evictOldestMapEntry(naverBlogCrawlRecentOk, 200);
+      } else {
+        naverBlogCrawlRecentFail.set(normKey, {
+          ts: Date.now(),
+          result: { ...result },
+        });
+        evictOldestMapEntry(naverBlogCrawlRecentFail, 200);
+      }
+      return result;
+    })
+    .finally(() => {
+      naverBlogCrawlInflight.delete(normKey);
+    });
+
+  naverBlogCrawlInflight.set(normKey, p);
+  return p;
+}
+
 app.post("/api/search/curator-places", async (req, res) => {
   try {
     const {
@@ -515,6 +619,15 @@ app.post("/api/search/curator-places", async (req, res) => {
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
+
+/** 홈 지도: bbox + limit — Supabase RPC `get_places_in_bounds` (service role 전용) */
+app.get("/api/places-in-bounds", handlePlacesInBounds);
+
+/** 홈 「지금 뜨는 코스」 검색 — 공개 코스 전체 (48 풀과 분리) */
+app.get("/api/courses/search", handleSearchPublicCourses);
+
+/** 장소 1건 + 추천 행(공개 필드) — 카드/시트 오픈 후 (service role 전용) */
+app.get("/api/place-detail", handlePlaceDetail);
 
 function getRecommendSupabaseEnv() {
   return {
@@ -701,7 +814,7 @@ app.get("/api/region-outline", async (req, res) => {
 });
 
 /**
- * 코스 1차→2차 보행 경로 (OSRM 공개 데모 — 프로덕션은 자체 OSRM/키 있는 라우팅으로 교체 권장)
+ * 코스 1차→2차 보행 경로 — 카카오모빌리티 도보 길찾기 우선, 실패 시 OSRM foot fallback.
  * Query: slat, slng, dlat, dlng (WGS84)
  */
 app.get("/api/course-walking-route", async (req, res) => {
@@ -712,39 +825,148 @@ app.get("/api/course-walking-route", async (req, res) => {
   if (![slat, slng, dlat, dlng].every((n) => Number.isFinite(n))) {
     return res.status(400).json({ ok: false, error: "invalid_coordinates" });
   }
-  const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${slng},${slat};${dlng},${dlat}?overview=full&geometries=geojson&steps=false`;
+
   try {
-    const r = await fetch(osrmUrl, {
-      headers: { "User-Agent": "judo-course-walking-route/1.0" },
+    const { resolveCourseWalkingRoute } = await import("./courseWalkingRoute.js");
+    const result = await resolveCourseWalkingRoute({
+      apiKey: getKakaoRestApiKey(),
+      slat,
+      slng,
+      dlat,
+      dlng,
     });
-    if (!r.ok) {
-      return res.json({
-        ok: false,
-        error: "routing_http",
-        status: r.status,
-      });
+    if (!result.ok) {
+      return res.json(result);
     }
-    const data = await r.json();
-    const route = data?.routes?.[0];
-    const coords = route?.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) {
-      return res.json({ ok: false, error: "no_route" });
-    }
-    const path = coords.map(([lng, lat]) => ({
-      lat: Number(lat),
-      lng: Number(lng),
-    }));
-    return res.json({
-      ok: true,
-      path,
-      distanceMeters: Math.round(Number(route.distance) || 0),
-      durationSeconds: Math.round(Number(route.duration) || 0),
-    });
+    return res.json(result);
   } catch (e) {
     console.error("/api/course-walking-route", e);
     return res.json({ ok: false, error: "fetch_failed" });
   }
 });
+
+/** 소개팅·맞선 등 + (끝나고/2차 등)인데 카페만 찍힌 힌트를 와인바/술집 축으로 보정 */
+const BLIND_DATE_CONTEXT_RE =
+  /소개팅|블라인드\s*데이트|맞선|첫\s*만남|첫만남|소개\s*받/;
+const AFTER_MEETING_RE = /끝나고|끝나서|이후|다음에|2차|이차|다음\s*코스|뒤에\s*가/;
+const EXPLICIT_CAFE_OR_MEAL_RE =
+  /카페|커피|브런치|디저트|케이크|티타임|백반|한정식|식당|맛집|밥\s*먹|저녁\s*먹|점심\s*먹|한식|중식|일식|양식|분식|해장|국밥|돈까스|초밥|피자|파스타/;
+const BAR_FAMILY_IN_HINT_RE =
+  /와인바|칵테일바|이자카야|술집|포차|포장마차|펍|바(?![a-z])|맥주|소주|하이볼|위스키|루프탑|라운지|야장|조용한\s*카페/i;
+
+const INTENT_ASSIST_REGION_ORDER = [
+  "압구정로데오",
+  "가로수길",
+  "성수연무장",
+  "을지로입구",
+  "을지로3가",
+  "을지로4가",
+  "을지로5가",
+  "종로3가",
+  "광화문",
+  "왕십리역",
+  "건대입구",
+  "압구정",
+  "연남동",
+  "연남",
+  "한남",
+  "이태원",
+  "성수",
+  "을지로",
+  "강남",
+  "홍대",
+  "망원",
+  "합정",
+  "종로",
+  "명동",
+  "신촌",
+  "잠실",
+  "건대",
+  "여의도",
+  "삼성",
+  "역삼",
+  "논현",
+  "청담",
+  "동대문",
+  "서울",
+];
+
+function firstRegionTokenInQuery(q) {
+  const s = String(q || "");
+  let best = "";
+  for (const a of INTENT_ASSIST_REGION_ORDER) {
+    if (a.length >= 2 && s.includes(a) && a.length > best.length) best = a;
+  }
+  return best;
+}
+
+function regionPrefixBeforeCafe(hint) {
+  const h = String(hint || "").trim();
+  const m = h.match(/^([\S가-힣\d]+)\s+카페\s*$/u);
+  return m ? m[1].trim() : "";
+}
+
+/**
+ * @returns {{ kakaoKeywordHint: string, broadKakaoKeyword: string, intentAssistPostCorrected?: boolean }}
+ */
+function postCorrectBlindDateKakaoHints(query, kakaoKeywordHint, broadKakaoKeyword) {
+  const q = String(query || "").trim();
+  let hint = String(kakaoKeywordHint || "").trim();
+  let broad = String(broadKakaoKeyword || "").trim();
+
+  if (!q || !hint) return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+
+  const blind = BLIND_DATE_CONTEXT_RE.test(q);
+  const afterFlow = AFTER_MEETING_RE.test(q);
+  const dateWord = /데이트/.test(q);
+  const needsSecondVenueHeuristic =
+    blind || (afterFlow && (blind || dateWord || /만남/.test(q)));
+
+  if (!needsSecondVenueHeuristic) {
+    return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+  }
+  if (EXPLICIT_CAFE_OR_MEAL_RE.test(q)) {
+    return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+  }
+  if (BAR_FAMILY_IN_HINT_RE.test(hint)) {
+    return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+  }
+
+  const cafeHeavy =
+    /카페/.test(hint) &&
+    !BAR_FAMILY_IN_HINT_RE.test(hint) &&
+    !/키즈|스터디|북카페|애견/.test(hint);
+
+  if (!cafeHeavy) {
+    return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+  }
+
+  const fromHint = regionPrefixBeforeCafe(hint);
+  const region = fromHint || firstRegionTokenInQuery(q);
+  if (!region) {
+    return { kakaoKeywordHint: hint, broadKakaoKeyword: broad };
+  }
+
+  let newHint = `${region} 와인바`;
+  if (
+    /조용|차분|한적|담소|대화\s*나누/.test(q) &&
+    !/(맥주|소주|술|와인|하이볼|2차|이차|위스키|칵테일)/.test(q)
+  ) {
+    newHint = `${region} 조용한 카페`;
+  } else if (/(2차|이차|한\s*잔|술집|맥주|소주|하이볼)/.test(q)) {
+    newHint = `${region} 바`;
+  }
+
+  if (!broad || (/카페/.test(broad) && !BAR_FAMILY_IN_HINT_RE.test(broad))) {
+    broad =
+      /조용한\s*카페/.test(newHint) ? `${region} 카페` : `${region} 술집`;
+  }
+  return {
+    kakaoKeywordHint: newHint,
+    broadKakaoKeyword: broad,
+    intentAssistPostCorrected: true,
+  };
+}
 
 /** 5단계: AI는 장소를 발명하지 않고, 검색·지도 파이프라인을 보조하는 구조화 힌트만 반환 */
 app.post("/api/search-intent-assist", async (req, res) => {
@@ -839,6 +1061,11 @@ app.post("/api/search-intent-assist", async (req, res) => {
                 "카카오 키워드 검색용 짧은 kakaoKeywordHint, " +
                 "broadKakaoKeyword는 조건을 최대한 넓힌 한 줄(예: 강남 술집, 압구정 술집, 서울 이자카야). 상호명·주소 금지. " +
                 "결과가 비었을 때 쓸 짧은 대체 검색어 fallbackSearchIdeas(2~4개).\n" +
+                "[소개팅·맞선·첫만남·데이트 + 끝나고/2차/이후/다음에/갈만한 곳 등] 사용자가 " +
+                "카페·커피·브런치·식사·맛집·밥을 명시하지 않았다면 kakaoKeywordHint를 「지역 카페」로만 좁히지 마라. " +
+                "우선순위는 와인바 → 바·펍 → 칵테일바·이자카야 → (조용·대화 강조면) 조용한 카페 순으로 생각하고, " +
+                "막연한 「OO 카페」 한 줄은 피해라. broadKakaoKeyword는 「지역 술집」~「지역 이자카야」 축을 우선한다. " +
+                "사용자가 카페·밥·맛집을 분명히 썼을 때만 카페·식사 축을 써라.\n" +
                 "모르는 필드는 빈 문자열. 장소 이름은 출력하지 마라.\n" +
                 "[표준값] filterHints.alcoholScope(주종)는 가능하면 다음 중 하나 또는 짧은 조합: " +
                 STUDIO_LIQUOR_TYPE_OPTIONS.join(", ") +
@@ -869,6 +1096,23 @@ app.post("/api/search-intent-assist", async (req, res) => {
     });
 
     const parsed = JSON.parse(response.output_text);
+    let kakaoKeywordHint =
+      String(parsed.kakaoKeywordHint ?? "").trim() || query;
+    let broadKakaoKeyword = String(parsed.broadKakaoKeyword ?? "").trim();
+    const post = postCorrectBlindDateKakaoHints(
+      query,
+      kakaoKeywordHint,
+      broadKakaoKeyword
+    );
+    kakaoKeywordHint = post.kakaoKeywordHint;
+    broadKakaoKeyword = post.broadKakaoKeyword;
+    if (post.intentAssistPostCorrected) {
+      console.log(
+        `[search-intent-assist] 소개팅/2차 맥락 카페 힌트 보정: "${String(
+          parsed.kakaoKeywordHint ?? ""
+        ).trim()}" → "${kakaoKeywordHint}"`
+      );
+    }
     return res.json({
       queryCorrected: String(parsed.queryCorrected ?? query).trim() || query,
       intentSummary: String(parsed.intentSummary ?? ""),
@@ -878,9 +1122,8 @@ app.post("/api/search-intent-assist", async (req, res) => {
           ? parsed.filterHints
           : {}),
       },
-      kakaoKeywordHint:
-        String(parsed.kakaoKeywordHint ?? "").trim() || query,
-      broadKakaoKeyword: String(parsed.broadKakaoKeyword ?? "").trim(),
+      kakaoKeywordHint,
+      broadKakaoKeyword,
       fallbackSearchIdeas: Array.isArray(parsed.fallbackSearchIdeas)
         ? parsed.fallbackSearchIdeas.map(String).slice(0, 4)
         : [],
@@ -891,15 +1134,34 @@ app.post("/api/search-intent-assist", async (req, res) => {
   }
 });
 
-// 네이버 지역 검색 API
+/** 코스: 룰 엔진 후보 중 course.key만 LLM이 선택·summary (장소 발명 금지) */
+app.post("/api/course-compose-assist", (req, res) =>
+  handleCourseComposeAssist(req, res, { openai, hasUsableOpenAiKey })
+);
+
+// 네이버 **지역** 검색 API (openapi local.json) — 블로그 Python 크롤과 별개
 async function searchNaverLocal(query) {
+  console.log("[naver-local-query]", {
+    type: Array.isArray(query) ? "array" : typeof query,
+    query:
+      typeof query === "string"
+        ? query.slice(0, 200)
+        : query != null
+          ? String(query).slice(0, 200)
+          : query,
+  });
   const clientId = process.env.NAVER_CLIENT_ID;
   const clientSecret = process.env.NAVER_CLIENT_SECRET;
   
   if (!clientId || !clientSecret) {
     console.log("⚠️ NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET가 없습니다. 샘플 데이터 사용.");
-    // API 키가 없으면 샘플 데이터 반환
-    return generateSampleData(query);
+    const sample = generateSampleData(query);
+    console.log("[naver-local-result]", {
+      query: String(query).slice(0, 200),
+      count: Array.isArray(sample) ? sample.length : 0,
+      source: "sample_no_keys",
+    });
+    return sample;
   }
 
   try {
@@ -916,18 +1178,37 @@ async function searchNaverLocal(query) {
     });
 
     const results = response.data.items || [];
-    
+    console.log("[naver-local-result]", {
+      query: String(query).slice(0, 200),
+      count: Array.isArray(results) ? results.length : 0,
+      source: "api",
+    });
+
     // 결과가 없으면 샘플 데이터 반환
     if (results.length === 0) {
-      console.log("⚠️ 네이버 API 결과가 없습니다. 샘플 데이터 사용.");
-      return generateSampleData(query);
+      console.log(
+        `⚠️ 네이버 지역검색 API 결과 없음 (블로그 크롤 아님): "${query}" — 샘플 사용`
+      );
+      const sample = generateSampleData(query);
+      console.log("[naver-local-result]", {
+        query: String(query).slice(0, 200),
+        count: Array.isArray(sample) ? sample.length : 0,
+        source: "sample_empty_api",
+      });
+      return sample;
     }
-    
+
     return results;
   } catch (error) {
     console.error("네이버 API 검색 오류:", error.message);
     console.log("⚠️ API 오류 발생. 샘플 데이터 사용.");
-    return generateSampleData(query);
+    const sample = generateSampleData(query);
+    console.log("[naver-local-result]", {
+      query: String(query).slice(0, 200),
+      count: Array.isArray(sample) ? sample.length : 0,
+      source: "sample_error",
+    });
+    return sample;
   }
 }
 
@@ -2064,9 +2345,14 @@ async function fetchKakaoPlacesForPhrases(phrases) {
     );
     return [];
   }
-  const byId = new Map();
-  await Promise.all(
-    phrases.map(async (query) => {
+  const phraseList = Array.isArray(phrases)
+    ? phrases.map((q) => String(q || "").trim()).filter((q) => q.length >= 2)
+    : [];
+  if (!phraseList.length) return [];
+
+  /** phrase별로 병렬 요청 후, 순위를 라운드로빈으로 섞어 한 phrase(accuracy 상단)만 독식하지 않게 함 */
+  const lists = await Promise.all(
+    phraseList.map(async (query) => {
       try {
         const { data } = await axios.get(
           "https://dapi.kakao.com/v2/local/search/keyword.json",
@@ -2075,32 +2361,81 @@ async function fetchKakaoPlacesForPhrases(phrases) {
             headers: { Authorization: `KakaoAK ${key}` },
           }
         );
-        for (const d of data.documents || []) {
-          const id = String(d.id || "");
-          if (id && !byId.has(id)) byId.set(id, kakaoDocToUnifiedPlace(d));
-        }
+        return Array.isArray(data.documents) ? data.documents : [];
       } catch (e) {
         console.warn("unified-map-search kakao:", query, e.message);
+        return [];
       }
     })
   );
-  return [...byId.values()];
+
+  const byId = new Map();
+  const order = [];
+  const maxLen = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < maxLen; i++) {
+    for (let p = 0; p < lists.length; p++) {
+      const d = lists[p][i];
+      if (!d) continue;
+      const id = String(d.id || "");
+      if (!id || byId.has(id)) continue;
+      byId.set(id, kakaoDocToUnifiedPlace(d));
+      order.push(id);
+    }
+  }
+  return order.map((id) => byId.get(id));
+}
+
+/** "성수 바, 성수 펍, …" 한 요소로 온 경우 → phrase별 네이버·카카오 호출 */
+function flattenCommaSeparatedSearchPhrases(phrases) {
+  if (!Array.isArray(phrases)) return [];
+  const SPLIT = /\s*[,，]\s*/u;
+  const seen = new Set();
+  const out = [];
+  for (const raw of phrases) {
+    const s = String(raw ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (s.length < 2) continue;
+    const parts = s
+      .split(SPLIT)
+      .map((p) => p.trim().replace(/\s+/g, " "))
+      .filter((p) => p.length >= 2);
+    const use = parts.length > 1 ? parts : [s];
+    for (const p of use) {
+      const k = p.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 async function fetchNaverPlacesForPhrases(phrases) {
-  const arrays = await Promise.all(phrases.map((q) => searchNaverLocal(q)));
+  const phraseList = Array.isArray(phrases)
+    ? phrases.map((q) => String(q || "").trim()).filter((q) => q.length >= 2)
+    : [];
+  if (!phraseList.length) return [];
+
+  const arrays = await Promise.all(phraseList.map((q) => searchNaverLocal(q)));
   const byName = new Map();
+  const order = [];
   let salt = 0;
-  for (const items of arrays) {
-    if (!Array.isArray(items)) continue;
-    for (const item of items) {
+  const maxLen = Math.max(0, ...arrays.map((a) => (Array.isArray(a) ? a.length : 0)));
+  for (let i = 0; i < maxLen; i++) {
+    for (let p = 0; p < arrays.length; p++) {
+      const items = arrays[p];
+      if (!Array.isArray(items)) continue;
+      const item = items[i];
+      if (!item) continue;
       const u = naverItemToUnifiedPlace(item, salt++);
       const nk = normalizeUnifiedPlaceName(u.place_name);
-      if (!nk) continue;
-      if (!byName.has(nk)) byName.set(nk, u);
+      if (!nk || byName.has(nk)) continue;
+      byName.set(nk, u);
+      order.push(nk);
     }
   }
-  return [...byName.values()];
+  return order.map((k) => byName.get(k));
 }
 
 function mergeKakaoNaverPlaces(kakaoList, naverList) {
@@ -2136,7 +2471,7 @@ app.post("/api/unified-map-search", async (req, res) => {
       ? [...new Set(searchPhrases.map((s) => String(s || "").trim()).filter(Boolean))]
       : [];
     if (phrases.length === 0) phrases = [q0];
-    phrases = phrases.slice(0, 10);
+    phrases = flattenCommaSeparatedSearchPhrases(phrases).slice(0, 10);
 
     const blogMs = Math.min(
       Math.max(
@@ -2151,7 +2486,17 @@ app.post("/api/unified-map-search", async (req, res) => {
         fetchKakaoPlacesForPhrases(phrases),
         fetchNaverPlacesForPhrases(phrases),
       ]);
-      return mergeKakaoNaverPlaces(kList, nList);
+      const merged = mergeKakaoNaverPlaces(kList, nList);
+      console.log("[merged-candidates]", {
+        total: merged.length,
+        kakaoCount: kList.length,
+        naverCount: nList.length,
+        phrasesTried: phrases.length,
+        names: merged
+          .slice(0, 40)
+          .map((p) => p.place_name || p.name || ""),
+      });
+      return merged;
     })();
 
     const blogPromise =
@@ -2408,8 +2753,9 @@ app.post("/api/kakao/place-details", async (req, res) => {
       mergedDocs.push(...pageDocs);
       const hit = pageDocs.find((d) => d && String(d.id) === pid);
       if (hit) {
+        const enriched = await enrichKakaoPlaceDocWithOgImage(hit);
         return res.json({
-          documents: [hit],
+          documents: enriched ? [enriched] : [],
           meta: response.data?.meta,
         });
       }
@@ -2440,8 +2786,12 @@ app.post("/api/kakao/place-details", async (req, res) => {
       chosen = sorted[0];
     }
 
+    const enrichedChosen = chosen
+      ? await enrichKakaoPlaceDocWithOgImage(chosen)
+      : null;
+
     res.json({
-      documents: chosen ? [chosen] : [],
+      documents: enrichedChosen ? [enrichedChosen] : [],
       meta: lastResponse?.data?.meta,
     });
   } catch (error) {
@@ -2463,26 +2813,54 @@ app.post("/api/kakao/place-details", async (req, res) => {
   }
 });
 
-/** 브라우저 직접 dapi staticmap 호출은 도메인 제한으로 자주 깨짐 → 서버에서 받아 전달 */
-function getKakaoJavaScriptKeyForServer() {
-  return (
-    process.env.KAKAO_JAVASCRIPT_KEY ||
-    process.env.VITE_KAKAO_JAVASCRIPT_KEY ||
-    ""
-  ).trim();
+/**
+ * 장소 카드 상단 미리보기 이미지.
+ * 예전에는 `https://dapi.kakao.com/v2/maps/staticmap` 를 서버에서 프록시했으나,
+ * 해당 GET 경로는 dapi에서 더 이상 매칭되지 않음(404 ResourceNotFound) →
+ * 브라우저 도메인 제한을 피하면서도 깨지지 않게 좌표 기준 SVG를 반환한다.
+ */
+function buildStaticMapPlaceholderSvg(lat, lng, width, height) {
+  const w = Math.round(width);
+  const h = Math.round(height);
+  const cx = w / 2;
+  const pinY = h / 2 - 10;
+  const latStr = Number(lat).toFixed(5);
+  const lngStr = Number(lng).toFixed(5);
+  const step = Math.max(28, Math.round(Math.min(w, h) / 14));
+  const grid = [];
+  for (let x = 0; x <= w; x += step) {
+    grid.push(
+      `<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="#94a3b8" stroke-width="0.6" opacity="0.35"/>`
+    );
+  }
+  for (let y = 0; y <= h; y += step) {
+    grid.push(
+      `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="#94a3b8" stroke-width="0.6" opacity="0.35"/>`
+    );
+  }
+  const pin = `
+    <g transform="translate(${cx}, ${pinY})">
+      <ellipse cx="0" cy="11" rx="9" ry="4" fill="#000" opacity="0.12"/>
+      <path d="M0,-22 C-12,-22 -14,-6 0,14 C14,-6 12,-22 0,-22 Z" fill="#dc2626" stroke="#fff" stroke-width="2"/>
+      <circle cx="0" cy="-10" r="4" fill="#fff"/>
+    </g>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <defs>
+    <linearGradient id="kmBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bfdbfe"/>
+      <stop offset="55%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#kmBg)"/>
+  ${grid.join("\n  ")}
+  ${pin}
+  <text x="${cx}" y="${h - 16}" text-anchor="middle" fill="#334155" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="600">${latStr}, ${lngStr}</text>
+</svg>`;
 }
 
-app.get("/api/kakao/static-map", async (req, res) => {
-  const restKey = getKakaoRestApiKey();
-  const jsKey = getKakaoJavaScriptKeyForServer();
-  if (!restKey && !jsKey) {
-    return res
-      .status(503)
-      .type("text/plain")
-      .send(
-        "카카오 키 없음: KAKAO_REST_API_KEY(또는 VITE_KAKAO_REST_API_KEY) 또는 KAKAO_JAVASCRIPT_KEY(VITE_)"
-      );
-  }
+app.get("/api/kakao/static-map", (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -2493,60 +2871,12 @@ app.get("/api/kakao/static-map", async (req, res) => {
   }
   let w = parseInt(String(req.query.w), 10) || 400;
   let h = parseInt(String(req.query.h), 10) || 400;
-  let level = parseInt(String(req.query.level), 10) || 3;
   w = Math.min(800, Math.max(50, w));
   h = Math.min(800, Math.max(50, h));
-  level = Math.min(14, Math.max(1, level));
-  const center = `${lng},${lat}`;
-  const markers = `${lng},${lat}`;
-  const url = "https://dapi.kakao.com/v2/maps/staticmap";
-  const commonParams = { center, level, w, h, markers };
-
-  const trySend = (buf, ctype) => {
-    const len = Buffer.isBuffer(buf)
-      ? buf.length
-      : buf?.byteLength ?? 0;
-    if (len < 80) return false;
-    res.setHeader("Content-Type", ctype || "image/png");
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    res.send(Buffer.from(buf));
-    return true;
-  };
-
-  try {
-    if (restKey) {
-      const r = await axios.get(url, {
-        params: commonParams,
-        headers: { Authorization: `KakaoAK ${restKey}` },
-        responseType: "arraybuffer",
-        timeout: 15000,
-        validateStatus: (s) => s >= 200 && s < 500,
-      });
-      if (r.status === 200 && trySend(r.data, r.headers["content-type"])) {
-        return;
-      }
-    }
-    if (jsKey) {
-      const r = await axios.get(url, {
-        params: { ...commonParams, appkey: jsKey },
-        responseType: "arraybuffer",
-        timeout: 15000,
-        validateStatus: (s) => s >= 200 && s < 500,
-      });
-      if (r.status === 200 && trySend(r.data, r.headers["content-type"])) {
-        return;
-      }
-      console.warn(
-        "kakao static-map: js appkey 요청 실패",
-        r.status,
-        r.headers["content-type"]
-      );
-    }
-    res.status(502).type("text/plain").send("정적 지도를 가져오지 못했습니다");
-  } catch (error) {
-    console.warn("kakao static-map:", error.message);
-    res.status(502).type("text/plain").send("정적 지도 오류");
-  }
+  const svg = buildStaticMapPlaceholderSvg(lat, lng, w, h);
+  res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.status(200).send(Buffer.from(svg, "utf8"));
 });
 
 app.post("/api/kakao/search", async (req, res) => {

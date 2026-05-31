@@ -4,9 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5173",
+    "dev": "node scripts/run-dev.mjs",
+    "dev:vite": "vite --strictPort",
     "dev:server": "npm --prefix server run dev",
     "build": "vite build",
+    "test": "vitest run",
+    "verify:course-staging": "node --env-file=server/.env scripts/verify-course-staging.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -36,10 +39,10 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "tailwindcss": "^4.2.4",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
   },
   "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
-  "main": "batch_geocoding.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/luckysohee/judo.git"

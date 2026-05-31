@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
+import { normalizeStudioPlaceCategory } from "../../utils/placeTaxonomy.js";
 
 // 임시저장 키
 const DRAFT_KEY = "newPlace_draft";
@@ -173,7 +174,8 @@ export default function NewPlace() {
         p_latitude: basicInfo.latitude,
         p_longitude: basicInfo.longitude,
         p_phone: basicInfo.phone,
-        p_category: basicInfo.category,
+        p_category:
+          normalizeStudioPlaceCategory(basicInfo.category || "") || "미분류",
         p_alcohol_type: basicInfo.alcohol_type,
         p_atmosphere: basicInfo.atmosphere,
         p_recommended_menu: basicInfo.recommended_menu,
@@ -211,7 +213,8 @@ export default function NewPlace() {
         p_latitude: basicInfo.latitude,
         p_longitude: basicInfo.longitude,
         p_phone: basicInfo.phone,
-        p_category: basicInfo.category,
+        p_category:
+          normalizeStudioPlaceCategory(basicInfo.category || "") || "미분류",
         p_alcohol_type: basicInfo.alcohol_type,
         p_atmosphere: basicInfo.atmosphere,
         p_recommended_menu: basicInfo.recommended_menu,
