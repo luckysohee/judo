@@ -1,9 +1,35 @@
 const KAKAO_SDK_SCRIPT_SELECTOR = 'script[data-kakao-maps-sdk="true"]';
 
-function buildKakaoSdkSrc(appKey) {
+/** Vite env name — Vercel에도 동일 키로 넣어야 함 (REST 키와 다름) */
+export const KAKAO_JAVASCRIPT_ENV_KEY = "VITE_KAKAO_JAVASCRIPT_KEY";
+
+/** @returns {string} Kakao Maps JavaScript app key from build-time env */
+export function getKakaoJavascriptAppKey() {
+  return String(import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY ?? "").trim();
+}
+
+/** @param {string} appKey */
+export function buildKakaoMapsSdkScriptSrc(appKey) {
   return `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(
     appKey
   )}&autoload=false&libraries=services,clusterer`;
+}
+
+function logKakaoEnvDiagnostics(context) {
+  const key = getKakaoJavascriptAppKey();
+  console.error(`[Kakao Maps SDK] ${context}`, {
+    envKey: KAKAO_JAVASCRIPT_ENV_KEY,
+    keyPresent: Boolean(key),
+    keyLength: key.length,
+    mode: import.meta.env.MODE,
+    production: import.meta.env.PROD,
+  });
+}
+
+function logKakaoSdkScriptError(scriptEl, context) {
+  const src = scriptEl?.src || "(no src)";
+  console.error(`[Kakao Maps SDK] script.onerror (${context}) src:`, src);
+  logKakaoEnvDiagnostics(context);
 }
 
 function runKakaoMapsLoadCallback() {
@@ -36,10 +62,11 @@ function runKakaoMapsLoadCallback() {
  * @param {{ appKey?: string }} [opts]
  */
 export function loadKakaoMapsSdk({ appKey: rawAppKey } = {}) {
-  const appKey = String(rawAppKey || "").trim();
+  const appKey = String(rawAppKey ?? getKakaoJavascriptAppKey()).trim();
 
   return new Promise((resolve, reject) => {
     if (!appKey) {
+      logKakaoEnvDiagnostics("VITE_KAKAO_JAVASCRIPT_KEY is missing");
       reject(new Error("VITE_KAKAO_JAVASCRIPT_KEY is missing"));
       return;
     }
@@ -64,7 +91,10 @@ export function loadKakaoMapsSdk({ appKey: rawAppKey } = {}) {
         existing.addEventListener("load", () => finish(), { once: true });
         existing.addEventListener(
           "error",
-          () => reject(new Error("Failed to load Kakao Maps SDK")),
+          () => {
+            logKakaoSdkScriptError(existing, "existing script");
+            reject(new Error("Failed to load Kakao Maps SDK"));
+          },
           { once: true }
         );
         return;
@@ -74,10 +104,11 @@ export function loadKakaoMapsSdk({ appKey: rawAppKey } = {}) {
     const script = document.createElement("script");
     script.async = true;
     script.setAttribute("data-kakao-maps-sdk", "true");
-    script.src = buildKakaoSdkSrc(appKey);
+    script.src = buildKakaoMapsSdkScriptSrc(appKey);
     script.onload = () => finish();
     script.onerror = () => {
       script.setAttribute("data-kakao-maps-error", "1");
+      logKakaoSdkScriptError(script, "new script");
       reject(new Error("Failed to load Kakao Maps SDK"));
     };
     document.head.appendChild(script);

@@ -3,7 +3,7 @@ import createMarker, {
   isCourseBridgeMapPin,
   isEphemeralSearchMapMarker,
 } from "../../utils/createMarker";
-import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import { debounce } from "../../utils/debounce";
 import {
   resolvePlaceWgs84,
@@ -1300,7 +1300,7 @@ const MapView = forwardRef(({
         return;
       }
 
-      const appKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
+      const appKey = getKakaoJavascriptAppKey();
       if (import.meta.env.DEV) {
         setPhoneMapDebug(
           appKey
