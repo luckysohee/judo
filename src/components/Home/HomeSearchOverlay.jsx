@@ -175,8 +175,15 @@ export default function HomeSearchOverlay({
             ←
           </button>
           <div style={s.inputWrap}>
+            <style>{`
+              .judoSearchOverlayInput::placeholder {
+                color: rgba(255, 255, 255, 0.38);
+                opacity: 1;
+              }
+            `}</style>
             <input
               ref={inputRef}
+              className="judoSearchOverlayInput"
               type="search"
               enterKeyHint="search"
               value={query}

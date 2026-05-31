@@ -1168,8 +1168,8 @@ export default function HomeCourseMergedSheet({
                               color: "#78716c",
                             }}
                           >
-                            주도에 등록된 장소만 저장됩니다. 초안으로 만들어진 뒤
-                            편집 화면으로 이동해요.
+                            추천 장소는 필요 시 주도 DB에 등록된 뒤 초안으로
+                            저장돼요. 편집 화면으로 이동합니다.
                           </p>
                         </div>
                       </div>

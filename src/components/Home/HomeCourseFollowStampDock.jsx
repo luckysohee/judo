@@ -16,6 +16,7 @@ import {
   courseStampStepDensity,
   courseStampStepRowStyle,
 } from "../../utils/courseStampStepLayout";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 function dbStepsToStampRow(steps) {
   return capCourseStampStepsForUi(steps).map((row, i) => ({
@@ -34,11 +35,11 @@ const styles = {
     zIndex: 400,
     boxSizing: "border-box",
     paddingBottom: "env(safe-area-inset-bottom, 0px)",
-    background: "rgba(255,255,255,0.97)",
-    borderTop: "1px solid rgba(99,102,241,0.18)",
-    boxShadow: "0 -4px 24px rgba(15,23,42,0.12)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
+    background: T.panelBg,
+    borderTop: T.panelBorder,
+    boxShadow: "0 -4px 32px rgba(0,0,0,0.42)",
+    backdropFilter: "blur(22px) saturate(180%)",
+    WebkitBackdropFilter: "blur(22px) saturate(180%)",
     transform: entered ? "translate3d(0,0,0)" : "translate3d(0,100%,0)",
     transition: "transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)",
     pointerEvents: "auto",
@@ -73,9 +74,9 @@ const styles = {
     width: 28,
     height: 28,
     borderRadius: 999,
-    border: "1px solid rgba(15,23,42,0.1)",
-    background: "rgba(255,255,255,0.92)",
-    color: "#475569",
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
     fontSize: 15,
     lineHeight: 1,
     cursor: "pointer",
@@ -86,11 +87,11 @@ const styles = {
     fontWeight: 800,
     padding: "4px 0",
     borderRadius: 8,
-    color: stamped ? "#5b21b6" : isGuide ? "#7c3aed" : "rgba(15,23,42,0.4)",
+    color: stamped ? T.text : isGuide ? T.textSub : T.textFaint,
     background: stamped
-      ? "rgba(91,33,182,0.12)"
+      ? T.cardActiveBg
       : isGuide
-        ? "rgba(124,58,237,0.08)"
+        ? T.cardBg
         : "transparent",
   }),
   checkBtn: (checked, busy) => ({
@@ -105,13 +106,10 @@ const styles = {
     fontWeight: 800,
     cursor: busy ? "not-allowed" : "pointer",
     opacity: busy ? 0.6 : 1,
-    border: checked
-      ? "2px solid #5b21b6"
-      : "2px solid rgba(91,33,182,0.35)",
-    background: checked
-      ? "linear-gradient(135deg, #7c3aed, #5b21b6)"
-      : "linear-gradient(135deg, #f5f3ff, #ede9fe)",
-    color: checked ? "#fff" : "#5b21b6",
+    border: checked ? T.stampRing : T.cardBorder,
+    background: checked ? T.btnPrimaryBg : T.btnGhostBg,
+    color: checked ? T.text : T.textSub,
+    boxShadow: checked ? "inset 0 1px 0 rgba(255,255,255,0.1)" : "none",
   }),
   checkIcon: (checked) => ({
     width: 20,
@@ -123,15 +121,15 @@ const styles = {
     justifyContent: "center",
     fontSize: 13,
     fontWeight: 900,
-    border: checked ? "none" : "2px solid rgba(91,33,182,0.45)",
-    background: checked ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.7)",
-    color: checked ? "#fff" : "#5b21b6",
+    border: checked ? "none" : T.chipBorder,
+    background: checked ? "rgba(255,255,255,0.14)" : T.chipBg,
+    color: checked ? T.text : T.textSub,
   }),
   replayBtn: {
     width: "100%",
-    border: "1px solid rgba(91,33,182,0.22)",
-    background: "rgba(255,255,255,0.92)",
-    color: "#5b21b6",
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.textSub,
     borderRadius: 12,
     padding: "10px",
     fontSize: 12,

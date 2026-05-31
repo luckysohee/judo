@@ -4,6 +4,7 @@ import {
   isResolvableCourseStepThumbUrl,
   pickStepUploadedThumb,
 } from "../../utils/courseStepThumb";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const styles = {
   root: {
@@ -27,7 +28,7 @@ const styles = {
     fontSize: 12,
     fontWeight: 800,
     letterSpacing: "-0.03em",
-    color: "#0f172a",
+    color: T.text,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -38,7 +39,7 @@ const styles = {
     flexShrink: 0,
     fontSize: 10,
     fontWeight: 650,
-    color: "rgba(79,70,229,0.75)",
+    color: T.textFaint,
     whiteSpace: "nowrap",
   },
   scroll: {
@@ -72,16 +73,16 @@ const styles = {
     borderRadius: 10,
     overflow: "hidden",
     border: stamped
-      ? "2px solid #5b21b6"
+      ? T.stampRing
       : isGuide
-        ? "2px dashed rgba(124,58,237,0.5)"
+        ? T.guideRing
         : hasHanjan
           ? "2px solid rgba(217,119,6,0.55)"
-          : "2px solid rgba(99,102,241,0.14)",
+          : T.cardBorder,
     boxSizing: "border-box",
     background: hasHanjan
-      ? "linear-gradient(145deg, rgba(251,191,36,0.2), rgba(226,232,240,0.7))"
-      : "linear-gradient(145deg, rgba(99,102,241,0.12), rgba(226,232,240,0.7))",
+      ? "linear-gradient(145deg, rgba(251,191,36,0.18), rgba(255,255,255,0.04))"
+      : T.thumbBg,
   }),
   hanjanBadge: {
     position: "absolute",
@@ -110,7 +111,7 @@ const styles = {
     marginTop: 4,
     fontSize: 9,
     fontWeight: 750,
-    color: "rgba(51,65,85,0.82)",
+    color: T.textMuted,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -123,14 +124,14 @@ const styles = {
     width: 20,
     height: 20,
     borderRadius: 999,
-    background: "rgba(91,33,182,0.92)",
-    color: "#fff",
+    background: T.stampBadgeBg,
+    color: T.stampBadgeColor,
     fontSize: 11,
     fontWeight: 900,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 2px 6px rgba(91,33,182,0.35)",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
     lineHeight: 1,
   },
   coverFallback: {
@@ -160,16 +161,15 @@ const styles = {
     height: 88,
     borderRadius: 10,
     overflow: "hidden",
-    border: "2px solid rgba(99,102,241,0.2)",
+    border: T.cardBorder,
     boxSizing: "border-box",
-    background:
-      "linear-gradient(145deg, rgba(99,102,241,0.12), rgba(226,232,240,0.7))",
+    background: T.thumbBg,
   },
   coverHeroLabel: {
     marginTop: 4,
     fontSize: 9,
     fontWeight: 750,
-    color: "rgba(79,70,229,0.85)",
+    color: T.textMuted,
     paddingLeft: 2,
   },
 };

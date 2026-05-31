@@ -10,6 +10,7 @@ import {
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
+import { getPrimarySavedFolderColor } from "../../utils/storage";
 import {
   addLegacyPlaceCuratorAliasesToKeySet,
   addLegacyPlaceCuratorIdsForUsername,
@@ -908,13 +909,139 @@ function buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces) {
   return set;
 }
 
+/** 미리보기·검색 제안 — UUID·카카오 id·`kakao_*` 프리픽스 등 저장 키 후보 */
+function placeSavedLookupKeys(place) {
+  if (!place || typeof place !== "object") return [];
+  const out = new Set();
+  for (const x of [place.id, place.place_id, place.kakao_place_id, place.kakaoId]) {
+    if (x == null || x === "") continue;
+    const s = String(x).trim();
+    if (!s) continue;
+    out.add(s);
+    if (s.startsWith("kakao_")) {
+      const kid = s.slice("kakao_".length);
+      if (kid) out.add(kid);
+    } else if (/^\d+$/.test(s)) {
+      out.add(`kakao_${s}`);
+    }
+  }
+  return [...out];
+}
+
 /** 미리보기 카드와 동일하게 UUID·카카오 id 등으로 저장 키와 매칭 */
 function placeMatchesSavedKeySet(place, savedKeySet) {
   if (!place || !savedKeySet?.size) return false;
-  const keys = [place.id, place.place_id, place.kakao_place_id, place.kakaoId]
-    .filter((x) => x != null && x !== "")
-    .map((x) => String(x));
-  return keys.some((k) => savedKeySet.has(k));
+  return placeSavedLookupKeys(place).some((k) => savedKeySet.has(k));
+}
+
+function folderColorForSavedKey(savedKey, folders, userSavedPlaces) {
+  let folderColor = getPrimarySavedFolderColor(savedKey, folders);
+  const sb = userSavedPlaces?.[savedKey];
+  if (Array.isArray(sb) && sb[0]?.color) {
+    folderColor = folderColor || String(sb[0].color).trim();
+  }
+  return folderColor || "#e74c3c";
+}
+
+function registerBadgeOnKeys(index, badge, keys) {
+  for (const raw of keys) {
+    const k = String(raw ?? "").trim();
+    if (!k) continue;
+    index.set(k, badge);
+    if (k.startsWith("kakao_")) {
+      const kid = k.slice("kakao_".length);
+      if (kid) index.set(kid, badge);
+    } else if (/^\d+$/.test(k)) {
+      index.set(`kakao_${k}`, badge);
+    }
+  }
+}
+
+/**
+ * 검색 제안 행 — 네이버 지도식 저장(픽) 배지 색.
+ */
+function resolveSavedPickBadgeForPlace(
+  place,
+  savedKeySet,
+  folders,
+  userSavedPlaces = null
+) {
+  if (!place || !savedKeySet?.size) return null;
+  let matchedKey = null;
+  for (const k of placeSavedLookupKeys(place)) {
+    if (savedKeySet.has(k)) {
+      matchedKey = k;
+      break;
+    }
+  }
+  if (!matchedKey) return null;
+  return {
+    isSaved: true,
+    folderColor: folderColorForSavedKey(matchedKey, folders, userSavedPlaces),
+  };
+}
+
+/**
+ * 카카오 검색 제안 ↔ 저장 장소 매칭 인덱스.
+ * @param {Record<string, string>} [savedPlaceKakaoByUuid] UUID → 카카오 숫자 id
+ */
+function buildHomeSearchSavedBadgeIndex(
+  savedMap,
+  userSavedPlaces,
+  folders,
+  catalogPlaces = [],
+  savedPlaceKakaoByUuid = null
+) {
+  const keySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
+  const index = new Map();
+  const makeBadge = (savedKey) => ({
+    isSaved: true,
+    folderColor: folderColorForSavedKey(savedKey, folders, userSavedPlaces),
+  });
+
+  const catalogById = new Map();
+  for (const p of catalogPlaces) {
+    const id = String(p?.id ?? "").trim();
+    if (id) catalogById.set(id, p);
+  }
+
+  for (const savedKey of keySet) {
+    const badge = makeBadge(savedKey);
+    registerBadgeOnKeys(index, badge, [savedKey]);
+
+    const linkedKid = savedPlaceKakaoByUuid?.[savedKey];
+    if (linkedKid) registerBadgeOnKeys(index, badge, [linkedKid]);
+
+    const place = catalogById.get(savedKey);
+    if (place) {
+      registerBadgeOnKeys(index, badge, placeSavedLookupKeys(place));
+      const kid = normalizeKakaoPlaceId(place);
+      if (kid) registerBadgeOnKeys(index, badge, [kid]);
+    }
+  }
+
+  for (const p of catalogPlaces) {
+    const badge = resolveSavedPickBadgeForPlace(
+      p,
+      keySet,
+      folders,
+      userSavedPlaces
+    );
+    if (!badge) continue;
+    registerBadgeOnKeys(index, badge, placeSavedLookupKeys(p));
+    const kid = normalizeKakaoPlaceId(p);
+    if (kid) registerBadgeOnKeys(index, badge, [kid]);
+  }
+
+  if (savedPlaceKakaoByUuid && typeof savedPlaceKakaoByUuid === "object") {
+    for (const [uuid, kid] of Object.entries(savedPlaceKakaoByUuid)) {
+      if (!keySet.has(uuid)) continue;
+      const badge = makeBadge(uuid);
+      registerBadgeOnKeys(index, badge, [kid, uuid]);
+    }
+  }
+
+  return { index, keySet };
 }
 
 const SEARCH_INTENT_ASSIST_MS = 5500;
@@ -1028,7 +1155,10 @@ export {
   collectCuratorIdsForRescueMatch,
   canonicalCuratorChipToken,
   buildMergedSavedPlaceKeySet,
+  buildHomeSearchSavedBadgeIndex,
   placeMatchesSavedKeySet,
+  placeSavedLookupKeys,
+  resolveSavedPickBadgeForPlace,
   SEARCH_INTENT_ASSIST_MS,
   getCourseSwipeIndexFromScroll,
   logSignalsCheckDev,

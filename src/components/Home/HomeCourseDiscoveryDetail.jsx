@@ -24,6 +24,7 @@ import {
   COURSE_SCRAP_LABEL_SHORT,
   COURSE_SCRAPED_LABEL,
 } from "../../utils/coursePickCopy";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const PAGE_TITLE_APP = "주도";
 
@@ -53,9 +54,9 @@ const styles = {
     padding: "0 2px 6px",
   },
   backBtn: {
-    border: "none",
-    background: "rgba(99,102,241,0.1)",
-    color: "#4f46e5",
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
     borderRadius: 999,
     padding: "5px 10px",
     fontSize: 12,
@@ -69,7 +70,7 @@ const styles = {
     margin: 0,
     fontSize: 12,
     fontWeight: 800,
-    color: "#4338ca",
+    color: T.textSub,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -90,8 +91,7 @@ const styles = {
     objectFit: "cover",
     borderRadius: 12,
     display: "block",
-    background:
-      "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(226,232,240,0.7))",
+    background: T.thumbBg,
   },
   coverPlaceholder: {
     width: "100%",
@@ -102,9 +102,8 @@ const styles = {
     justifyContent: "center",
     fontSize: 11,
     fontWeight: 600,
-    color: "rgba(100,116,139,0.7)",
-    background:
-      "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(226,232,240,0.5))",
+    color: T.textMuted,
+    background: T.thumbBg,
   },
   h1: {
     margin: 0,
@@ -112,26 +111,26 @@ const styles = {
     fontWeight: 800,
     letterSpacing: "-0.04em",
     lineHeight: 1.3,
-    color: "#0f172a",
+    color: T.text,
   },
   meta: {
     margin: "6px 0 0",
     fontSize: 11,
     fontWeight: 600,
-    color: "rgba(51,65,85,0.78)",
+    color: T.textSub,
     lineHeight: 1.45,
   },
   metric: {
     fontSize: 11,
     fontWeight: 700,
-    color: "rgba(124,58,237,0.92)",
+    color: T.textSub,
   },
   desc: {
     margin: "6px 0 0",
     fontSize: 13,
     fontWeight: 550,
     lineHeight: 1.5,
-    color: "rgba(30,41,59,0.92)",
+    color: T.textSub,
     whiteSpace: "pre-wrap",
   },
   tags: {
@@ -144,14 +143,15 @@ const styles = {
     fontWeight: 700,
     padding: "4px 8px",
     borderRadius: 999,
-    background: "rgba(99,102,241,0.1)",
-    color: "#4338ca",
+    background: T.chipBg,
+    color: T.textSub,
+    border: T.chipBorder,
   },
   sectionLabel: {
     margin: "4px 0 0",
     fontSize: 11,
     fontWeight: 800,
-    color: "#4338ca",
+    color: T.textMuted,
   },
   footer: {
     flexShrink: 0,
@@ -159,26 +159,27 @@ const styles = {
     flexDirection: "column",
     gap: 8,
     paddingTop: 6,
-    borderTop: "1px solid rgba(99,102,241,0.12)",
+    borderTop: T.divider,
   },
   btnPrimary: {
     width: "100%",
     padding: "11px 14px",
     borderRadius: 12,
-    border: "none",
-    background: "linear-gradient(135deg, #6366f1, #7c3aed)",
+    border: T.btnPrimaryBorder,
+    background: T.btnPrimaryBg,
     color: "#fff",
     fontSize: 13,
     fontWeight: 800,
     cursor: "pointer",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.1)",
   },
   btnGhost: {
     width: "100%",
     padding: "9px 14px",
     borderRadius: 12,
-    border: "1px solid rgba(99,102,241,0.25)",
-    background: "rgba(255,255,255,0.9)",
-    color: "#4f46e5",
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.textSub,
     fontSize: 12,
     fontWeight: 700,
     cursor: "pointer",
@@ -188,7 +189,7 @@ const styles = {
     fontSize: 10,
     fontWeight: 600,
     textAlign: "center",
-    color: "rgba(100,116,139,0.85)",
+    color: T.textMuted,
     lineHeight: 1.4,
   },
   actionRow: {
@@ -204,9 +205,9 @@ const styles = {
     borderRadius: 10,
     border: active
       ? "1px solid rgba(244,63,94,0.45)"
-      : "1px solid rgba(99,102,241,0.22)",
-    background: active ? "rgba(254,226,226,0.5)" : "rgba(255,255,255,0.92)",
-    color: active ? "#e11d48" : "#4f46e5",
+      : T.btnGhostBorder,
+    background: active ? "rgba(244,63,94,0.12)" : T.btnGhostBg,
+    color: active ? "#fb7185" : T.textSub,
     fontSize: 11,
     fontWeight: 800,
     cursor: "pointer",
@@ -221,11 +222,11 @@ const styles = {
     margin: "10px 0 0",
     padding: "8px 10px",
     borderRadius: 10,
-    background: "rgba(99,102,241,0.08)",
-    border: "1px solid rgba(99,102,241,0.14)",
+    background: T.chipBg,
+    border: T.chipBorder,
     fontSize: 11,
     fontWeight: 600,
-    color: "rgba(76,29,149,0.88)",
+    color: T.textMuted,
     lineHeight: 1.45,
   },
   stateBox: {
@@ -235,7 +236,7 @@ const styles = {
     justifyContent: "center",
     fontSize: 12,
     fontWeight: 600,
-    color: "rgba(100,116,139,0.9)",
+    color: T.textMuted,
   },
 };
 

@@ -27,6 +27,7 @@ import {
   courseStampStepRowStyle,
   isCourseStampStepRowScrollable,
 } from "../../utils/courseStampStepLayout";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 function shortenName(s, max = 9) {
   const t = String(s || "").trim();
@@ -68,11 +69,10 @@ const styles = {
     flexDirection: "column",
     minHeight: 0,
     borderRadius: "20px 20px 0 0",
-    background: "rgba(255,255,255,0.97)",
-    border: "1px solid rgba(99,102,241,0.18)",
+    background: T.panelBg,
+    border: T.panelBorder,
     borderBottom: "none",
-    boxShadow:
-      "0 -4px 32px rgba(15,23,42,0.14), 0 12px 40px rgba(15,23,42,0.08)",
+    boxShadow: "0 -4px 32px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08)",
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
     overflow: "hidden",
@@ -104,9 +104,9 @@ const styles = {
   },
   backBtn: {
     flexShrink: 0,
-    border: "none",
-    background: "rgba(99,102,241,0.1)",
-    color: "#4f46e5",
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
     borderRadius: 999,
     padding: "5px 10px",
     fontSize: 12,
@@ -129,13 +129,13 @@ const styles = {
     textAlign: "left",
     cursor: "pointer",
     font: "inherit",
-    color: "#312e81",
+    color: T.text,
   },
   kicker: {
     display: "block",
     fontSize: 10,
     fontWeight: 700,
-    color: "rgba(49,46,129,0.62)",
+    color: T.textMuted,
     marginBottom: 2,
   },
   stampKicker: {
@@ -144,7 +144,7 @@ const styles = {
     fontSize: 11,
     fontWeight: 650,
     lineHeight: 1.4,
-    color: "rgba(76,29,149,0.82)",
+    color: T.textSub,
     letterSpacing: "-0.02em",
   },
   stampKickerEmbedded: {
@@ -160,7 +160,7 @@ const styles = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    color: "#1e1b4b",
+    color: T.text,
   },
   headerActions: {
     display: "flex",
@@ -170,9 +170,9 @@ const styles = {
   },
   hideSheetBtn: {
     flexShrink: 0,
-    border: "1px solid rgba(91,33,182,0.28)",
-    background: "rgba(255,255,255,0.94)",
-    color: "#5b21b6",
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.textSub,
     borderRadius: 999,
     padding: "6px 10px",
     fontSize: 11,
@@ -200,19 +200,19 @@ const styles = {
     padding: 4,
     borderRadius: 12,
     border: stamped
-      ? "2px solid #5b21b6"
+      ? T.stampRing
       : isGuide
-        ? "2px dashed rgba(124,58,237,0.55)"
+        ? T.guideRing
         : hasHanjan
           ? "2px solid rgba(217,119,6,0.55)"
-          : "2px solid rgba(15,23,42,0.08)",
+          : T.cardBorder,
     background: stamped
-      ? "rgba(91,33,182,0.08)"
+      ? T.cardActiveBg
       : isGuide
-        ? "rgba(124,58,237,0.04)"
+        ? T.cardBg
         : hasHanjan
           ? "rgba(251,191,36,0.12)"
-          : "rgba(255,255,255,0.65)",
+          : T.cardBg,
     boxSizing: "border-box",
     cursor: interactive ? "pointer" : "default",
   }),
@@ -251,8 +251,7 @@ const styles = {
     aspectRatio: "4 / 3",
     borderRadius: 10,
     overflow: "hidden",
-    background:
-      "linear-gradient(145deg, rgba(99,102,241,0.1), rgba(148,163,184,0.18))",
+    background: T.thumbBg,
   },
   thumbImg: {
     width: "100%",
@@ -268,7 +267,7 @@ const styles = {
     justifyContent: "center",
     fontSize: 18,
     fontWeight: 800,
-    color: "rgba(91,33,182,0.35)",
+    color: T.textFaint,
   },
   photoCheckFilled: {
     position: "absolute",
@@ -283,9 +282,9 @@ const styles = {
     justifyContent: "center",
     fontSize: 20,
     fontWeight: 900,
-    color: "#fff",
-    background: "linear-gradient(135deg, #7c3aed, #5b21b6)",
-    boxShadow: "0 4px 16px rgba(91,33,182,0.45)",
+    color: T.stampBadgeColor,
+    background: T.stampBadgeBg,
+    boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
     border: "2px solid rgba(255,255,255,0.9)",
   },
   photoCheckEmpty: {
@@ -317,14 +316,14 @@ const styles = {
   thumbLabel: {
     fontSize: 10,
     fontWeight: 800,
-    color: "#5b21b6",
+    color: T.textSub,
     lineHeight: 1.1,
     textAlign: "center",
   },
   thumbName: {
     fontSize: 9,
     fontWeight: 700,
-    color: "rgba(15,23,42,0.78)",
+    color: T.textMuted,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -334,7 +333,7 @@ const styles = {
   thumbDesc: {
     fontSize: 9,
     fontWeight: 550,
-    color: "rgba(15,23,42,0.55)",
+    color: T.textFaint,
     lineHeight: 1.35,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -357,13 +356,13 @@ const styles = {
     margin: 0,
     fontSize: 11,
     fontWeight: 700,
-    color: "rgba(49,46,129,0.75)",
+    color: T.textMuted,
   },
   replayBtn: {
     flexShrink: 0,
-    border: "1px solid rgba(91,33,182,0.22)",
-    background: "rgba(255,255,255,0.92)",
-    color: "#5b21b6",
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.textSub,
     borderRadius: 10,
     padding: "8px 10px",
     fontSize: 11,

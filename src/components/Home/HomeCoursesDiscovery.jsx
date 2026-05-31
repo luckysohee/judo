@@ -39,13 +39,13 @@ const dragHandleStyles = {
     width: 40,
     height: 4,
     borderRadius: 999,
-    background: "rgba(99,102,241,0.35)",
+    background: "rgba(255,255,255,0.28)",
     flexShrink: 0,
   },
 };
 
 /**
- * 홈 지도 우측 — 「지금 뜨는 코스」(아이콘 + 「코스」 라벨, 보라 톤).
+ * 홈 지도 우측 — 「지금 뜨는 코스」(아이콘 + 「코스」 라벨, 주도 다크 글래스).
  */
 export function HomeCoursesEntryChip({
   visible = false,
@@ -303,12 +303,13 @@ export default function HomeCoursesDiscoveryPanel({
           flexDirection: "column",
           padding: snap === "minimized" ? "0 8px 4px" : "0 8px 8px",
           borderRadius: 14,
-          background: "rgba(255,255,255,0.97)",
+          background: "rgba(14, 14, 14, 0.94)",
           boxShadow:
-            "0 -4px 32px rgba(15,23,42,0.14), 0 12px 40px rgba(15,23,42,0.08)",
-          border: "1px solid rgba(99,102,241,0.18)",
-          backdropFilter: "blur(24px) saturate(200%)",
-          WebkitBackdropFilter: "blur(24px) saturate(200%)",
+            "0 -4px 32px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          backdropFilter: "blur(22px) saturate(180%)",
+          WebkitBackdropFilter: "blur(22px) saturate(180%)",
+          color: "rgba(255,255,255,0.92)",
           overflow: "hidden",
           boxSizing: "border-box",
         }}
@@ -397,7 +398,7 @@ export default function HomeCoursesDiscoveryPanel({
                 margin: "0 2px 6px",
                 fontSize: 10,
                 fontWeight: 600,
-                color: "rgba(100,116,139,0.88)",
+                color: "rgba(255,255,255,0.5)",
               }}
             >
               코스 불러오는 중…

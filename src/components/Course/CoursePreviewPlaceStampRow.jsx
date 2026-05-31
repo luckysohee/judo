@@ -20,6 +20,7 @@ import {
   courseStampStepRowStyle,
   isCourseStampStepRowScrollable,
 } from "../../utils/courseStampStepLayout";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const styles = {
   rowWrap: {
@@ -36,19 +37,19 @@ const styles = {
     padding: 4,
     borderRadius: 12,
     border: stamped
-      ? "2px solid #5b21b6"
+      ? T.stampRing
       : isGuide
-        ? "2px dashed rgba(124,58,237,0.55)"
+        ? T.guideRing
         : hasHanjan
           ? "2px solid rgba(217,119,6,0.55)"
-          : "2px solid rgba(15,23,42,0.08)",
+          : T.cardBorder,
     background: stamped
-      ? "rgba(91,33,182,0.08)"
+      ? "rgba(255,255,255,0.1)"
       : isGuide
-        ? "rgba(124,58,237,0.04)"
+        ? "rgba(255,255,255,0.06)"
         : hasHanjan
           ? "rgba(251,191,36,0.12)"
-          : "rgba(255,255,255,0.65)",
+          : T.cardBg,
     boxSizing: "border-box",
     cursor: interactive ? "pointer" : "default",
   }),
@@ -88,8 +89,7 @@ const styles = {
     aspectRatio: "1",
     borderRadius: 10,
     overflow: "hidden",
-    background:
-      "linear-gradient(145deg, rgba(99,102,241,0.1), rgba(148,163,184,0.18))",
+    background: T.thumbBg,
   },
   thumbImg: {
     width: "100%",
@@ -104,7 +104,7 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     fontWeight: 800,
-    color: "rgba(91,33,182,0.35)",
+    color: T.textFaint,
   },
   photoCheckFilled: {
     position: "absolute",
@@ -116,9 +116,9 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     fontWeight: 900,
-    color: "#fff",
-    background: "linear-gradient(135deg, #7c3aed, #5b21b6)",
-    boxShadow: "0 4px 16px rgba(91,33,182,0.45)",
+    color: T.stampBadgeColor,
+    background: T.stampBadgeBg,
+    boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
     border: "2px solid rgba(255,255,255,0.9)",
   },
   photoCheckEmpty: {
@@ -146,14 +146,14 @@ const styles = {
   },
   thumbLabel: {
     fontWeight: 800,
-    color: "#5b21b6",
+    color: T.textSub,
     lineHeight: 1.1,
     textAlign: "center",
     marginTop: 3,
   },
   thumbName: {
     fontWeight: 600,
-    color: "rgba(15,23,42,0.72)",
+    color: T.textMuted,
     textAlign: "center",
     whiteSpace: "normal",
     wordBreak: "keep-all",
@@ -173,13 +173,13 @@ const styles = {
     margin: 0,
     fontSize: 11,
     fontWeight: 700,
-    color: "rgba(49,46,129,0.75)",
+    color: T.textMuted,
   },
   replayBtn: {
     flexShrink: 0,
-    border: "1px solid rgba(91,33,182,0.22)",
-    background: "rgba(255,255,255,0.92)",
-    color: "#5b21b6",
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.textSub,
     borderRadius: 10,
     padding: "8px 10px",
     fontSize: 11,
@@ -190,7 +190,7 @@ const styles = {
     margin: "6px 0 0",
     fontSize: 10,
     fontWeight: 600,
-    color: "rgba(76,29,149,0.75)",
+    color: T.textFaint,
     lineHeight: 1.4,
   },
 };
@@ -462,12 +462,12 @@ export default function CoursePreviewPlaceStampRow({
                   ...styles.thumbLabel,
                   fontSize: stepDensity.labelFontSize,
                   color: isStamped
-                    ? "#5b21b6"
+                    ? T.text
                     : isGuide
-                      ? "#7c3aed"
+                      ? T.textSub
                       : hasHanjan
-                        ? "#b45309"
-                        : "#5b21b6",
+                        ? "#fbbf24"
+                        : T.textMuted,
                 }}
               >
                 {hasHanjan && !isGuide && !isStamped

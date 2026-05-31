@@ -322,7 +322,7 @@ export const styles = {
     display: "inline-block",
   },
 
-  /** 지도 우측 — 내 위치 아래 「코스」(아이콘 위 · 라벨 아래) */
+  /** 지도 우측 — 내 위치 아래 「코스」(주도 다크 글래스 · 검색바 톤) */
   legendCoursesEntryButton: {
     pointerEvents: "auto",
     width: "32px",
@@ -330,30 +330,28 @@ export const styles = {
     padding: "5px 4px 4px",
     gap: "3px",
     borderRadius: "9px",
-    border: "1px solid rgba(196,181,253,0.72)",
-    background:
-      "linear-gradient(135deg, rgba(91,33,182,0.58) 0%, rgba(79,70,229,0.5) 100%)",
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(17, 17, 17, 0.9)",
+    backdropFilter: "blur(14px) saturate(160%)",
+    WebkitBackdropFilter: "blur(14px) saturate(160%)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.22), 0 4px 16px rgba(91,33,182,0.38)",
+      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.32)",
     cursor: "pointer",
     display: "inline-flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    color: "#faf5ff",
+    color: "rgba(255,255,255,0.94)",
     flexShrink: 0,
     transition:
       "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
   },
 
   legendCoursesEntryButtonActive: {
-    border: "1px solid rgba(233,213,255,0.9)",
-    background:
-      "linear-gradient(135deg, rgba(109,40,217,0.72) 0%, rgba(67,56,202,0.68) 100%)",
+    border: "1px solid rgba(255,255,255,0.22)",
+    background: "rgba(10, 10, 10, 0.96)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.28), 0 6px 20px rgba(91,33,182,0.48)",
+      "inset 0 1px 0 rgba(255,255,255,0.14), 0 6px 20px rgba(0,0,0,0.42)",
     transform: "scale(1.04)",
   },
 

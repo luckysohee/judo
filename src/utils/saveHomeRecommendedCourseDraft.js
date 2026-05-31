@@ -3,6 +3,7 @@ import {
   createCuratorCourse,
   saveCuratorCoursePlaces,
 } from "../api/curatorCourses";
+import { ensurePlaceUuidForPick } from "./resolvePlaceUuidForPick";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,25 +54,35 @@ function stayMinutesFromStep(step) {
  * @param {object} course — `generateCourseOptions` 항목
  * @param {object|null} courseQueryParsed — `parseCourseQuery` 결과
  * @param {string} rawSearchQuery
- * @returns {{ placeRows: { place_id: string, order_index: number, memo: string|null, stay_minutes: number|null }[], skippedSteps: number, rawStepCount: number }}
+ * @param {{ createMissingPlaces?: boolean }} [opts]
+ * @returns {Promise<{ placeRows: { place_id: string, order_index: number, memo: string|null, stay_minutes: number|null }[], skippedSteps: number, rawStepCount: number }>}
  */
-export function buildCuratorPlaceRowsFromRecommendedCourse(
+export async function buildCuratorPlaceRowsFromRecommendedCourse(
   course,
   courseQueryParsed,
-  rawSearchQuery
+  rawSearchQuery,
+  opts = {}
 ) {
+  const createMissingPlaces = opts.createMissingPlaces !== false;
   const c = course && typeof course === "object" ? course : {};
   const steps = Array.isArray(c.steps) ? c.steps : [];
   const placeRows = [];
   let skippedSteps = 0;
   let oi = 0;
+
   for (const step of steps) {
     const place = step?.place;
-    const pid = extractDbPlaceUuidFromCourseStepPlace(place);
+    if (!place) continue;
+
+    let pid = extractDbPlaceUuidFromCourseStepPlace(place);
+    if (!pid && createMissingPlaces) {
+      pid = await ensurePlaceUuidForPick(place, { createIfMissing: true });
+    }
     if (!pid) {
-      if (place) skippedSteps += 1;
+      skippedSteps += 1;
       continue;
     }
+
     const memo = stepMemoFromRecommendedStep(step, c);
     const stay = stayMinutesFromStep(step);
     placeRows.push({
@@ -82,6 +93,7 @@ export function buildCuratorPlaceRowsFromRecommendedCourse(
     });
     oi += 1;
   }
+
   return {
     placeRows,
     skippedSteps,
@@ -179,7 +191,7 @@ export async function saveHomeRecommendedCourseDraft({
   }
 
   const { placeRows, skippedSteps, rawStepCount } =
-    buildCuratorPlaceRowsFromRecommendedCourse(
+    await buildCuratorPlaceRowsFromRecommendedCourse(
       course,
       courseQueryParsed,
       rawSearchQuery
@@ -187,7 +199,7 @@ export async function saveHomeRecommendedCourseDraft({
 
   if (placeRows.length < 2) {
     const err = new Error(
-      "저장할 수 있는 주도 DB 장소가 2곳 미만입니다. 일부 장소는 아직 주도 DB 장소가 아니라 코스에 저장할 수 없어요."
+      "코스에 넣을 수 있는 장소가 2곳 미만입니다. 카카오 ID·좌표를 알 수 없는 장소는 저장할 수 없어요."
     );
     err.code = "INSUFFICIENT_DB_PLACES";
     err.skippedSteps = skippedSteps;

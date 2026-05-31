@@ -2310,7 +2310,6 @@ export default function StudioHome() {
       const placeCuratorsData = [...byPlace.values()];
 
       const totalPlaces = placeCuratorsData?.length || 0;
-      const totalLikes = 0; // likes 필드가 없으므로 0으로 설정
 
       /** 큐레이터가 이 장소를 연결한 시각. 없으면 레거시 폴백으로 places.created_at */
       const linkCreatedAt = (pc) => {
@@ -2434,10 +2433,12 @@ export default function StudioHome() {
         setOverlapSharedPlacesList([]);
       }
 
+      let extInsightsNormalized = normalizeStudioArchiveExtendedInsights(null);
       const { data: extRaw, error: extErr } = extRpc || {};
       if (!extErr && extRaw != null) {
         setArchiveInsightsError("");
-        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(extRaw));
+        extInsightsNormalized = normalizeStudioArchiveExtendedInsights(extRaw);
+        setArchiveExtInsights(extInsightsNormalized);
       } else {
         if (extErr) {
           console.warn(
@@ -2450,14 +2451,15 @@ export default function StudioHome() {
             "내 스타일 분석 응답이 비어 있습니다. Supabase에 최신 마이그레이션을 적용했는지 확인하세요."
           );
         }
-        setArchiveExtInsights(normalizeStudioArchiveExtendedInsights(null));
+        setArchiveExtInsights(extInsightsNormalized);
       }
 
       setCourseArchiveStats(courseArchiveStatsResult ?? null);
 
       const stats = {
         placeCount: totalPlaces,
-        saveCount: totalLikes, // likes 필드가 없으므로 0
+        // 잔 아카이브 RPC followers.saves_on_picks(내 추천 장소 저장 횟수)와 동일 소스
+        saveCount: extInsightsNormalized.followers.savesOnPicks,
         followerCount: followerCount, // 실제 팔로워 수
         followingCount,
         overlapSharedPlaceCount,
@@ -2927,15 +2929,13 @@ export default function StudioHome() {
     );
   }, [savedFolderDefs]);
 
-  const courseFollowerMetric = useMemo(() => {
+  const courseReactionMetrics = useMemo(() => {
     const s = normalizeCuratorArchiveStats(courseArchiveStats);
-    if (s.recent_completion_count_7d >= 1) {
-      return { value: s.recent_completion_count_7d, label: "코스 완주 (이번 주)" };
-    }
-    if (s.total_completion_count >= 1) {
-      return { value: s.total_completion_count, label: "코스 완주 (총)" };
-    }
-    return null;
+    return [
+      { value: s.recent_completion_count_7d, label: "코스 완주 (이번 주)" },
+      { value: s.total_completion_count, label: "코스 완주 (누적)" },
+      { value: s.unique_completed_users, label: "완주한 유저" },
+    ];
   }, [courseArchiveStats]);
 
   const hasDeletableSavedFolders = useMemo(
@@ -6921,18 +6921,51 @@ export default function StudioHome() {
                   marginBottom: "4px",
                 }}
               >
-                🤝 팔로워 행동
+                📚 코스 반응 중심
               </div>
               <div
                 style={{
                   color: "rgba(255,255,255,0.55)",
                   fontSize: "11px",
-                  marginBottom: "10px",
+                  marginBottom: "8px",
                   lineHeight: 1.35,
                 }}
               >
-                picked 가 내 픽에 남긴 저장 · 그 저장이 몰린 지역 · 내 픽 장소 한잔 누적(전체
-                사용자)
+                완주/코스 사용 반응을 먼저 보고, 장소 저장 반응은 보조로 확인해요.
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSection("courses")}
+                style={{
+                  marginBottom: "10px",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "rgba(255,255,255,0.08)",
+                  color: "#fff",
+                  borderRadius: "8px",
+                  padding: "6px 10px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                잔코스 상세 보기 →
+              </button>
+              <div style={styles.followerMetricRow}>
+                {courseReactionMetrics.map((m) => (
+                  <div key={m.label} style={styles.followerMetricCell}>
+                    <div style={styles.followerMetricValue}>{m.value}</div>
+                    <div style={styles.followerMetricLabel}>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.65)",
+                  fontSize: "11px",
+                  margin: "2px 0 8px",
+                }}
+              >
+                장소 저장 반응(보조)
               </div>
               <div style={styles.followerMetricRow}>
                 <div style={styles.followerMetricCell}>
@@ -6941,16 +6974,6 @@ export default function StudioHome() {
                   </div>
                   <div style={styles.followerMetricLabel}>건 저장</div>
                 </div>
-                {courseFollowerMetric ? (
-                  <div style={styles.followerMetricCell}>
-                    <div style={styles.followerMetricValue}>
-                      {courseFollowerMetric.value}
-                    </div>
-                    <div style={styles.followerMetricLabel}>
-                      {courseFollowerMetric.label}
-                    </div>
-                  </div>
-                ) : null}
                 <div style={styles.followerMetricCell}>
                   <div style={styles.followerMetricValue}>
                     {archiveExtInsights.followers.distinctSavers}
@@ -6991,319 +7014,74 @@ export default function StudioHome() {
             </div>
           </div>
           
-          {/* 📈 이번 주 성장 피드백 */}
-          <div style={{
-            backgroundColor: "#34495E",
-            padding: "20px",
-            borderRadius: "12px",
-            marginBottom: "30px",
-            border: "1px solid #2C3E50"
-          }}>
-            <div style={{ 
-              color: "white", 
-              fontSize: "14px", 
-              fontWeight: "bold",
-              marginBottom: "15px"
-            }}>
-              📈 성장 추이 (지난주 대비)
-            </div>
-            
-            {/* 그래프 영역 */}
-            <div style={{ 
-              backgroundColor: "rgba(255,255,255,0.1)", 
-              borderRadius: "8px", 
-              padding: "15px", 
-              marginBottom: "15px"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px", fontSize: "11px", color: "rgba(255,255,255,0.7)" }}>
-                <span>지난주</span>
-                <span>이번주</span>
-              </div>
-              <div style={{ display: "flex", gap: "20px" }}>
-                {/* 잔 기록 */}
-                {(() => {
-                  const nPlw = curatorStats.lastWeekStats?.newPlaces || 0;
-                  const nPtw = curatorStats.weeklyStats?.newPlaces || 0;
-                  const placesScale = Math.max(8, nPlw, nPtw);
-                  return (
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 기록</div>
-                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                    <svg style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      zIndex: 1,
-                      overflow: "hidden"
-                    }}>
-                      <line
-                        x1="20%"
-                        y1={`${growthTrendLineYPercent(nPlw, placesScale)}%`}
-                        x2="80%"
-                        y2={`${growthTrendLineYPercent(nPtw, placesScale)}%`}
-                        stroke="#E74C3C"
-                        strokeWidth="2"
-                        strokeDasharray="300"
-                        strokeDashoffset="300"
-                        style={{ animation: "lineDraw 1s ease-out 0.1s forwards" }}
-                      />
-                    </svg>
-                    <div style={{
-                      width: "12px",
-                      height: "12px",
-                      backgroundColor: "rgba(231, 76, 60, 0.5)",
-                      borderRadius: "50%",
-                      border: "2px solid #E74C3C",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nPlw / placesScale) * 52}px`,
-                      animation: "bounce 0.6s ease-out"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.8)",
-                        whiteSpace: "nowrap"
-                      }}>
-                        {nPlw}
-                      </div>
+          {/* 📈 성장 핵심 신호 */}
+          <div
+            style={{
+              backgroundColor: "#34495E",
+              padding: "20px",
+              borderRadius: "12px",
+              marginBottom: "30px",
+              border: "1px solid #2C3E50",
+            }}
+          >
+            {(() => {
+              const s = normalizeCuratorArchiveStats(courseArchiveStats);
+              const weeklyCompletions = s.recent_completion_count_7d;
+              const totalCompletions = s.total_completion_count;
+              const completionUsers = s.unique_completed_users;
+              const publishedCourses = Math.max(1, s.published_course_count);
+              const completionPerCourse = Math.round(
+                (totalCompletions / publishedCourses) * 10
+              ) / 10;
+              const placeSavesWeekly = curatorStats.weeklyStats?.newSaves || 0;
+              return (
+                <>
+                  <div
+                    style={{
+                      color: "white",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    📈 성장 핵심 신호 (코스 중심)
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                      gap: "10px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{weeklyCompletions}</div>
+                      <div style={styles.followerMetricLabel}>이번 주 코스 완주</div>
                     </div>
-                    <div style={{
-                      width: "16px",
-                      height: "16px",
-                      backgroundColor: "#E74C3C",
-                      borderRadius: "50%",
-                      border: "3px solid rgba(255,255,255,0.3)",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nPtw / placesScale) * 52}px`,
-                      boxShadow: "0 0 10px rgba(231, 76, 60, 0.5)",
-                      animation: "bounce 0.6s ease-out 0.2s both"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "#E74C3C",
-                        fontWeight: "bold",
-                        whiteSpace: "nowrap",
-                        animation: "fadeInUp 0.4s ease-out 0.5s both"
-                      }}>
-                        {nPtw > nPlw ? "▲" :
-                         nPtw < nPlw ? "▼" : "─"}
-                        {nPtw}
-                      </div>
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{completionUsers}</div>
+                      <div style={styles.followerMetricLabel}>완주한 유저(누적)</div>
+                    </div>
+                    <div style={styles.followerMetricCell}>
+                      <div style={styles.followerMetricValue}>{completionPerCourse}</div>
+                      <div style={styles.followerMetricLabel}>코스당 완주(누적)</div>
                     </div>
                   </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "rgba(255,255,255,0.8)",
+                      lineHeight: 1.4,
+                      borderTop: "1px solid rgba(255,255,255,0.2)",
+                      paddingTop: "10px",
+                    }}
+                  >
+                    누적 완주 {totalCompletions}회 · 이번 주 장소 저장 {placeSavesWeekly}건
+                    (보조)
                   </div>
-                </div>
-                  );
-                })()}
-                {/* 잔 반응 */}
-                {(() => {
-                  const nSlw = curatorStats.lastWeekStats?.newSaves || 0;
-                  const nStw = curatorStats.weeklyStats?.newSaves || 0;
-                  const savesScale = Math.max(40, nSlw, nStw);
-                  return (
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>잔 반응</div>
-                  <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                  <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                    <svg style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      zIndex: 1,
-                      overflow: "hidden"
-                    }}>
-                      <line
-                        x1="20%"
-                        y1={`${growthTrendLineYPercent(nSlw, savesScale)}%`}
-                        x2="80%"
-                        y2={`${growthTrendLineYPercent(nStw, savesScale)}%`}
-                        stroke="#F39C12"
-                        strokeWidth="2"
-                        strokeDasharray="300"
-                        strokeDashoffset="300"
-                        style={{ animation: "lineDraw 1s ease-out 0.3s forwards" }}
-                      />
-                    </svg>
-                    <div style={{
-                      width: "12px",
-                      height: "12px",
-                      backgroundColor: "rgba(243, 156, 18, 0.5)",
-                      borderRadius: "50%",
-                      border: "2px solid #F39C12",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nSlw / savesScale) * 52}px`
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.8)",
-                        whiteSpace: "nowrap"
-                      }}>
-                        {nSlw}
-                      </div>
-                    </div>
-                    <div style={{
-                      width: "16px",
-                      height: "16px",
-                      backgroundColor: "#F39C12",
-                      borderRadius: "50%",
-                      border: "3px solid rgba(255,255,255,0.3)",
-                      position: "relative",
-                      zIndex: 2,
-                      bottom: `${(nStw / savesScale) * 52}px`,
-                      boxShadow: "0 0 10px rgba(243, 156, 18, 0.5)",
-                      animation: "bounce 0.6s ease-out 0.4s both"
-                    }}>
-                      <div style={{
-                        position: "absolute",
-                        bottom: "20px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        fontSize: "10px",
-                        color: "#F39C12",
-                        fontWeight: "bold",
-                        whiteSpace: "nowrap",
-                        animation: "fadeInUp 0.4s ease-out 0.7s both"
-                      }}>
-                        {nStw > nSlw ? "▲" :
-                         nStw < nSlw ? "▼" : "─"}
-                        {nStw}
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                </div>
-                  );
-                })()}
-                {/* picked — 이번 주 신규 팔로워만 (picks 아님) */}
-                {(() => {
-                  const plw = curatorStats.lastWeekStats?.newFollowers || 0;
-                  const ptw = curatorStats.weeklyStats?.newFollowers || 0;
-                  const pickedScale = Math.max(5, plw, ptw);
-                  return (
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: "white", fontSize: "11px", marginBottom: "6px", textAlign: "center" }}>picked</div>
-                      <div style={{ overflow: "hidden", paddingTop: "24px" }}>
-                      <div style={{ position: "relative", height: "80px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", overflow: "hidden" }}>
-                        <svg style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          height: "100%",
-                          zIndex: 1,
-                          overflow: "hidden"
-                        }}>
-                          <line
-                            x1="20%"
-                            y1={`${growthTrendLineYPercent(plw, pickedScale)}%`}
-                            x2="80%"
-                            y2={`${growthTrendLineYPercent(ptw, pickedScale)}%`}
-                            stroke="#9B59B6"
-                            strokeWidth="2"
-                            strokeDasharray="300"
-                            strokeDashoffset="300"
-                            style={{ animation: "lineDraw 1s ease-out 0.5s forwards" }}
-                          />
-                        </svg>
-                        <div style={{
-                          width: "12px",
-                          height: "12px",
-                          backgroundColor: "rgba(155, 89, 182, 0.5)",
-                          borderRadius: "50%",
-                          border: "2px solid #9B59B6",
-                          position: "relative",
-                          zIndex: 2,
-                          bottom: `${(plw / pickedScale) * 52}px`
-                        }}>
-                          <div style={{
-                            position: "absolute",
-                            bottom: "20px",
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            fontSize: "10px",
-                            color: "rgba(255,255,255,0.8)",
-                            whiteSpace: "nowrap"
-                          }}>
-                            {plw}
-                          </div>
-                        </div>
-                        <div style={{
-                          width: "16px",
-                          height: "16px",
-                          backgroundColor: "#9B59B6",
-                          borderRadius: "50%",
-                          border: "3px solid rgba(255,255,255,0.3)",
-                          position: "relative",
-                          zIndex: 2,
-                          bottom: `${(ptw / pickedScale) * 52}px`,
-                          boxShadow: "0 0 10px rgba(155, 89, 182, 0.5)",
-                          animation: "bounce 0.6s ease-out 0.6s both"
-                        }}>
-                          <div style={{
-                            position: "absolute",
-                            bottom: "20px",
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            fontSize: "10px",
-                            color: "#9B59B6",
-                            fontWeight: "bold",
-                            whiteSpace: "nowrap",
-                            animation: "fadeInUp 0.4s ease-out 0.9s both"
-                          }}>
-                            {ptw > plw ? "▲" : ptw < plw ? "▼" : "─"}
-                            {ptw}
-                          </div>
-                        </div>
-                      </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-              
-              {/* CSS 애니메이션 스타일 - 완전히 제거 */}
-            </div>
-            
-            <div style={{ 
-              fontSize: "12px", 
-              color: "white", 
-              fontWeight: "bold",
-              paddingTop: "10px",
-              borderTop: "1px solid rgba(255,255,255,0.2)"
-            }}>
-              🔥 이번 주 최고 반응 잔
-              <div style={{ fontSize: "11px", fontWeight: "normal", marginTop: "3px", lineHeight: 1.35 }}>
-                {curatorStats.weekTopReactingPlace ? (
-                  <>
-                    → {curatorStats.weekTopReactingPlace} (저장{" "}
-                    {curatorStats.weekTopReactingSaves})
-                  </>
-                ) : (curatorStats.weeklyStats?.newSaves || 0) > 0 ? (
-                  <>→ 이번 주 저장 합계 {curatorStats.weeklyStats.newSaves}건</>
-                ) : (
-                  <>→ 이번 주 추천 잔에 새 저장이 없어요</>
-                )}
-              </div>
-            </div>
+                </>
+              );
+            })()}
           </div>
           </div>
       )}

@@ -244,6 +244,7 @@ import {
   applyLegendCategoryFilter,
   attachCuratorsToCuratorPlaceRows,
   buildMergedSavedPlaceKeySet,
+  buildHomeSearchSavedBadgeIndex,
   buildPlaceCuratorFilterKeySet,
   canonicalCuratorChipToken,
   collectCuratorIdsForRescueMatch,
@@ -327,6 +328,7 @@ export default function Home() {
     savedMap,
     customPlaces,
     userSavedPlaces,
+    userSavedPlaceKakaoByUuid,
     refreshStorage,
     refreshCustomPlaces,
     loadUserSavedPlaces,
@@ -1711,7 +1713,7 @@ export default function Home() {
       let msg =
         "내 코스로 저장했어요. 제목과 설명을 수정해보세요.";
       if (r.skippedSteps > 0) {
-        msg += ` 일부 장소 ${r.skippedSteps}곳은 주도 DB에 없어 제외했어요.`;
+        msg += ` 일부 장소 ${r.skippedSteps}곳은 좌표·식별 정보가 없어 제외했어요.`;
       }
       window.alert(msg);
       navigate(
@@ -4639,6 +4641,42 @@ export default function Home() {
   const [externalPlaces, setExternalPlaces] = useState([]);
   const [externalPlacesPool, setExternalPlacesPool] = useState([]);
 
+  const homeSearchPlaceCatalog = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const add = (p) => {
+      if (!p || typeof p !== "object") return;
+      const id = String(p.id ?? p.place_id ?? "").trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(p);
+    };
+    for (const p of allPlaces) add(p);
+    for (const p of kakaoPlaces) add(p);
+    for (const p of externalPlaces) add(p);
+    for (const p of externalPlacesPool) add(p);
+    return out;
+  }, [allPlaces, kakaoPlaces, externalPlaces, externalPlacesPool]);
+
+  /** 검색 모드 카카오 제안 — 저장(픽) 배지 (카카오 id ↔ DB uuid 연결) */
+  const homeSearchSavedBadgeIndex = useMemo(
+    () =>
+      buildHomeSearchSavedBadgeIndex(
+        savedMap,
+        userSavedPlaces,
+        folders,
+        homeSearchPlaceCatalog,
+        userSavedPlaceKakaoByUuid
+      ),
+    [
+      savedMap,
+      userSavedPlaces,
+      folders,
+      homeSearchPlaceCatalog,
+      userSavedPlaceKakaoByUuid,
+    ]
+  );
+
   const displayedPlaces = useMemo(() => {
     if (!query.trim()) {
       /** 술 칩(`omitSearchBarText`)은 query가 비지만 `externalPlacesPool`에 검색 풀이 있음 — DB 뷰포트 목록으로 덮어쓰면 안 됨 */
@@ -4792,6 +4830,7 @@ export default function Home() {
   /** 낮 모드 상단 바(z≈24980)가 맞춤·코스 추천 시트(≈320) 위를 가리지 않게 */
   const showJudoDayNoticeBar = useMemo(() => {
     if (!judoMode.isDayMode) return false;
+    if (homeSearchMode.isOpen) return false;
     if (isAiSearching) return false;
     if (Boolean(selectedPlace)) return false;
     const q = String(query || "").trim();
@@ -4801,6 +4840,7 @@ export default function Home() {
     return true;
   }, [
     judoMode.isDayMode,
+    homeSearchMode.isOpen,
     isAiSearching,
     selectedPlace,
     query,
@@ -8865,6 +8905,10 @@ const handleClearSearch = () => {
             <KakaoPlaceSuggestPanel
               results={overlayKakaoSuggest.results}
               isLoading={overlayKakaoSuggest.isLoading}
+              savedBadgeIndex={homeSearchSavedBadgeIndex.index}
+              savedKeySet={homeSearchSavedBadgeIndex.keySet}
+              folders={folders}
+              userSavedPlaces={userSavedPlaces}
               onPickPlace={(place) => {
                 homeSearchMode.close();
                 handleKakaoPlaceSelect(place);

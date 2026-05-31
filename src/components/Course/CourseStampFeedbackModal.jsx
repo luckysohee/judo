@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const overlay = {
   position: "fixed",
@@ -8,9 +9,9 @@ const overlay = {
   alignItems: "center",
   justifyContent: "center",
   padding: "24px 16px",
-  background: "rgba(15,23,42,0.42)",
-  backdropFilter: "blur(8px)",
-  WebkitBackdropFilter: "blur(8px)",
+  background: "rgba(0,0,0,0.55)",
+  backdropFilter: "blur(10px)",
+  WebkitBackdropFilter: "blur(10px)",
   boxSizing: "border-box",
 };
 
@@ -21,13 +22,11 @@ const card = (stamped) => ({
   padding: "22px 18px 16px",
   textAlign: "center",
   boxSizing: "border-box",
-  background: stamped
-    ? "linear-gradient(165deg, #f5f3ff 0%, #ede9fe 55%, #fff 100%)"
-    : "linear-gradient(165deg, #fff7ed 0%, #fff1f2 55%, #fff 100%)",
-  border: stamped
-    ? "1px solid rgba(91,33,182,0.28)"
-    : "1px solid rgba(251,146,60,0.35)",
-  boxShadow: "0 20px 48px rgba(15,23,42,0.18)",
+  background: T.panelBg,
+  border: stamped ? T.cardActiveBorder : "1px solid rgba(251,191,36,0.35)",
+  boxShadow: "0 20px 48px rgba(0,0,0,0.45)",
+  backdropFilter: "blur(22px) saturate(180%)",
+  WebkitBackdropFilter: "blur(22px) saturate(180%)",
 });
 
 /**
@@ -86,7 +85,7 @@ export default function CourseStampFeedbackModal({
             fontSize: 17,
             fontWeight: 800,
             letterSpacing: "-0.03em",
-            color: stamped ? "#5b21b6" : "#9a3412",
+            color: stamped ? T.text : "#fbbf24",
           }}
         >
           {headline}
@@ -113,10 +112,9 @@ export default function CourseStampFeedbackModal({
             fontSize: 14,
             fontWeight: 800,
             cursor: "pointer",
-            color: "#fff",
-            background: stamped
-              ? "linear-gradient(135deg, #7c3aed, #5b21b6)"
-              : "linear-gradient(135deg, #f97316, #ea580c)",
+            color: T.text,
+            background: stamped ? T.btnPrimaryBg : "rgba(251,191,36,0.18)",
+            border: stamped ? T.btnPrimaryBorder : "1px solid rgba(251,191,36,0.35)",
           }}
         >
           확인

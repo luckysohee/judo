@@ -14,6 +14,8 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
   const [savedMap, setSavedMap] = useState(() => getSavedPlacesMap());
   const [customPlaces, setCustomPlaces] = useState(() => getCustomPlaces());
   const [userSavedPlaces, setUserSavedPlaces] = useState({});
+  /** user_saved_places.place_id(UUID) → 카카오 숫자 id */
+  const [userSavedPlaceKakaoByUuid, setUserSavedPlaceKakaoByUuid] = useState({});
 
   const refreshStorage = useCallback(() => {
     setFolders(getFolders());
@@ -28,6 +30,7 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
     const uid = user?.id;
     if (!uid) {
       setUserSavedPlaces({});
+      setUserSavedPlaceKakaoByUuid({});
       return;
     }
 
@@ -36,6 +39,10 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
       .select(
         `
         place_id,
+        places (
+          id,
+          kakao_place_id
+        ),
         user_saved_place_folders (
           folder_key,
           system_folders ( name, color, icon )
@@ -47,13 +54,20 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
     if (error) {
       console.warn("user_saved_places:", error.message);
       setUserSavedPlaces({});
+      setUserSavedPlaceKakaoByUuid({});
       return;
     }
 
     const next = {};
+    const kakaoByUuid = {};
     for (const row of data || []) {
       const pid = row.place_id != null ? String(row.place_id).trim() : "";
       if (!pid) continue;
+
+      const kid = String(row.places?.kakao_place_id ?? "").trim();
+      if (kid && /^\d+$/.test(kid)) {
+        kakaoByUuid[pid] = kid;
+      }
 
       const links = row.user_saved_place_folders;
       if (!Array.isArray(links) || links.length === 0) continue;
@@ -86,6 +100,7 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
     }
 
     setUserSavedPlaces(next);
+    setUserSavedPlaceKakaoByUuid(kakaoByUuid);
   }, [user?.id]);
 
   useEffect(() => {
@@ -111,6 +126,7 @@ export function useUserSavedPlacesAndFolders({ user, authLoading }) {
     savedMap,
     customPlaces,
     userSavedPlaces,
+    userSavedPlaceKakaoByUuid,
     refreshStorage,
     refreshCustomPlaces,
     loadUserSavedPlaces,

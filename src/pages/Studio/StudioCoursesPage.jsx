@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { removeImportedCuratorCourse } from "../../api/courseImports";
-import { fetchMyCuratorCourses, updateCuratorCourse } from "../../api/curatorCourses";
+import {
+  deleteCuratorCourse,
+  fetchMyCuratorCourses,
+  updateCuratorCourse,
+} from "../../api/curatorCourses";
 import {
   canEditCuratorCourse,
   splitMyCuratorCourses,
@@ -183,7 +187,9 @@ function CourseCardBody({
   statsByCourseId,
   featured,
   toggleBusy,
+  deleteBusy,
   onTogglePublicListed,
+  onDelete,
   userId,
 }) {
   const navigate = useNavigate();
@@ -347,6 +353,23 @@ function CourseCardBody({
             수정
           </button>
         ) : null}
+        {canEdit ? (
+          <button
+            type="button"
+            style={{
+              ...studioCoursesBtnDanger,
+              padding: "5px 10px",
+              fontSize: "11px",
+              borderRadius: "6px",
+              opacity: deleteBusy ? 0.5 : 1,
+            }}
+            disabled={deleteBusy}
+            title="코스를 삭제합니다."
+            onClick={() => onDelete?.(c)}
+          >
+            {deleteBusy ? "삭제 중…" : "삭제"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -370,6 +393,7 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
   const [err, setErr] = useState("");
   const [togglingCourseId, setTogglingCourseId] = useState(null);
   const [removingImportId, setRemovingImportId] = useState(null);
+  const [deletingOwnCourseId, setDeletingOwnCourseId] = useState(null);
 
   const load = useCallback(async () => {
     if (!user?.id) {
@@ -469,6 +493,33 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
       window.alert(e?.message || "삭제하지 못했습니다.");
     } finally {
       setRemovingImportId(null);
+    }
+  }, []);
+
+  const handleDeleteOwnCourse = useCallback(async (course) => {
+    const id = String(course?.id ?? "").trim();
+    if (!id) return;
+    const title = String(course?.title || "").trim() || "제목 없음";
+    if (
+      !window.confirm(
+        `「${title}」 코스를 삭제할까요?\n삭제 후 복구할 수 없습니다.`
+      )
+    ) {
+      return;
+    }
+    setDeletingOwnCourseId(id);
+    try {
+      await deleteCuratorCourse(id);
+      setRows((prev) => prev.filter((r) => String(r.id) !== id));
+      setStatsByCourseId((prev) => {
+        const next = new Map(prev);
+        next.delete(String(id).toLowerCase());
+        return next;
+      });
+    } catch (e) {
+      window.alert(e?.message || "코스를 삭제하지 못했습니다.");
+    } finally {
+      setDeletingOwnCourseId(null);
     }
   }, []);
 
@@ -601,7 +652,9 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
                   featured
                   userId={user?.id}
                   toggleBusy={togglingCourseId === String(featuredCourse.id)}
+                  deleteBusy={deletingOwnCourseId === String(featuredCourse.id)}
                   onTogglePublicListed={handleToggleCoursePublicListed}
+                  onDelete={handleDeleteOwnCourse}
                 />
               ) : null}
               {listCourses.map((c) => (
@@ -612,7 +665,9 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
                   featured={false}
                   userId={user?.id}
                   toggleBusy={togglingCourseId === String(c.id)}
+                  deleteBusy={deletingOwnCourseId === String(c.id)}
                   onTogglePublicListed={handleToggleCoursePublicListed}
+                  onDelete={handleDeleteOwnCourse}
                 />
               ))}
             </>
