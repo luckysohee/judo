@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import {
   buildCourseMapPreviewModel,
   COURSE_MAP_PREVIEW_DEFAULT_CENTER,
@@ -108,7 +108,7 @@ export default function CourseMapPreview({
   useEffect(() => {
     let cancelled = false;
     setMapError("");
-    const appKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
+    const appKey = getKakaoJavascriptAppKey();
     if (!appKey) {
       setMapError("VITE_KAKAO_JAVASCRIPT_KEY 가 없어 지도를 불러올 수 없습니다.");
       return undefined;
