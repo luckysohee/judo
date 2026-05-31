@@ -1,4 +1,4 @@
-import { pathFromKakaoWalkingRoute } from "../src/utils/kakaoWalkingRoutePath.js";
+import { pathFromKakaoWalkingRoute } from "./utils/kakaoWalkingRoutePath.js";
 
 export const KAKAO_WALKING_DIRECTIONS_URL =
   "https://apis-navi.kakaomobility.com/affiliate/walking/v1/directions";
