@@ -30,8 +30,11 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
   }
   if (!res.ok || !data?.ok) {
     const msg =
-      (data && data.message) || res.statusText || "places-in-bounds failed";
-    throw new Error(msg);
+      (data && data.message) ||
+      res.statusText ||
+      "places-in-bounds failed";
+    const detail = res.status ? ` (HTTP ${res.status})` : "";
+    throw new Error(`${msg}${detail}`);
   }
   return {
     places: Array.isArray(data.places) ? data.places : [],
