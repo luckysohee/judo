@@ -11,6 +11,7 @@ import {
 } from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { getPrimarySavedFolderColor } from "../../utils/storage";
+import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
 import {
   addLegacyPlaceCuratorAliasesToKeySet,
   addLegacyPlaceCuratorIdsForUsername,
@@ -421,7 +422,7 @@ const COURSE_SECOND_FIND_DISTANCE_OPTIONS = [
   { m: 5000, label: "5km 안" },
 ];
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
-const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(/\/$/, "");
+const AI_API_BASE = getAiApiBaseUrl();
 
 /** 내 위치 GPS 코스: 기본 3km, 시트에서 5·8km로 확장 */
 const COURSE_GPS_RADIUS_OPTIONS = [
