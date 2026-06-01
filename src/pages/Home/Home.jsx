@@ -176,6 +176,7 @@ import {
   homeRailCourseSheetHeightPx,
 } from "../../utils/homeRailCourseUi";
 import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStripLayout";
+import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
 import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
@@ -1862,9 +1863,7 @@ export default function Home() {
     setHomeCoursesSheetSnap("expanded");
     setHomeCoursesSheetResetKey((n) => n + 1);
   }, []);
-  const [homeViewportH, setHomeViewportH] = useState(() =>
-    typeof window !== "undefined" ? window.innerHeight : 800
-  );
+  const homeViewportH = useLayoutViewportHeight();
   const kakaoPlacesBeforeHomeRailRef = useRef(null);
   const kakaoPlacesRef = useRef([]);
 
@@ -2537,13 +2536,6 @@ export default function Home() {
   ]);
 
   const homeCoursesStampSheetActive = homeCoursesBrowseFollowActive;
-
-  useEffect(() => {
-    if (!homeRailCourseDrive) return undefined;
-    const onResize = () => setHomeViewportH(window.innerHeight);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [homeRailCourseDrive]);
 
   useEffect(() => {
     if (!homeRailCourseDrive || isCourseMode) return undefined;

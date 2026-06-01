@@ -11,8 +11,8 @@ const floatingShadow = "0 10px 30px rgba(0, 0, 0, 0.16)";
 export const styles = {
   page: {
     width: "100%",
-    height: "100dvh",
-    minHeight: "100vh",
+    height: "100%",
+    maxHeight: "100%",
     overflow: "hidden",
     backgroundColor: "#000",
   },
@@ -179,7 +179,7 @@ export const styles = {
     transform: "translateY(-50%)",
     zIndex: 24980,
     boxSizing: "border-box",
-    maxWidth: "calc(100vw - 72px)",
+    maxWidth: "calc(100% - 72px)",
     width: "max-content",
     margin: 0,
     padding: "6px 14px",
@@ -260,8 +260,8 @@ export const styles = {
 
   legendOverlay: {
     position: "absolute",
-    top: "64px",
-    right: "16px",
+    top: "calc(64px + env(safe-area-inset-top, 0px))",
+    right: "max(16px, env(safe-area-inset-right, 0px))",
     left: "auto",
     width: "fit-content",
     maxWidth: "min(200px, 42vw)",
@@ -412,7 +412,7 @@ export const styles = {
     position: "absolute",
     left: "50%",
     transform: "translateX(-50%)",
-    bottom: "18px",
+    bottom: "calc(18px + env(safe-area-inset-bottom, 0px))",
     /* 헤더(16px 인셋)와 동일한 좌우 여백 — 90%는 뷰포트마다 측면이 어긋남 */
     width: "min(720px, calc(100% - 32px))",
     boxSizing: "border-box",
@@ -1378,9 +1378,9 @@ export const styles = {
   },
 
   courseOptionCardSwipe: {
-    flex: "0 0 min(calc(100vw - 56px), 288px)",
-    width: "min(calc(100vw - 56px), 288px)",
-    maxWidth: "min(calc(100vw - 56px), 288px)",
+    flex: "0 0 min(calc(100% - 56px), 288px)",
+    width: "min(calc(100% - 56px), 288px)",
+    maxWidth: "min(calc(100% - 56px), 288px)",
     scrollSnapAlign: "center",
     boxSizing: "border-box",
     maxHeight: "min(28vh, 228px)",

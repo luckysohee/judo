@@ -32,7 +32,7 @@ export const HOME_HOT_STRIP_TAB_GAP_PX = 4;
 
 /** 플로팅 스트립 상단 — 탭 Y 고정(코스 탭 아래 확장 시에도 동일) */
 export function homeHotStripWrapTopCss() {
-  return `calc(100dvh - ${HOME_HOT_STRIP_NAV_CLEARANCE_PX + homeHotStripBarHeightPx()}px - env(safe-area-inset-bottom, 0px))`;
+  return `calc(100% - ${HOME_HOT_STRIP_NAV_CLEARANCE_PX + homeHotStripBarHeightPx()}px - env(safe-area-inset-bottom, 0px))`;
 }
 
 /** 코스 탭 시트 하단 — 빈 검색바 구간까지 채움 */
@@ -69,6 +69,12 @@ export const HOME_COURSES_DISCOVERY_SHEET_KEYBOARD_CHROME_PX = 120;
  * @param {{ visibleH?: number, keyboardOpen?: boolean }} [opts]
  * @returns {number}
  */
+function readLayoutViewportHeight() {
+  if (typeof window === "undefined") return 800;
+  const vv = window.visualViewport;
+  return Math.max(320, Math.round(vv?.height ?? window.innerHeight));
+}
+
 export function homeCoursesDiscoverySheetExpandedPx(
   viewportH,
   { visibleH, keyboardOpen = false } = {}
@@ -76,9 +82,7 @@ export function homeCoursesDiscoverySheetExpandedPx(
   const h =
     Number.isFinite(viewportH) && viewportH > 0
       ? viewportH
-      : typeof window !== "undefined"
-        ? window.innerHeight
-        : 800;
+      : readLayoutViewportHeight();
   const normal = Math.round(
     Math.min(
       (h * HOME_COURSES_DISCOVERY_SHEET_EXPANDED_VH) / 100,
@@ -87,7 +91,7 @@ export function homeCoursesDiscoverySheetExpandedPx(
   );
 
   const visible =
-    Number.isFinite(visibleH) && visibleH > 0 ? visibleH : h;
+    Number.isFinite(visibleH) && visibleH > 0 ? visibleH : readLayoutViewportHeight();
   if (!keyboardOpen || visible >= h - 8) {
     return normal;
   }
@@ -117,9 +121,7 @@ export function homeCoursesDiscoverySheetMaxHeightCss(
   const visible =
     Number.isFinite(visibleH) && visibleH > 0
       ? visibleH
-      : typeof window !== "undefined"
-        ? window.innerHeight
-        : 800;
+      : readLayoutViewportHeight();
   const maxPx = Math.max(
     HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX + 16,
     Math.round(visible - HOME_HOT_STRIP_COURSES_DOCK_BOTTOM_PX - 8)

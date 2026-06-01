@@ -15,15 +15,19 @@ export const HOME_RAIL_COURSE_SHEET_VH = HOME_RAIL_COURSE_SHEET_COLLAPSED_VH;
 /** 슬림 도크(접힘) 높이 — 지도 fit padding */
 export const HOME_RAIL_COURSE_DOCK_PX = 118;
 
+function readLayoutViewportHeight() {
+  if (typeof window === "undefined") return 800;
+  const vv = window.visualViewport;
+  return Math.max(320, Math.round(vv?.height ?? window.innerHeight));
+}
+
 export function homeRailCourseSheetHeightPx(viewportHeight, expanded = false, docked = false) {
   if (docked) return HOME_RAIL_COURSE_DOCK_PX;
   if (expanded) {
     const h =
       typeof viewportHeight === "number" && viewportHeight > 0
         ? viewportHeight
-        : typeof window !== "undefined"
-          ? window.innerHeight
-          : 800;
+        : readLayoutViewportHeight();
     return Math.round((h * HOME_RAIL_COURSE_SHEET_EXPANDED_VH) / 100);
   }
   return homeHotStripCoursesSheetHeightPx();
