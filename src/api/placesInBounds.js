@@ -1,3 +1,5 @@
+import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
+
 /**
  * 홈 지도 뷰포트 — 서버 `GET /api/places-in-bounds` (Supabase service role + `get_places_in_bounds` RPC).
  * 프론트에서 `places` / `curator_places` 직접 select 하지 않음.
@@ -19,7 +21,7 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
     limit: String(lim),
   });
   const path = `/api/places-in-bounds?${qs.toString()}`;
-  const base = String(apiBaseUrl || "").replace(/\/$/, "");
+  const base = normalizeApiBaseUrl(apiBaseUrl);
   const url = base ? `${base}${path}` : path;
   const res = await fetch(url);
   let data = null;
@@ -30,8 +32,11 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
   }
   if (!res.ok || !data?.ok) {
     const msg =
-      (data && data.message) || res.statusText || "places-in-bounds failed";
-    throw new Error(msg);
+      (data && data.message) ||
+      res.statusText ||
+      "places-in-bounds failed";
+    const detail = res.status ? ` (HTTP ${res.status})` : "";
+    throw new Error(`${msg}${detail}`);
   }
   return {
     places: Array.isArray(data.places) ? data.places : [],
