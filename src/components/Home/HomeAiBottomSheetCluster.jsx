@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRecommendSheetPullDismiss } from "../../hooks/useRecommendSheetPullDismiss";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
@@ -62,6 +63,30 @@ export default function HomeAiBottomSheetCluster({
   aiSheetPhotoViewerOpen,
   closeAiSheetPhotoViewer,
 }) {
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  const handlePullRelease = useCallback(
+    ({ dy, dragged }) => {
+      if (!dragged) return false;
+      if (sheetCollapsed) {
+        if (dy <= -26) {
+          setSheetCollapsed(false);
+          return true;
+        }
+        if (dy >= 84) {
+          onDismissRecommendSheet?.();
+          return true;
+        }
+        return false;
+      }
+      if (dy >= 44) {
+        setSheetCollapsed(true);
+        return true;
+      }
+      return false;
+    },
+    [sheetCollapsed, onDismissRecommendSheet]
+  );
+
   const {
     sheetChromeRef,
     clusterStyle,
@@ -71,7 +96,18 @@ export default function HomeAiBottomSheetCluster({
     enabled: true,
     onDismiss: onDismissRecommendSheet,
     isAiSearching,
+    onPullRelease: handlePullRelease,
   });
+
+  useEffect(() => {
+    if (isAiSearching) {
+      setSheetCollapsed(false);
+      return;
+    }
+    if (aiBottomSheetPlaces.length <= 0) {
+      setSheetCollapsed(false);
+    }
+  }, [isAiSearching, aiBottomSheetPlaces.length]);
 
   return (
             <>
@@ -84,7 +120,9 @@ export default function HomeAiBottomSheetCluster({
                 <div
                   style={{
                     ...styles.aiRecommendMergedShell,
-                    ...styles.aiRecommendMergedShellExpanded,
+                    ...(sheetCollapsed
+                      ? styles.aiRecommendMergedShellCollapsed
+                      : styles.aiRecommendMergedShellExpanded),
                     opacity: isAiSearching ? 0.92 : 1,
                   }}
                 >
@@ -106,9 +144,17 @@ export default function HomeAiBottomSheetCluster({
                       <button
                         type="button"
                         style={styles.aiRecommendSheetHeader}
-                        aria-label="맞춤 추천. 아래로 당기면 닫아요"
+                        aria-label={
+                          sheetCollapsed
+                            ? "맞춤 추천 접힘. 탭하면 펼쳐요"
+                            : "맞춤 추천. 아래로 당기면 접어요"
+                        }
                         onClick={() => {
                           if (consumeHeaderClick()) return;
+                          if (sheetCollapsed) {
+                            setSheetCollapsed(false);
+                            return;
+                          }
                           if (displayedPlaces.length > 0) {
                             const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
                               ...place,
@@ -160,7 +206,10 @@ export default function HomeAiBottomSheetCluster({
                                   ? `${searchLoadingLabel || "검색어·거리 기준으로 후보를 골라요"}${loadingDots}`
                                   : aiError
                                   ? "잠시 후 다시 시도해 주세요"
-                                  : aiSummary || "아래로 당기면 닫을 수 있어요"}
+                                  : aiSummary ||
+                                    (sheetCollapsed
+                                      ? "탭하거나 위로 살짝 밀면 펼쳐요"
+                                      : "아래로 살짝 밀면 접을 수 있어요")}
                               </div>
                               {!isAiSearching && !aiError ? (
                                 <div style={styles.aiPeekTrustLine}>
@@ -190,6 +239,7 @@ export default function HomeAiBottomSheetCluster({
                     </div>
                   </div>
 
+              {!sheetCollapsed ? (
               <div style={styles.aiRecommendSheetBody}>
                   {yajangFallbackBanner ? (
                     <div
@@ -635,6 +685,7 @@ export default function HomeAiBottomSheetCluster({
                     <HomeBlogReviewSection blogReviews={blogReviews} />
                   </div>
                 </div>
+              ) : null}
                 </div>
 
               {aiSheetPhotoViewerOpen && aiSheetPhotoViewerItems.length > 0

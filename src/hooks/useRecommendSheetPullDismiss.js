@@ -135,12 +135,14 @@ function rubberBandDy(dy) {
  *   enabled?: boolean,
  *   onDismiss?: () => void,
  *   isAiSearching?: boolean,
+ *   onPullRelease?: (ctx: { dy: number, dragged: boolean }) => boolean | void,
  * }} opts
  */
 export function useRecommendSheetPullDismiss({
   enabled = true,
   onDismiss,
   isAiSearching = false,
+  onPullRelease,
 }) {
   const [pullDy, setPullDy] = useState(0);
   const [pullDragging, setPullDragging] = useState(false);
@@ -159,6 +161,10 @@ export function useRecommendSheetPullDismiss({
       if (dragged) {
         suppressHeaderClickRef.current = true;
       }
+      if (typeof onPullRelease === "function") {
+        const handled = onPullRelease({ dy, dragged });
+        if (handled) return;
+      }
       if (
         dragged &&
         dy >= PULL_DISMISS_PX &&
@@ -167,7 +173,7 @@ export function useRecommendSheetPullDismiss({
         onDismiss();
       }
     },
-    [onDismiss]
+    [onDismiss, onPullRelease]
   );
 
   useLayoutEffect(() => {
