@@ -1,9 +1,6 @@
-const API_BASE_URL = (
-  import.meta.env.VITE_AI_API_BASE_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  ""
-).replace(/\/$/, "");
+import { getAiApiBaseUrl } from "./apiBaseUrl.js";
+
+const API_BASE_URL = getAiApiBaseUrl();
 
 /**
  * @param {{ name?: string, address?: string, lat?: number|null, lng?: number|null }} step

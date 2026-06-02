@@ -1,11 +1,11 @@
-// 서버 프록시를 통한 카카오 API 호출
-// 비우면 동일 출처 `/api/*` (Vite dev에서 proxy → server:4000)
-const API_BASE_URL = (
-  import.meta.env.VITE_AI_API_BASE_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  ""
-).replace(/\/$/, "");
+import { getAiApiBaseUrl } from "./apiBaseUrl.js";
+import {
+  readKakaoPlaceDetailCache,
+  writeKakaoPlaceDetailCache,
+} from "./kakaoPlaceDetailCache.js";
+
+// 서버 프록시를 통한 카카오 API 호출 (비우면 동일 출처 `/api/*`)
+const API_BASE_URL = getAiApiBaseUrl();
 
 /**
  * @param {string} placeId 카카오 장소 숫자 id
@@ -13,6 +13,11 @@ const API_BASE_URL = (
  * @returns {Promise<{ ok: boolean, status: number, document: object | null }>}
  */
 async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
+  const cached = readKakaoPlaceDetailCache(placeId, opts);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const base = API_BASE_URL;
   const url = base ? `${base}/api/kakao/place-details` : "/api/kakao/place-details";
   const body = { placeId };
@@ -35,19 +40,18 @@ async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (import.meta.env.DEV) {
-      console.warn("kakao place-details", {
-        proxyHttp: response.status,
-        kakaoHttp: data?.status,
-        error: data?.error,
-        hint: data?.hint,
-        kakao: data?.kakao,
-      });
-    }
+    console.warn("[kakao place-details]", {
+      proxyHttp: response.status,
+      kakaoHttp: data?.status,
+      error: data?.error,
+      hint: data?.hint,
+    });
     return { ok: false, status: response.status, document: null };
   }
   const document = data.documents?.[0] || null;
-  return { ok: true, status: response.status, document };
+  const hit = { ok: true, status: response.status, document };
+  writeKakaoPlaceDetailCache(placeId, opts, hit);
+  return hit;
 }
 
 /**

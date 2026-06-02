@@ -18,6 +18,7 @@ import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
+import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
 import {
   curatorPhotoPublicUrl,
   deleteCuratorPlacePhoto,
@@ -675,20 +676,15 @@ export default function PlacePreviewCard({
   useEffect(() => {
     const q = kakaoKeywordQuery.trim();
     if (!q) return;
+    if (kakaoPlaceId && isLoadingKakao) return;
+    if (kakaoPreviewPhotoUrls.length > 0) return;
 
     setGooglePhotoUrls([]);
     setGooglePhotoAttributions([]);
     const ac = new AbortController();
     setGooglePhotosLoading(true);
 
-    const base = (
-      import.meta.env.VITE_AI_API_BASE_URL ||
-      import.meta.env.VITE_API_BASE_URL ||
-      import.meta.env.VITE_API_URL ||
-      ""
-    )
-      .toString()
-      .replace(/\/$/, "");
+    const base = getAiApiBaseUrl();
 
     const params = new URLSearchParams({ name: q });
     if (resolvedPlaceAddressLine) {
@@ -761,8 +757,8 @@ export default function PlacePreviewCard({
     return () => {
       ac.abort();
     };
-    // 키에 이름·주소·좌표·장소 id가 모두 들어 있음 (curator 길이 제외)
-  }, [googlePlacePhotosFetchKey]);
+    // 키에 이름·주소·좌표·장소 id + 카카오 사진 조회 완료 후에만 구글 폴백
+  }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length]);
 
   const showKakaoPhotoLoading =
     allPreviewUrls.length === 0 &&
@@ -1431,6 +1427,7 @@ export default function PlacePreviewCard({
                     alt=""
                     style={styles.imageFill}
                     loading="eager"
+                    referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.onerror = null;
                       setHeroPreviewIndex((i) =>
@@ -1482,6 +1479,7 @@ export default function PlacePreviewCard({
                         alt=""
                         style={styles.kakaoPreviewThumbImg}
                         loading="lazy"
+                        referrerPolicy="no-referrer"
                       />
                     </button>
                     {canUserDeleteCuratorPhotoUrl(src) ? (

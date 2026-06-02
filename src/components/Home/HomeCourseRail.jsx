@@ -963,7 +963,7 @@ export default function HomeCourseRail({
               aria-label="공개 코스 미리보기, 좌우로 스와이프"
               onScroll={onScrollerScroll}
             >
-            {rows.map((c) => {
+            {rows.map((c, cardIndex) => {
               const id = String(c.id || "").trim();
               const title = String(c.title || "").trim() || "제목 없음";
               const cover = String(c.cover_image_url || "").trim();
@@ -1078,7 +1078,7 @@ export default function HomeCourseRail({
                         steps={previewSteps}
                         limit={3}
                         compact
-                        thumbMaxWidth={52}
+                        enabled={cardIndex === activeIndex}
                         style={styles.thumbStrip}
                       />
                     ) : null}

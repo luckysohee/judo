@@ -255,6 +255,62 @@ export async function fetchCuratorCourseById(courseId) {
   return { ...data, curator_course_places: steps };
 }
 
+/** 홈 코스 탭·지도 미리보기 — `places (*)` 없이 필요한 컬럼만 */
+export async function fetchCuratorCourseForHomePreview(courseId) {
+  const id = assertUuid(courseId, "fetchCuratorCourseForHomePreview.courseId");
+  const { data, error } = await supabase
+    .from("curator_courses")
+    .select(
+      `
+      id,
+      title,
+      description,
+      cover_image_url,
+      area,
+      theme_tags,
+      curator_id,
+      created_at,
+      status,
+      curator_course_places (
+        id,
+        course_id,
+        place_id,
+        order_index,
+        memo,
+        image_url,
+        stay_minutes,
+        places (
+          id,
+          name,
+          lat,
+          lng,
+          kakao_place_id,
+          address,
+          category,
+          category_name,
+          region,
+          road_address_name,
+          address_name
+        )
+      )
+    `
+    )
+    .eq("id", id)
+    .order("order_index", {
+      ascending: true,
+      foreignTable: "curator_course_places",
+    })
+    .maybeSingle();
+  throwIfSupabaseError(error, "[코스 홈 미리보기 조회 실패]");
+  if (!data) return null;
+  const steps = Array.isArray(data.curator_course_places)
+    ? [...data.curator_course_places].sort(
+        (a, b) => Number(a.order_index) - Number(b.order_index)
+      )
+    : [];
+  return { ...data, curator_course_places: steps };
+}
+
 /**
  * @param {{
  *   area?: string,

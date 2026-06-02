@@ -18,9 +18,10 @@ export function pickStepUploadedThumb(step) {
 
 /**
  * @param {object} step
+ * @param {{ skipGoogleFallback?: boolean }} [opts]
  * @returns {Promise<string|null>}
  */
-export async function resolveCourseStepThumbUrl(step) {
+export async function resolveCourseStepThumbUrl(step, opts = {}) {
   const uploaded = pickStepUploadedThumb(step);
   if (uploaded) return uploaded;
 
@@ -46,6 +47,8 @@ export async function resolveCourseStepThumbUrl(step) {
     }
   }
 
+  if (opts.skipGoogleFallback) return null;
+
   const googleThumb = await fetchGooglePlacePhotoThumb({
     name,
     address,
@@ -57,7 +60,7 @@ export async function resolveCourseStepThumbUrl(step) {
 
 /**
  * @param {object[]} steps
- * @param {{ limit?: number }} [opts]
+ * @param {{ limit?: number, skipGoogleFallback?: boolean }} [opts]
  * @returns {Promise<Record<string, string>>}
  */
 export async function resolveCourseStepThumbMap(steps, opts = {}) {
@@ -71,7 +74,9 @@ export async function resolveCourseStepThumbMap(steps, opts = {}) {
   await Promise.all(
     list.map(async (step, i) => {
       const key = stepThumbKey(step, i);
-      const url = await resolveCourseStepThumbUrl(step);
+      const url = await resolveCourseStepThumbUrl(step, {
+        skipGoogleFallback: opts.skipGoogleFallback,
+      });
       if (url) out[key] = url;
     })
   );
@@ -134,6 +139,7 @@ export async function enrichDrivingMapWithStepThumbs(drive) {
 
   const thumbMap = await resolveCourseStepThumbMap(thumbInputs, {
     limit: thumbInputs.length,
+    skipGoogleFallback: true,
   });
 
   const steps = drive.steps.map((st, i) => {

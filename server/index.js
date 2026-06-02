@@ -168,7 +168,10 @@ import { handlePlacesInBounds } from "./placesInBounds.js";
 import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
+import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
+
+const kakaoPlaceDetailsCache = createTtlCache(800, 6 * 60 * 60 * 1000);
 
 const app = express();
 app.use(cors());
@@ -2707,6 +2710,12 @@ app.post("/api/kakao/place-details", async (req, res) => {
       lngNum >= 122 &&
       lngNum <= 136;
 
+    const cacheKey = `${pid}|${q.slice(0, 80)}|${hasCoords ? `${latNum.toFixed(4)},${lngNum.toFixed(4)}` : ""}`;
+    const cachedPayload = kakaoPlaceDetailsCache.get(cacheKey);
+    if (cachedPayload) {
+      return res.json(cachedPayload);
+    }
+
     /** 카카오 keyword API: size 최대 15 (초과 시 400) — id 매칭 위해 최대 3페이지까지 조회 */
     const baseParams = {
       query: q.slice(0, 100),
@@ -2754,10 +2763,12 @@ app.post("/api/kakao/place-details", async (req, res) => {
       const hit = pageDocs.find((d) => d && String(d.id) === pid);
       if (hit) {
         const enriched = await enrichKakaoPlaceDocWithOgImage(hit);
-        return res.json({
+        const payload = {
           documents: enriched ? [enriched] : [],
           meta: response.data?.meta,
-        });
+        };
+        kakaoPlaceDetailsCache.set(cacheKey, payload);
+        return res.json(payload);
       }
       if (response.data?.meta?.is_end || pageDocs.length === 0) break;
     }
@@ -2790,10 +2801,12 @@ app.post("/api/kakao/place-details", async (req, res) => {
       ? await enrichKakaoPlaceDocWithOgImage(chosen)
       : null;
 
-    res.json({
+    const payload = {
       documents: enrichedChosen ? [enrichedChosen] : [],
       meta: lastResponse?.data?.meta,
-    });
+    };
+    kakaoPlaceDetailsCache.set(cacheKey, payload);
+    res.json(payload);
   } catch (error) {
     const st = error.response?.status;
     const body = error.response?.data;

@@ -76,6 +76,7 @@ export async function enrichBrowseDetailWithStepThumbs(detail) {
   const steps = detail.thumb_steps;
   const thumbMap = await resolveCourseStepThumbMap(steps, {
     limit: steps.length,
+    skipGoogleFallback: true,
   });
 
   const thumb_steps = steps.map((s, i) => {

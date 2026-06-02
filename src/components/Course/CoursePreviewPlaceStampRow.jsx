@@ -376,7 +376,13 @@ export default function CoursePreviewPlaceStampRow({
           const photoInner = (
             <>
               {thumb ? (
-                <img src={thumb} alt="" style={styles.thumbImg} loading="lazy" />
+                <img
+                  src={thumb}
+                  alt=""
+                  style={styles.thumbImg}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
               ) : (
                 <div
                   style={{

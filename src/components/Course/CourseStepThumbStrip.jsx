@@ -146,7 +146,13 @@ export default function CourseStepThumbStrip({
             </span>
             <div style={styles.thumbWrap} aria-hidden={!thumb}>
               {thumb ? (
-                <img src={thumb} alt="" style={styles.thumb} loading="lazy" />
+                <img
+                  src={thumb}
+                  alt=""
+                  style={styles.thumb}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
               ) : (
                 <div
                   style={{

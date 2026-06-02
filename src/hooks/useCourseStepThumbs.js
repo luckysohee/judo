@@ -16,6 +16,7 @@ export function useCourseStepThumbs(steps, opts = {}) {
       ? Math.min(6, Math.floor(opts.limit))
       : 3;
   const enabled = opts.enabled !== false;
+  const skipGoogleFallback = opts.skipGoogleFallback !== false;
   const slice = useMemo(
     () => (Array.isArray(steps) ? steps.slice(0, limit) : []),
     [steps, limit]
@@ -55,16 +56,37 @@ export function useCourseStepThumbs(steps, opts = {}) {
     if (!enabled || slice.length === 0) return undefined;
 
     let cancelled = false;
-    (async () => {
-      const resolved = await resolveCourseStepThumbMap(slice, { limit });
+    let idleId = null;
+    let timeoutId = null;
+
+    const run = async () => {
+      const resolved = await resolveCourseStepThumbMap(slice, {
+        limit,
+        skipGoogleFallback,
+      });
       if (cancelled) return;
       setThumbByKey((prev) => ({ ...prev, ...resolved }));
-    })();
+    };
+
+    const start = () => {
+      if (cancelled) return;
+      void run();
+    };
+
+    if (typeof globalThis.requestIdleCallback === "function") {
+      idleId = globalThis.requestIdleCallback(start, { timeout: 1200 });
+    } else {
+      timeoutId = globalThis.setTimeout(start, 280);
+    }
 
     return () => {
       cancelled = true;
+      if (idleId != null && typeof globalThis.cancelIdleCallback === "function") {
+        globalThis.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) globalThis.clearTimeout(timeoutId);
     };
-  }, [signature, enabled, limit]);
+  }, [signature, enabled, limit, skipGoogleFallback]);
 
   return thumbByKey;
 }
