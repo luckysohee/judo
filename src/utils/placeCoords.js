@@ -70,6 +70,90 @@ export function pickCheckinPlaceCoordsNearUser(place, userLat, userLng) {
   return dLL <= dYx ? { lat: la, lng: ln } : { lat: y, lng: x };
 }
 
+function parseCoordValue(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 한잔 RPC용 장소 WGS84: props·place 객체·카카오 로컬을 합치고,
+ * 사용자 GPS가 있으면 그에 더 가까운 좌표 세트를 선택한다.
+ */
+export async function resolveCheckinPlaceCoords({
+  place,
+  placeLat,
+  placeLng,
+  kakaoPlaceId,
+  placeName,
+  placeAddress,
+  userLat,
+  userLng,
+  fetchKakaoCoords,
+}) {
+  let plat = parseCoordValue(placeLat);
+  let plng = parseCoordValue(placeLng);
+  const wgs = resolvePlaceWgs84(place);
+  if (plat == null && wgs) {
+    plat = wgs.lat;
+    plng = wgs.lng;
+  } else if (wgs && Number.isFinite(userLat) && Number.isFinite(userLng)) {
+    const dProps = haversineMeters(userLat, userLng, plat, plng);
+    const dWgs = haversineMeters(userLat, userLng, wgs.lat, wgs.lng);
+    if (Number.isFinite(dWgs) && (!Number.isFinite(dProps) || dWgs < dProps - 15)) {
+      plat = wgs.lat;
+      plng = wgs.lng;
+    }
+  }
+
+  const kid =
+    (kakaoPlaceId != null && String(kakaoPlaceId).trim() !== ""
+      ? String(kakaoPlaceId).trim()
+      : null) ?? kakaoNumericPlaceId(place);
+
+  if (kid && typeof fetchKakaoCoords === "function") {
+    const fromKakao = await fetchKakaoCoords({
+      kakaoPlaceId: kid,
+      name: placeName,
+      address: placeAddress,
+    });
+    if (fromKakao?.lat != null && fromKakao?.lng != null) {
+      if (Number.isFinite(userLat) && Number.isFinite(userLng)) {
+        const dCurrent =
+          Number.isFinite(plat) && Number.isFinite(plng)
+            ? haversineMeters(userLat, userLng, plat, plng)
+            : Infinity;
+        const dKakao = haversineMeters(
+          userLat,
+          userLng,
+          fromKakao.lat,
+          fromKakao.lng
+        );
+        if (dKakao < dCurrent - 15) {
+          plat = fromKakao.lat;
+          plng = fromKakao.lng;
+        }
+      } else {
+        plat = fromKakao.lat;
+        plng = fromKakao.lng;
+      }
+    }
+  }
+
+  if (Number.isFinite(userLat) && Number.isFinite(userLng)) {
+    const picked = pickCheckinPlaceCoordsNearUser(place, userLat, userLng);
+    if (picked) {
+      plat = picked.lat;
+      plng = picked.lng;
+    }
+  }
+
+  return {
+    lat: Number.isFinite(plat) ? plat : null,
+    lng: Number.isFinite(plng) ? plng : null,
+  };
+}
+
 /** 카카오 로컬 숫자 장소 id만 (UUID가 place_id에 들어간 행은 제외) */
 export function kakaoNumericPlaceId(place) {
   if (!place || typeof place !== "object") return null;

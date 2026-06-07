@@ -1113,6 +1113,12 @@ export function filterPlacesForUnifiedMapBackupRestore(
   return { kept, checks };
 }
 
+import {
+  isSeasonallyMisalignedForDiscovery,
+  queryWantsSeasonalMenu,
+  getSeasonalMenuMismatchPenalty,
+} from "./placeSeasonality.js";
+
 /** 이름·카테고리 기준 해산물 후보(단독 `회`·`회식` 오탐 방지) */
 const SEAFOOD_POSITIVE_RE =
   /해산물|횟집|회집|횟강|생선회|모둠회|물회|회덮밥|생선|해물|해물탕|조개|조개구이|굴|전복|대게|킹크랩|랍스터|사시미|오마카세|스시|초밥|참치|연어|광어|우럭|아구찜|아구탕|낙지|오징어|문어|새우|게장|해천탕|회전초밥|일식음식점|수산|활어|해삼|키조개|전어|병어|도미|참돔|방어|연포탕|해물찜|조개전골/i;
@@ -1636,6 +1642,16 @@ export function filterPlacesByParsedIntent(
     );
   }
 
+  if (!queryWantsSeasonalMenu(rawQuery, p)) {
+    filtered = filtered.filter(
+      (pl) =>
+        !isSeasonallyMisalignedForDiscovery(pl, {
+          rawQuery,
+          parsedResult: p,
+        })
+    );
+  }
+
   if (filtered.length > 0) return filtered;
 
   const appliedStrictAlcoholPlaceFilter =
@@ -2135,6 +2151,18 @@ export function scorePlace(place, parsedResult) {
   if (bmAdd >= 1) reasons.push("저장·관심 가산");
 
   score += Math.min((profile.follower_sum || 0) * 0.002, 3);
+
+  const seasonalPenalty = getSeasonalMenuMismatchPenalty(place, {
+    rawQuery:
+      parsedResult?.raw ??
+      parsedResult?.query ??
+      (parsedResult?.keywords || []).join(" "),
+    parsedResult,
+  });
+  if (seasonalPenalty < 0) {
+    score += seasonalPenalty;
+    reasons.push("비시즌 메뉴");
+  }
 
   return {
     score,

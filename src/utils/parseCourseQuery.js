@@ -142,7 +142,8 @@ export function parseCourseQuery(query = "", options = {}) {
 
   const rightNow =
     /지금|오늘|당장|바로/i.test(text);
-  const partySize = parsePartySizeFromText(text);
+  const partySize =
+    parsePartySizeFromText(text) ?? (dateMode === "date" ? 2 : null);
 
   return {
     raw: text,

@@ -1,4 +1,5 @@
 import { getAiApiBaseUrl } from "./apiBaseUrl.js";
+import { isPerfTraceEnabled } from "./devPerfTrace.js";
 import {
   readKakaoPlaceDetailCache,
   writeKakaoPlaceDetailCache,
@@ -30,6 +31,8 @@ async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
   if (opts.y != null && Number.isFinite(Number(opts.y))) {
     body.y = Number(opts.y);
   }
+  const started =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -39,6 +42,18 @@ async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
   });
 
   const data = await response.json().catch(() => ({}));
+  if (isPerfTraceEnabled()) {
+    const ms = Math.round(
+      (typeof performance !== "undefined" ? performance.now() : Date.now()) -
+        started
+    );
+    console.info("[perf] kakao:place-details:client", {
+      placeId,
+      ms,
+      ok: response.ok,
+      hasDoc: Boolean(data?.documents?.[0]),
+    });
+  }
   if (!response.ok) {
     console.warn("[kakao place-details]", {
       proxyHttp: response.status,

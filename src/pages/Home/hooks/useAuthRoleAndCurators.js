@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { supabase } from "../../../lib/supabase";
+import { runWhenIdle } from "../../../utils/runWhenIdle";
 import { curatorRowProfileImage } from "../homeModule.js";
 
 /**
@@ -283,12 +284,17 @@ export function useAuthRoleAndCurators({
       }
     };
 
+    let cancelIdle = () => {};
     void resolveRoles().then(() => {
-      if (!cancelled) loadCurators();
+      if (cancelled) return;
+      cancelIdle = runWhenIdle(() => {
+        if (!cancelled) void loadCurators();
+      }, { timeout: 3500 });
     });
 
     return () => {
       cancelled = true;
+      cancelIdle();
     };
     /** userEmail은 환영 alert 안에서만 읽음 — id가 같은 한 reference 변화로 재실행 안 시킴 */
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -37,6 +37,8 @@ import {
   pickHanjanSocialLines,
 } from "../../utils/hanjanSocialCopy";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
+import { createPerfTrace } from "../../utils/devPerfTrace.js";
+
 export default function PlacePreviewCard({
   place,
   isSaved,
@@ -72,6 +74,7 @@ export default function PlacePreviewCard({
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
   const cardRef = useRef(null);
+  const placeOpenPerfRef = useRef(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [kakaoDetails, setKakaoDetails] = useState(null);
   const [isLoadingKakao, setIsLoadingKakao] = useState(false);
@@ -83,6 +86,20 @@ export default function PlacePreviewCard({
   const [googlePhotoAttributions, setGooglePhotoAttributions] = useState([]);
   const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (!place?.id) return undefined;
+    const trace = createPerfTrace("place:card", {
+      placeId: String(place.id),
+      name: place?.name || place?.place_name || "",
+      kakaoPlaceId: place?.kakao_place_id ?? place?.place_id ?? null,
+    });
+    placeOpenPerfRef.current = trace;
+    return () => {
+      placeOpenPerfRef.current?.end({ phase: "place_changed" });
+      placeOpenPerfRef.current = null;
+    };
+  }, [place?.id, place?.name, place?.place_name, place?.kakao_place_id, place?.place_id]);
   const navigate = useNavigate();
   const dragControls = useDragControls();
   const [sheetSwipeEnabled, setSheetSwipeEnabled] = useState(false);
@@ -307,6 +324,7 @@ export default function PlacePreviewCard({
         })
         .finally(() => {
           setIsLoadingKakao(false);
+          placeOpenPerfRef.current?.mark("kakao_proxy_done");
         });
     } else if (!kakaoPlaceId) {
       if (place?.mapClickNoVenue) return;
@@ -752,6 +770,9 @@ export default function PlacePreviewCard({
       })
       .finally(() => {
         if (!ac.signal.aborted) setGooglePhotosLoading(false);
+        placeOpenPerfRef.current?.mark("google_photos_done");
+        placeOpenPerfRef.current?.end({ phase: "photos_settled" });
+        placeOpenPerfRef.current = null;
       });
 
     return () => {
@@ -759,6 +780,25 @@ export default function PlacePreviewCard({
     };
     // 키에 이름·주소·좌표·장소 id + 카카오 사진 조회 완료 후에만 구글 폴백
   }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length]);
+
+  useEffect(() => {
+    const t = placeOpenPerfRef.current;
+    if (!t || isLoadingKakao || googlePhotosLoading) return;
+    if (kakaoPreviewPhotoUrls.length > 0) {
+      t.end({ phase: "kakao_photos" });
+      placeOpenPerfRef.current = null;
+      return;
+    }
+    if (!kakaoKeywordQuery.trim()) {
+      t.end({ phase: "no_photo_query" });
+      placeOpenPerfRef.current = null;
+    }
+  }, [
+    isLoadingKakao,
+    googlePhotosLoading,
+    kakaoPreviewPhotoUrls.length,
+    kakaoKeywordQuery,
+  ]);
 
   const showKakaoPhotoLoading =
     allPreviewUrls.length === 0 &&

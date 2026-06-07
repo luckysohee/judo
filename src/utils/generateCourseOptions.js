@@ -2,6 +2,7 @@ import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILE_ORDER, COURSE_PROFILES } from "./courseProfiles.js";
 import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { REGION_KEYWORDS } from "./searchParser.js";
+import { getSeasonalMenuMismatchPenalty } from "./placeSeasonality.js";
 import { getMinutesUntilClose, isPlaceOpenNow } from "./timeUtils.js";
 
 function hashString(s) {
@@ -486,6 +487,54 @@ function venueKeysForCourse(course) {
   return keys;
 }
 
+function firstVenueKeyForCourse(course) {
+  return courseVenueDedupeKey(course?.steps?.[0]?.place);
+}
+
+/** 지명 코스(성수·을지로 등) — 상위 후보·셔플·2차 랜덤 폭을 넓혀 같은 1차만 반복되는 현상 완화 */
+function courseBuildPoolSizes(parsedQuery) {
+  const namedArea = Boolean(parsedQuery?.area);
+  return {
+    rankedFirstCap: namedArea ? 36 : 22,
+    firstShuffleCap: namedArea ? 18 : 12,
+    legPickCap: namedArea ? 10 : 6,
+  };
+}
+
+function shuffleCopyInPlace(arr, rng) {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = out[i];
+    out[i] = out[j];
+    out[j] = t;
+  }
+  return out;
+}
+
+/** 같은 1차 식당으로 여러 코스가 쏠리지 않게 — 1차당 최고 점수 1개만 남김 */
+function dedupeCoursesByFirstVenue(courses) {
+  const byFirst = new Map();
+  for (const c of courses || []) {
+    const fk = firstVenueKeyForCourse(c);
+    if (!fk) continue;
+    const prev = byFirst.get(fk);
+    if (!prev || (c.totalScore || 0) > (prev.totalScore || 0)) {
+      byFirst.set(fk, c);
+    }
+  }
+  return [...byFirst.values()].sort(
+    (a, b) => (b.totalScore || 0) - (a.totalScore || 0)
+  );
+}
+
+function pickFromRankedBand(candidates, cap, rng) {
+  if (!candidates?.length) return null;
+  const n = Math.min(cap, candidates.length);
+  const band = candidates.slice(0, n);
+  return band[Math.floor(rng() * band.length)];
+}
+
 /** 쩜오차용 카카오 보강만 합칠 때 — 1·2차 풀과 venue 키 기준 중복 제거 */
 function mergePlaceListsDedupingVenues(primary, extra) {
   const map = new Map();
@@ -529,7 +578,7 @@ export function calculateCoursePlaceScore(
   if (Number.isFinite(cur)) score += Math.min(cur * 2, 20) * w.curator;
 
   const ov = Number(place.overlapCuratorCount ?? place.overlap_curator_count);
-  if (Number.isFinite(ov)) score += Math.min(ov * 4, 24) * w.overlap;
+  if (Number.isFinite(ov)) score += Math.min(ov * 4, 18) * w.overlap;
 
   const openNow = isPlaceOpenNow(place);
   const minutesUntilClose = getMinutesUntilClose(place);
@@ -559,6 +608,11 @@ export function calculateCoursePlaceScore(
   ) {
     score += 28 * w.category;
   }
+
+  score += getSeasonalMenuMismatchPenalty(place, {
+    rawQuery: parsedQuery?.raw ?? parsedQuery?.query ?? "",
+    parsedResult: parsedQuery,
+  });
 
   return score;
 }
@@ -789,8 +843,12 @@ function tryBuildCoursesForProfile({
 
     if (!secondCandidates.length) continue;
 
-    const pickN = Math.min(5, secondCandidates.length);
-    const second = secondCandidates[Math.floor(rng() * pickN)];
+    const second = pickFromRankedBand(
+      secondCandidates,
+      courseBuildPoolSizes(parsedQuery).legPickCap,
+      rng
+    );
+    if (!second) continue;
     const key = `${profile.key}-${placeId(first)}-${placeId(second)}`;
 
     results.push({
@@ -817,7 +875,7 @@ function tryBuildCoursesForProfile({
     });
   }
 
-  return results.sort((a, b) => b.totalScore - a.totalScore);
+  return dedupeCoursesByFirstVenue(results);
 }
 
 const BRIDGE_LEG_MIN_M = 45;
@@ -869,8 +927,12 @@ function tryBuildCoursesForProfileThree({
 
     if (!bridgeCandidates.length) continue;
 
-    const pickBn = Math.min(5, bridgeCandidates.length);
-    const bridge = bridgeCandidates[Math.floor(rng() * pickBn)];
+    const bridge = pickFromRankedBand(
+      bridgeCandidates,
+      courseBuildPoolSizes(parsedQuery).legPickCap,
+      rng
+    );
+    if (!bridge) continue;
 
     const secondCandidates = secondPool
       .filter(
@@ -921,8 +983,12 @@ function tryBuildCoursesForProfileThree({
 
     if (!secondCandidates.length) continue;
 
-    const pickN = Math.min(5, secondCandidates.length);
-    const second = secondCandidates[Math.floor(rng() * pickN)];
+    const second = pickFromRankedBand(
+      secondCandidates,
+      courseBuildPoolSizes(parsedQuery).legPickCap,
+      rng
+    );
+    if (!second) continue;
     const dFirstBridge = Math.round(
       haversineMeters(
         Number(first.lat),
@@ -966,7 +1032,7 @@ function tryBuildCoursesForProfileThree({
     });
   }
 
-  return results.sort((a, b) => b.totalScore - a.totalScore);
+  return dedupeCoursesByFirstVenue(results);
 }
 
 function buildCoursesWithProfile({
@@ -977,13 +1043,19 @@ function buildCoursesWithProfile({
   profile,
   rng,
 }) {
+  const poolSizes = courseBuildPoolSizes(parsedQuery);
+
   if (Array.isArray(pattern) && pattern.length === 3) {
     const [rule1, ruleBridge, rule2] = pattern;
     const rankedFirst = rankByRule(places, rule1, parsedQuery, profile).slice(
       0,
-      20
+      poolSizes.rankedFirstCap
     );
-    const firstCandidates = shuffleHeadInCopy(rankedFirst, 12, rng);
+    const firstCandidates = shuffleHeadInCopy(
+      rankedFirst,
+      poolSizes.firstShuffleCap,
+      rng
+    );
     /** 카페·디저트 카카오 보강은 쩜오차 풀에만 — 2차(rule2) 풀은 DB(및 기존 2차 로직)만 */
     const bridgeSource = mergePlaceListsDedupingVenues(
       places,
@@ -1047,8 +1119,15 @@ function buildCoursesWithProfile({
   }
 
   const [rule1, rule2] = pattern;
-  const rankedFirst = rankByRule(places, rule1, parsedQuery, profile).slice(0, 20);
-  const firstCandidates = shuffleHeadInCopy(rankedFirst, 12, rng);
+  const rankedFirst = rankByRule(places, rule1, parsedQuery, profile).slice(
+    0,
+    poolSizes.rankedFirstCap
+  );
+  const firstCandidates = shuffleHeadInCopy(
+    rankedFirst,
+    poolSizes.firstShuffleCap,
+    rng
+  );
   const secondPool = rankByRule(places, rule2, parsedQuery, profile);
 
   if (!firstCandidates.length || !secondPool.length) return [];
@@ -1087,7 +1166,7 @@ function buildCoursesWithProfile({
  */
 function pickBestDistinctCourse(
   courses,
-  usedVenueKeys,
+  usedFirstVenueKeys,
   rng,
   excludeCourseKeys = new Set(),
   excludeVenuePairKeys = new Set()
@@ -1100,19 +1179,33 @@ function pickBestDistinctCourse(
     excludeVenuePairKeys instanceof Set
       ? excludeVenuePairKeys
       : new Set(excludeVenuePairKeys || []);
-  const used = usedVenueKeys instanceof Set ? usedVenueKeys : new Set();
+  const usedFirst =
+    usedFirstVenueKeys instanceof Set
+      ? usedFirstVenueKeys
+      : new Set(usedFirstVenueKeys || []);
   const viable = [];
   for (const course of courses) {
     if (course?.key != null && exK.has(course.key)) continue;
     const pair = courseVenuePairKey(course);
     if (pair && exP.has(pair)) continue;
-    const keys = venueKeysForCourse(course);
-    if (!keys.length || keys.some((k) => used.has(k))) continue;
+    const fk = firstVenueKeyForCourse(course);
+    if (!fk || usedFirst.has(fk)) continue;
     viable.push(course);
   }
   if (!viable.length) return null;
-  const poolSize = Math.min(10, viable.length);
-  const pool = viable.slice(0, poolSize);
+
+  const byFirst = new Map();
+  for (const course of viable) {
+    const fk = firstVenueKeyForCourse(course);
+    if (!fk) continue;
+    if (!byFirst.has(fk)) byFirst.set(fk, []);
+    byFirst.get(fk).push(course);
+  }
+  const groups = shuffleCopyInPlace([...byFirst.values()], rng);
+  const group = groups[0];
+  if (!group?.length) return null;
+  const poolSize = Math.min(8, group.length);
+  const pool = shuffleCopyInPlace(group.slice(0, poolSize), rng);
   return pool[Math.floor(rng() * pool.length)];
 }
 
@@ -1420,7 +1513,7 @@ export function generateCourseOptions({
     (hashString(String(effectiveParsed?.raw || "")) ^ Date.now()) >>> 0;
 
   const selectedCourses = [];
-  const usedVenueKeys = new Set();
+  const usedFirstVenueKeys = new Set();
   const seenCourseKeys = new Set();
   const seenPairKeys = new Set();
   const excludeKeySet =
@@ -1452,7 +1545,7 @@ export function generateCourseOptions({
 
     const picked = pickBestDistinctCourse(
       candidates,
-      usedVenueKeys,
+      usedFirstVenueKeys,
       rng,
       excludeKeySet,
       excludePairSet
@@ -1465,9 +1558,8 @@ export function generateCourseOptions({
       const pair = courseVenuePairKey(picked);
       if (pair) seenPairKeys.add(pair);
     }
-    for (const k of venueKeysForCourse(picked)) {
-      usedVenueKeys.add(k);
-    }
+    const fk = firstVenueKeyForCourse(picked);
+    if (fk) usedFirstVenueKeys.add(fk);
   }
 
   /**
@@ -1500,12 +1592,18 @@ export function generateCourseOptions({
         fallbackReservoir.push(c);
       }
     }
-    for (const c of fallbackReservoir) {
+    const shuffledFallback = shuffleCopyInPlace(fallbackReservoir, mulberry32(
+      (invocationSeed ^ 0x9e3779b9) >>> 0
+    ));
+    for (const c of shuffledFallback) {
       if (selectedCourses.length >= maxOptions) break;
+      const fk = firstVenueKeyForCourse(c);
+      if (fk && usedFirstVenueKeys.has(fk)) continue;
       selectedCourses.push(c);
       if (c?.key != null) seenCourseKeys.add(String(c.key));
       const pair = courseVenuePairKey(c);
       if (pair) seenPairKeys.add(pair);
+      if (fk) usedFirstVenueKeys.add(fk);
     }
     /** 지역·태그 풀이 매우 작을 때: pair 중복 허용(동일 코스 key는 제외)으로 3카드 채우기 */
     for (const c of fallbackAllowPairDup) {
@@ -1571,7 +1669,8 @@ export function generateCourseCandidatePool({
       profile,
       rng,
     });
-    for (const c of candidates.slice(0, 6)) {
+    const dedupedProfile = dedupeCoursesByFirstVenue(candidates);
+    for (const c of dedupedProfile.slice(0, 8)) {
       const k = c?.key != null ? String(c.key) : "";
       if (!k || excludeKeySet.has(k) || seenKeys.has(k)) continue;
       seenKeys.add(k);

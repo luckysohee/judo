@@ -34,44 +34,59 @@ export const styles = {
     minHeight: 0,
     overflow: "hidden",
   },
-  /** 첫 진입만 — 지도 영역 정중앙, 먼지처럼 흩어지며 사라짐 */
+  /** 첫 진입만 — 지도 블러 스크림 + 중앙 카피 (fixed로 지도 레이어 위 확실히 덮음) */
   homeDustIntroOverlay: {
-    position: "absolute",
+    position: "fixed",
     inset: 0,
-    /** MapView·카카오 타일 레이어보다 위 — DOM에서 MapView 다음에 그림 */
-    zIndex: 8000,
+    zIndex: 95000,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     pointerEvents: "auto",
     cursor: "pointer",
     padding: "24px 20px",
+    overflow: "hidden",
+  },
+  homeDustIntroBackdrop: {
+    position: "absolute",
+    inset: 0,
+    background: "rgba(248, 250, 252, 0.58)",
+    WebkitBackdropFilter: "blur(20px) saturate(1.08)",
+    backdropFilter: "blur(20px) saturate(1.08)",
+    willChange: "opacity",
   },
   homeDustIntroInner: {
+    position: "relative",
+    zIndex: 1,
     textAlign: "center",
-    maxWidth: 340,
-    animation:
-      "homeDustIntroCycle 4.1s cubic-bezier(0.4, 0, 0.2, 1) forwards",
-    willChange: "opacity, filter, transform",
+    maxWidth: 360,
+    width: "100%",
+    willChange: "opacity, transform",
+  },
+  homeDustIntroTextCard: {
+    margin: "0 auto",
+    padding: "22px 26px",
+    borderRadius: 20,
+    background: "rgba(255, 255, 255, 0.94)",
+    boxShadow:
+      "0 4px 24px rgba(15, 23, 42, 0.08), 0 16px 48px rgba(15, 23, 42, 0.1)",
+    border: "1px solid rgba(255, 255, 255, 0.9)",
   },
   homeDustIntroTitle: {
     margin: 0,
-    fontSize: "clamp(17px, 4.2vw, 20px)",
+    fontSize: "clamp(19px, 4.8vw, 23px)",
     fontWeight: 800,
-    letterSpacing: "-0.03em",
+    letterSpacing: "-0.035em",
     color: "#0f172a",
     lineHeight: 1.35,
-    textShadow:
-      "0 1px 0 rgba(255,255,255,0.95), 0 0 20px rgba(255,255,255,0.9), 0 0 40px rgba(255,255,255,0.45)",
   },
   homeDustIntroSub: {
-    margin: "10px 0 0",
+    margin: "12px 0 0",
     fontSize: 13,
-    fontWeight: 700,
-    color: "#9a3412",
+    fontWeight: 600,
+    color: "#475569",
     letterSpacing: "-0.01em",
-    textShadow:
-      "0 1px 0 rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.75)",
+    lineHeight: 1.45,
   },
   courseAddHalfStepFloatingBtn: {
     position: "absolute",
@@ -169,38 +184,72 @@ export const styles = {
   },
 
   /**
-   * 낮 모드: 지도 상단 고정 — 반투명 검정 바(토스트형). 좌측만 사용해 우측 별(저장)·지도 버튼 영역 여유.
+   * 낮 모드: 헤더 아래 한 줄 풀폭 바 — 키워드 강조 + 우측 카운트다운 pill.
    */
   judoDayNoticeFixedBar: {
     position: "fixed",
-    left: "16px",
-    /** `legendOverlay.top`(64) + 저장 별 버튼 높이의 절반(14) → 별 원형과 같은 세로 중심 */
-    top: "calc(64px + 18px)",
-    transform: "translateY(-50%)",
+    left: "6px",
+    right: "6px",
+    top: "calc(64px + env(safe-area-inset-top, 0px))",
     zIndex: 24980,
     boxSizing: "border-box",
-    maxWidth: "calc(100% - 72px)",
-    width: "max-content",
+    width: "calc(100% - 12px)",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
     margin: 0,
-    padding: "6px 14px",
-    borderRadius: "11px",
+    padding: "8px 10px",
+    borderRadius: "12px",
     background:
-      "linear-gradient(180deg, rgba(22,22,24,0.56) 0%, rgba(10,10,12,0.48) 100%)",
-    backdropFilter: "blur(16px) saturate(155%)",
-    WebkitBackdropFilter: "blur(16px) saturate(155%)",
-    color: "rgba(255, 255, 255, 0.94)",
-    fontSize: "12.5px",
-    fontWeight: 650,
-    lineHeight: 1.25,
-    textAlign: "left",
-    whiteSpace: "nowrap",
-    overflow: "visible",
-    textOverflow: "clip",
-    border: "1px solid rgba(255, 255, 255, 0.16)",
+      "linear-gradient(135deg, rgba(28, 28, 32, 0.82) 0%, rgba(12, 12, 16, 0.76) 100%)",
+    backdropFilter: "blur(18px) saturate(165%)",
+    WebkitBackdropFilter: "blur(18px) saturate(165%)",
+    border: "1px solid rgba(255, 255, 255, 0.14)",
+    borderLeft: "3px solid rgba(251, 191, 36, 0.92)",
     boxShadow:
-      "0 6px 18px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.22)",
+      "0 8px 28px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.12)",
     pointerEvents: "none",
     WebkitFontSmoothing: "antialiased",
+  },
+  judoDayNoticeCopy: {
+    flex: "1 1 auto",
+    minWidth: 0,
+    margin: 0,
+    padding: 0,
+    whiteSpace: "nowrap",
+    lineHeight: 1.2,
+    letterSpacing: "-0.03em",
+    fontSize: "11.5px",
+  },
+  judoDayNoticeMuted: {
+    fontWeight: 550,
+    color: "rgba(255, 255, 255, 0.68)",
+  },
+  judoDayNoticeEm: {
+    fontWeight: 800,
+    color: "#ffffff",
+  },
+  judoDayNoticeLiveTag: {
+    fontWeight: 700,
+    color: "#fde68a",
+    letterSpacing: "0.01em",
+  },
+  judoDayNoticeTimer: {
+    flex: "0 0 auto",
+    flexShrink: 0,
+    padding: "3px 7px",
+    borderRadius: "999px",
+    textAlign: "center",
+    background:
+      "linear-gradient(180deg, rgba(251, 191, 36, 0.22) 0%, rgba(245, 158, 11, 0.14) 100%)",
+    border: "1px solid rgba(251, 191, 36, 0.42)",
+    color: "#fde68a",
+    fontSize: "clamp(10px, 2.6vw, 12px)",
+    fontWeight: 800,
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "0.06em",
+    lineHeight: 1.2,
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
   },
 
   logoNightTagline: {
@@ -271,6 +320,11 @@ export const styles = {
     alignItems: "flex-end",
     gap: "8px",
     pointerEvents: "auto",
+  },
+
+  /** 낮 모드 안내 바(한 줄) 아래로 별·마커·내위치·코스 버튼 내림 */
+  legendOverlayBelowDayNotice: {
+    top: "calc(118px + env(safe-area-inset-top, 0px))",
   },
 
   legendSecondPickResetButton: {

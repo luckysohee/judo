@@ -4,7 +4,7 @@ import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchKakaoCoordsByPlaceId } from "../../utils/kakaoPlaceCoords";
-import { pickCheckinPlaceCoordsNearUser } from "../../utils/placeCoords";
+import { resolveCheckinPlaceCoords } from "../../utils/placeCoords";
 import { resolveCheckinDisplayName } from "../../utils/checkinDisplayName";
 import {
   formatFireLine,
@@ -160,6 +160,22 @@ function isTooFarRpcError(err) {
   return msg.includes("checkin_too_far_from_place");
 }
 
+function parseTooFarDistanceM(err) {
+  const details = err?.details;
+  if (typeof details !== "string") return null;
+  const m = details.match(/distance_m=([\d.]+)/);
+  if (!m) return null;
+  const d = parseFloat(m[1]);
+  return Number.isFinite(d) ? d : null;
+}
+
+function formatDistanceLabel(distanceM) {
+  if (!Number.isFinite(distanceM) || distanceM < 0) return null;
+  return distanceM >= 1000
+    ? `약 ${(distanceM / 1000).toFixed(1)}km`
+    : `약 ${Math.round(distanceM)}m`;
+}
+
 export default function CheckinButton({
   placeId,
   placeName,
@@ -281,7 +297,7 @@ export default function CheckinButton({
 
     const nickname = getUserNickname();
     const confirmed = window.confirm(
-      `🍶 ${placeName}\n\n「한잔함」은 "${nickname}" 닉네임으로 이 장소에 남는 기록이에요. 다른 사람에게도 비슷하게 보일 수 있어요.\n\n기록할까요?`
+      `🍶 ${placeName}\n\n「한잔함」은 "${nickname}" 닉네임으로 이 장소에 남는 기록이에요. 홈 화면에 기록이 공개됩니다.\n\n기록할까요?`
     );
 
     if (confirmed) {
@@ -359,23 +375,34 @@ export default function CheckinButton({
     await applyCourseProgressAfterHanjan();
   };
 
+  const resolveCoordsForCheckin = useCallback(
+    async (userLat, userLng) =>
+      resolveCheckinPlaceCoords({
+        place,
+        placeLat,
+        placeLng,
+        kakaoPlaceId,
+        placeName,
+        placeAddress,
+        userLat,
+        userLng,
+        fetchKakaoCoords: fetchKakaoCoordsByPlaceId,
+      }),
+    [
+      place,
+      placeLat,
+      placeLng,
+      kakaoPlaceId,
+      placeName,
+      placeAddress,
+    ]
+  );
+
   const executeHanjan = async () => {
     setLoading(true);
 
     try {
-      let plat = parseCoord(placeLat);
-      let plng = parseCoord(placeLng);
-      if (plat == null || plng == null) {
-        const fromKakao = await fetchKakaoCoordsByPlaceId({
-          kakaoPlaceId,
-          name: placeName,
-          address: placeAddress,
-        });
-        if (fromKakao) {
-          plat = fromKakao.lat;
-          plng = fromKakao.lng;
-        }
-      }
+      let { lat: plat, lng: plng } = await resolveCoordsForCheckin(null, null);
       if (plat == null || plng == null) {
         const looseOnly = window.confirm(
           "장소 좌표를 찾지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
@@ -418,10 +445,16 @@ export default function CheckinButton({
         return;
       }
 
-      const picked = pickCheckinPlaceCoordsNearUser(place, userLat, userLng);
-      if (picked) {
-        plat = picked.lat;
-        plng = picked.lng;
+      ({ lat: plat, lng: plng } = await resolveCoordsForCheckin(
+        userLat,
+        userLng
+      ));
+      if (plat == null || plng == null) {
+        showToast(
+          "장소 좌표를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          "warning"
+        );
+        return;
       }
 
       try {
@@ -434,34 +467,81 @@ export default function CheckinButton({
           skipDistanceCheck: false,
         });
       } catch (rpcErr) {
-        if (isTooFarRpcError(rpcErr)) {
-          let strictRecovered = false;
+        if (!isTooFarRpcError(rpcErr)) {
+          throw rpcErr;
+        }
+
+        let distM = parseTooFarDistanceM(rpcErr);
+        let strictRecovered = false;
+
+        const coordsAfterKakao = await resolveCoordsForCheckin(
+          userLat,
+          userLng
+        );
+        if (
+          coordsAfterKakao.lat != null &&
+          coordsAfterKakao.lng != null &&
+          (coordsAfterKakao.lat !== plat || coordsAfterKakao.lng !== plng)
+        ) {
           try {
-            const gRetry = await getGeoHighAccuracyFresh();
-            let platR = plat;
-            let plngR = plng;
-            const pickedR = pickCheckinPlaceCoordsNearUser(
-              place,
-              gRetry.lat,
-              gRetry.lng
-            );
-            if (pickedR) {
-              platR = pickedR.lat;
-              plngR = pickedR.lng;
-            }
             await runHanjanRpc({
-              plat: platR,
-              plng: plngR,
-              userLat: gRetry.lat,
-              userLng: gRetry.lng,
-              accuracyM: gRetry.accuracyM,
+              plat: coordsAfterKakao.lat,
+              plng: coordsAfterKakao.lng,
+              userLat,
+              userLng,
+              accuracyM,
               skipDistanceCheck: false,
             });
-            strictRecovered = true;
-          } catch (retryErr) {
-            if (!isTooFarRpcError(retryErr)) {
-              // 재시도 GPS가 타임아웃/권한거부여도 느슨한 저장으로 폴백
-              if (isGeoTimeoutOrDenied(retryErr)) {
+            return;
+          } catch (kakaoRetryErr) {
+            if (!isTooFarRpcError(kakaoRetryErr)) {
+              throw kakaoRetryErr;
+            }
+            distM = parseTooFarDistanceM(kakaoRetryErr) ?? distM;
+          }
+        }
+
+        if (distM != null && distM > 1200) {
+          const distLabel = formatDistanceLabel(distM) ?? "멀리";
+          showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
+          const looseOnly = window.confirm(
+            `이 장소와 ${distLabel} 떨어져 있습니다.\n\n가게 근처가 맞는지, 지도 핀 위치를 확인해 주세요.\n\n(다른 동네·집에서 시도하면 이렇게 나올 수 있어요.)\n\n위치 검증 없이 오늘 1회만 기록할까요?`
+          );
+          if (looseOnly) {
+            await runHanjanRpc({
+              plat,
+              plng,
+              userLat: null,
+              userLng: null,
+              accuracyM: null,
+              skipDistanceCheck: true,
+            });
+          }
+          return;
+        }
+
+        try {
+          const gRetry = await getGeoHighAccuracyFresh();
+          const coordsRetry = await resolveCoordsForCheckin(
+            gRetry.lat,
+            gRetry.lng
+          );
+          await runHanjanRpc({
+            plat: coordsRetry.lat ?? plat,
+            plng: coordsRetry.lng ?? plng,
+            userLat: gRetry.lat,
+            userLng: gRetry.lng,
+            accuracyM: gRetry.accuracyM,
+            skipDistanceCheck: false,
+          });
+          strictRecovered = true;
+        } catch (retryErr) {
+          if (!isTooFarRpcError(retryErr)) {
+            if (isGeoTimeoutOrDenied(retryErr)) {
+              const looseOnly = window.confirm(
+                "정확한 위치를 다시 받지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
+              );
+              if (looseOnly) {
                 await runHanjanRpc({
                   plat,
                   plng,
@@ -471,14 +551,23 @@ export default function CheckinButton({
                   skipDistanceCheck: true,
                 });
                 strictRecovered = true;
-                return;
               }
-              throw retryErr;
+              return;
             }
+            throw retryErr;
           }
-          if (strictRecovered) {
-            return;
-          }
+          distM = parseTooFarDistanceM(retryErr) ?? distM;
+        }
+
+        if (strictRecovered) {
+          return;
+        }
+
+        showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
+        const looseOnly = window.confirm(
+          "가게 근처에서 다시 시도해 주세요.\n\n그래도 기록이 필요하면 위치 검증 없이 오늘 1회만 남길 수 있어요. 진행할까요?"
+        );
+        if (looseOnly) {
           await runHanjanRpc({
             plat,
             plng,
@@ -487,8 +576,6 @@ export default function CheckinButton({
             accuracyM: null,
             skipDistanceCheck: true,
           });
-        } else {
-          throw rpcErr;
         }
       }
     } catch (error) {

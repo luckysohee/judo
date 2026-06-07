@@ -61,8 +61,6 @@ export default function SearchBar({
   onUserInteractWithSearch = null,
   /** 홈 검색 모드(상단 오버레이) 진입 */
   onInputFocus = null,
-  /** 검색 중 하단 GPT 스타일 상태 문구 */
-  loadingStatusText = "",
   /** 타이핑 자동완성 후보를 지도 마커로 올릴 때 부모에 전달 (빈 배열이면 제거) */
   onKakaoTypingPreviewPlacesChange = null,
   /** 홈 인트로 등에서 검색 입력으로 포커스 이동 */
@@ -88,24 +86,12 @@ export default function SearchBar({
   /** 카카오 목록 + 검색줄 루트 — 전체화면 백드롭 없이 바깥 탭으로 닫기 */
   const searchRootRef = useRef(null);
   const channelModeWrapRef = useRef(null);
-  const [thinkDots, setThinkDots] = useState(".");
   /** 장소/주도 전환 시 짧은 설명 말풍선 */
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const channelPopoverCloseTimerRef = useRef(null);
   const firstAiTipTimerRef = useRef(null);
   const [showFirstAiSearchTip, setShowFirstAiSearchTip] = useState(false);
   const allowPlaceSuggestions = showKakaoSearch;
-
-  useEffect(() => {
-    if (!isLoading) {
-      setThinkDots(".");
-      return;
-    }
-    const id = setInterval(() => {
-      setThinkDots((d) => (d === "." ? ".." : d === ".." ? "..." : "."));
-    }, 420);
-    return () => clearInterval(id);
-  }, [isLoading]);
 
   useEffect(() => {
     return () => {
@@ -1165,25 +1151,6 @@ export default function SearchBar({
         ) : null}
       </div>
 
-      {isLoading ? (
-        <div
-          style={styles.thinkingRow}
-          role="status"
-          aria-live="polite"
-        >
-          <motion.span
-            style={styles.thinkingDot}
-            animate={{ opacity: [0.35, 1, 0.35], scale: [0.88, 1.06, 0.88] }}
-            transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-            aria-hidden
-          />
-          <span style={styles.thinkingText}>
-            {loadingStatusText || "검색하는 중"}
-            {thinkDots}
-          </span>
-        </div>
-      ) : null}
-
       {query.trim() && visibleSuggestions.length > 0 ? (
         <div style={styles.suggestionBox}>
           {visibleSuggestions.map((item) => (
@@ -1212,30 +1179,6 @@ const styles = {
   section: {
     width: "100%",
     minWidth: 0,
-  },
-
-  thinkingRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginTop: "10px",
-    padding: "0 12px 2px",
-    minHeight: "20px",
-  },
-  thinkingDot: {
-    width: "8px",
-    height: "8px",
-    borderRadius: "50%",
-    background: "rgba(46, 204, 113, 0.95)",
-    flexShrink: 0,
-    boxShadow: "0 0 10px rgba(46, 204, 113, 0.45)",
-    display: "inline-block",
-  },
-  thinkingText: {
-    fontSize: "13px",
-    color: "rgba(255,255,255,0.72)",
-    lineHeight: 1.35,
-    letterSpacing: "-0.01em",
   },
 
   searchWrap: {

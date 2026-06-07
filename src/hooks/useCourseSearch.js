@@ -26,6 +26,7 @@ import {
   fetchKakaoPlacesForCourseBridgeAround,
   mergeCoursePlacePoolsWithKakao,
 } from "../utils/augmentCourseSecondPlacesWithKakao.js";
+import { createPerfTrace } from "../utils/devPerfTrace.js";
 
 const ENABLE_COURSE_COMPOSE_ASSIST =
   import.meta.env.VITE_ENABLE_COURSE_COMPOSE_ASSIST !== "false";
@@ -142,6 +143,57 @@ function replaceCourseOptionsSlot(prev, selectedKey, nextCourse) {
   return out;
 }
 
+const DELIVERY_ONLY_HINT_RE =
+  /(배달\s*전문|배달전문점|배달\s*전용|포장\s*전문|포장전문점|포장\s*전용|테이크\s*아웃\s*전문|take[\s-]?out\s*only|delivery\s*only|배달만|포장만|홀\s*없음|매장\s*없음|조리\s*매장)/i;
+
+function isDeliveryOnlyVenue(place) {
+  if (!place || typeof place !== "object") return false;
+  const raw = place?._raw && typeof place._raw === "object" ? place._raw : {};
+  const chunks = [
+    place.category_name,
+    place.category,
+    place.place_name,
+    place.name,
+    place.address_name,
+    place.place_url,
+    raw.place_url,
+    raw.road_address_name,
+    raw.address_name,
+    raw.category_name,
+    raw.category_group_name,
+    raw.menu,
+    raw.description,
+    raw.store_type,
+    raw.biz_type,
+    ...(Array.isArray(place.categories) ? place.categories : []),
+    ...(Array.isArray(place.tags) ? place.tags : []),
+    ...(Array.isArray(raw.tags) ? raw.tags : []),
+    ...(Array.isArray(raw.keywords) ? raw.keywords : []),
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  if (!chunks.length) return false;
+  const hay = chunks.join(" | ");
+  return DELIVERY_ONLY_HINT_RE.test(hay);
+}
+
+function filterDeliveryOnlySecondCandidates(courses = []) {
+  if (!Array.isArray(courses) || courses.length === 0) return [];
+  return courses.filter((course) => {
+    const steps = Array.isArray(course?.steps) ? course.steps : [];
+    if (steps.length < 2) return false;
+    const secondPlace = steps[steps.length - 1]?.place;
+    const excluded = isDeliveryOnlyVenue(secondPlace);
+    if (excluded && import.meta.env.DEV) {
+      console.debug("[2차필터] 배달/포장전문 제외", {
+        name: secondPlace?.name || secondPlace?.place_name || "",
+        category: secondPlace?.category_name || secondPlace?.category || "",
+      });
+    }
+    return !excluded;
+  });
+}
+
 export function useCourseSearch() {
   const [courseOptions, setCourseOptions] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -242,6 +294,18 @@ export function useCourseSearch() {
     });
     setCourseQueryParsed(parsed);
 
+    const perf = createPerfTrace("course:engine", {
+      query: trimmed,
+      area: parsed?.area ?? null,
+      dateMode: parsed?.dateMode ?? null,
+    });
+    let perfEnded = false;
+    const finishPerf = (extra) => {
+      if (perfEnded) return;
+      perfEnded = true;
+      perf.end(extra);
+    };
+
     try {
       if (
         loadOpts?.halfStepEditMode === "strip" &&
@@ -265,10 +329,13 @@ export function useCourseSearch() {
         setSeenCourseKeys(keys);
         setSeenVenuePairKeys(pairs);
         const mapPlaces = courseOptionsToMapPlaces(strippedEngine);
+        finishPerf({ path: "half_step_strip", options: fullOptions.length });
         return { handled: true, options: fullOptions, mapPlaces, parsed };
       }
 
-      const { rows, error } = await fetchCoursePlacesRows(supabase);
+      const { rows, error } = await perf.time("supabase_places_select", () =>
+        fetchCoursePlacesRows(supabase)
+      );
 
       if (error) {
         console.error("course search places:", error);
@@ -276,6 +343,7 @@ export function useCourseSearch() {
         setCourseOptions([]);
         setCoursePlaces([]);
         setSelectedCourse(null);
+        finishPerf({ path: "supabase_error" });
         return { handled: true, options: [], mapPlaces: [], parsed };
       }
 
@@ -289,6 +357,7 @@ export function useCourseSearch() {
         );
         setSelectedCourse(null);
         setCoursePlaces([]);
+        finishPerf({ path: "empty_places" });
         return { handled: true, options: [], mapPlaces: [], parsed };
       }
 
@@ -328,9 +397,8 @@ export function useCourseSearch() {
         try {
           const anchor = resolveCourseKakaoAnchorPlace(placesForCourse, origin);
           if (anchor) {
-            const kakaoBridge = await fetchKakaoPlacesForCourseBridgeAround(
-              anchor,
-              { radius: 2000 }
+            const kakaoBridge = await perf.time("kakao_bridge_augment", () =>
+              fetchKakaoPlacesForCourseBridgeAround(anchor, { radius: 2000 })
             );
             if (kakaoBridge.length) {
               bridgeAugmentForEngine = kakaoBridge.filter(
@@ -378,27 +446,32 @@ export function useCourseSearch() {
         return { handled: true, options: fullOptions, mapPlaces, parsed };
       }
 
-      const pool = generateCourseCandidatePool({
-        parsedQuery: parsed,
-        places: placesForCourse,
-        bridgeAugment: bridgeAugmentForEngine,
-        limit: 12,
-        excludeCourseKeys: [],
-        excludeVenuePairKeys: [],
-      });
+      const pool = await perf.time("generate_course_pool", async () =>
+        generateCourseCandidatePool({
+          parsedQuery: parsed,
+          places: placesForCourse,
+          bridgeAugment: bridgeAugmentForEngine,
+          limit: 12,
+          excludeCourseKeys: [],
+          excludeVenuePairKeys: [],
+        })
+      );
 
-      let options = generateCourseOptions({
-        parsedQuery: parsed,
-        places: placesForCourse,
-        bridgeAugment: bridgeAugmentForEngine,
-        maxOptions: 3,
-        excludeCourseKeys: [],
-        excludeVenuePairKeys: [],
-      });
+      let options = await perf.time("generate_course_options", async () =>
+        generateCourseOptions({
+          parsedQuery: parsed,
+          places: placesForCourse,
+          bridgeAugment: bridgeAugmentForEngine,
+          maxOptions: 3,
+          excludeCourseKeys: [],
+          excludeVenuePairKeys: [],
+        })
+      );
       let composeSummary = "";
 
       if (ENABLE_COURSE_COMPOSE_ASSIST && pool.length >= 2) {
-        const assist = await raceCourseComposeAssist({
+        const assist = await perf.time("course_compose_assist", () =>
+          raceCourseComposeAssist({
           query: trimmed,
           parsed: {
             raw: parsed.raw,
@@ -410,7 +483,8 @@ export function useCourseSearch() {
           },
           candidates: compactCourseCandidatesForAssist(pool),
           maxPick: 3,
-        });
+          })
+        );
         if (assist) {
           const applied = applyCourseComposeAssist(pool, assist, {
             maxDisplay: 3,
@@ -449,6 +523,11 @@ export function useCourseSearch() {
       setSeenVenuePairKeys(pairs);
 
       const mapPlaces = courseOptionsToMapPlaces(options);
+      finishPerf({
+        options: options.length,
+        pool: pool.length,
+        placesPool: placesForCourse.length,
+      });
       return {
         handled: true,
         options,
@@ -458,6 +537,7 @@ export function useCourseSearch() {
       };
     } finally {
       setIsLoadingCourse(false);
+      finishPerf({ incomplete: true });
     }
   }, []);
 
@@ -508,12 +588,13 @@ export function useCourseSearch() {
           setCoursePlaces(places);
         }
 
-        const results = regenerateSecondStep({
+        const rawResults = regenerateSecondStep({
           selectedCourse,
           parsedQuery: courseQueryParsed,
           places,
           variant,
         });
+        const results = filterDeliveryOnlySecondCandidates(rawResults);
 
         if (results.length) {
           if (applyPick) {
@@ -590,13 +671,14 @@ export function useCourseSearch() {
           }
         }
 
-        return regenerateSecondStep({
+        const rawResults = regenerateSecondStep({
           selectedCourse: course,
           parsedQuery,
           places,
           variant,
           userSecondPreferences: opts.userSecondPreferences ?? null,
         });
+        return filterDeliveryOnlySecondCandidates(rawResults);
       } catch (e) {
         console.error(e);
         setCourseError("2차 재추천 중 문제가 생겼어요.");

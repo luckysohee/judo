@@ -2,7 +2,7 @@ export const JUDO_OPEN_HOUR = 16;
 
 /** 낮 모드 브랜드 한 줄 — 헤더(`judoCopy.sub`) 전용 */
 export const JUDO_DAY_BRAND_LINE =
-  "지금은 미리 픽하는 시간. 오후 4시, 한잔지도 오픈.";
+  "지금은 미리 픽하는 시간. 오후 4시. 한잔(live check in) 가능 시간";
 
 /** 좁은 스트립·빈 상태 한 줄 — 헤더 전체 문구와 중복하지 않음 */
 export const JUDO_DAY_SIDE_STRIP_HINT = "오후 4시 라이브";

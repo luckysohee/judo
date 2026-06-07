@@ -8,6 +8,7 @@ export const STUDIO_LIQUOR_TYPE_OPTIONS = [
   "소주",
   "맥주",
   "막걸리",
+  "전통주",
   "하이볼",
   "위스키",
   "고량주",

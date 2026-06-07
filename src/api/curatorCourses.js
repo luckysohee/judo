@@ -286,11 +286,7 @@ export async function fetchCuratorCourseForHomePreview(courseId) {
           lng,
           kakao_place_id,
           address,
-          category,
-          category_name,
-          region,
-          road_address_name,
-          address_name
+          category
         )
       )
     `

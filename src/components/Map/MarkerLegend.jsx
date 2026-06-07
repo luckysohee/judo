@@ -37,13 +37,13 @@ export default function MarkerLegend({
         style={styles.savedOnlyButton}
         aria-label={
           savedOnly
-            ? "내가 저장한 장소만 보기 해제"
-            : "내가 저장한 장소만 보기 (큐레이터는 비공개 추천 포함)"
+            ? "내 저장·추천 장소 마커 숨기기"
+            : "내 저장·추천 장소 마커 표시 (큐레이터는 비공개 추천 포함)"
         }
         title={
           savedOnly
-            ? "내가 저장한 장소만 보기 해제"
-            : "내가 저장한 장소만 보기 · 큐레이터는 내 비공개 추천까지 표시"
+            ? "내 저장·추천 장소 마커 숨기기"
+            : "내 저장·추천 장소 마커 표시 · 큐레이터는 내 비공개 추천까지"
         }
       >
         <span

@@ -13,6 +13,10 @@ import { sanitizeSheetStoryLine, canonicalCuratorChipToken } from "../../pages/H
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName";
 
+const PULL_COLLAPSE_PX = 36;
+const PULL_DISMISS_FROM_COLLAPSED_PX = 72;
+const PULL_EXPAND_FROM_COLLAPSED_PX = -20;
+
 /**
  * 맞춤 추천 피크 바 + 펼침 바텀시트, 블로그 리뷰 블록, AI 시트 사진 뷰어 포털.
  */
@@ -68,17 +72,17 @@ export default function HomeAiBottomSheetCluster({
     ({ dy, dragged }) => {
       if (!dragged) return false;
       if (sheetCollapsed) {
-        if (dy <= -26) {
+        if (dy <= PULL_EXPAND_FROM_COLLAPSED_PX) {
           setSheetCollapsed(false);
           return true;
         }
-        if (dy >= 84) {
+        if (dy >= PULL_DISMISS_FROM_COLLAPSED_PX) {
           onDismissRecommendSheet?.();
           return true;
         }
         return false;
       }
-      if (dy >= 44) {
+      if (dy >= PULL_COLLAPSE_PX) {
         setSheetCollapsed(true);
         return true;
       }
@@ -218,6 +222,9 @@ export default function HomeAiBottomSheetCluster({
                               ) : null}
                             </div>
                           </div>
+                          <span style={styles.aiPeekArrow} aria-hidden>
+                            {sheetCollapsed ? "▲" : "▼"}
+                          </span>
                         </div>
                       </button>
 

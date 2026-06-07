@@ -15,8 +15,8 @@ import HomeSearchAuthSlot from "../../components/Home/HomeSearchAuthSlot";
 import UserCard from "../../components/UserCard/UserCard";
 import MapView from "../../components/Map/MapView";
 import HomeRecommendOverlay from "../../components/Home/HomeRecommendOverlay";
+import HomeJudoDayNoticeBar from "../../components/Home/HomeJudoDayNoticeBar";
 import HomeMapFloatingActions from "../../components/Home/HomeMapFloatingActions";
-import HomeDustIntroOverlay from "../../components/Home/HomeDustIntroOverlay";
 import CourseSecondFindModal from "../../components/Home/CourseSecondFindModal";
 import HomeMapLegendBar from "../../components/Home/HomeMapLegendBar";
 import HomeCourseMergedSheet from "../../components/Home/HomeCourseMergedSheet";
@@ -34,6 +34,8 @@ import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
 import { followUser } from "../../utils/userProfileFollows";
+import { runWhenIdle } from "../../utils/runWhenIdle";
+import { createPerfTrace } from "../../utils/devPerfTrace.js";
 
 import {
   getPlaceFolderIds,
@@ -179,6 +181,7 @@ import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStrip
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
 import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
+import { fetchMySavedPlacesForHomeMap } from "./fetchMySavedPlacesForMap";
 import {
   walkingRouteDisplayMinutes,
   getCourseLongWalkStrollHint,
@@ -258,7 +261,6 @@ import {
   findDbCuratorRowForChip,
   getCourseSwipeIndexFromScroll,
   getHomeSearchPlaceholderKst,
-  HOME_CENTER_DUST_INTRO_KEY,
   logSignalsCheckDev,
   mapPanAnchorKeyword,
   MAP_PAN_STATION_ALIAS,
@@ -1283,45 +1285,13 @@ export default function Home() {
   /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
   const now = useTickingNow();
 
-  const homeDustIntroDoneRef = useRef(false);
-  const [homeDustIntroDismissed, setHomeDustIntroDismissed] = useState(() => {
+  const dismissHomeDustIntro = useCallback(() => {
     try {
-      if (
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-      ) {
-        return true;
-      }
-      return sessionStorage.getItem(HOME_CENTER_DUST_INTRO_KEY) === "1";
+      window.dispatchEvent(new CustomEvent("judo:dust-intro-dismiss"));
     } catch {
-      return true;
-    }
-  });
-
-  const finishHomeDustIntro = useCallback(() => {
-    if (homeDustIntroDoneRef.current) return;
-    homeDustIntroDoneRef.current = true;
-    setHomeDustIntroDismissed(true);
-    try {
-      sessionStorage.setItem(HOME_CENTER_DUST_INTRO_KEY, "1");
-    } catch {
-      // ignore
+      /* ignore */
     }
   }, []);
-
-  const handleHomeDustIntroAnimationEnd = useCallback(
-    (e) => {
-      /** 일부 브라우저는 animationName 이 비어 있을 수 있음 — 이 노드엔 이 애니 하나만 */
-      if (
-        e.animationName &&
-        e.animationName !== "homeDustIntroCycle"
-      ) {
-        return;
-      }
-      finishHomeDustIntro();
-    },
-    [finishHomeDustIntro]
-  );
 
   const homeSearchInputRef = useRef(null);
 
@@ -1499,13 +1469,16 @@ export default function Home() {
     resetAll: resetKakaoSearchPlaces,
   } = useKakaoSearchPlaces();
   const [savedPlacesOpen, setSavedPlacesOpen] = useState(false);
+  /** 지도 우측 별(노란불): 로그인 유저·큐레이터 본인 저장·추천 장소만 표시 */
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [mySavedPlacesPool, setMySavedPlacesPool] = useState([]);
+  const mySavedPlacesLoadSeqRef = useRef(0);
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
   const selectedCuratorsRef = useRef([]);
   selectedCuratorsRef.current = selectedCurators;
-  const [showAll, setShowAll] = useState(true); // 기본값을 true로 변경
+  const [showAll, setShowAll] = useState(true);
   const [aiSummary, setAiSummary] = useState("");
   const [aiReasons, setAiReasons] = useState([]);
   const [aiRecommendedIds, setAiRecommendedIds] = useState([]);
@@ -1573,34 +1546,18 @@ export default function Home() {
     }
   }, [query]);
 
-  /** 홈 첫 진입 중앙 인트로 — 검색·카드·AI 검색으로 나가면 세션 완료 처리 */
+  /** 홈 첫 진입 인트로 — 검색·카드·AI 검색 시 App 레벨 오버레이 닫기 */
   useEffect(() => {
-    if (homeDustIntroDismissed) return;
     const idle =
       !selectedPlace &&
       !String(query || "").trim() &&
       !isAiSearching;
-    if (!idle) finishHomeDustIntro();
+    if (!idle) dismissHomeDustIntro();
   }, [
-    homeDustIntroDismissed,
     selectedPlace,
     query,
     isAiSearching,
-    finishHomeDustIntro,
-  ]);
-
-  /** 애니메이션 end 미수신 시에도 인트로 종료(백업) */
-  useEffect(() => {
-    if (homeDustIntroDismissed) return;
-    if (selectedPlace || String(query || "").trim() || isAiSearching) return;
-    const t = window.setTimeout(() => finishHomeDustIntro(), 5200);
-    return () => window.clearTimeout(t);
-  }, [
-    homeDustIntroDismissed,
-    selectedPlace,
-    query,
-    isAiSearching,
-    finishHomeDustIntro,
+    dismissHomeDustIntro,
   ]);
 
   /** 지도 빈 곳 클릭 시 증가 → MarkerLegend 패널 닫기 */
@@ -1683,17 +1640,20 @@ export default function Home() {
     setHomeSearchHistoryList(loadHomeSearchHistory(user?.id));
   }, [user?.id]);
 
-  const handleHomeDustIntroTapToAnswer = useCallback(() => {
-    finishHomeDustIntro();
-    homeSearchMode.open();
-    window.requestAnimationFrame(() => {
-      try {
-        homeSearchInputRef.current?.focus?.();
-      } catch {
-        // ignore
-      }
-    });
-  }, [finishHomeDustIntro, homeSearchMode]);
+  useEffect(() => {
+    const onTap = () => {
+      homeSearchMode.open();
+      window.requestAnimationFrame(() => {
+        try {
+          homeSearchInputRef.current?.focus?.();
+        } catch {
+          // ignore
+        }
+      });
+    };
+    window.addEventListener("judo:dust-intro-tap", onTap);
+    return () => window.removeEventListener("judo:dust-intro-tap", onTap);
+  }, [homeSearchMode]);
 
   const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
 
@@ -3933,6 +3893,35 @@ export default function Home() {
     loadDbPlacesForViewport,
   ]);
 
+  /** 노란별 ON — 뷰포트 밖 저장·추천 장소까지 별도 로드 («전체» 레이어와 분리) */
+  useEffect(() => {
+    if (!showSavedOnly || !user?.id) {
+      setMySavedPlacesPool([]);
+      return;
+    }
+    const seq = ++mySavedPlacesLoadSeqRef.current;
+    void (async () => {
+      try {
+        const rows = await fetchMySavedPlacesForHomeMap({
+          userId: user.id,
+          isCurator,
+          savedMap,
+          userSavedPlaces,
+        });
+        if (seq !== mySavedPlacesLoadSeqRef.current) return;
+        setMySavedPlacesPool(Array.isArray(rows) ? rows : []);
+        if (import.meta.env.DEV) {
+          devLog("⭐ 내 저장·추천 풀 로드:", rows?.length ?? 0);
+        }
+      } catch (e) {
+        devWarn("⭐ 내 저장·추천 풀 로드 실패:", e);
+        if (seq === mySavedPlacesLoadSeqRef.current) {
+          setMySavedPlacesPool([]);
+        }
+      }
+    })();
+  }, [showSavedOnly, user?.id, isCurator, savedMap, userSavedPlaces]);
+
   /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
   usePlaceDetailEnrichment(selectedPlace, setSelectedPlace, curatorAttachRowsRef);
 
@@ -3956,7 +3945,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void loadRisingCurators();
+    const cancel = runWhenIdle(() => {
+      void loadRisingCurators();
+    }, { timeout: 3500 });
+    return cancel;
   }, [loadRisingCurators, checkinRanking]);
 
   const handleRisingCuratorPick = useCallback(
@@ -4563,48 +4555,92 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlace, folders, savedMap]);
 
-  const filteredByCuratorPlaces = useMemo(() => {
-    // 노란별: 로그인 사용자 기준 «내가 저장한 장소만» (큐레이터=내 추천·비공개 포함 / 일반=폴더 저장)
-    if (showSavedOnly) {
-      if (!user) {
-        return [];
-      }
+  const mySavedOnlyDisplayPlaces = useMemo(() => {
+    if (!user?.id) return [];
 
-      if (isCurator) {
-        const myUsername = curatorProfile?.username;
-        const myPlaces = dbPlaces.filter((place) => {
-          if (!Array.isArray(place.curatorPlaces)) return false;
-          const byMode = place.curatorPlaces.some((cp) =>
-            curatorPlaceMatchesLoggedInCurator(cp, curatorProfile, user.id)
-          );
-          if (byMode) return true;
-          if (myUsername) {
-            return place.curatorPlaces.some(
-              (cp) => cp.curators?.username === myUsername
-            );
-          }
-          return false;
-        });
-        devLog("⭐ 저장만 보기(큐레이터·내 추천·비공개 포함):", myPlaces.length);
-        return myPlaces;
-      }
-
-      const savedKeySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
-      const folderSaved = dbPlaces.filter((p) =>
-        placeMatchesSavedKeySet(p, savedKeySet)
+    const savedKeySet = buildMergedSavedPlaceKeySet(savedMap, userSavedPlaces);
+    const matchesMine = (place) => {
+      if (placeMatchesSavedKeySet(place, savedKeySet)) return true;
+      if (!isCurator || !Array.isArray(place?.curatorPlaces)) return false;
+      const myUsername = curatorProfile?.username;
+      const byMode = place.curatorPlaces.some((cp) =>
+        curatorPlaceMatchesLoggedInCurator(cp, curatorProfile, user.id)
       );
-      devLog("⭐ 저장만 보기(일반·로컬+Supabase):", folderSaved.length);
-      return folderSaved;
+      if (byMode) return true;
+      if (myUsername) {
+        return place.curatorPlaces.some(
+          (cp) => cp.curators?.username === myUsername
+        );
+      }
+      return false;
+    };
+
+    const byId = new Map();
+    const ingest = (rows) => {
+      for (const place of rows || []) {
+        if (!matchesMine(place)) continue;
+        const c = resolvePlaceWgs84(place);
+        if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+        const key = String(place?.id ?? "");
+        if (!key) continue;
+        byId.set(key, place);
+      }
+    };
+
+    ingest(mySavedPlacesPool);
+    for (const place of dbPlaces) {
+      if (!matchesMine(place)) continue;
+      const c = resolvePlaceWgs84(place);
+      if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+      const key = String(place?.id ?? "");
+      if (key) byId.set(key, place);
     }
 
-    // 큐레이터 칩 미선택: «전체» on → 뷰포트 bbox 장소 전부(좌표만 확인) / off → 빈 목록
-    // 큐레이터 연결 여부는 마커·범례 스타일용이지, 여기서는 거르지 않음
-    if (selectedCurators.length === 0) {
-      if (!showAll) return [];
-      return dbPlaces.filter((place) => {
+    return [...byId.values()];
+    /** curatorProfile reference churn 방지 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    user?.id,
+    isCurator,
+    savedMap,
+    userSavedPlaces,
+    mySavedPlacesPool,
+    dbPlaces,
+    curatorProfile?.id,
+    curatorProfile?.user_id,
+    curatorProfile?.username,
+  ]);
+
+  const filteredByCuratorPlaces = useMemo(() => {
+    const viewportPlacesWithCoords = () =>
+      dbPlaces.filter((place) => {
         const c = resolvePlaceWgs84(place);
         return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
       });
+
+    // 큐레이터 칩 미선택: 별=내 저장·추천 / «전체»=뷰포트 전체 — 각각 독립 토글
+    if (selectedCurators.length === 0) {
+      if (!showSavedOnly && !showAll) return [];
+
+      const merged = [];
+      const seen = new Set();
+      const pushUnique = (rows) => {
+        for (const place of rows) {
+          const key = String(place?.id ?? "");
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(place);
+        }
+      };
+
+      if (showSavedOnly) {
+        devLog("⭐ 내 저장·추천 마커:", mySavedOnlyDisplayPlaces.length);
+        pushUnique(mySavedOnlyDisplayPlaces);
+      }
+      if (showAll) {
+        pushUnique(viewportPlacesWithCoords());
+      }
+      return merged;
     }
 
     // 선택된 큐레이터에 따라 필터링 (curator_id = curators.user_id, 칩=핸들 등 별칭 확장)
@@ -4641,21 +4677,15 @@ export default function Home() {
     }
 
     return filtered;
-    /** curatorProfile 전체 reference 변경에는 반응 X — id/user_id/username만 추적 */
+    /** curatorProfile reference churn 방지 — id/user_id/username만 */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     showSavedOnly,
     showAll,
+    mySavedOnlyDisplayPlaces,
     selectedCurators,
     dbPlaces,
     dbCurators,
-    user,
-    isCurator,
-    curatorProfile?.id,
-    curatorProfile?.user_id,
-    curatorProfile?.username,
-    savedMap,
-    userSavedPlaces,
   ]);
 
   const curatorSpotlightPlaces = useMemo(() => {
@@ -5161,17 +5191,22 @@ export default function Home() {
       );
     }
 
-    // 별표 버튼(showSavedOnly)이 켜져 있으면 모든 장소 표시 (큐레이터 기능)
-    if (showSavedOnly) {
+    // 노란별만 켜짐(«전체» off): 내 저장·추천 마커만 + 검색 핀
+    if (showSavedOnly && !showAll) {
       if (import.meta.env.DEV) {
-        devLog("⭐ mapDisplayedPlacesWithLegend (저장만):", displayedPlaces.length);
+        devLog(
+          "⭐ mapDisplayedPlacesWithLegend (내 저장·추천만):",
+          mySavedOnlyDisplayPlaces.length
+        );
       }
-      // 동일 id면 검색/카카오 쪽(isKakaoPlace)이 먼저 오도록 — 앞선 항목이 병합 시 유지됨
       return appendSelectedPlacePinIfMissing(
         applySituation(
           applyLegendCategoryFilter(
             dedupeMapPlacesByKakaoId(
-              mergePlaces(mergePlaces(displayedPlaces, kPins), kTypingPins)
+              mergePlaces(
+                mergePlaces(mySavedOnlyDisplayPlaces, kPins),
+                kTypingPins
+              )
             ),
             legendCategory
           )
@@ -5309,6 +5344,8 @@ export default function Home() {
   }, [
     displayedPlaces,
     showSavedOnly,
+    showAll,
+    mySavedOnlyDisplayPlaces,
     isCurator,
     kakaoPlaces,
     kakaoTypingPreviewPlaces,
@@ -5885,6 +5922,14 @@ const handleClearSearch = () => {
     const MIN_SEARCH_LOADING_MS = 1800;
     let shouldOpenAiSheetAfterLoad = false;
     let searchHadError = false;
+    let searchPerfTrace = null;
+    let searchPerfEnded = false;
+    const finishSearchPerf = (extra) => {
+      if (searchPerfEnded || !searchPerfTrace) return;
+      searchPerfEnded = true;
+      searchPerfTrace.end(extra);
+      searchPerfTrace = null;
+    };
     let searchResultIdsForLog = [];
     let searchModeForLog = shouldUseLocationSearch ? "nearby" : "map";
     /** 단일 검색창: 입력만으로 keyword_search vs ai_parse_search (채널 버튼 없음) */
@@ -5959,6 +6004,8 @@ const handleClearSearch = () => {
       if (useCoursePipeline) {
         clearImportRecommendationOverlay();
         searchModeForLog = "course";
+        searchPerfTrace = createPerfTrace("search:course", { query: nextQuery });
+        searchPerfTrace.mark("course_branch_start");
         let courseLoadOpts;
         let courseSearchOriginKind = "global";
 
@@ -6061,7 +6108,14 @@ const handleClearSearch = () => {
           includeHalfStep: courseIncludeHalfStep,
         };
         courseLastLoadOptsRef.current = mergedCourseLoadOpts;
-        const res = await runCourseSearch(nextQuery, mergedCourseLoadOpts);
+        const res = await (searchPerfTrace
+          ? searchPerfTrace.time("runCourseSearch", () =>
+              runCourseSearch(nextQuery, mergedCourseLoadOpts)
+            )
+          : runCourseSearch(nextQuery, mergedCourseLoadOpts));
+        searchPerfTrace?.mark("course_search_returned", {
+          options: res?.options?.length ?? 0,
+        });
         if (res.handled) {
           setExternalPlaces([]);
           setExternalPlacesPool([]);
@@ -7644,10 +7698,20 @@ const handleClearSearch = () => {
       }
       const elapsed = Date.now() - searchUiStartedAt;
       if (elapsed < MIN_SEARCH_LOADING_MS && !skipMinSearchLoading) {
-        await new Promise((r) =>
-          setTimeout(r, MIN_SEARCH_LOADING_MS - elapsed)
-        );
+        const padMs = MIN_SEARCH_LOADING_MS - elapsed;
+        searchPerfTrace?.mark("min_search_loading_pad", { ms: padMs });
+        await new Promise((r) => setTimeout(r, padMs));
+      } else {
+        searchPerfTrace?.mark("min_search_loading_skipped", {
+          elapsedMs: elapsed,
+          skipMinSearchLoading,
+        });
       }
+      finishSearchPerf({
+        searchMode: searchModeForLog,
+        resultCount: searchResultIdsForLog.length,
+        elapsedMs: Date.now() - searchUiStartedAt,
+      });
       setIsAiSearching(false);
       setSearchLoadingLabel("");
       homeSearchSkipCoursePreviewRef.current = false;
@@ -8401,18 +8465,6 @@ const handleClearSearch = () => {
               setSelectedPlaceWithAnalytics(mapTarget, "recommend_detail");
             }}
           />
-          <HomeDustIntroOverlay
-            visible={
-              !selectedPlace &&
-              !String(query || "").trim() &&
-              !isAiSearching &&
-              !homeDustIntroDismissed &&
-              !hideHomeMapChromeForDockedCourseSheet
-            }
-            onTapToAnswer={handleHomeDustIntroTapToAnswer}
-            onAnimationEnd={handleHomeDustIntroAnimationEnd}
-            styleMap={styles}
-          />
           <HomeMapFloatingActions
             showSearchHere={showMapSearchHereButton}
             onSearchHere={() => {
@@ -8521,17 +8573,18 @@ const handleClearSearch = () => {
         ) : null}
 
         {showJudoDayNoticeBar ? (
-          <div
-            style={styles.judoDayNoticeFixedBar}
-            role="status"
-            aria-live="polite"
+          <HomeJudoDayNoticeBar
+            clock={dayModeRemainingClock}
             title={dayModeNoticeText}
-          >
-            {dayModeNoticeText}
-          </div>
+          />
         ) : null}
 
-        <div style={styles.legendOverlay}>
+        <div
+          style={{
+            ...styles.legendOverlay,
+            ...(showJudoDayNoticeBar ? styles.legendOverlayBelowDayNotice : {}),
+          }}
+        >
           {courseSecondPickMode &&
           Array.isArray(courseSecondPulseMapPlaces) &&
           courseSecondPulseMapPlaces.length > 0 ? (
@@ -8552,14 +8605,36 @@ const handleClearSearch = () => {
             mapCloseTick={markerGuideMapCloseTick}
             savedOnly={showSavedOnly}
             onToggleSavedOnly={() => {
+              if (!user?.id) {
+                showToast("로그인 후 내 저장·추천 장소를 볼 수 있어요.", "info", 2800);
+                return;
+              }
               setShowSavedOnly((prev) => {
                 const next = !prev;
+                if (next) {
+                  setShowAll(false);
+                  void loadUserSavedPlaces();
+                }
                 if (next && selectedPlace) {
                   const savedKeySet = buildMergedSavedPlaceKeySet(
                     savedMap,
                     userSavedPlaces,
                   );
-                  if (!placeMatchesSavedKeySet(selectedPlace, savedKeySet)) {
+                  const inSaved = placeMatchesSavedKeySet(
+                    selectedPlace,
+                    savedKeySet,
+                  );
+                  const inMyCurator =
+                    isCurator &&
+                    Array.isArray(selectedPlace.curatorPlaces) &&
+                    selectedPlace.curatorPlaces.some((cp) =>
+                      curatorPlaceMatchesLoggedInCurator(
+                        cp,
+                        curatorProfile,
+                        user.id,
+                      ),
+                    );
+                  if (!inSaved && !inMyCurator) {
                     setSelectedPlace(null);
                   }
                 }
@@ -8632,7 +8707,6 @@ const handleClearSearch = () => {
                 placeholder={homeSearchPlaceholderText}
                 searchInputRef={homeSearchInputRef}
                 isLoading={isAiSearching}
-                loadingStatusText={searchLoadingLabel}
                 mapRef={mapRef}
                 compactRightActions={compactSearchBarAuth}
                 sheetDockedAbove={recommendSheetDocked}

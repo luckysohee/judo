@@ -2,7 +2,7 @@ import MarkerLegend from "../Map/MarkerLegend";
 
 /**
  * 지도 좌측 범례(`MarkerLegend`) + 우측 "내 위치" 버튼 묶음.
- * 저장만 보기 토글, 카테고리 필터, 내 위치 요청을 한 컴포넌트로 모아 Home의 JSX 잡음을 줄인다.
+ * 내 저장·추천 마커(별) 토글, 카테고리 필터, 내 위치 요청을 한 컴포넌트로 모아 Home의 JSX 잡음을 줄인다.
  */
 export default function HomeMapLegendBar({
   mapCloseTick,

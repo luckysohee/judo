@@ -1343,6 +1343,11 @@ const MapView = forwardRef(({
               setMapError("");
               setPhoneMapDebug("");
               if (import.meta.env.DEV) console.log("지도 생성 완료");
+              try {
+                window.dispatchEvent(new CustomEvent("judo:map-ready"));
+              } catch {
+                /* ignore */
+              }
 
               // 지도 스타일 설정
               mapContainerRef.current.style.backgroundColor = "#ffffff";

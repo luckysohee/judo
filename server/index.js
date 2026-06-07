@@ -2680,6 +2680,10 @@ app.post("/api/nearby-with-blog", async (req, res) => {
  * body: { placeId, query(장소명), x(경도 WGS84), y(위도) } — x,y 있으면 반경·거리 정렬로 정확도 보강
  */
 app.post("/api/kakao/place-details", async (req, res) => {
+  const perfT0 = Date.now();
+  let perfCache = false;
+  let perfPages = 0;
+  let perfOgMs = 0;
   try {
     const key = getKakaoRestApiKey();
     if (!key) {
@@ -2713,6 +2717,13 @@ app.post("/api/kakao/place-details", async (req, res) => {
     const cacheKey = `${pid}|${q.slice(0, 80)}|${hasCoords ? `${latNum.toFixed(4)},${lngNum.toFixed(4)}` : ""}`;
     const cachedPayload = kakaoPlaceDetailsCache.get(cacheKey);
     if (cachedPayload) {
+      perfCache = true;
+      if (process.env.PERF_TRACE === "true" || process.env.NODE_ENV !== "production") {
+        console.info("[perf:server] kakao/place-details", {
+          ms: Date.now() - perfT0,
+          cache: true,
+        });
+      }
       return res.json(cachedPayload);
     }
 
@@ -2731,6 +2742,7 @@ app.post("/api/kakao/place-details", async (req, res) => {
     const mergedDocs = [];
     let lastResponse = null;
     for (let page = 1; page <= 3; page++) {
+      perfPages = page;
       const response = await axios.get(
         "https://dapi.kakao.com/v2/local/search/keyword.json",
         {
@@ -2762,12 +2774,23 @@ app.post("/api/kakao/place-details", async (req, res) => {
       mergedDocs.push(...pageDocs);
       const hit = pageDocs.find((d) => d && String(d.id) === pid);
       if (hit) {
+        const ogT0 = Date.now();
         const enriched = await enrichKakaoPlaceDocWithOgImage(hit);
+        perfOgMs = Date.now() - ogT0;
         const payload = {
           documents: enriched ? [enriched] : [],
           meta: response.data?.meta,
         };
         kakaoPlaceDetailsCache.set(cacheKey, payload);
+        if (process.env.PERF_TRACE === "true" || process.env.NODE_ENV !== "production") {
+          console.info("[perf:server] kakao/place-details", {
+            ms: Date.now() - perfT0,
+            cache: false,
+            pages: perfPages,
+            ogMs: perfOgMs,
+            placeId: pid,
+          });
+        }
         return res.json(payload);
       }
       if (response.data?.meta?.is_end || pageDocs.length === 0) break;
@@ -2797,15 +2820,27 @@ app.post("/api/kakao/place-details", async (req, res) => {
       chosen = sorted[0];
     }
 
+    const ogT0 = Date.now();
     const enrichedChosen = chosen
       ? await enrichKakaoPlaceDocWithOgImage(chosen)
       : null;
+    perfOgMs = Date.now() - ogT0;
 
     const payload = {
       documents: enrichedChosen ? [enrichedChosen] : [],
       meta: lastResponse?.data?.meta,
     };
     kakaoPlaceDetailsCache.set(cacheKey, payload);
+    if (process.env.PERF_TRACE === "true" || process.env.NODE_ENV !== "production") {
+      console.info("[perf:server] kakao/place-details", {
+        ms: Date.now() - perfT0,
+        cache: false,
+        pages: perfPages,
+        ogMs: perfOgMs,
+        placeId: pid,
+        fuzzy: !byId && Boolean(chosen),
+      });
+    }
     res.json(payload);
   } catch (error) {
     const st = error.response?.status;

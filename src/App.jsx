@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "./components/Toast/ToastProvider";
 import PostLoginAdminRedirect from "./components/PostLoginAdminRedirect";
 import AdminRoute from "./components/AdminRoute";
-import Home from "./pages/Home/Home";
+const Home = lazy(() => import("./pages/Home/Home"));
 import MapView from "./components/Map/MapView";
 import PlaceDetailPage from "./pages/PlaceDetailPage";
 import CuratorPageScreen from "./pages/CuratorPageScreen";
@@ -16,6 +16,7 @@ import CourseDetailPage from "./pages/Courses/CourseDetailPage";
 import CompletedCoursesPage from "./pages/CompletedCoursesPage";
 import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
+import HomeEntryIntro from "./components/Home/HomeEntryIntro";
 
 const AdminHubPage = lazy(() => import("./pages/AdminHubPage"));
 const AdminApplicationsPage = lazy(() => import("./pages/AdminApplicationsPage"));
@@ -55,9 +56,10 @@ function App() {
     <ToastProvider>
     <CourseCompletionOverlay />
     <EntrySplash />
+    <HomeEntryIntro />
     <PostLoginAdminRedirect />
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<Lazy><Home /></Lazy>} />
       <Route path="/map" element={<MapView />} />
       <Route path="/place/:id" element={<PlaceDetailPage />} />
       <Route path="/courses/:courseId" element={<CourseDetailPage />} />

@@ -1,21 +1,58 @@
 import { useEffect, useState } from "react";
 
-const MIN_VISIBLE_MS = 800;
-const FADE_OUT_MS = 420;
+/** JUDO 로고 최소 노출 — 지도가 빨리 떠도 이 시간은 채움 */
+export const ENTRY_SPLASH_MIN_MS = 3000;
+export const ENTRY_SPLASH_FADE_MS = 550;
+/** 지도 SDK가 매우 느릴 때만 강제 해제 */
+export const ENTRY_SPLASH_MAX_WAIT_MS = 14000;
+
+const MIN_VISIBLE_MS = ENTRY_SPLASH_MIN_MS;
+const FADE_OUT_MS = ENTRY_SPLASH_FADE_MS;
+const MAX_WAIT_MS = ENTRY_SPLASH_MAX_WAIT_MS;
 
 /**
- * 앱 첫 마운트 시 블랙 배경 + 로고 — 뒤에서 홈·지도가 로드되는 동안 체감 부드럽게.
+ * 앱 첫 마운트 시 블랙 배경 + JUDO — 지도 로드와 별개로 충분히 보여 준 뒤 페이드아웃.
  */
 export default function EntrySplash() {
   const [visible, setVisible] = useState(true);
   const [fading, setFading] = useState(false);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setFading(true), MIN_VISIBLE_MS);
-    const t2 = setTimeout(() => setVisible(false), MIN_VISIBLE_MS + FADE_OUT_MS);
+    let cancelled = false;
+    const started = performance.now();
+    let fadeTimer = null;
+    let hideTimer = null;
+
+    const scheduleDismiss = () => {
+      if (cancelled || fadeTimer) return;
+      const remain = Math.max(0, MIN_VISIBLE_MS - (performance.now() - started));
+      fadeTimer = setTimeout(() => {
+        if (cancelled) return;
+        setFading(true);
+        hideTimer = setTimeout(() => {
+          if (cancelled) return;
+          setVisible(false);
+          try {
+            if (typeof window !== "undefined") {
+              window.__judoSplashHidden = true;
+            }
+            window.dispatchEvent(new CustomEvent("judo:splash-hidden"));
+          } catch {
+            /* ignore */
+          }
+        }, FADE_OUT_MS);
+      }, remain);
+    };
+
+    window.addEventListener("judo:map-ready", scheduleDismiss, { once: true });
+    const maxTimer = setTimeout(scheduleDismiss, MAX_WAIT_MS);
+
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      cancelled = true;
+      window.removeEventListener("judo:map-ready", scheduleDismiss);
+      clearTimeout(maxTimer);
+      clearTimeout(fadeTimer);
+      clearTimeout(hideTimer);
     };
   }, []);
 
