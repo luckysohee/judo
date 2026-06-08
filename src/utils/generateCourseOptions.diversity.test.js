@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { generateCourseOptions } from "./generateCourseOptions.js";
+import {
+  filterByArea,
+  generateCourseOptions,
+} from "./generateCourseOptions.js";
 import { parseCourseQuery } from "./parseCourseQuery.js";
 
 function mockPlace(id, name, category, lat, lng, extra = {}) {
@@ -50,5 +53,69 @@ describe("generateCourseOptions diversity", () => {
       .map((c) => c?.steps?.[0]?.place?.id)
       .filter(Boolean);
     expect(new Set(firstKeys).size).toBe(firstKeys.length);
+  });
+
+  it("연남동 데이트 코스는 홍대 클러스터에 연남 장소를 포함한다", () => {
+    const parsed = parseCourseQuery("연남동 데이트 코스");
+    expect(parsed.area).toBe("홍대");
+
+    const yeonnamMeal = mockPlace(
+      "y1",
+      "연남 비스트로",
+      "양식",
+      37.5612,
+      126.9228,
+      {
+        tags: ["데이트", "식사가능"],
+        address: "서울 마포구 연남동",
+        region: "연남",
+      }
+    );
+    const yeonnamBar = mockPlace(
+      "y2",
+      "연남 와인바",
+      "와인바",
+      37.5615,
+      126.923,
+      {
+        tags: ["데이트", "2차"],
+        address: "서울 마포구 연남동",
+        region: "연남",
+      }
+    );
+    const yeonnamBar2 = mockPlace(
+      "y3",
+      "연남 바",
+      "바",
+      37.5618,
+      126.9235,
+      {
+        tags: ["2차", "분위기"],
+        address: "서울 마포구 연남동",
+        region: "연남",
+      }
+    );
+    const yeonnamMeal2 = mockPlace(
+      "y4",
+      "연남 이자카야",
+      "이자카야",
+      37.5608,
+      126.9225,
+      {
+        tags: ["데이트"],
+        address: "서울 마포구 연남동",
+        region: "연남",
+      }
+    );
+    const places = [yeonnamMeal, yeonnamBar, yeonnamBar2, yeonnamMeal2];
+    const inArea = filterByArea(places, "홍대");
+    expect(inArea.length).toBe(4);
+
+    const options = generateCourseOptions({
+      parsedQuery: parsed,
+      places,
+      maxOptions: 3,
+    });
+    expect(options.length).toBeGreaterThanOrEqual(1);
   });
 });

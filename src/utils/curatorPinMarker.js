@@ -5,6 +5,8 @@
  * 카카오 MarkerImage(data:image/svg+xml)용 문자열만 생성한다.
  */
 
+import { buildCourseVenueNameLabelSvg } from "./mapMarkerVenueLabel.js";
+
 /** viewBox 0 0 16 16 */
 export const BOOTSTRAP_GEO_ALT_FILL_D =
   "M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10zm0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6z";
@@ -131,8 +133,12 @@ export function buildCuratorPinSvg({
       />
     </g>`;
 
+  const venueLabel = buildCourseVenueNameLabelSvg(pinW / 2, pinH + 1, place);
+  const totalW = Math.max(pinW, venueLabel.width);
+  const totalH = pinH + venueLabel.height;
+
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${pinW}" height="${pinH}" viewBox="0 0 ${pinW} ${pinH}">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
       <defs>
         <filter id="pinShade" x="-50%" y="-50%" width="200%" height="200%">
           <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
@@ -148,8 +154,15 @@ export function buildCuratorPinSvg({
         ${courseRouteBadge}
         ${mapShortCaptionBadge}
         ${checkinMarkerDecorationsSvg}
+        ${venueLabel.svg}
       </g>
     </svg>`;
 
-  return { svg, width: pinW, height: pinH };
+  return {
+    svg,
+    width: totalW,
+    height: totalH,
+    /** 좌표 앵커 — 핀 끝(상호 라벨은 아래로만 늘림) */
+    anchorY: pinH,
+  };
 }

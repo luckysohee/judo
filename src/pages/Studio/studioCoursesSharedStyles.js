@@ -1,7 +1,11 @@
 /** 스튜디오 코스 페이지 — StudioHome 다크 톤과 맞춤 */
 export const studioCoursesShell = {
-  padding: "12px 12px 28px",
-  minHeight: "100vh",
+  position: "fixed",
+  inset: 0,
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  padding: 0,
   width: "100%",
   maxWidth: "100%",
   boxSizing: "border-box",
@@ -9,7 +13,18 @@ export const studioCoursesShell = {
   color: "#ffffff",
   fontFamily:
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-  position: "relative",
+};
+
+export const studioCoursesScrollMain = {
+  flex: 1,
+  minHeight: 0,
+  overflowX: "hidden",
+  overflowY: "auto",
+  WebkitOverflowScrolling: "touch",
+  overscrollBehaviorY: "contain",
+  touchAction: "pan-y",
+  padding: "12px 12px calc(28px + env(safe-area-inset-bottom, 0px))",
+  boxSizing: "border-box",
 };
 
 export const studioCoursesInner = {
@@ -403,11 +418,14 @@ export const studioMapSearchMapShell = (isMobile) => ({
   width: "100%",
   height: isMobile ? "min(240px, 36vh)" : "min(320px, 52vh)",
   minHeight: isMobile ? "200px" : "260px",
+  maxHeight: isMobile ? "36vh" : "52vh",
   borderRadius: "10px",
   overflow: "hidden",
   border: "1px solid rgba(255,255,255,0.12)",
   backgroundColor: "rgba(0,0,0,0.35)",
   position: "relative",
+  flexShrink: 0,
+  touchAction: "pan-y",
 });
 
 export const studioMapSearchMapFill = {

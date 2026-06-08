@@ -652,13 +652,25 @@ export function useCourseSearch() {
           setCoursePlaces(places);
         }
 
-        if (opts.augmentPlacesWithKakaoNearFirst && course?.steps?.[0]?.place) {
+        const prefs = opts.userSecondPreferences ?? null;
+        const kakaoRadius = opts.kakaoSecondSearchRadius ?? 2200;
+        const wantsWineSecond = (prefs?.liquorTypes || []).some((l) =>
+          /와인/i.test(String(l))
+        );
+
+        const mergeKakaoAugment = async (augmentOpts = {}) => {
+          if (!opts.augmentPlacesWithKakaoNearFirst || !course?.steps?.[0]?.place) {
+            return;
+          }
           try {
             const kakaoNear = await fetchKakaoPlacesForCourseSecondAround(
               course.steps[0].place,
               {
-                anjuHints: opts.userSecondPreferences?.anjuHints,
-                radius: opts.kakaoSecondSearchRadius ?? 2200,
+                anjuHints: prefs?.anjuHints,
+                liquorTypes: prefs?.liquorTypes,
+                vibes: prefs?.vibes,
+                radius: kakaoRadius,
+                ...augmentOpts,
               }
             );
             if (kakaoNear.length) {
@@ -669,16 +681,37 @@ export function useCourseSearch() {
               console.warn("computeSecondStepCandidatesOnly kakao augment:", e);
             }
           }
+        };
+
+        await mergeKakaoAugment(wantsWineSecond ? { maxQueries: 8 } : {});
+
+        const scoreSecondCandidates = () =>
+          filterDeliveryOnlySecondCandidates(
+            regenerateSecondStep({
+              selectedCourse: course,
+              parsedQuery,
+              places,
+              variant,
+              userSecondPreferences: prefs,
+            })
+          );
+
+        let results = scoreSecondCandidates();
+
+        /** 와인 2차: DB·기본 카카오만으론 부족할 때 「분위기 있게 한잔」 칩과 같은 와인바 키워드로 한 번 더 */
+        if (wantsWineSecond && results.length < 2) {
+          await mergeKakaoAugment({
+            vibeChipFallback: true,
+            maxQueries: 8,
+            radius: Math.min(5000, kakaoRadius + 600),
+          });
+          const retried = scoreSecondCandidates();
+          if (retried.length > results.length) {
+            results = retried;
+          }
         }
 
-        const rawResults = regenerateSecondStep({
-          selectedCourse: course,
-          parsedQuery,
-          places,
-          variant,
-          userSecondPreferences: opts.userSecondPreferences ?? null,
-        });
-        return filterDeliveryOnlySecondCandidates(rawResults);
+        return results;
       } catch (e) {
         console.error(e);
         setCourseError("2차 재추천 중 문제가 생겼어요.");
@@ -979,6 +1012,7 @@ export function useCourseSearch() {
       if (existing && existingSteps.length >= 1) {
         const next = applyMapPickAsFirstStep(place);
         if (!next) return { ok: false };
+        setIsCourseMode(true);
         let parsedForSecond =
           courseQueryParsed ?? parseCourseQuery("코스 짜기");
         if (!parsedForSecond.area) {

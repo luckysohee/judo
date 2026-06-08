@@ -34,6 +34,13 @@ const DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY = {
     "분위기 데이트 와인 조용한 술집",
 };
 
+/** 술 상황 칩 UI 문구 — 시트 부제목 등 사용자 노출용 */
+const DRINKS_SITUATION_CHIP_UI_LABELS = {
+  [SITUATION_FOLDER.firstMeal]: "1차로 배 채우기",
+  [SITUATION_FOLDER.secondRound]: "2차 가기 좋은 곳",
+  [SITUATION_FOLDER.vibe]: "분위기 있게 한잔",
+};
+
 function shuffleArray(list) {
   const arr = Array.isArray(list) ? list.slice() : [];
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -369,6 +376,19 @@ function sanitizeBusinessName(v) {
 
 /** MapView `DEFAULT_MAP_CENTER` 와 동일 — 첫 진입·정렬 기준점 등(술 상황 칩은 지도를 여기로 끌지 않음) */
 const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
+
+/** MapView 초기 level(5) 성수 뷰 — 지도 idle 전 places-in-bounds 선요청용 */
+function defaultHomeMapViewportBounds(mapLevel = 5) {
+  const lat = SEONGSU_MAP_CENTER.lat;
+  const lng = SEONGSU_MAP_CENTER.lng;
+  const scale = Math.pow(2, Math.max(0, 8 - mapLevel));
+  const latHalf = 0.009 * scale;
+  const lngHalf = 0.011 * scale;
+  return {
+    sw: { lat: lat - latHalf, lng: lng - lngHalf },
+    ne: { lat: lat + latHalf, lng: lng + lngHalf },
+  };
+}
 
 /** 검색 피크·하단 탭·safe area — 과하면 지도가 더 어긋나 보여서 보수적으로만 보정 */
 function searchMapBottomChromePx() {
@@ -1113,6 +1133,7 @@ function logSignalsCheckDev(places) {
 export {
   EMPTY_LIVE_PLACE_IDS,
   DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
+  DRINKS_SITUATION_CHIP_UI_LABELS,
   shuffleArray,
   toHotStripRow,
   SITUATION_CHIP_MAP_VIEWPORT_MAX_RESULTS,
@@ -1131,6 +1152,7 @@ export {
   sanitizeSheetStoryLine,
   sanitizeBusinessName,
   SEONGSU_MAP_CENTER,
+  defaultHomeMapViewportBounds,
   searchMapBottomChromePx,
   HOME_CENTER_DUST_INTRO_KEY,
   getHomeSearchPlaceholderKst,

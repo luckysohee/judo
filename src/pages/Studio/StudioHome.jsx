@@ -4437,7 +4437,7 @@ export default function StudioHome() {
   };
 
   return (
-    <div style={styles.studioShell}>
+    <div className="app-route-scroll" style={styles.studioShell}>
       {/* 좌측 상단: 홈 · 내 저장(폴더) — 스튜디오 잔 작업과 분리 */}
       <div
         style={{
@@ -4462,6 +4462,7 @@ export default function StudioHome() {
         </button>
       </div>
       
+      <div style={styles.studioScrollHeader}>
       <header style={{ marginTop: "8px", marginBottom: "10px", padding: "0 8px" }}>
         <div style={{ fontSize: "12px", fontWeight: 600, color: "rgba(255,255,255,0.7)", letterSpacing: "-0.02em" }}>
           @{curatorProfile.username}님의
@@ -4538,7 +4539,9 @@ export default function StudioHome() {
           {STUDIO_TAB.archive}
         </button>
       </div>
+      </div>
 
+      <main className="app-route-scroll__main" style={styles.studioScrollMain}>
       {/* 잔 올리기 섹션 */}
       {activeSection === "add" && (
         <div style={styles.studioSectionInner}>
@@ -4592,6 +4595,7 @@ export default function StudioHome() {
               <MapView
                 key={`map-${activeSection}`}
                 ref={mapRef}
+                lockMapGestures
                 places={
                   searchedPlaces.length > 0
                     ? searchedPlaces.map((place) => ({
@@ -7085,6 +7089,7 @@ export default function StudioHome() {
           </div>
           </div>
       )}
+      </main>
 
       {studioPickDetailPlace ? (
         <PlaceDetail
@@ -7637,17 +7642,36 @@ const listSavedFolderStyles = {
 
 const styles = {
   studioShell: {
-    padding: "12px 12px 20px",
+    position: "fixed",
+    inset: 0,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    padding: 0,
     textAlign: "center",
-    minHeight: "100vh",
     width: "100%",
     maxWidth: "100%",
     minWidth: 0,
     backgroundColor: "#111111",
     color: "#ffffff",
     boxSizing: "border-box",
-    position: "relative",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  },
+  studioScrollMain: {
+    flex: 1,
+    minHeight: 0,
+    overflowX: "hidden",
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorY: "contain",
+    touchAction: "pan-y",
+    padding: "0 12px calc(20px + env(safe-area-inset-bottom, 0px))",
+    boxSizing: "border-box",
+  },
+  studioScrollHeader: {
+    flexShrink: 0,
+    padding: "12px 12px 0",
+    boxSizing: "border-box",
   },
   studioSectionInner: {
     textAlign: "left",

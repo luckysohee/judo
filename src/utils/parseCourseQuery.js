@@ -2,6 +2,8 @@ import {
   parseSearchQuery,
   normalizeHangulSearchCompounds,
   findAreaKeywordInQuery,
+  extractLocationAnchorFromQuery,
+  regionKeyForLocationToken,
   REGION_KEYWORDS,
 } from "./searchParser.js";
 
@@ -88,7 +90,26 @@ function resolveCourseArea(text, facets) {
   if (!area && text) {
     const hit = findAreaKeywordInQuery(text);
     if (hit) {
-      area = regionKeyForExactSynonym(String(hit).toLowerCase());
+      area =
+        regionKeyForLocationToken(hit) ||
+        regionKeyForExactSynonym(String(hit).toLowerCase());
+    }
+  }
+  if (!area && text) {
+    const anchor = extractLocationAnchorFromQuery(text);
+    if (anchor) {
+      area =
+        regionKeyForLocationToken(anchor) ||
+        COURSE_LEADING_TOKEN_TO_AREA[anchor] ||
+        COURSE_LEADING_TOKEN_TO_AREA[anchor.replace(/(역|동)$/u, "")] ||
+        null;
+      /** 사전에 없는 `OO동` — 주소·상호에 그 글자가 있으면 `placeMatchesArea`가 잡음 */
+      if (!area) {
+        const literal = anchor.replace(/(역|동)$/u, "") || anchor;
+        if (literal.length >= 2 && !COURSE_NON_LOCATION_TOKENS.has(literal)) {
+          area = literal;
+        }
+      }
     }
   }
   if (!area && text) {

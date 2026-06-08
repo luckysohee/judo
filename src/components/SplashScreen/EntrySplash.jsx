@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-/** JUDO 로고 최소 노출 — 지도가 빨리 떠도 이 시간은 채움 */
-export const ENTRY_SPLASH_MIN_MS = 3000;
+/** JUDO 로고 최소 노출 — 마커 준비되면 `judo:markers-ready`로 조기 해제 가능 */
+export const ENTRY_SPLASH_MIN_MS = 2000;
 export const ENTRY_SPLASH_FADE_MS = 550;
 /** 지도 SDK가 매우 느릴 때만 강제 해제 */
 export const ENTRY_SPLASH_MAX_WAIT_MS = 14000;
@@ -45,11 +45,13 @@ export default function EntrySplash() {
     };
 
     window.addEventListener("judo:map-ready", scheduleDismiss, { once: true });
+    window.addEventListener("judo:markers-ready", scheduleDismiss, { once: true });
     const maxTimer = setTimeout(scheduleDismiss, MAX_WAIT_MS);
 
     return () => {
       cancelled = true;
       window.removeEventListener("judo:map-ready", scheduleDismiss);
+      window.removeEventListener("judo:markers-ready", scheduleDismiss);
       clearTimeout(maxTimer);
       clearTimeout(fadeTimer);
       clearTimeout(hideTimer);

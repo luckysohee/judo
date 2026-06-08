@@ -113,7 +113,14 @@ import HomeCoursesDiscoveryPanel, {
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
+import HomeTodayTasteSuggest from "../../components/Home/HomeTodayTasteSuggest";
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
+import TasteOnboardingGate from "../../components/Onboarding/TasteOnboardingGate";
+import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
+import {
+  tasteProfileHasSignals,
+  tasteProfileToSecondFindDefaults,
+} from "../../utils/userTasteProfile";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
 import {
   mergeMapSearchPlacesDedupe,
@@ -253,8 +260,10 @@ import {
   canonicalCuratorChipToken,
   collectCuratorIdsForRescueMatch,
   COURSE_GPS_DEFAULT_RADIUS_M,
+  defaultHomeMapViewportBounds,
   DRINKS_SITUATION_CHIP_RESULT_HINTS,
   DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
+  DRINKS_SITUATION_CHIP_UI_LABELS,
   DRINKS_SITUATION_CHIP_UNIFIED_PHRASES,
   EMPTY_LIVE_PLACE_IDS,
   expandCuratorChipSelectionKeys,
@@ -349,6 +358,16 @@ export default function Home() {
     mapUserProfile,
     refreshMapUserProfile,
   } = useAuthRoleAndCurators({ user, authLoading, curatorAttachRowsRef });
+
+  const {
+    profile: tasteProfile,
+    loading: tastePrefsLoading,
+    needsOnboarding: tasteNeedsOnboarding,
+    saveOnboarding: saveTasteOnboarding,
+  } = useUserTastePreferences({
+    userId: user?.id,
+    authLoading,
+  });
 
   // 로컬 AI 검색 함수들
   const getCurrentUserLocation = () => {
@@ -1271,6 +1290,9 @@ export default function Home() {
   const mapViewportFetchInFlightRef = useRef(0);
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
+  const isFirstViewportScheduleRef = useRef(true);
+  const MAP_VIEWPORT_SESSION_CACHE_KEY = "judo_map_viewport_places_v1";
+  const MAP_VIEWPORT_SESSION_CACHE_TTL_MS = 12 * 60 * 1000;
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
   /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
@@ -1299,7 +1321,6 @@ export default function Home() {
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
   const loadDbPlacesForViewport = useCallback(
     async ({ boundsRaw, mapLevel }) => {
-      if (authLoading) return;
       if (String(query || "").trim()) return;
 
       const seq = ++mapViewportLoadSeqRef.current;
@@ -1413,6 +1434,34 @@ export default function Home() {
         ...formatBoundsPlaceRowsForMap(extraPlain),
       ];
       setDbPlaces(merged);
+      if (merged.length > 0) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("judo:markers-ready", {
+              detail: { count: merged.length },
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(
+            MAP_VIEWPORT_SESSION_CACHE_KEY,
+            JSON.stringify({
+              ts: Date.now(),
+              cacheKey,
+              plainRows: plainRows || [],
+              joinRows: joinResult.rows || [],
+              merged,
+            })
+          );
+        }
+      } catch {
+        /* ignore quota */
+      }
 
       if (import.meta.env.DEV) {
         devLog("📦 bounds fetch 결과:", merged.length, {
@@ -1427,22 +1476,27 @@ export default function Home() {
         setMapViewportDbLoading(false);
       }
     },
-    [authLoading, query]
+    [query]
   );
 
   const debouncedScheduleDbPlaces = useMemo(
     () =>
       debounce((payload) => {
         void loadDbPlacesForViewport(payload);
-      }, 400),
+      }, 180),
     [loadDbPlacesForViewport]
   );
 
   const scheduleDbPlacesForBounds = useCallback(
     (boundsRaw, mapLevel) => {
+      if (isFirstViewportScheduleRef.current) {
+        isFirstViewportScheduleRef.current = false;
+        void loadDbPlacesForViewport({ boundsRaw, mapLevel });
+        return;
+      }
       debouncedScheduleDbPlaces({ boundsRaw, mapLevel });
     },
-    [debouncedScheduleDbPlaces]
+    [debouncedScheduleDbPlaces, loadDbPlacesForViewport]
   );
 
   /** 하단 검색바: `basic` 카카오·경량 / `ai` 기존 주도·의도·통합 검색 */
@@ -1759,6 +1813,7 @@ export default function Home() {
 
   /** 맞춤 추천 리스트 시트 닫기 — 검색어는 유지, 추천·지도 마커만 정리 */
   const handleDismissRecommendSheet = useCallback(() => {
+    setRecommendSheetPinnedCollapsed(false);
     setAiSheetOpen(false);
     setAiSheetPage(0);
     setAiError("");
@@ -2589,6 +2644,9 @@ export default function Home() {
   const [mapCourseFirstBusy, setMapCourseFirstBusy] = useState(false);
   /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 「2차는 여기로」 */
   const [courseSecondPickMode, setCourseSecondPickMode] = useState(false);
+  /** 칩·추천 시트 → 2차 찾기·확정 후에도 맞춤 추천 시트는 접힌 채(루트 보기) */
+  const [recommendSheetPinnedCollapsed, setRecommendSheetPinnedCollapsed] =
+    useState(false);
   const lastSecondCandidatesRef = useRef([]);
   /** 2차 추천 직후: 후보 가게 마커 깜빡임(MapView courseMarkerPulse) */
   const [courseSecondPulseMapPlaces, setCourseSecondPulseMapPlaces] = useState(
@@ -3822,6 +3880,52 @@ export default function Home() {
     ]
   );
 
+  /** 지도 SDK·idle 전 성수 기본 bbox로 places 선요청 + 세션 캐시로 즉시 마커 */
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(MAP_VIEWPORT_SESSION_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const age = Date.now() - Number(parsed?.ts || 0);
+        if (
+          age >= 0 &&
+          age < MAP_VIEWPORT_SESSION_CACHE_TTL_MS &&
+          Array.isArray(parsed?.merged) &&
+          parsed.merged.length > 0
+        ) {
+          setDbPlaces(parsed.merged);
+          if (parsed.cacheKey && parsed.plainRows && parsed.joinRows) {
+            mapViewportFetchCacheRef.current[parsed.cacheKey] = {
+              plainRows: parsed.plainRows,
+              joinRows: parsed.joinRows,
+            };
+          }
+          try {
+            window.dispatchEvent(
+              new CustomEvent("judo:markers-ready", {
+                detail: { count: parsed.merged.length, fromSessionCache: true },
+              })
+            );
+          } catch {
+            /* ignore */
+          }
+          if (import.meta.env.DEV) {
+            devLog("📦 session viewport cache hit:", parsed.merged.length);
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const defaultBounds = defaultHomeMapViewportBounds(5);
+    lastMapBoundsRef.current = defaultBounds;
+    lastMapLevelRef.current = 5;
+    void loadDbPlacesForViewport({ boundsRaw: defaultBounds, mapLevel: 5 });
+    /** mount-only warm start */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onMapViewportChange = useCallback(
     ({ lat, lng, bounds, level }) => {
       if (bounds?.sw && bounds?.ne) {
@@ -4147,14 +4251,19 @@ export default function Home() {
 
   const openCourseSecondFindModal = useCallback(() => {
     if (!selectedPlace || mapCourseFirstBusy) return;
-    setCourseSecondFindVibes([]);
-    setCourseSecondFindLiquors([]);
+    const tasteDefaults = tasteProfileToSecondFindDefaults(tasteProfile);
+    setCourseSecondFindVibes(tasteDefaults.vibes);
+    setCourseSecondFindLiquors(tasteDefaults.liquorTypes);
     setCourseSecondFindAnju([]);
-    setCourseSecondFindPreferCloser(Boolean(courseQueryParsed?.walkable));
+    setCourseSecondFindPreferCloser(
+      courseQueryParsed?.walkable != null
+        ? Boolean(courseQueryParsed.walkable)
+        : tasteDefaults.preferCloser
+    );
     setCourseSecondFindPrioritizeCurators(false);
     setCourseSecondFindMaxDistanceM(3000);
     setCourseSecondFindModalOpen(true);
-  }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable]);
+  }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable, tasteProfile]);
 
   const cancelCourseSecondFindModal = useCallback(() => {
     setCourseSecondFindModalOpen(false);
@@ -4212,7 +4321,9 @@ export default function Home() {
           lastSecondCandidatesRef.current = results || [];
           setCourseSecondPulseMapPlaces(pulse);
           setCourseSecondPickMode(true);
+          setRecommendSheetPinnedCollapsed(true);
           setSelectedPlace(null);
+          setAiSheetOpen(false);
           showToast(
             "주변 2차 후보가 깜빡여요. 마커를 눌러 골라 주세요.",
             "info",
@@ -4233,6 +4344,7 @@ export default function Home() {
       showToast,
       mapCourseFirstBusy,
       query,
+      setAiSheetOpen,
     ]
   );
 
@@ -4267,7 +4379,7 @@ export default function Home() {
       }
       clearCourseSecondPickPulse();
       setSelectedPlace(null);
-      setAiSheetOpen(true);
+      setAiSheetOpen(false);
       showToast("2차로 확정했어요. 길 안내를 확인해 보세요.", "success", 3200);
     },
     [
@@ -4908,6 +5020,65 @@ export default function Home() {
     ]
   );
 
+  /**
+   * 맞춤 추천 시트가 접힌 피크·2차 고르기·루트 안내 중 — 하단 HOT/큐레이터/마퀴가 지도·시트를 가리지 않게
+   */
+  const hideHomeMapChromeForRecommendPeek = useMemo(() => {
+    const hasRecommendSheet =
+      (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
+      !simpleMapSearchMarkersOnly &&
+      !selectedPlace;
+    if (!hasRecommendSheet) return false;
+    return (
+      recommendSheetPinnedCollapsed ||
+      courseSecondPickMode ||
+      Boolean(courseMapOverlay)
+    );
+  }, [
+    aiRecommendedIds.length,
+    useImportRecPlacesForAiSheet,
+    simpleMapSearchMarkersOnly,
+    selectedPlace,
+    recommendSheetPinnedCollapsed,
+    courseSecondPickMode,
+    courseMapOverlay,
+  ]);
+
+  const showTodayTasteSuggest = useMemo(() => {
+    if (!user?.id || tastePrefsLoading) return false;
+    if (!tasteProfileHasSignals(tasteProfile)) return false;
+    if (tasteNeedsOnboarding) return false;
+    if (String(query || "").trim() || selectedPlace || homeSearchMode.isOpen) {
+      return false;
+    }
+    if (
+      isAiSearching ||
+      courseSecondPickMode ||
+      courseMapOverlay ||
+      mutualSearchPanelOpen
+    ) {
+      return false;
+    }
+    if (hideHomeMapChromeForRecommendPeek || hideHomeMapChromeForCourses) {
+      return false;
+    }
+    return true;
+  }, [
+    user?.id,
+    tastePrefsLoading,
+    tasteProfile,
+    tasteNeedsOnboarding,
+    query,
+    selectedPlace,
+    homeSearchMode.isOpen,
+    isAiSearching,
+    courseSecondPickMode,
+    courseMapOverlay,
+    mutualSearchPanelOpen,
+    hideHomeMapChromeForRecommendPeek,
+    hideHomeMapChromeForCourses,
+  ]);
+
   /** 낮 모드 상단 바(z≈24980)가 맞춤·코스 추천 시트(≈320) 위를 가리지 않게 */
   const showJudoDayNoticeBar = useMemo(() => {
     if (!judoMode.isDayMode) return false;
@@ -5134,7 +5305,9 @@ export default function Home() {
     ) {
       return null;
     }
-    return courseSecondPulseMapPlaces.map((p) => ({ ...p }));
+    return dedupeMapPlacesByKakaoId(
+      courseSecondPulseMapPlaces.map((p) => ({ ...p }))
+    );
   }, [courseSecondPickMode, courseSecondPulseMapPlaces]);
 
   const mapDisplayedPlacesWithLegend = useMemo(() => {
@@ -5147,6 +5320,18 @@ export default function Home() {
             { varietySeed: situationFolderFilter }
           )
         : rows;
+
+    /**
+     * 2차 후보 고르는 중: 추천·상황 칩·범례 필터·검색 마커 병합보다 우선.
+     * (추천 시트 → 카드 → 2차 찾기 경로에서 `isCourseMode`·`situationFolderFilter` 때문에
+     * 후보가 걸러지거나 일반 검색 핀만 보여 깜빡임이 안 보이던 문제)
+     */
+    if (courseSecondPulsePlacesForMap) {
+      return appendSelectedPlacePinIfMissing(
+        courseSecondPulsePlacesForMap,
+        selectedPlace
+      );
+    }
 
     const mergePlaces = (basePlaces, extraPlaces) => {
       const merged = [...basePlaces, ...extraPlaces];
@@ -5232,18 +5417,6 @@ export default function Home() {
     // 코스 모드: 코스 핀만(없으면 빈 지도 — 일반 검색 마커와 섞이지 않게)
     if (isCourseMode) {
       if (!courseError && Array.isArray(courseOptions) && courseOptions.length > 0) {
-        /** 2차 후보 고르는 중엔 펄스 전용 스냅샷 사용(미리보기 열어도 깜빡임 유지) */
-        if (courseSecondPulsePlacesForMap) {
-          return appendSelectedPlacePinIfMissing(
-            applySituation(
-              applyLegendCategoryFilter(
-                courseSecondPulsePlacesForMap,
-                legendCategory
-              )
-            ),
-            selectedPlace
-          );
-        }
         return appendSelectedPlacePinIfMissing(
           applySituation(
             applyLegendCategoryFilter(
@@ -5583,6 +5756,7 @@ export default function Home() {
   );
 
 const handleClearSearch = () => {
+  setRecommendSheetPinnedCollapsed(false);
   searchSessionIdRef.current = null;
   setQuery("");
   setSelectedPlace(null);
@@ -5741,6 +5915,8 @@ const handleClearSearch = () => {
     const skipCourseRecommendation = Boolean(options?.skipCourseRecommendation);
     const omitSearchBarText = Boolean(options?.omitSearchBarText);
     const chipResultProfile = String(options?.chipResultProfile || "").trim();
+    const isSituationChipSearch =
+      Boolean(options?.mapViewportChipSearch) && Boolean(chipResultProfile);
     homeSearchSkipCoursePreviewRef.current = skipCourseRecommendation;
 
     const naturalQ = parseNaturalQuery(nextQuery);
@@ -5749,6 +5925,7 @@ const handleClearSearch = () => {
     if (chipAnchorsMapViewport) {
       setPreserveMapViewportSituationChip(true);
       situationChipMapSearchViewportRef.current = true;
+      setSituationFolderFilter(chipResultProfile || null);
     } else {
       setPreserveMapViewportSituationChip(false);
       situationChipMapSearchViewportRef.current = false;
@@ -5878,6 +6055,7 @@ const handleClearSearch = () => {
     lastSearchSubmitQueryRef.current = nextQuery;
 
     // 검색 시작 시 모든 상태 초기화
+    setRecommendSheetPinnedCollapsed(false);
     setSelectedPlace(null);
     setAiError("");
     setAiSummary("");
@@ -5949,8 +6127,9 @@ const handleClearSearch = () => {
     if (useBasicSearchPipeline) {
       searchModeForLog = `${searchModeForLog}_basic`;
     }
-    aiRecommendExclusiveRef.current = !useBasicSearchPipeline;
-    let skipMinSearchLoading = useBasicSearchPipeline;
+    aiRecommendExclusiveRef.current =
+      isSituationChipSearch || !useBasicSearchPipeline;
+    let skipMinSearchLoading = useBasicSearchPipeline || isSituationChipSearch;
 
     const normalizedQueryForFeedback = normalizeQueryForFeedback(nextQuery);
     let searchScoreOptsBase = { searchFeedbackByPlaceKey: {} };
@@ -5958,7 +6137,9 @@ const handleClearSearch = () => {
     try {
       setIsAiSearching(true);
       setSearchLoadingLabel(
-        useBasicSearchPipeline
+        isSituationChipSearch
+          ? "근처에서 찾는 중…"
+          : useBasicSearchPipeline
           ? "장소 검색 중…"
           : wantsCourseGps && courseGpsPromise
             ? "위치 확인 중… (브라우저 창에서 허용 여부를 선택해 주세요)"
@@ -5967,20 +6148,25 @@ const handleClearSearch = () => {
               : getSearchLoadingMessage(nextQuery)
       );
 
-      try {
-        searchScoreOptsBase = {
-          searchFeedbackByPlaceKey: await fetchSearchFeedbackBoostMap(
-            normalizedQueryForFeedback
-          ),
-        };
-      } catch (fbPreErr) {
-        if (import.meta.env.DEV) {
-          devWarn("[search-feedback] prefetch:", fbPreErr);
+      if (!isSituationChipSearch) {
+        try {
+          searchScoreOptsBase = {
+            searchFeedbackByPlaceKey: await fetchSearchFeedbackBoostMap(
+              normalizedQueryForFeedback
+            ),
+          };
+        } catch (fbPreErr) {
+          if (import.meta.env.DEV) {
+            devWarn("[search-feedback] prefetch:", fbPreErr);
+          }
         }
       }
 
       const withSearchSocialBoost = async (places, extra = {}) => {
         const base = { ...searchScoreOptsBase, ...extra };
+        if (isSituationChipSearch) {
+          return base;
+        }
         try {
           const social = await fetchSearchSocialBoostByPlaces(
             supabase,
@@ -6151,14 +6337,15 @@ const handleClearSearch = () => {
         return;
       }
 
-      const intentAssistPromise = useBasicSearchPipeline
-        ? Promise.resolve(null)
-        : Promise.race([
-            fetchSearchIntentAssist(nextQuery),
-            new Promise((resolve) =>
-              setTimeout(() => resolve(null), SEARCH_INTENT_ASSIST_MS)
-            ),
-          ]);
+      const intentAssistPromise =
+        useBasicSearchPipeline || isSituationChipSearch
+          ? Promise.resolve(null)
+          : Promise.race([
+              fetchSearchIntentAssist(nextQuery),
+              new Promise((resolve) =>
+                setTimeout(() => resolve(null), SEARCH_INTENT_ASSIST_MS)
+              ),
+            ]);
 
       // 검색 모드에 따라 다르게 처리
       if (shouldUseLocationSearch) {
@@ -7129,7 +7316,11 @@ const handleClearSearch = () => {
          * 술 상황 칩 + 통합 검색: REST 키워드 검색은 전국 accuracy 편향 → 뷰포트 안 0건이 되기 쉬움.
          * 사용자가 본 지도 bounds 기준 카카오 SDK 후보를 항상 합친다(의도 불일치·잘못된 확장 검색 완화).
          */
-        if (chipAnchorsMapViewport && mapPlaces.length > 0) {
+        if (
+          chipAnchorsMapViewport &&
+          mapPlaces.length > 0 &&
+          unifiedApiRespondedOk
+        ) {
           try {
             const sdkForChipViewport = await runSdkMapSearchWithFallbacks(
               mapQuery,
@@ -7361,7 +7552,8 @@ const handleClearSearch = () => {
         if (
           useBasicSearchPipeline &&
           scoredPlaces.length < KEYWORD_SEARCH_FALLBACK_MIN_RESULTS &&
-          !kakaoGeographicOnly
+          !kakaoGeographicOnly &&
+          !isSituationChipSearch
         ) {
           telemetryPreFallbackResultCount = scoredPlaces.length;
           try {
@@ -7441,7 +7633,9 @@ const handleClearSearch = () => {
           }
         }
 
-        scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+        if (!isSituationChipSearch) {
+          scoredPlaces = await verifyTopKakaoSearchCandidates(scoredPlaces);
+        }
 
         telemetryQualitySummary =
           summarizeSearchResultQualityForTelemetry(scoredPlaces);
@@ -7457,14 +7651,19 @@ const handleClearSearch = () => {
 
         if (chipAnchorsMapViewport && AI_API_BASE) {
           try {
-            const dbChipBlend = await fetchCuratorPlaceDbSearch(AI_API_BASE, {
-              query: nextQuery,
-              limit: 14,
-              mode: "auto",
-              maxDistanceM: SITUATION_CHIP_CURATOR_API_MAX_DISTANCE_M,
-              originLat: sortOrigin?.lat,
-              originLng: sortOrigin?.lng,
-            });
+            const dbChipBlend = await Promise.race([
+              fetchCuratorPlaceDbSearch(AI_API_BASE, {
+                query: nextQuery,
+                limit: 14,
+                mode: "auto",
+                maxDistanceM: SITUATION_CHIP_CURATOR_API_MAX_DISTANCE_M,
+                originLat: sortOrigin?.lat,
+                originLng: sortOrigin?.lng,
+              }),
+              new Promise((_, reject) => {
+                setTimeout(() => reject(new Error("chip_curator_blend_timeout")), 650);
+              }),
+            ]);
             if (dbChipBlend.ok && dbChipBlend.rows?.length) {
               biasedScoredPlaces = mergeSituationChipCuratorPlaces(
                 biasedScoredPlaces,
@@ -7510,14 +7709,26 @@ const handleClearSearch = () => {
           if (!s) return "";
           return s.length > 36 ? `${s.slice(0, 36)}…` : s;
         })();
+        const chipUiLabel =
+          chipAnchorsMapViewport && chipResultProfile
+            ? DRINKS_SITUATION_CHIP_UI_LABELS[chipResultProfile] || ""
+            : "";
         setAiSummary(
           yajangBannerPayloadMap
             ? `5km 안 큐레이터 야장 ${biasedScoredPlaces.length}곳 · ${searchKeywordApi}`
-            : intentLineMap
-              ? `${searchKeywordApi} 검색 · ${intentLineMap}`
-              : `${searchKeywordApi} 검색 결과`
+            : chipUiLabel
+              ? intentLineMap
+                ? `${chipUiLabel} · ${intentLineMap}`
+                : chipUiLabel
+              : intentLineMap
+                ? `${searchKeywordApi} 검색 · ${intentLineMap}`
+                : `${searchKeywordApi} 검색 결과`
         );
-        setAiReasons([`${searchKeywordApi} 지역 검색`, `지도 이동 및 줌인`]);
+        setAiReasons(
+          chipUiLabel
+            ? [`지도 화면 기준 · ${chipUiLabel}`, "거리·검색어 점수"]
+            : [`${searchKeywordApi} 지역 검색`, `지도 이동 및 줌인`]
+        );
         const kakaoIdsAllMap = biasedScoredPlaces.map((p) => p.id);
         let mergedMap = kakaoIdsAllMap;
         if (!pipelineIsBasic) {
@@ -7716,9 +7927,13 @@ const handleClearSearch = () => {
       setSearchLoadingLabel("");
       homeSearchSkipCoursePreviewRef.current = false;
 
-      /** 키워드·AI 공통 — place_import_tmp 기반 `/recommend` 로 카드 한 줄(content reason) 확보 */
+      /** 키워드·AI 공통 — place_import_tmp 기반 `/recommend` (술 상황 칩은 리스트 먼저) */
       let importRec = null;
-      if (searchModeForLog !== "course" && String(nextQuery || "").trim()) {
+      if (
+        searchModeForLog !== "course" &&
+        String(nextQuery || "").trim() &&
+        !isSituationChipSearch
+      ) {
         try {
           importRec = await fetchCuratorImportRecommend(nextQuery);
         } catch {
@@ -8092,7 +8307,7 @@ const handleClearSearch = () => {
       <AnimatedToast position="top-right" />
 
       <HomeDesktopSocialStack
-        visible={showDesktopSocialStack}
+        visible={showDesktopSocialStack && !hideHomeMapChromeForRecommendPeek}
         user={user}
         judoMode={judoMode}
         onOpenPlaceDetail={(place, source) =>
@@ -8105,6 +8320,19 @@ const handleClearSearch = () => {
         feature={requiredFeature}
         onClose={closeLoginPrompt}
         onLoginRequest={() => signInWithProvider("google")}
+      />
+
+      <TasteOnboardingGate
+        open={Boolean(tasteNeedsOnboarding)}
+        onComplete={async (answers) => {
+          const res = await saveTasteOnboarding(answers, { skipped: false });
+          if (!res?.ok) {
+            showToast("취향 저장에 실패했어요. 잠시 후 다시 시도해 주세요.", "error", 3200);
+          }
+        }}
+        onSkip={async () => {
+          await saveTasteOnboarding({}, { skipped: true });
+        }}
       />
 
       <HomeFollowCuratorModal
@@ -8197,6 +8425,8 @@ const handleClearSearch = () => {
           hideWhenPreviewOpen={
             Boolean(selectedPlace) ||
             aiSheetOpen ||
+            courseSecondPickMode ||
+            hideHomeMapChromeForRecommendPeek ||
             (aiRecommendedIds.length > 0 && Boolean(String(query || "").trim()))
           }
           hideWhenSearchActive={
@@ -8415,6 +8645,18 @@ const handleClearSearch = () => {
             }
             onDismiss={dismissHomeCourseStampDock}
           />
+          <HomeTodayTasteSuggest
+            visible={showTodayTasteSuggest}
+            profile={tasteProfile}
+            places={displayedPlaces}
+            onPickPlace={(place) => {
+              setSelectedPlaceWithAnalytics(place, "taste_today");
+              const w = resolvePlaceWgs84(place);
+              if (w && mapRef.current?.moveToLocation) {
+                mapRef.current.moveToLocation(w.lat, w.lng);
+              }
+            }}
+          />
           {String(query || "").trim() && !isCourseMode ? (
             <button
               type="button"
@@ -8592,6 +8834,7 @@ const handleClearSearch = () => {
               type="button"
               onClick={() => {
                 clearCourseSecondPickPulse();
+                setRecommendSheetPinnedCollapsed(false);
                 setSelectedPlace(null);
               }}
               style={styles.legendSecondPickResetButton}
@@ -8684,7 +8927,10 @@ const handleClearSearch = () => {
             >
               <HomeSearchAboveStrip
                 showSpotlight={
-                  !query.trim() && !isAiSearching && !mutualSearchPanelOpen
+                  !query.trim() &&
+                  !isAiSearching &&
+                  !mutualSearchPanelOpen &&
+                  !hideHomeMapChromeForRecommendPeek
                 }
                 spotlightPlaces={curatorSpotlightPlaces}
                 onPickSpotlightPlace={(place) => {
@@ -8952,6 +9198,10 @@ const handleClearSearch = () => {
             !simpleMapSearchMarkersOnly ? (
             <HomeAiBottomSheetCluster
               styles={styles}
+              forceSheetCollapsed={
+                courseSecondPickMode || recommendSheetPinnedCollapsed
+              }
+              onSheetUserExpand={() => setRecommendSheetPinnedCollapsed(false)}
               onDismissRecommendSheet={handleDismissRecommendSheet}
               setAiSheetOpen={setAiSheetOpen}
               isAiSearching={isAiSearching}

@@ -3,6 +3,25 @@ import { resolvePlaceWgs84 } from "./placeCoords.js";
 import { courseVenueDedupeKey } from "./generateCourseOptions.js";
 import { expandAnjuHintTokens } from "./placeTaxonomy.js";
 
+/** 홈 술 칩 「분위기 있게 한잔」 — `DRINKS_SITUATION_CHIP_UNIFIED_PHRASES.vibe` 와 동일 */
+export const VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES = [
+  "와인바",
+  "칵테일바",
+  "와인",
+  "조용한 술집",
+  "분위기 술집",
+];
+
+const LIQUOR_TYPE_KAKAO_QUERY_HINTS = {
+  와인: VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES,
+  위스키: ["위스키바", "위스키", "바", "라운지"],
+  하이볼: ["하이볼", "바", "칵테일바", "펍"],
+  맥주: ["맥주", "호프", "펍", "포장마차"],
+  소주: ["포장마차", "술집", "이자카야", "포차"],
+  칵테일: ["칵테일바", "바", "라운지"],
+  사케: ["이자카야", "사케", "일본술"],
+};
+
 /**
  * 카카오 keywordSearch(1차 주변) → 코스 2차 스코어링용 place 객체.
  * DB `places`와 dedupe 시 `courseVenueDedupeKey`가 맞도록 필드 정렬.
@@ -17,6 +36,27 @@ function kakaoDocToCourseCandidatePlace(doc) {
     .map((s) => s.trim())
     .filter(Boolean);
   const kid = doc.id != null ? String(doc.id).trim() : "";
+  const blob = [doc.place_name, doc.category_name, ...toks]
+    .map((s) => String(s || "").toLowerCase())
+    .join(" ");
+  const liquor_types = [];
+  const tags = [];
+  const vibes = [];
+  if (/와인|wine/i.test(blob)) {
+    liquor_types.push("와인");
+    tags.push("데이트", "분위기");
+    vibes.push("분위기좋은");
+  }
+  if (/칵테일|cocktail/i.test(blob)) {
+    liquor_types.push("칵테일");
+    vibes.push("분위기좋은");
+  }
+  if (/위스키|whisky|whiskey/i.test(blob)) liquor_types.push("위스키");
+  if (/하이볼/i.test(blob)) liquor_types.push("하이볼");
+  if (/맥주|beer|호프/i.test(blob)) liquor_types.push("맥주");
+  if (/소주/i.test(blob)) liquor_types.push("소주");
+  if (/조용|한적/i.test(blob)) vibes.push("조용한");
+
   return {
     id: kid ? `kakao_${kid}` : `kakao_${doc.place_name || "venue"}`,
     name: doc.place_name,
@@ -27,6 +67,10 @@ function kakaoDocToCourseCandidatePlace(doc) {
     x: String(lng),
     category_name: doc.category_name || "",
     categories: toks,
+    liquor_types,
+    liquorTypes: liquor_types,
+    tags,
+    vibes: vibes.length ? vibes : undefined,
     kakao_place_id: kid || null,
     isKakaoPlace: true,
     source: "kakao",
@@ -38,50 +82,48 @@ function kakaoDocToCourseCandidatePlace(doc) {
   };
 }
 
-function mergePoolsByVenueKey(primary, secondary) {
-  const map = new Map();
-  const push = (p) => {
-    const k = courseVenueDedupeKey(p);
-    if (!k) return;
-    if (!map.has(k)) map.set(k, p);
-  };
-  for (const p of primary || []) push(p);
-  for (const p of secondary || []) push(p);
-  return [...map.values()];
+function normalizePrefList(arr) {
+  if (!Array.isArray(arr) || !arr.length) return [];
+  return arr.map((s) => String(s).trim()).filter(Boolean);
 }
 
 /**
- * 2차 찾기(지도): 1차 좌표 기준 카카오 키워드로 주변 업장을 붙여 DB만으로는 빠지는
- * 포장마차·횟집 등을 후보 풀에 포함.
- *
- * @param {object} firstPlace — 코스 1차 place
- * @param {{ anjuHints?: string[], radius?: number, maxQueries?: number, perQuerySize?: number }} [opts]
+ * 2차 찾기 카카오 키워드 — 안주·주종·분위기 칩(와인→와인바) 반영.
+ * @param {{ anjuHints?: string[], liquorTypes?: string[], vibes?: string[], vibeChipFallback?: boolean }} opts
  */
-export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {}) {
-  const w = resolvePlaceWgs84(firstPlace);
-  if (!w) return [];
-
-  const radius =
-    opts.radius != null && Number.isFinite(Number(opts.radius))
-      ? Math.min(8000, Math.max(400, Number(opts.radius)))
-      : 2200;
-  const maxQueries =
-    opts.maxQueries != null && Number.isFinite(Number(opts.maxQueries))
-      ? Math.min(8, Math.max(1, Number(opts.maxQueries)))
-      : 6;
-  const perQuerySize =
-    opts.perQuerySize != null && Number.isFinite(Number(opts.perQuerySize))
-      ? Math.min(15, Math.max(5, Number(opts.perQuerySize)))
-      : 10;
-
+export function buildCourseSecondKakaoQueries(opts = {}) {
   const queries = new Set();
-  const hints = Array.isArray(opts.anjuHints) ? opts.anjuHints : [];
+  const hints = normalizePrefList(opts.anjuHints);
+  const liquors = normalizePrefList(opts.liquorTypes);
+  const vibes = normalizePrefList(opts.vibes);
+
+  if (opts.vibeChipFallback && liquors.some((l) => /와인/i.test(l))) {
+    for (const q of VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES) queries.add(q);
+    return [...queries];
+  }
 
   for (const h of hints) {
     for (const t of expandAnjuHintTokens(h)) {
       const s = String(t).trim();
       if (s.length >= 2) queries.add(s);
     }
+  }
+
+  for (const lt of liquors) {
+    const key = Object.keys(LIQUOR_TYPE_KAKAO_QUERY_HINTS).find(
+      (k) => k === lt || lt.includes(k) || k.includes(lt)
+    );
+    const extra = key ? LIQUOR_TYPE_KAKAO_QUERY_HINTS[key] : null;
+    if (extra?.length) {
+      for (const q of extra) queries.add(q);
+    }
+  }
+
+  if (
+    liquors.some((l) => /와인/i.test(l)) ||
+    vibes.some((v) => /분위기|조용|데이트|감성/i.test(v))
+  ) {
+    for (const q of VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES) queries.add(q);
   }
 
   if (
@@ -116,7 +158,46 @@ export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {
     ["포장마차", "술집", "이자카야"].forEach((q) => queries.add(q));
   }
 
-  const list = [...queries].slice(0, maxQueries);
+  return [...queries];
+}
+
+function mergePoolsByVenueKey(primary, secondary) {
+  const map = new Map();
+  const push = (p) => {
+    const k = courseVenueDedupeKey(p);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, p);
+  };
+  for (const p of primary || []) push(p);
+  for (const p of secondary || []) push(p);
+  return [...map.values()];
+}
+
+/**
+ * 2차 찾기(지도): 1차 좌표 기준 카카오 키워드로 주변 업장을 붙여 DB만으로는 빠지는
+ * 포장마차·횟집 등을 후보 풀에 포함.
+ *
+ * @param {object} firstPlace — 코스 1차 place
+ * @param {{ anjuHints?: string[], liquorTypes?: string[], vibes?: string[], vibeChipFallback?: boolean, radius?: number, maxQueries?: number, perQuerySize?: number }} [opts]
+ */
+export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {}) {
+  const w = resolvePlaceWgs84(firstPlace);
+  if (!w) return [];
+
+  const radius =
+    opts.radius != null && Number.isFinite(Number(opts.radius))
+      ? Math.min(8000, Math.max(400, Number(opts.radius)))
+      : 2200;
+  const maxQueries =
+    opts.maxQueries != null && Number.isFinite(Number(opts.maxQueries))
+      ? Math.min(8, Math.max(1, Number(opts.maxQueries)))
+      : 6;
+  const perQuerySize =
+    opts.perQuerySize != null && Number.isFinite(Number(opts.perQuerySize))
+      ? Math.min(15, Math.max(5, Number(opts.perQuerySize)))
+      : 10;
+
+  const list = buildCourseSecondKakaoQueries(opts).slice(0, maxQueries);
   const seenDoc = new Set();
   const out = [];
 

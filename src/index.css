@@ -59,6 +59,29 @@ body {
   text-align: initial;
 }
 
+/**
+ * body/#root 가 overflow:hidden 일 때 — 홈 외 전체 페이지(스튜디오 등) 세로 스크롤
+ * height:100% 만으로는 Router 래퍼에 높이가 없어 스크롤 영역이 생기지 않음
+ */
+.app-route-scroll {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-route-scroll__main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
 h1 {
   font-size: 3.2em;
   line-height: 1.1;

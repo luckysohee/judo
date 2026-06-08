@@ -158,19 +158,22 @@ export function useRecommendSheetPullDismiss({
     ({ dy, dragged }) => {
       setPullDragging(false);
       setPullDy(0);
-      if (dragged) {
-        suppressHeaderClickRef.current = true;
-      }
+      if (!dragged) return;
+
+      let actionTaken = false;
       if (typeof onPullRelease === "function") {
-        const handled = onPullRelease({ dy, dragged });
-        if (handled) return;
+        actionTaken = Boolean(onPullRelease({ dy, dragged }));
       }
       if (
-        dragged &&
+        !actionTaken &&
         dy >= PULL_DISMISS_PX &&
         typeof onDismiss === "function"
       ) {
         onDismiss();
+        actionTaken = true;
+      }
+      if (actionTaken) {
+        suppressHeaderClickRef.current = true;
       }
     },
     [onDismiss, onPullRelease]

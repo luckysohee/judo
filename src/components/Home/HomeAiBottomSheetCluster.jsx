@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRecommendSheetPullDismiss } from "../../hooks/useRecommendSheetPullDismiss";
-import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import HomeBlogReviewSection from "./HomeBlogReviewSection";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
@@ -22,6 +21,8 @@ const PULL_EXPAND_FROM_COLLAPSED_PX = -20;
  */
 export default function HomeAiBottomSheetCluster({
   styles,
+  forceSheetCollapsed = false,
+  onSheetUserExpand,
   onDismissRecommendSheet,
   setAiSheetOpen,
   isAiSearching,
@@ -74,6 +75,7 @@ export default function HomeAiBottomSheetCluster({
       if (sheetCollapsed) {
         if (dy <= PULL_EXPAND_FROM_COLLAPSED_PX) {
           setSheetCollapsed(false);
+          onSheetUserExpand?.();
           return true;
         }
         if (dy >= PULL_DISMISS_FROM_COLLAPSED_PX) {
@@ -88,7 +90,7 @@ export default function HomeAiBottomSheetCluster({
       }
       return false;
     },
-    [sheetCollapsed, onDismissRecommendSheet]
+    [sheetCollapsed, onDismissRecommendSheet, onSheetUserExpand]
   );
 
   const {
@@ -112,6 +114,58 @@ export default function HomeAiBottomSheetCluster({
       setSheetCollapsed(false);
     }
   }, [isAiSearching, aiBottomSheetPlaces.length]);
+
+  /** 2차 후보 고르는 중 — 지도 깜빡임이 보이도록 추천 리스트 접기 */
+  useEffect(() => {
+    if (forceSheetCollapsed) {
+      setSheetCollapsed(true);
+    }
+  }, [forceSheetCollapsed]);
+
+  const syncDisplayedPlacesToMapMarkers = useCallback(() => {
+    if (!Array.isArray(displayedPlaces) || displayedPlaces.length === 0) {
+      return;
+    }
+    const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
+      ...place,
+      lat: parseFloat(place.y ?? place.lat),
+      lng: parseFloat(place.x ?? place.lng),
+      name: place.name || place.place_name,
+      place_name: place.place_name,
+      address_name: place.address_name || place.road_address_name,
+      category_name: place.category_name,
+      phone: place.phone || "",
+      id: place.id,
+      isExternal: true,
+      isLive: true,
+      kakao_place_id: place.id,
+      isKakaoPlace:
+        place.isKakaoPlace ||
+        (!place.primaryCurator &&
+          (Boolean(place.kakao_place_id) || place.isExternal === true)),
+    }));
+    setKakaoPlaces(kakaoFormattedPlaces);
+    if (!preserveMapViewportSituationChip) {
+      setMapSearchMarkerFitTick((x) => x + 1);
+    }
+  }, [
+    displayedPlaces,
+    preserveMapViewportSituationChip,
+    setKakaoPlaces,
+    setMapSearchMarkerFitTick,
+  ]);
+
+  const toggleSheetCollapsed = useCallback(() => {
+    if (consumeHeaderClick()) return;
+    setSheetCollapsed((prev) => {
+      const next = !prev;
+      if (!next) {
+        onSheetUserExpand?.();
+        syncDisplayedPlacesToMapMarkers();
+      }
+      return next;
+    });
+  }, [consumeHeaderClick, onSheetUserExpand, syncDisplayedPlacesToMapMarkers]);
 
   return (
             <>
@@ -153,39 +207,7 @@ export default function HomeAiBottomSheetCluster({
                             ? "맞춤 추천 접힘. 탭하면 펼쳐요"
                             : "맞춤 추천. 아래로 당기면 접어요"
                         }
-                        onClick={() => {
-                          if (consumeHeaderClick()) return;
-                          if (sheetCollapsed) {
-                            setSheetCollapsed(false);
-                            return;
-                          }
-                          if (displayedPlaces.length > 0) {
-                            const kakaoFormattedPlaces = displayedPlaces.map((place) => ({
-                              ...place,
-                              lat: parseFloat(place.y ?? place.lat),
-                              lng: parseFloat(place.x ?? place.lng),
-                              name: place.name || place.place_name,
-                              place_name: place.place_name,
-                              address_name: place.address_name || place.road_address_name,
-                              category_name: place.category_name,
-                              phone: place.phone || "",
-                              id: place.id,
-                              isExternal: true,
-                              isLive: true,
-                              kakao_place_id: place.id,
-                              isKakaoPlace:
-                                place.isKakaoPlace ||
-                                (!place.primaryCurator &&
-                                  (Boolean(place.kakao_place_id) ||
-                                    place.isExternal === true)),
-                            }));
-                            console.log("🗺️ 카드 결과를 지도 마커로 변환:", kakaoFormattedPlaces);
-                            setKakaoPlaces(kakaoFormattedPlaces);
-                            if (!preserveMapViewportSituationChip) {
-                              setMapSearchMarkerFitTick((x) => x + 1);
-                            }
-                          }
-                        }}
+                        onClick={toggleSheetCollapsed}
                       >
                         <div style={styles.aiPeekBarRow}>
                           <div style={styles.aiPeekLeft}>
@@ -652,11 +674,6 @@ export default function HomeAiBottomSheetCluster({
                           </div>
                         </div>
                         </button>
-                        <PlacePickButton
-                          place={place}
-                          variant="sheet"
-                          style={{ marginRight: 6 }}
-                        />
                       </div>
                       );
                     })}

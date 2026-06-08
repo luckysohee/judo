@@ -1,4 +1,5 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
+import { buildCourseVenueNameLabelSvg } from "./mapMarkerVenueLabel.js";
 
 /** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
 export function isCourseBridgeMapPin(place) {
@@ -347,9 +348,12 @@ function createMarkerSvg(
     : "";
 
   const svgH = size + capBarH;
+  const venueLabel = buildCourseVenueNameLabelSvg(size / 2, size + 1, place);
+  const totalSvgH = svgH + venueLabel.height;
+  const totalSvgW = Math.max(size, venueLabel.width);
 
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${svgH}" viewBox="0 0 ${size} ${svgH}">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${totalSvgW}" height="${totalSvgH}" viewBox="0 0 ${totalSvgW} ${totalSvgH}">
       <defs>
         <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
           <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
@@ -391,6 +395,7 @@ function createMarkerSvg(
         ${courseRouteBadge}
         ${bottomCaptionBar}
         ${checkinMarkerDecorations(size, checkinMeta)}
+        ${venueLabel.svg}
       </g>
     </svg>
   `;
@@ -410,14 +415,16 @@ function createMarkerImage(
     showHotFlame: Boolean(checkinMeta?.showHotFlame),
   };
 
-  /** 코스 쩜오차(1·2차 사이) — 소프트아이스크림 이모지로 한눈에 */
+  /** 코스 쩜오차(1·2차 사이) — 소프트아이스크림 이모지 + 상호 */
   if (isCourseBridgeMapPin(place)) {
     const w = isSelected ? 52 : 44;
-    const h = isSelected ? 52 : 44;
+    const baseH = isSelected ? 52 : 44;
     const r = isSelected ? 22 : 19;
     const fs = isSelected ? 26 : 22;
     const cx = w / 2;
-    const cy = h / 2;
+    const cy = baseH / 2;
+    const venueLabel = buildCourseVenueNameLabelSvg(cx, baseH + 1, place);
+    const h = baseH + venueLabel.height;
     const svgString = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
         <defs>
@@ -450,6 +457,7 @@ function createMarkerImage(
             font-size="${fs}"
             font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
           >🍦</text>
+          ${venueLabel.svg}
         </g>
       </svg>
     `;
@@ -665,7 +673,10 @@ function createMarkerImage(
       encoded,
       new window.kakao.maps.Size(pin.width, pin.height),
       {
-        offset: new window.kakao.maps.Point(pin.width / 2, pin.height),
+        offset: new window.kakao.maps.Point(
+          pin.width / 2,
+          pin.anchorY ?? pin.height
+        ),
       }
     );
   }
@@ -683,11 +694,13 @@ function createMarkerImage(
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 48 : 38;
   const capBarH = !place?.isCoursePin && capForFolder ? 15 : 0;
-  const svgH = size + capBarH;
+  const venueLabel = buildCourseVenueNameLabelSvg(size / 2, size + 1, place);
+  const svgH = size + capBarH + venueLabel.height;
+  const svgW = Math.max(size, venueLabel.width);
 
   return new window.kakao.maps.MarkerImage(
     encoded,
-    new window.kakao.maps.Size(size, svgH),
+    new window.kakao.maps.Size(svgW, svgH),
     {
       offset: new window.kakao.maps.Point(size / 2, size / 2),
     }

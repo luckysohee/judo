@@ -19,7 +19,6 @@ function isSameVenueOnMap(selected, place) {
   return Boolean(a && b && a === b);
 }
 import KakaoPlaceOverlay from "./KakaoPlaceOverlay";
-import { situationFolderLabel } from "../../utils/situationPlaceFilter";
 
 /** 첫 진입: 성수역 일대 (주도 술 동선 탐색 기본 뷰) */
 const DEFAULT_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
@@ -441,14 +440,10 @@ function placesViewportSignature(places) {
 }
 
 /** 체크인 랭킹 TOP과 place.id / place_id 등 매칭 */
-/** 마커 옆 짧은 자막 — 모바일에서도 SVG로 노출 */
-function buildMapShortCaption(place, situationFolderKey, checkinMeta) {
+/** 마커 옆 짧은 자막 — 체크인·핫만. 상황 칩(1차·2차·분위기) 딱지는 지도에 안 붙임 */
+function buildMapShortCaption(_place, _situationFolderKey, checkinMeta) {
   const cc = Number(checkinMeta?.checkinCount) || 0;
   const hot = Boolean(checkinMeta?.showHotFlame);
-  if (situationFolderKey) {
-    const label = situationFolderLabel(situationFolderKey);
-    if (label) return label;
-  }
   if (cc > 0) return cc > 99 ? "99+" : `${cc}명`;
   if (hot) return "HOT";
   return "";
@@ -556,6 +551,10 @@ const MapView = forwardRef(({
   skipKoreaBBoxForCuratorPins = false,
   /** 홈 「술 상황」칩 — system_folders.key (`after_party` | `group` | `date`) 또는 null */
   situationFolderFilter = null,
+  /**
+   * 스튜디오 임베드 등 — 지도 드래그·줌 끄고 페이지 세로 스크롤이 먹게
+   */
+  lockMapGestures = false,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -584,9 +583,25 @@ const MapView = forwardRef(({
   const regionBoundaryPolygonsRef = useRef([]);
   const ignoreMapClickRef = useRef(false);
   const closePlacePreviewOnMapClickRef = useRef(closePlacePreviewOnMapClick);
+  const lockMapGesturesRef = useRef(lockMapGestures);
   useEffect(() => {
     closePlacePreviewOnMapClickRef.current = closePlacePreviewOnMapClick;
   }, [closePlacePreviewOnMapClick]);
+  useEffect(() => {
+    lockMapGesturesRef.current = lockMapGestures;
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      if (typeof map.setDraggable === "function") {
+        map.setDraggable(!lockMapGestures);
+      }
+      if (typeof map.setZoomable === "function") {
+        map.setZoomable(!lockMapGestures);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [lockMapGestures]);
 
   const userInteractedRef = useRef(false);
   /** places 자동 fit / fetch 루프 차단 — 장소 클릭·내 위치·선택 이동 직후 보호(ms) */
@@ -1331,6 +1346,7 @@ const MapView = forwardRef(({
           }
           try {
             if (import.meta.env.DEV) console.log("지도 초기화 시작...");
+            const lockGestures = Boolean(lockMapGesturesRef.current);
             const map = new window.kakao.maps.Map(containerEl, {
                 center: new window.kakao.maps.LatLng(
                   DEFAULT_MAP_CENTER.lat,
@@ -1338,6 +1354,14 @@ const MapView = forwardRef(({
                 ),
                 // 첫 진입은 성수 중심 좁은 범위 유지 (압구정까지 초기 노출 방지)
                 level: 5,
+                ...(lockGestures
+                  ? {
+                      draggable: false,
+                      scrollwheel: false,
+                      disableDoubleClick: true,
+                      disableDoubleClickZoom: true,
+                    }
+                  : {}),
               });
               mapRef.current = map;
               setMapError("");
@@ -1386,8 +1410,12 @@ const MapView = forwardRef(({
               );
 
               try {
-                if (typeof map.setDraggable === "function") map.setDraggable(true);
-                if (typeof map.setZoomable === "function") map.setZoomable(true);
+                if (typeof map.setDraggable === "function") {
+                  map.setDraggable(!lockGestures);
+                }
+                if (typeof map.setZoomable === "function") {
+                  map.setZoomable(!lockGestures);
+                }
               } catch {
                 /* ignore */
               }
@@ -1470,12 +1498,10 @@ const MapView = forwardRef(({
                 window.kakao.maps.event.addListener(map, evt, scheduleClusterViewport);
               });
 
-              viewportNotifyReadyRef.current = false;
               setMapReady(true);
-              setTimeout(() => {
-                viewportNotifyReadyRef.current = true;
-                notifyViewportCenterChanged();
-              }, 650);
+              viewportNotifyReadyRef.current = true;
+              notifyViewportCenterChanged();
+              setTimeout(() => notifyViewportCenterChanged(), 120);
             } catch (error) {
               console.error("🔥 실제 지도 에러:", error);
               console.error("kakao map init error:", error);
@@ -1953,11 +1979,12 @@ const MapView = forwardRef(({
         /* ignore */
       }
       try {
+        const lockGestures = Boolean(lockMapGesturesRef.current);
         if (typeof mapRef.current?.setDraggable === "function") {
-          mapRef.current.setDraggable(true);
+          mapRef.current.setDraggable(!lockGestures);
         }
         if (typeof mapRef.current?.setZoomable === "function") {
-          mapRef.current.setZoomable(true);
+          mapRef.current.setZoomable(!lockGestures);
         }
       } catch {
         /* ignore */
@@ -2489,8 +2516,8 @@ const MapView = forwardRef(({
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      <div style={styles.mapOuter}>
-        <div ref={mapContainerRef} style={styles.mapInner} />
+      <div style={styles.mapOuter(lockMapGestures)}>
+        <div ref={mapContainerRef} style={styles.mapInner(lockMapGestures)} />
         {mapError ? (
           <div style={styles.errorOverlay}>{mapError}</div>
         ) : null}
@@ -2541,24 +2568,26 @@ const MapView = forwardRef(({
 });
 
 const styles = {
-  mapOuter: {
+  mapOuter: (lockGestures) => ({
     width: "100%",
     height: "100%",
     borderRadius: "0px",
     overflow: "hidden",
     backgroundColor: "#f0f0f0",
     position: "relative",
-    zIndex: 1
-  },
-  mapInner: {
+    zIndex: 1,
+    pointerEvents: lockGestures ? "none" : "auto",
+  }),
+  mapInner: (lockGestures) => ({
     position: "absolute",
     inset: 0,
     width: "100%",
     height: "100%",
     backgroundColor: "#f0f0f0",
     zIndex: 2,
-    touchAction: "pan-x pan-y pinch-zoom",
-  },
+    pointerEvents: lockGestures ? "none" : "auto",
+    touchAction: lockGestures ? "auto" : "pan-x pan-y pinch-zoom",
+  }),
   errorOverlay: {
     position: "absolute",
     inset: 0,

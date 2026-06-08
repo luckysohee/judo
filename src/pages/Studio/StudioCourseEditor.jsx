@@ -17,6 +17,7 @@ import { supabase } from "../../lib/supabase";
 import { ensurePlaceUuidForPick } from "../../utils/resolvePlaceUuidForPick";
 import {
   studioCoursesShell,
+  studioCoursesScrollMain,
   studioCoursesInner,
   studioCoursesTopRow,
   studioCoursesH1,
@@ -897,11 +898,16 @@ export default function StudioCourseEditor() {
 
   return (
     <div
+      className="app-route-scroll"
       style={{
         ...studioCoursesShell,
         ...(isMobile ? studioCoursesMobileShell : {}),
       }}
     >
+      <main
+        className="app-route-scroll__main"
+        style={studioCoursesScrollMain}
+      >
       <div style={studioCoursesInner}>
         <div style={studioCoursesTopRow}>
           <h1 style={studioCoursesH1}>{isNew ? "새 코스" : "코스 수정"}</h1>
@@ -1367,6 +1373,7 @@ export default function StudioCourseEditor() {
           </div>
         ) : null}
       </div>
+      </main>
 
       {isMobile ? (
         <div style={studioCoursesStickyFooter}>
