@@ -43,6 +43,7 @@ import {
   studioCoursesTitleInput,
 } from "./studioCoursesSharedStyles";
 import CourseMapPreview from "../../components/Course/CourseMapPreview";
+import StudioScrollLayout from "../../components/Studio/StudioScrollLayout";
 import StudioPlaceMapSearchPanel from "../../components/Studio/StudioPlaceMapSearchPanel";
 import StudioMapSearchSuggestions from "../../components/Studio/StudioMapSearchSuggestions";
 import useMobileLayout from "../../hooks/useMobileLayout";
@@ -897,17 +898,42 @@ export default function StudioCourseEditor() {
   }
 
   return (
-    <div
-      className="app-route-scroll"
-      style={{
+    <StudioScrollLayout
+      shellStyle={{
         ...studioCoursesShell,
         ...(isMobile ? studioCoursesMobileShell : {}),
       }}
+      mainStyle={studioCoursesScrollMain}
+      footer={
+        isMobile ? (
+        <div style={studioCoursesStickyFooter}>
+          <button
+            type="button"
+            style={{
+              ...studioCoursesStickyBtn,
+              ...studioCoursesBtnGhost,
+              backgroundColor: "rgba(255,255,255,0.1)",
+            }}
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            style={{
+              ...studioCoursesStickyBtn,
+              ...studioCoursesBtnPrimary,
+            }}
+            onClick={() => void handleConfirm()}
+            disabled={saving}
+          >
+            {saving ? "저장 중…" : "확인"}
+          </button>
+        </div>
+        ) : null
+      }
     >
-      <main
-        className="app-route-scroll__main"
-        style={studioCoursesScrollMain}
-      >
       <div style={studioCoursesInner}>
         <div style={studioCoursesTopRow}>
           <h1 style={studioCoursesH1}>{isNew ? "새 코스" : "코스 수정"}</h1>
@@ -1373,35 +1399,6 @@ export default function StudioCourseEditor() {
           </div>
         ) : null}
       </div>
-      </main>
-
-      {isMobile ? (
-        <div style={studioCoursesStickyFooter}>
-          <button
-            type="button"
-            style={{
-              ...studioCoursesStickyBtn,
-              ...studioCoursesBtnGhost,
-              backgroundColor: "rgba(255,255,255,0.1)",
-            }}
-            onClick={handleCancel}
-            disabled={saving}
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            style={{
-              ...studioCoursesStickyBtn,
-              ...studioCoursesBtnPrimary,
-            }}
-            onClick={() => void handleConfirm()}
-            disabled={saving}
-          >
-            {saving ? "저장 중…" : "확인"}
-          </button>
-        </div>
-      ) : null}
-    </div>
+    </StudioScrollLayout>
   );
 }

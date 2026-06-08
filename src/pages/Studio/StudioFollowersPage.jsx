@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import PickUserButton from "../../components/PickUserButton/PickUserButton";
+import StudioScrollLayout from "../../components/Studio/StudioScrollLayout";
 import {
   fetchStudioFollowersEnriched,
   fetchStudioFollowingEnriched,
@@ -309,13 +310,18 @@ export default function StudioFollowersPage() {
       : "최신순 · 최대 200명 · 나를 팔로우한 사람 · 큐레이터는 뱃지";
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <button type="button" onClick={handleBack} style={styles.backButton}>
-          ← 뒤로
-        </button>
-        <h1 style={styles.title}>picked · picks</h1>
-      </div>
+    <StudioScrollLayout
+      header={
+        <div style={styles.header}>
+          <button type="button" onClick={handleBack} style={styles.backButton}>
+            ← 뒤로
+          </button>
+          <h1 style={styles.title}>picked · picks</h1>
+        </div>
+      }
+      shellStyle={{ backgroundColor: "#1a1a1a", color: "#eee" }}
+      mainStyle={{ padding: 0 }}
+    >
 
       <div style={styles.content}>
         <div style={styles.tabBar} role="tablist" aria-label="picked 또는 picks">
@@ -453,16 +459,11 @@ export default function StudioFollowersPage() {
           </div>
         )}
       </div>
-    </div>
+    </StudioScrollLayout>
   );
 }
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#1a1a1a",
-    color: "#eee",
-  },
   header: {
     display: "flex",
     alignItems: "center",

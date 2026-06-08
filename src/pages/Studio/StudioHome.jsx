@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
 import StudioPlaceMapSearchPanel from "../../components/Studio/StudioPlaceMapSearchPanel";
 import StudioMapSearchSuggestions from "../../components/Studio/StudioMapSearchSuggestions";
+import StudioScrollLayout from "../../components/Studio/StudioScrollLayout";
 import useMobileLayout from "../../hooks/useMobileLayout";
 import {
   studioMapSearchMapFill,
@@ -4358,17 +4359,17 @@ export default function StudioHome() {
 
   if (authLoading || curatorGate === "pending" || (curatorGate === "allowed" && loading)) {
     return (
-      <div style={{ padding: "20px", textAlign: "center" }}>
+      <StudioScrollLayout mainStyle={{ padding: "24px 20px", textAlign: "center" }}>
         로딩 중...
-      </div>
+      </StudioScrollLayout>
     );
   }
 
   // 일반 사용자는 스튜디오 접근 불가
   if (curatorGate === "denied" || !isCurator) {
     return (
-      <div style={{ padding: "20px", textAlign: "center", minHeight: "100vh", backgroundColor: "#111111", color: "#ffffff" }}>
-        <div style={{ marginTop: "100px", maxWidth: "600px", margin: "100px auto 0" }}>
+      <StudioScrollLayout mainStyle={{ padding: "20px", textAlign: "center" }}>
+        <div style={{ marginTop: "80px", maxWidth: "600px", margin: "80px auto 0" }}>
           <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "20px", color: "#e74c3c" }}>
             접근 불가
           </h1>
@@ -4414,7 +4415,7 @@ export default function StudioHome() {
             큐레이터가 되고 싶으신가요? <span style={{ color: "#3498DB", cursor: "pointer" }}>큐레이터 신청하기</span>
           </div>
         </div>
-      </div>
+      </StudioScrollLayout>
     );
   }
 
@@ -4436,9 +4437,8 @@ export default function StudioHome() {
     whiteSpace: "nowrap",
   };
 
-  return (
-    <div className="app-route-scroll" style={styles.studioShell}>
-      {/* 좌측 상단: 홈 · 내 저장(폴더) — 스튜디오 잔 작업과 분리 */}
+  const studioHeader = (
+    <>
       <div
         style={{
           position: "absolute",
@@ -4448,6 +4448,7 @@ export default function StudioHome() {
           flexWrap: "wrap",
           gap: "8px",
           maxWidth: "calc(100% - 24px)",
+          zIndex: 2,
         }}
       >
         <button
@@ -4461,7 +4462,6 @@ export default function StudioHome() {
           홈
         </button>
       </div>
-      
       <div style={styles.studioScrollHeader}>
       <header style={{ marginTop: "8px", marginBottom: "10px", padding: "0 8px" }}>
         <div style={{ fontSize: "12px", fontWeight: 600, color: "rgba(255,255,255,0.7)", letterSpacing: "-0.02em" }}>
@@ -4540,8 +4540,12 @@ export default function StudioHome() {
         </button>
       </div>
       </div>
+    </>
+  );
 
-      <main className="app-route-scroll__main" style={styles.studioScrollMain}>
+  return (
+    <>
+    <StudioScrollLayout header={studioHeader} mainStyle={styles.studioScrollMain}>
       {/* 잔 올리기 섹션 */}
       {activeSection === "add" && (
         <div style={styles.studioSectionInner}>
@@ -7089,7 +7093,8 @@ export default function StudioHome() {
           </div>
           </div>
       )}
-      </main>
+
+    </StudioScrollLayout>
 
       {studioPickDetailPlace ? (
         <PlaceDetail
@@ -7228,7 +7233,7 @@ export default function StudioHome() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

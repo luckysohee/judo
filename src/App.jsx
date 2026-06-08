@@ -1,9 +1,10 @@
-import { lazy, Suspense } from "react";
+import { Suspense, useEffect } from "react";
+import { lazyWithRetry, clearChunkReloadFlag } from "./utils/lazyWithRetry";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "./components/Toast/ToastProvider";
 import PostLoginAdminRedirect from "./components/PostLoginAdminRedirect";
 import AdminRoute from "./components/AdminRoute";
-const Home = lazy(() => import("./pages/Home/Home"));
+const Home = lazyWithRetry(() => import("./pages/Home/Home"));
 import MapView from "./components/Map/MapView";
 import PlaceDetailPage from "./pages/PlaceDetailPage";
 import CuratorPageScreen from "./pages/CuratorPageScreen";
@@ -18,16 +19,16 @@ import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay
 import EntrySplash from "./components/SplashScreen/EntrySplash";
 import HomeEntryIntro from "./components/Home/HomeEntryIntro";
 
-const AdminHubPage = lazy(() => import("./pages/AdminHubPage"));
-const AdminApplicationsPage = lazy(() => import("./pages/AdminApplicationsPage"));
-const SearchInsightsPage = lazy(() => import("./pages/SearchInsightsPage"));
-const CuratorManagementPage = lazy(() => import("./pages/CuratorManagementPage"));
-const AdminCuratorsAuditPage = lazy(() => import("./pages/AdminCuratorsAuditPage"));
-const StudioHome = lazy(() => import("./pages/Studio/StudioHome"));
-const StudioFollowersPage = lazy(() => import("./pages/Studio/StudioFollowersPage"));
-const StudioCourseEditor = lazy(() => import("./pages/Studio/StudioCourseEditor"));
-const NewPlace = lazy(() => import("./pages/Studio/NewPlace"));
-const EditPlace = lazy(() => import("./pages/Studio/EditPlace"));
+const AdminHubPage = lazyWithRetry(() => import("./pages/AdminHubPage"));
+const AdminApplicationsPage = lazyWithRetry(() => import("./pages/AdminApplicationsPage"));
+const SearchInsightsPage = lazyWithRetry(() => import("./pages/SearchInsightsPage"));
+const CuratorManagementPage = lazyWithRetry(() => import("./pages/CuratorManagementPage"));
+const AdminCuratorsAuditPage = lazyWithRetry(() => import("./pages/AdminCuratorsAuditPage"));
+const StudioHome = lazyWithRetry(() => import("./pages/Studio/StudioHome"));
+const StudioFollowersPage = lazyWithRetry(() => import("./pages/Studio/StudioFollowersPage"));
+const StudioCourseEditor = lazyWithRetry(() => import("./pages/Studio/StudioCourseEditor"));
+const NewPlace = lazyWithRetry(() => import("./pages/Studio/NewPlace"));
+const EditPlace = lazyWithRetry(() => import("./pages/Studio/EditPlace"));
 
 function RouteFallback() {
   return (
@@ -52,6 +53,10 @@ function Lazy({ children }) {
 }
 
 function App() {
+  useEffect(() => {
+    clearChunkReloadFlag();
+  }, []);
+
   return (
     <ToastProvider>
     <CourseCompletionOverlay />

@@ -9,6 +9,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (
+            id.includes("/pages/Studio/") ||
+            id.includes("\\pages\\Studio\\")
+          ) {
+            return "studio";
+          }
           if (!id.includes("node_modules")) return;
           if (id.includes("heic2any")) return "vendor-heic";
           if (id.includes("framer-motion")) return "vendor-motion";
