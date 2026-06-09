@@ -114,14 +114,23 @@ export async function handlePlacesDensityInBounds(req, res) {
     });
   }
 
-  const { data, error } = await sb.rpc("get_place_density_in_bounds", {
-    south,
-    west,
-    north,
-    east,
-    p_level: level,
-    p_cell_size: cell,
-  });
+  let data = null;
+  let error = null;
+  try {
+    const res = await sb.rpc("get_place_density_in_bounds", {
+      south,
+      west,
+      north,
+      east,
+      p_level: level,
+      p_cell_size: cell,
+    });
+    data = res.data;
+    error = res.error;
+  } catch (e) {
+    error = e;
+    console.warn("get_place_density_in_bounds thrown", e?.message || e);
+  }
 
   if (!error && data && typeof data === "object") {
     const clusters = Array.isArray(data.clusters) ? data.clusters : [];
@@ -148,9 +157,14 @@ export async function handlePlacesDensityInBounds(req, res) {
   });
   if (fallback.error) {
     console.error("places_density_fallback_failed", fallback.error);
-    return res.status(500).json({
+    const msg = fallback.error.message || "density fetch failed";
+    const timedOut =
+      fallback.error?.name === "AbortError" ||
+      fallback.error?.name === "TimeoutError" ||
+      /aborted|timeout/i.test(msg);
+    return res.status(timedOut ? 504 : 500).json({
       ok: false,
-      message: fallback.error.message || "density fetch failed",
+      message: timedOut ? "density query timed out — check Supabase/Railway env" : msg,
     });
   }
 

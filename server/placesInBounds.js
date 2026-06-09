@@ -158,17 +158,30 @@ export async function handlePlacesInBounds(req, res) {
     });
   }
 
-  const { data, error } = await sb.rpc("get_places_in_bounds", {
-    south,
-    west,
-    north,
-    east,
-    p_limit: limit,
-  });
+  let data = null;
+  let error = null;
+  try {
+    const res = await sb.rpc("get_places_in_bounds", {
+      south,
+      west,
+      north,
+      east,
+      p_limit: limit,
+    });
+    data = res.data;
+    error = res.error;
+  } catch (e) {
+    error = e;
+    console.warn("get_places_in_bounds thrown", e?.message || e);
+  }
 
   if (error) {
     console.error("get_places_in_bounds", error);
     const msg = error.message || String(error);
+    const timedOut =
+      error?.name === "AbortError" ||
+      error?.name === "TimeoutError" ||
+      /aborted|timeout/i.test(msg);
     if (/bounds_too_large/i.test(msg)) {
       return res.status(400).json({ ok: false, message: "bounds too large" });
     }
@@ -182,7 +195,10 @@ export async function handlePlacesInBounds(req, res) {
     });
     if (fallback.error) {
       console.error("get_places_in_bounds fallback_failed", fallback.error);
-      return res.status(500).json({ ok: false, message: msg });
+      return res.status(timedOut ? 504 : 500).json({
+        ok: false,
+        message: timedOut ? "places query timed out — check Supabase/Railway env" : msg,
+      });
     }
     return res.json({
       ok: true,

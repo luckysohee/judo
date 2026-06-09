@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseFetch } from "./utils/supabaseFetch.js";
 
 export function getServiceRoleEnv() {
   const url = (
@@ -26,6 +27,7 @@ export function createSupabaseServiceClient() {
   return {
     client: createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: createSupabaseFetch() },
     }),
     error: null,
   };

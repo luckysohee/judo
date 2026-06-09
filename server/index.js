@@ -171,6 +171,7 @@ import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
+import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 
 const kakaoPlaceDetailsCache = createTtlCache(800, 6 * 60 * 60 * 1000);
 
@@ -622,6 +623,35 @@ app.post("/api/search/curator-places", async (req, res) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+/** Railway·Vercel 진단 — Supabase 연결 (12s 타임아웃) */
+app.get("/api/supabase-ping", async (_req, res) => {
+  const { client: sb, error: envErr } = createSupabaseServiceClient();
+  if (envErr || !sb) {
+    return res.status(503).json({
+      ok: false,
+      message: "missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY on server",
+    });
+  }
+  const started = Date.now();
+  try {
+    const { error } = await sb.from("places").select("id").limit(1);
+    if (error) {
+      return res.status(500).json({
+        ok: false,
+        message: error.message || String(error),
+        ms: Date.now() - started,
+      });
+    }
+    return res.json({ ok: true, ms: Date.now() - started });
+  } catch (e) {
+    return res.status(504).json({
+      ok: false,
+      message: e?.message || String(e),
+      ms: Date.now() - started,
+    });
+  }
 });
 
 /** 홈 지도: bbox + limit — Supabase RPC `get_places_in_bounds` (service role 전용) */
