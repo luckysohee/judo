@@ -1,5 +1,5 @@
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
-import { computeDensityGridCellSize } from "../src/utils/densityGridCellSize.js";
+import { computeDensityGridCellSize } from "./utils/densityGridCellSize.js";
 
 function aggregatePlacesToDensityGrid(places, { south, west, north, east, cell }) {
   const buckets = new Map();
