@@ -165,6 +165,7 @@ import {
 } from "./placeBlogInsightsCache.js";
 import { searchCuratorPlaces } from "./curatorPlaceSearch.js";
 import { handlePlacesInBounds } from "./placesInBounds.js";
+import { handlePlacesDensityInBounds } from "./placesDensityInBounds.js";
 import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
@@ -625,6 +626,7 @@ app.get("/api/health", (_req, res) => {
 
 /** 홈 지도: bbox + limit — Supabase RPC `get_places_in_bounds` (service role 전용) */
 app.get("/api/places-in-bounds", handlePlacesInBounds);
+app.get("/api/places-density-in-bounds", handlePlacesDensityInBounds);
 
 /** 홈 「지금 뜨는 코스」 검색 — 공개 코스 전체 (48 풀과 분리) */
 app.get("/api/courses/search", handleSearchPublicCourses);

@@ -145,7 +145,7 @@ export async function handlePlacesInBounds(req, res) {
 
   const rawLim = Number(q.limit);
   const limit = Math.min(
-    120,
+    200,
     Math.max(1, Number.isFinite(rawLim) ? Math.floor(rawLim) : 80),
   );
 

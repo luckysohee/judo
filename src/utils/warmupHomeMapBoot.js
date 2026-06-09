@@ -1,5 +1,6 @@
 import { fetchMapPlacesInBounds } from "../api/placesInBounds";
-import { getLimitByZoom } from "../api/places";
+import { fetchMapPlaceDensityInBounds } from "../api/placesDensityInBounds";
+import { getHomeMapViewportPlaceLimit } from "./homeMapViewportLimit";
 import { getAiApiBaseUrl } from "./apiBaseUrl";
 import { padLatLngBounds } from "./fetchCuratorPlacesInBounds";
 import { loadKakaoMapsSdk } from "./loadKakaoMapsSdk";
@@ -25,7 +26,7 @@ function buildInitialViewportPrefetchParams() {
   const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.12);
   if (!padded) return null;
 
-  const limit = Math.min(120, Math.round(getLimitByZoom(mapLevel)));
+  const limit = getHomeMapViewportPlaceLimit(mapLevel);
   const r4 = (n) => Number(n).toFixed(4);
   const cacheKey = `${r4(padded.sw.lat)}_${r4(padded.sw.lng)}_${r4(padded.ne.lat)}_${r4(padded.ne.lng)}_${limit}_all`;
 
@@ -74,10 +75,17 @@ function startViewportPrefetch() {
   return viewportPrefetchPromise;
 }
 
-/** 앱 마운트 직후 — Kakao SDK + 성수 기본 bbox places 병렬 선요청 */
+/** 앱 마운트 직후 — Kakao SDK + 성수 기본 bbox places·밀도 병렬 선요청 */
 export function warmupHomeMapBoot() {
   loadKakaoMapsSdk().catch(() => {});
   startViewportPrefetch();
+  const params = buildInitialViewportPrefetchParams();
+  if (params?.fetchBounds) {
+    void fetchMapPlaceDensityInBounds(
+      { ...params.fetchBounds, level: 7 },
+      getAiApiBaseUrl(),
+    ).catch(() => {});
+  }
 }
 
 /** @returns {Promise<{ cacheKey: string, plainRows: object[], joinRows: object[] } | null> | null} */

@@ -4,7 +4,10 @@ import { useRealtimeCheckins } from "../../hooks/useRealtimeCheckins";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchKakaoCoordsByPlaceId } from "../../utils/kakaoPlaceCoords";
-import { resolveCheckinPlaceCoords } from "../../utils/placeCoords";
+import {
+  resolveCheckinPlaceCoords,
+  resolvePlaceWgs84,
+} from "../../utils/placeCoords";
 import { resolveCheckinDisplayName } from "../../utils/checkinDisplayName";
 import {
   formatFireLine,
@@ -45,19 +48,34 @@ function readGeoOnce(options) {
   });
 }
 
-/** 엄격 기록용: 먼저 빠른 저정확도(실내 성공률↑) → 실패 시 고정확도 */
-async function getGeoForStrictCheckin() {
+/** 엄격 기록용: 캐시된 위치 우선(지도 내 위치) → 빠른 저정확도 → 고정확도 */
+async function getGeoForStrictCheckin(prefetched) {
+  const pLat = parseCoord(prefetched?.lat);
+  const pLng = parseCoord(prefetched?.lng);
+  if (Number.isFinite(pLat) && Number.isFinite(pLng)) {
+    return {
+      lat: pLat,
+      lng: pLng,
+      accuracyM:
+        typeof prefetched?.accuracyM === "number" &&
+        Number.isFinite(prefetched.accuracyM)
+          ? prefetched.accuracyM
+          : 80,
+      fromMap: true,
+    };
+  }
+
   try {
     return await readGeoOnce({
       enableHighAccuracy: false,
-      timeout: 12000,
-      maximumAge: 10000,
+      timeout: 5000,
+      maximumAge: 60000,
     });
   } catch {
     return await readGeoOnce({
       enableHighAccuracy: true,
-      timeout: 22000,
-      maximumAge: 0,
+      timeout: 10000,
+      maximumAge: 15000,
     });
   }
 }
@@ -65,7 +83,7 @@ async function getGeoForStrictCheckin() {
 function getGeoHighAccuracyFresh() {
   return readGeoOnce({
     enableHighAccuracy: true,
-    timeout: 22000,
+    timeout: 10000,
     maximumAge: 0,
   });
 }
@@ -201,6 +219,8 @@ export default function CheckinButton({
   courseIdHint = "",
   /** 도장/완주 처리 후 부모 UI 갱신 */
   onCourseStampProgress = null,
+  /** 홈 지도 등에서 이미 잡힌 내 위치 — getCurrentPosition 생략 */
+  userLocation = null,
 }) {
   const { user } = useAuth();
   const { performCheckin, fetchPlaceHanjanStats, placeCheckinCounts } =
@@ -376,7 +396,7 @@ export default function CheckinButton({
   };
 
   const resolveCoordsForCheckin = useCallback(
-    async (userLat, userLng) =>
+    async (userLat, userLng, { forceKakao = false } = {}) =>
       resolveCheckinPlaceCoords({
         place,
         placeLat,
@@ -386,7 +406,12 @@ export default function CheckinButton({
         placeAddress,
         userLat,
         userLng,
-        fetchKakaoCoords: fetchKakaoCoordsByPlaceId,
+        forceKakao,
+        fetchKakaoCoords: (args) =>
+          fetchKakaoCoordsByPlaceId({
+            ...args,
+            bypassCache: forceKakao,
+          }),
       }),
     [
       place,
@@ -398,11 +423,68 @@ export default function CheckinButton({
     ]
   );
 
+  const localPlaceCoords = useCallback(() => {
+    let plat = parseCoord(placeLat);
+    let plng = parseCoord(placeLng);
+    if (plat == null || plng == null) {
+      const wgs = resolvePlaceWgs84(place);
+      if (wgs) {
+        plat = wgs.lat;
+        plng = wgs.lng;
+      }
+    }
+    return { lat: plat, lng: plng };
+  }, [place, placeLat, placeLng]);
+
   const executeHanjan = async () => {
     setLoading(true);
 
     try {
-      let { lat: plat, lng: plng } = await resolveCoordsForCheckin(null, null);
+      let userLat;
+      let userLng;
+      let accuracyM = null;
+      try {
+        const g = await getGeoForStrictCheckin(userLocation);
+        userLat = g.lat;
+        userLng = g.lng;
+        accuracyM = g.accuracyM;
+      } catch (geoErr) {
+        if (isGeoTimeoutOrDenied(geoErr)) {
+          const local = localPlaceCoords();
+          if (local.lat != null && local.lng != null) {
+            await runHanjanRpc({
+              plat: local.lat,
+              plng: local.lng,
+              userLat: null,
+              userLng: null,
+              accuracyM: null,
+              skipDistanceCheck: true,
+            });
+          } else {
+            const looseOnly = window.confirm(
+              "위치를 확인하지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
+            );
+            if (looseOnly) {
+              await runHanjanRpc({
+                plat: null,
+                plng: null,
+                userLat: null,
+                userLng: null,
+                accuracyM: null,
+                skipDistanceCheck: true,
+              });
+            }
+          }
+          return;
+        }
+        showToast(messageForHanjanError(geoErr), "warning");
+        return;
+      }
+
+      let { lat: plat, lng: plng } = await resolveCoordsForCheckin(
+        userLat,
+        userLng
+      );
       if (plat == null || plng == null) {
         const looseOnly = window.confirm(
           "장소 좌표를 찾지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
@@ -417,43 +499,6 @@ export default function CheckinButton({
             skipDistanceCheck: true,
           });
         }
-        return;
-      }
-
-      let userLat;
-      let userLng;
-      let accuracyM = null;
-      try {
-        const g = await getGeoForStrictCheckin();
-        userLat = g.lat;
-        userLng = g.lng;
-        accuracyM = g.accuracyM;
-      } catch (geoErr) {
-        if (isGeoTimeoutOrDenied(geoErr)) {
-          // GPS 타임아웃/거부 시에는 자동으로 느슨한 저장으로 폴백 (실패 체감 최소화)
-          await runHanjanRpc({
-            plat,
-            plng,
-            userLat: null,
-            userLng: null,
-            accuracyM: null,
-            skipDistanceCheck: true,
-          });
-          return;
-        }
-        showToast(messageForHanjanError(geoErr), "warning");
-        return;
-      }
-
-      ({ lat: plat, lng: plng } = await resolveCoordsForCheckin(
-        userLat,
-        userLng
-      ));
-      if (plat == null || plng == null) {
-        showToast(
-          "장소 좌표를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.",
-          "warning"
-        );
         return;
       }
 
@@ -472,11 +517,29 @@ export default function CheckinButton({
         }
 
         let distM = parseTooFarDistanceM(rpcErr);
-        let strictRecovered = false;
+
+        if (distM != null && distM > 1200) {
+          showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
+          const looseOnly = window.confirm(
+            `이 장소와 ${formatDistanceLabel(distM) ?? "멀리"} 떨어져 있습니다.\n\n가게 근처가 맞는지, 지도 핀 위치를 확인해 주세요.\n\n위치 검증 없이 오늘 1회만 기록할까요?`
+          );
+          if (looseOnly) {
+            await runHanjanRpc({
+              plat,
+              plng,
+              userLat: null,
+              userLng: null,
+              accuracyM: null,
+              skipDistanceCheck: true,
+            });
+          }
+          return;
+        }
 
         const coordsAfterKakao = await resolveCoordsForCheckin(
           userLat,
-          userLng
+          userLng,
+          { forceKakao: true }
         );
         if (
           coordsAfterKakao.lat != null &&
@@ -501,30 +564,12 @@ export default function CheckinButton({
           }
         }
 
-        if (distM != null && distM > 1200) {
-          const distLabel = formatDistanceLabel(distM) ?? "멀리";
-          showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
-          const looseOnly = window.confirm(
-            `이 장소와 ${distLabel} 떨어져 있습니다.\n\n가게 근처가 맞는지, 지도 핀 위치를 확인해 주세요.\n\n(다른 동네·집에서 시도하면 이렇게 나올 수 있어요.)\n\n위치 검증 없이 오늘 1회만 기록할까요?`
-          );
-          if (looseOnly) {
-            await runHanjanRpc({
-              plat,
-              plng,
-              userLat: null,
-              userLng: null,
-              accuracyM: null,
-              skipDistanceCheck: true,
-            });
-          }
-          return;
-        }
-
         try {
           const gRetry = await getGeoHighAccuracyFresh();
           const coordsRetry = await resolveCoordsForCheckin(
             gRetry.lat,
-            gRetry.lng
+            gRetry.lng,
+            { forceKakao: true }
           );
           await runHanjanRpc({
             plat: coordsRetry.lat ?? plat,
@@ -534,7 +579,7 @@ export default function CheckinButton({
             accuracyM: gRetry.accuracyM,
             skipDistanceCheck: false,
           });
-          strictRecovered = true;
+          return;
         } catch (retryErr) {
           if (!isTooFarRpcError(retryErr)) {
             if (isGeoTimeoutOrDenied(retryErr)) {
@@ -550,17 +595,11 @@ export default function CheckinButton({
                   accuracyM: null,
                   skipDistanceCheck: true,
                 });
-                strictRecovered = true;
               }
               return;
             }
             throw retryErr;
           }
-          distM = parseTooFarDistanceM(retryErr) ?? distM;
-        }
-
-        if (strictRecovered) {
-          return;
         }
 
         showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);

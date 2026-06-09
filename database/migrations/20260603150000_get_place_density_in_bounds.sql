@@ -1,0 +1,2 @@
+-- supabase/migrations/20260603150000_get_place_density_in_bounds.sql 과 동기
+-- (본문은 supabase/migrations 파일 참고)

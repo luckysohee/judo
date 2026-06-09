@@ -12,7 +12,7 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
   if (![south, west, north, east].every((n) => Number.isFinite(Number(n)))) {
     throw new Error("fetchMapPlacesInBounds: south, west, north, east required");
   }
-  const lim = Math.min(120, Math.max(1, Math.floor(Number(limit) || 80)));
+  const lim = Math.min(200, Math.max(1, Math.floor(Number(limit) || 80)));
   const qs = new URLSearchParams({
     south: String(south),
     west: String(west),

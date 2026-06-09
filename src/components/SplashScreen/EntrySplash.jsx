@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 
 /** 지도만 준비됐을 때 스플래시 최소 노출 */
 export const ENTRY_SPLASH_MAP_READY_MIN_MS = 800;
-/** 마커까지 준비되면 거의 바로 해제 */
-export const ENTRY_SPLASH_MARKERS_READY_MIN_MS = 280;
+/** 마커(또는 선마커) 준비되면 즉시 해제 */
+export const ENTRY_SPLASH_MARKERS_READY_MIN_MS = 0;
 export const ENTRY_SPLASH_FADE_MS = 550;
 /** 지도·마커가 매우 느릴 때만 강제 해제 */
 export const ENTRY_SPLASH_MAX_WAIT_MS = 14000;

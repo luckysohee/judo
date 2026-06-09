@@ -1,3 +1,6 @@
+const kakaoCoordsCache = new Map();
+const KAKAO_COORDS_CACHE_TTL_MS = 10 * 60 * 1000;
+
 /**
  * 카카오 로컬 키워드 검색으로 place id에 해당하는 WGS84 좌표 조회.
  * DB/병합 객체에 lat·lng가 비어 있을 때 체크인·지도 보정용.
@@ -6,10 +9,18 @@ export async function fetchKakaoCoordsByPlaceId({
   kakaoPlaceId,
   name,
   address,
+  bypassCache = false,
 }) {
   const key = import.meta.env.VITE_KAKAO_REST_API_KEY;
   const idStr = kakaoPlaceId != null ? String(kakaoPlaceId).trim() : "";
   if (!key || !idStr || !/^\d+$/.test(idStr)) return null;
+
+  if (!bypassCache) {
+    const hit = kakaoCoordsCache.get(idStr);
+    if (hit && Date.now() - hit.ts < KAKAO_COORDS_CACHE_TTL_MS) {
+      return hit.coords;
+    }
+  }
 
   const queries = [];
   const n = typeof name === "string" ? name.trim() : "";
@@ -37,7 +48,9 @@ export async function fetchKakaoCoordsByPlaceId({
       const lat = parseFloat(hit.y);
       const lng = parseFloat(hit.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-      return { lat, lng };
+      const coords = { lat, lng };
+      kakaoCoordsCache.set(idStr, { ts: Date.now(), coords });
+      return coords;
     } catch {
       /* 다음 쿼리 시도 */
     }

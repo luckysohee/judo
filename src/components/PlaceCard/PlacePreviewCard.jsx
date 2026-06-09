@@ -2006,6 +2006,7 @@ export default function PlacePreviewCard({
                 onHanjanRecorded={refetchHanjanStats}
                 courseIdHint={courseIdHint}
                 onCourseStampProgress={onCourseStampProgress}
+                userLocation={userLocation}
               />
             </div>
           </div>

@@ -76,6 +76,21 @@ function parseCoordValue(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** `perform_check_in_nearby` allow_radius 상한과 맞춤 (140 + accuracy≤280) */
+export const CHECKIN_ALLOW_RADIUS_M = 420;
+
+/**
+ * DB/카드에 좌표가 있고 사용자와 거리가 합리적이면 카카오 로컬 재조회 생략.
+ */
+export function shouldRefetchKakaoCoordsForCheckin(plat, plng, userLat, userLng) {
+  if (!Number.isFinite(plat) || !Number.isFinite(plng)) return true;
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return false;
+  const d = haversineMeters(userLat, userLng, plat, plng);
+  if (d <= CHECKIN_ALLOW_RADIUS_M + 80) return false;
+  if (d > 2000) return false;
+  return true;
+}
+
 /**
  * 한잔 RPC용 장소 WGS84: props·place 객체·카카오 로컬을 합치고,
  * 사용자 GPS가 있으면 그에 더 가까운 좌표 세트를 선택한다.
@@ -90,6 +105,8 @@ export async function resolveCheckinPlaceCoords({
   userLat,
   userLng,
   fetchKakaoCoords,
+  /** 거리 오류 재시도 등 — 로컬 좌표가 있어도 카카오 1회 허용 */
+  forceKakao = false,
 }) {
   let plat = parseCoordValue(placeLat);
   let plng = parseCoordValue(placeLng);
@@ -111,7 +128,13 @@ export async function resolveCheckinPlaceCoords({
       ? String(kakaoPlaceId).trim()
       : null) ?? kakaoNumericPlaceId(place);
 
-  if (kid && typeof fetchKakaoCoords === "function") {
+  const needsKakao =
+    kid &&
+    typeof fetchKakaoCoords === "function" &&
+    (forceKakao ||
+      shouldRefetchKakaoCoordsForCheckin(plat, plng, userLat, userLng));
+
+  if (needsKakao) {
     const fromKakao = await fetchKakaoCoords({
       kakaoPlaceId: kid,
       name: placeName,

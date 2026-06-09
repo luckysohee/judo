@@ -70,8 +70,8 @@ import {
  */
 const STUDIO_TAB = {
   add: "잔 올리기",
-  courses: "잔 코스",
-  list: "잔 리스트",
+  courses: "잔코스",
+  list: "잔리스트",
   drafts: "잔 채우기",
   archive: "잔 아카이브",
 };
@@ -4477,7 +4477,7 @@ export default function StudioHome() {
         <div style={styles.studioTopRowSpacer} aria-hidden />
       </div>
       
-      {/* 섹션 탭 — 한 줄 (좁으면 가로 스크롤) */}
+      {/* 섹션 탭 — 5개 한 줄 고정 (가로 스크롤 없음) */}
       <div style={styles.topBarWrap}>
         <button
           type="button"
@@ -7786,21 +7786,16 @@ const styles = {
     fontWeight: 500,
   },
   topBarWrap: {
-    display: "flex",
-    flexDirection: "row",
-    flexWrap: "nowrap",
-    gap: "6px",
-    padding: "8px 10px",
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: "3px",
+    padding: "6px 5px",
     margin: "0 auto 14px",
     width: "min(920px, 100%)",
     boxSizing: "border-box",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderRadius: "10px",
-    overflowX: "auto",
-    WebkitOverflowScrolling: "touch",
-    scrollbarWidth: "thin",
-    justifyContent: "stretch",
-    alignItems: "stretch",
+    overflow: "hidden",
     backdropFilter: "blur(16px)",
     WebkitBackdropFilter: "blur(16px)",
     border: "1px solid rgba(255,255,255,0.1)",
@@ -7834,20 +7829,26 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.07)",
     color: "rgba(255,255,255,0.88)",
-    borderRadius: "8px",
-    padding: "8px 10px",
-    fontSize: "11px",
+    borderRadius: "7px",
+    padding: "5px 2px",
+    fontSize: "clamp(9px, 2.45vw, 11px)",
     fontWeight: 700,
     cursor: "pointer",
-    whiteSpace: "nowrap",
-    flex: "1 1 0",
-    minWidth: "min-content",
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    minWidth: 0,
+    width: "100%",
+    minHeight: "32px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
     transition: "background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
     backdropFilter: "blur(12px)",
     WebkitBackdropFilter: "blur(12px)",
     boxShadow: "none",
-    lineHeight: 1.2,
-    letterSpacing: "-0.02em",
+    lineHeight: 1.15,
+    letterSpacing: "-0.03em",
   },
   topBarButtonActive: {
     border: "1px solid rgba(46, 204, 113, 0.45)",

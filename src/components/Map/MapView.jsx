@@ -4,12 +4,15 @@ import createMarker, {
   isEphemeralSearchMapMarker,
 } from "../../utils/createMarker";
 import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
-import { debounce } from "../../utils/debounce";
 import {
   resolvePlaceWgs84,
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
+import {
+  densityClusterBubbleStyle,
+  formatClusterMarkerCount,
+} from "../../utils/mapClusterFormat";
 
 function isSameVenueOnMap(selected, place) {
   if (!selected || !place) return false;
@@ -200,18 +203,6 @@ function clearMapCustomOverlays(ref) {
     }
   }
   ref.current = [];
-}
-
-/** 클러스터 안 마커 개수 표기 (멀리서도 읽기 쉽게) */
-function formatClusterMarkerCount(size) {
-  const n = Math.max(0, Math.floor(Number(size) || 0));
-  if (n < 1000) return String(n);
-  if (n < 10000) {
-    const k = n / 1000;
-    const t = k >= 10 ? Math.round(k) : Math.round(k * 10) / 10;
-    return `${String(t).replace(/\.0$/, "")}k`;
-  }
-  return `${Math.round(n / 1000)}k`;
 }
 
 /**
@@ -555,20 +546,20 @@ const MapView = forwardRef(({
    * 스튜디오 임베드 등 — 지도 드래그·줌 끄고 페이지 세로 스크롤이 먹게
    */
   lockMapGestures = false,
+  /**
+   * 줌 아웃용 그리드 집계 `{ lat, lng, count }[]` — 상세 마커 대신 숫자만 빠르게 표시
+   */
+  densityClusters = null,
+  /** true면 `places` 핀 생략하고 `densityClusters`만 그림 */
+  mapDensityLayerActive = false,
 }, ref) => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  /** 지도 줌(표시용·동기화) */
-  const [mapClusterLevel, setMapClusterLevel] = useState(null);
-  /** bounds/밀도 재계산 → 마커 effect에서 클러스터 재생성 */
-  const [clusterLayoutTick, setClusterLayoutTick] = useState(0);
   const [overlayPlace, setOverlayPlace] = useState(null);
   const overlayRef = useRef(null);
   const markersRef = useRef([]);
+  const densityOverlaysRef = useRef([]);
   const clustererRef = useRef(null);
-  /** zoom / drag / idle → debounce 후 clusterLayoutTick 증가 */
-  const clusterLayoutDebounceRef = useRef(null);
-  const clusterViewportCleanupRef = useRef({ map: null, handler: null });
   /** stabilizeGridSize용 이전 grid */
   const prevClusterGridSizeRef = useRef(null);
   /** 실제 적용 중인 클러스터 옵션 스냅샷 — 동일하면 인스턴스 재생성 생략 */
@@ -626,22 +617,6 @@ const MapView = forwardRef(({
     }
     prevPreserveViewportRef.current = Boolean(preserveViewportOnPlacesChange);
   }, [preserveViewportOnPlacesChange]);
-
-  useEffect(() => {
-    clusterLayoutDebounceRef.current = debounce(() => {
-      try {
-        if (mapRef.current) {
-          const l = mapRef.current.getLevel();
-          if (typeof l === "number" && Number.isFinite(l)) {
-            setMapClusterLevel(l);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      setClusterLayoutTick((t) => t + 1);
-    }, 140);
-  }, []);
 
   const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
   useEffect(() => {
@@ -1456,46 +1431,7 @@ const MapView = forwardRef(({
 
               window.kakao.maps.event.addListener(map, "idle", () => {
                 markUserInteractedFromIdle();
-
-                try {
-                  const bounds = map.getBounds();
-                  if (bounds) {
-                    const sw = bounds.getSouthWest();
-                    const ne = bounds.getNorthEast();
-
-                    console.log("📍 현재 지도 bounds:", {
-                      south: sw.getLat(),
-                      west: sw.getLng(),
-                      north: ne.getLat(),
-                      east: ne.getLng(),
-                    });
-                  }
-                } catch (e) {
-                  console.warn("idle bounds:", e);
-                }
-
                 notifyViewportCenterChanged();
-              });
-
-              const scheduleClusterViewport = () => {
-                clusterLayoutDebounceRef.current?.();
-              };
-              clusterViewportCleanupRef.current = {
-                map,
-                handler: scheduleClusterViewport,
-              };
-              try {
-                const l0 = map.getLevel();
-                if (typeof l0 === "number" && Number.isFinite(l0)) {
-                  setMapClusterLevel(l0);
-                }
-              } catch {
-                /* ignore */
-              }
-              setClusterLayoutTick((t) => t + 1);
-
-              ["zoom_changed", "dragend", "idle"].forEach((evt) => {
-                window.kakao.maps.event.addListener(map, evt, scheduleClusterViewport);
               });
 
               setMapReady(true);
@@ -1572,17 +1508,6 @@ const MapView = forwardRef(({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", onViewportResize);
       window.visualViewport?.removeEventListener("resize", onViewportResize);
-      const { map: m, handler: h } = clusterViewportCleanupRef.current;
-      if (m && h && window.kakao?.maps?.event) {
-        ["zoom_changed", "dragend", "idle"].forEach((evt) => {
-          try {
-            window.kakao.maps.event.removeListener(m, evt, h);
-          } catch {
-            /* ignore */
-          }
-        });
-      }
-      clusterViewportCleanupRef.current = { map: null, handler: null };
       disposeClusterer(clustererRef.current);
       clustererRef.current = null;
       prevClusterGridSizeRef.current = null;
@@ -1590,9 +1515,70 @@ const MapView = forwardRef(({
     };
   }, [notifyViewportCenterChanged]);
 
+  // 1b. 줌 아웃 밀도 숫자 — CustomOverlay (SVG 마커·클러스터러 없음)
+  useEffect(() => {
+    const clearDensity = () => {
+      for (const ov of densityOverlaysRef.current) {
+        try {
+          ov.setMap(null);
+        } catch {
+          /* ignore */
+        }
+      }
+      densityOverlaysRef.current = [];
+    };
+
+    if (!mapReady || !mapRef.current || !mapDensityLayerActive) {
+      clearDensity();
+      return clearDensity;
+    }
+
+    const rows = Array.isArray(densityClusters) ? densityClusters : [];
+    if (!rows.length || !window.kakao?.maps?.CustomOverlay) {
+      clearDensity();
+      return clearDensity;
+    }
+
+    clearDensity();
+    const next = [];
+    for (const cell of rows) {
+      const lat = Number(cell?.lat);
+      const lng = Number(cell?.lng);
+      const count = Math.max(0, Math.floor(Number(cell?.count) || 0));
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || count < 1) continue;
+      if (count < 3 && rows.length > 12) continue;
+
+      const el = document.createElement("div");
+      el.setAttribute("aria-hidden", "true");
+      Object.assign(el.style, densityClusterBubbleStyle(count));
+      el.textContent = formatClusterMarkerCount(count);
+
+      const overlay = new window.kakao.maps.CustomOverlay({
+        position: new window.kakao.maps.LatLng(lat, lng),
+        content: el,
+        xAnchor: 0.5,
+        yAnchor: 0.5,
+        zIndex: 4,
+      });
+      overlay.setMap(mapRef.current);
+      next.push(overlay);
+    }
+    densityOverlaysRef.current = next;
+    return clearDensity;
+  }, [mapReady, mapDensityLayerActive, densityClusters]);
+
   // 2. 마커 업데이트 (데이터 변경 시에만 범위 조정)
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
+
+    if (mapDensityLayerActive) {
+      markersRef.current.forEach((m) => m.setMap(null));
+      disposeClusterer(clustererRef.current);
+      clustererRef.current = null;
+      prevClusterGridSizeRef.current = null;
+      lastAppliedClusterOptionsRef.current = null;
+      return;
+    }
 
     if (!places?.length) {
       markersRef.current.forEach((m) => m.setMap(null));
@@ -1612,10 +1598,7 @@ const MapView = forwardRef(({
       const l = mapRef.current.getLevel?.();
       if (typeof l === "number" && Number.isFinite(l)) rawLevel = l;
     } catch {
-      rawLevel =
-        mapClusterLevel != null && Number.isFinite(mapClusterLevel)
-          ? mapClusterLevel
-          : 8;
+      rawLevel = 8;
     }
 
     const { width: mapW, height: mapH } = getMapPixelSize(mapContainerRef.current);
@@ -1894,9 +1877,8 @@ const MapView = forwardRef(({
     courseSecondPickMode,
     courseOverlay,
     lockAutoMove,
-    mapClusterLevel,
-    clusterLayoutTick,
     situationFolderFilter,
+    mapDensityLayerActive,
   ]);
 
   /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */

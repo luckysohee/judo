@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  startTransition,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "../../components/Toast/ToastProvider";
@@ -155,8 +156,13 @@ import {
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
 import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
 import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
+import { fetchMapPlaceDensityInBounds } from "../../api/placesDensityInBounds";
 import { debounce } from "../../utils/debounce";
-import { getLimitByZoom } from "../../api/places";
+import {
+  getHomeMapViewportPlaceLimit,
+  HOME_MAP_DENSITY_LAYER_MIN_LEVEL,
+  shouldSkipMapViewportRefetch,
+} from "../../utils/homeMapViewportLimit";
 import { fetchCuratorCourseForHomePreview } from "../../api/curatorCourses";
 import {
   fetchMyCoursePlaceStamps,
@@ -1295,6 +1301,10 @@ export default function Home() {
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
   const isFirstViewportScheduleRef = useRef(true);
+  /** 직전 성공 fetch padded bbox — 미세 팬·줌 시 API 생략 */
+  const lastFetchedViewportRef = useRef(null);
+  /** 첫 뷰포트 마커 부트스트랩 — 이후 팬은 선마커 없이 한 번에 갱신 */
+  const mapMarkersBootstrappedRef = useRef(false);
   const MAP_VIEWPORT_SESSION_CACHE_KEY = "judo_map_viewport_places_v1";
   const MAP_VIEWPORT_SESSION_CACHE_TTL_MS = 12 * 60 * 1000;
   const lastMapBoundsRef = useRef(null);
@@ -1306,6 +1316,11 @@ export default function Home() {
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
+  /** 줌 아웃용 그리드 숫자 클러스터 — 상세 마커보다 먼저 표시 */
+  const [mapDensityClusters, setMapDensityClusters] = useState([]);
+  const [mapZoomLevel, setMapZoomLevel] = useState(5);
+  const mapDensityLoadSeqRef = useRef(0);
+  const mapDensityFetchCacheRef = useRef({});
   /** placeholder KST 구간 갱신(분 단위) */
   const searchPlaceholderTick = useMinuteTick();
   /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
@@ -1320,6 +1335,29 @@ export default function Home() {
   }, []);
 
   const homeSearchInputRef = useRef(null);
+
+  const emitMapMarkersReady = useCallback((count, extra = {}) => {
+    if (!count || count <= 0) return;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("judo:markers-ready", {
+          detail: { count, ...extra },
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const nextPaintFrame = useCallback(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      }),
+    []
+  );
 
   /** 인트로 질문에 답하도록 검색창 포커스 (동네·1차 시작 입력) */
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
@@ -1353,16 +1391,10 @@ export default function Home() {
       const hasCuratorChipFilter =
         Array.isArray(selectedCuratorsRef.current) &&
         selectedCuratorsRef.current.length > 0;
-      const baseLimit = getLimitByZoom(level);
-      const curatorCapByZoom =
-        level >= 8 ? 180 : level >= 6 ? 220 : 300;
-      const limit = Math.min(
-        hasCuratorChipFilter ? curatorCapByZoom : 120,
-        Math.round(
-          baseLimit *
-            (hasCuratorChipFilter ? 2.4 : widenForSituation ? 1.9 : 1)
-        )
-      );
+      const limit = getHomeMapViewportPlaceLimit(level, {
+        hasCuratorChipFilter,
+        widenForSituation,
+      });
 
       /** 뷰포트 캐시 버킷 — 6자리면 미세 팬마다 키가 갈라져 캐시가 거의 안 먹음, 4자리가 무난한 타협 */
       const r4 = (n) => Number(n).toFixed(4);
@@ -1372,6 +1404,7 @@ export default function Home() {
       let joinResult;
 
       const cached = mapViewportFetchCacheRef.current[cacheKey];
+      const isBootViewport = !mapMarkersBootstrappedRef.current;
       if (cached) {
         plainRows = cached.plainRows;
         joinResult = { rows: cached.joinRows, error: null };
@@ -1432,17 +1465,19 @@ export default function Home() {
         console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
         const fallbackPlaces = formatBoundsPlaceRowsForMap(plainRows || []);
         setDbPlaces(fallbackPlaces);
+        lastFetchedViewportRef.current = {
+          padded,
+          limit,
+          hasCuratorChipFilter,
+          widenForSituation,
+          curatorCacheKey: hasCuratorChipFilter
+            ? selectedCuratorsRef.current.join("|")
+            : "",
+        };
         if (fallbackPlaces.length > 0) {
-          try {
-            window.dispatchEvent(
-              new CustomEvent("judo:markers-ready", {
-                detail: { count: fallbackPlaces.length, joinFallback: true },
-              })
-            );
-          } catch {
-            /* ignore */
-          }
+          emitMapMarkersReady(fallbackPlaces.length, { joinFallback: true });
         }
+        mapMarkersBootstrappedRef.current = true;
         if (import.meta.env.DEV) {
           devLog(
             "📦 bounds fetch 결과:",
@@ -1456,6 +1491,18 @@ export default function Home() {
         return;
       }
 
+      if (
+        isBootViewport &&
+        !cached &&
+        Array.isArray(plainRows) &&
+        plainRows.length > 0
+      ) {
+        const plainPlaces = formatBoundsPlaceRowsForMap(plainRows);
+        setDbPlaces(plainPlaces);
+        emitMapMarkersReady(plainPlaces.length, { phase: "plain" });
+        await nextPaintFrame();
+      }
+
       const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
       const attached = attachCuratorsToCuratorPlaceRows(filtered, snap);
       const fromJoin = buildFormattedPlacesFromJoin(attached);
@@ -1467,17 +1514,23 @@ export default function Home() {
         ...fromJoin,
         ...formatBoundsPlaceRowsForMap(extraPlain),
       ];
-      setDbPlaces(merged);
-      if (merged.length > 0) {
-        try {
-          window.dispatchEvent(
-            new CustomEvent("judo:markers-ready", {
-              detail: { count: merged.length },
-            })
-          );
-        } catch {
-          /* ignore */
-        }
+      startTransition(() => {
+        setDbPlaces(merged);
+      });
+      mapMarkersBootstrappedRef.current = true;
+      lastFetchedViewportRef.current = {
+        padded,
+        limit,
+        hasCuratorChipFilter,
+        widenForSituation,
+        curatorCacheKey: hasCuratorChipFilter
+          ? selectedCuratorsRef.current.join("|")
+          : "",
+      };
+      if (merged.length > 0 && !isBootViewport) {
+        emitMapMarkersReady(merged.length, { phase: "full" });
+      } else if (merged.length > 0 && isBootViewport && cached) {
+        emitMapMarkersReady(merged.length, { phase: "full" });
       }
 
       try {
@@ -1510,24 +1563,117 @@ export default function Home() {
         setMapViewportDbLoading(false);
       }
     },
+    [query, emitMapMarkersReady, nextPaintFrame]
+  );
+
+  const loadMapDensityForViewport = useCallback(
+    async ({ boundsRaw, mapLevel }) => {
+      if (String(query || "").trim()) {
+        setMapDensityClusters([]);
+        return;
+      }
+
+      const seq = ++mapDensityLoadSeqRef.current;
+      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.06);
+      if (!padded) return;
+
+      const level =
+        typeof mapLevel === "number" && Number.isFinite(mapLevel)
+          ? mapLevel
+          : typeof lastMapLevelRef.current === "number" &&
+              Number.isFinite(lastMapLevelRef.current)
+            ? lastMapLevelRef.current
+            : 8;
+
+      const r3 = (n) => Number(n).toFixed(3);
+      const cacheKey = `${r3(padded.sw.lat)}_${r3(padded.sw.lng)}_${r3(padded.ne.lat)}_${r3(padded.ne.lng)}_${level}`;
+      const cached = mapDensityFetchCacheRef.current[cacheKey];
+      if (cached) {
+        if (seq === mapDensityLoadSeqRef.current) {
+          setMapDensityClusters(cached.clusters);
+        }
+        return;
+      }
+
+      try {
+        const { clusters } = await fetchMapPlaceDensityInBounds(
+          {
+            south: padded.sw.lat,
+            west: padded.sw.lng,
+            north: padded.ne.lat,
+            east: padded.ne.lng,
+            level,
+          },
+          AI_API_BASE,
+        );
+        if (seq !== mapDensityLoadSeqRef.current) return;
+        mapDensityFetchCacheRef.current[cacheKey] = { clusters };
+        setMapDensityClusters(clusters);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("density viewport fetch failed:", e);
+        }
+      }
+    },
     [query]
+  );
+
+  const debouncedLoadMapDensity = useMemo(
+    () =>
+      debounce((payload) => {
+        void loadMapDensityForViewport(payload);
+      }, 120),
+    [loadMapDensityForViewport]
   );
 
   const debouncedScheduleDbPlaces = useMemo(
     () =>
       debounce((payload) => {
         void loadDbPlacesForViewport(payload);
-      }, 180),
+      }, 280),
     [loadDbPlacesForViewport]
   );
 
   const scheduleDbPlacesForBounds = useCallback(
     (boundsRaw, mapLevel) => {
+      const widenForSituation = Boolean(situationFolderFilterRef.current);
+      const hasCuratorChipFilter =
+        Array.isArray(selectedCuratorsRef.current) &&
+        selectedCuratorsRef.current.length > 0;
+      const level =
+        typeof mapLevel === "number" && Number.isFinite(mapLevel)
+          ? mapLevel
+          : typeof lastMapLevelRef.current === "number" &&
+              Number.isFinite(lastMapLevelRef.current)
+            ? lastMapLevelRef.current
+            : 6;
+      const limit = getHomeMapViewportPlaceLimit(level, {
+        hasCuratorChipFilter,
+        widenForSituation,
+      });
+      const skipPayload = {
+        boundsRaw,
+        limit,
+        hasCuratorChipFilter,
+        widenForSituation,
+        curatorCacheKey: hasCuratorChipFilter
+          ? selectedCuratorsRef.current.join("|")
+          : "",
+      };
+
       if (isFirstViewportScheduleRef.current) {
         isFirstViewportScheduleRef.current = false;
         void loadDbPlacesForViewport({ boundsRaw, mapLevel });
         return;
       }
+
+      if (shouldSkipMapViewportRefetch(skipPayload, lastFetchedViewportRef.current)) {
+        if (import.meta.env.DEV) {
+          devLog("📦 viewport fetch skip (still inside last bbox)");
+        }
+        return;
+      }
+
       debouncedScheduleDbPlaces({ boundsRaw, mapLevel });
     },
     [debouncedScheduleDbPlaces, loadDbPlacesForViewport]
@@ -3928,21 +4074,14 @@ export default function Home() {
           parsed.merged.length > 0
         ) {
           setDbPlaces(parsed.merged);
+          mapMarkersBootstrappedRef.current = true;
           if (parsed.cacheKey && parsed.plainRows && parsed.joinRows) {
             mapViewportFetchCacheRef.current[parsed.cacheKey] = {
               plainRows: parsed.plainRows,
               joinRows: parsed.joinRows,
             };
           }
-          try {
-            window.dispatchEvent(
-              new CustomEvent("judo:markers-ready", {
-                detail: { count: parsed.merged.length, fromSessionCache: true },
-              })
-            );
-          } catch {
-            /* ignore */
-          }
+          emitMapMarkersReady(parsed.merged.length, { fromSessionCache: true });
           if (import.meta.env.DEV) {
             devLog("📦 session viewport cache hit:", parsed.merged.length);
           }
@@ -3956,6 +4095,7 @@ export default function Home() {
     lastMapBoundsRef.current = defaultBounds;
     lastMapLevelRef.current = 5;
     void loadDbPlacesForViewport({ boundsRaw: defaultBounds, mapLevel: 5 });
+    void loadMapDensityForViewport({ boundsRaw: defaultBounds, mapLevel: 7 });
     /** mount-only warm start */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -3967,8 +4107,10 @@ export default function Home() {
       }
       if (typeof level === "number" && Number.isFinite(level)) {
         lastMapLevelRef.current = level;
+        setMapZoomLevel(level);
       }
       if (bounds?.sw && bounds?.ne) {
+        debouncedLoadMapDensity({ boundsRaw: bounds, mapLevel: level });
         scheduleDbPlacesForBounds(bounds, level);
       }
       if (
@@ -3980,7 +4122,7 @@ export default function Home() {
         setMapViewportCenterFromUser({ lat, lng });
       }
     },
-    [scheduleDbPlacesForBounds]
+    [debouncedLoadMapDensity, scheduleDbPlacesForBounds]
   );
 
   useEffect(() => {
@@ -5572,6 +5714,39 @@ export default function Home() {
     preserveMapViewportSituationChip,
     homeRailCourseDrive,
   ]);
+
+  /**
+   * 줌 아웃(level≥6)에서만 숫자 밀도 레이어 — level 5 첫 화면은 항상 상세 마커.
+   * (로딩 중 밀도만 보여 마커가 비는 회귀 방지)
+   */
+  const mapDensityLayerActive = useMemo(() => {
+    if (isCourseMode) return false;
+    if (courseSecondPickMode) return false;
+    if (String(query || "").trim()) return false;
+    if (preserveMapViewportSituationChip && situationFolderFilter) return false;
+    if (showSavedOnly && !showAll) return false;
+    if (homeRailCourseDrive) return false;
+    if (mapZoomLevel < HOME_MAP_DENSITY_LAYER_MIN_LEVEL) return false;
+    return (
+      Array.isArray(mapDensityClusters) && mapDensityClusters.length > 0
+    );
+  }, [
+    isCourseMode,
+    courseSecondPickMode,
+    query,
+    preserveMapViewportSituationChip,
+    situationFolderFilter,
+    showSavedOnly,
+    showAll,
+    homeRailCourseDrive,
+    mapZoomLevel,
+    mapDensityClusters,
+  ]);
+
+  const mapPlacesForMapView = useMemo(() => {
+    if (mapDensityLayerActive) return [];
+    return mapDisplayedPlacesWithLegend;
+  }, [mapDensityLayerActive, mapDisplayedPlacesWithLegend]);
 
   const hotStripPlaceRows = useMemo(() => {
     const byId = new Map();
@@ -8558,7 +8733,7 @@ const handleClearSearch = () => {
               </div>
             </>
           ) : null}
-          {mapViewportDbLoading && (
+          {mapViewportDbLoading && !mapDensityLayerActive && (
             <div
               role="status"
               style={{
@@ -8581,7 +8756,9 @@ const handleClearSearch = () => {
             ref={mapRef}
             showFloatingLocationButton={false}
             onMyLocationLoadingChange={setMapLocationLoading}
-            places={mapDisplayedPlacesWithLegend}
+            places={mapPlacesForMapView}
+            densityClusters={mapDensityClusters}
+            mapDensityLayerActive={mapDensityLayerActive}
             selectedPlace={selectedPlace}
             setSelectedPlace={setSelectedPlaceWithAnalytics}
             closePlacePreviewOnMapClick={
