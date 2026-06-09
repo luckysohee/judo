@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 
-/** JUDO 로고 최소 노출 — 마커 준비되면 `judo:markers-ready`로 조기 해제 가능 */
-export const ENTRY_SPLASH_MIN_MS = 2000;
+/** 지도만 준비됐을 때 스플래시 최소 노출 */
+export const ENTRY_SPLASH_MAP_READY_MIN_MS = 800;
+/** 마커까지 준비되면 거의 바로 해제 */
+export const ENTRY_SPLASH_MARKERS_READY_MIN_MS = 280;
 export const ENTRY_SPLASH_FADE_MS = 550;
-/** 지도 SDK가 매우 느릴 때만 강제 해제 */
+/** 지도·마커가 매우 느릴 때만 강제 해제 */
 export const ENTRY_SPLASH_MAX_WAIT_MS = 14000;
 
-const MIN_VISIBLE_MS = ENTRY_SPLASH_MIN_MS;
 const FADE_OUT_MS = ENTRY_SPLASH_FADE_MS;
 const MAX_WAIT_MS = ENTRY_SPLASH_MAX_WAIT_MS;
 
 /**
- * 앱 첫 마운트 시 블랙 배경 + JUDO — 지도 로드와 별개로 충분히 보여 준 뒤 페이드아웃.
+ * 앱 첫 마운트 시 블랙 배경 + JUDO — `judo:markers-ready` 시 빠르게, 지도만이면 짧게, 최대 대기 후 페이드아웃.
  */
 export default function EntrySplash() {
   const [visible, setVisible] = useState(true);
@@ -20,39 +21,61 @@ export default function EntrySplash() {
   useEffect(() => {
     let cancelled = false;
     const started = performance.now();
+    let dismissTargetAt = started + MAX_WAIT_MS;
     let fadeTimer = null;
     let hideTimer = null;
+    let fadeStarted = false;
 
-    const scheduleDismiss = () => {
-      if (cancelled || fadeTimer) return;
-      const remain = Math.max(0, MIN_VISIBLE_MS - (performance.now() - started));
+    const startFadeOut = () => {
+      if (cancelled || fadeStarted) return;
+      fadeStarted = true;
+      setFading(true);
+      hideTimer = setTimeout(() => {
+        if (cancelled) return;
+        setVisible(false);
+        try {
+          if (typeof window !== "undefined") {
+            window.__judoSplashHidden = true;
+          }
+          window.dispatchEvent(new CustomEvent("judo:splash-hidden"));
+        } catch {
+          /* ignore */
+        }
+      }, FADE_OUT_MS);
+    };
+
+    const armDismissTimer = () => {
+      clearTimeout(fadeTimer);
+      const remain = Math.max(0, dismissTargetAt - performance.now());
       fadeTimer = setTimeout(() => {
         if (cancelled) return;
-        setFading(true);
-        hideTimer = setTimeout(() => {
-          if (cancelled) return;
-          setVisible(false);
-          try {
-            if (typeof window !== "undefined") {
-              window.__judoSplashHidden = true;
-            }
-            window.dispatchEvent(new CustomEvent("judo:splash-hidden"));
-          } catch {
-            /* ignore */
-          }
-        }, FADE_OUT_MS);
+        startFadeOut();
       }, remain);
     };
 
-    window.addEventListener("judo:map-ready", scheduleDismiss, { once: true });
-    window.addEventListener("judo:markers-ready", scheduleDismiss, { once: true });
-    const maxTimer = setTimeout(scheduleDismiss, MAX_WAIT_MS);
+    const bumpDismiss = (minMsFromStart) => {
+      const target = started + minMsFromStart;
+      if (target < dismissTargetAt) {
+        dismissTargetAt = target;
+        armDismissTimer();
+      }
+    };
+
+    const onMapReady = () => {
+      bumpDismiss(ENTRY_SPLASH_MAP_READY_MIN_MS);
+    };
+    const onMarkersReady = () => {
+      bumpDismiss(ENTRY_SPLASH_MARKERS_READY_MIN_MS);
+    };
+
+    armDismissTimer();
+    window.addEventListener("judo:map-ready", onMapReady, { once: true });
+    window.addEventListener("judo:markers-ready", onMarkersReady, { once: true });
 
     return () => {
       cancelled = true;
-      window.removeEventListener("judo:map-ready", scheduleDismiss);
-      window.removeEventListener("judo:markers-ready", scheduleDismiss);
-      clearTimeout(maxTimer);
+      window.removeEventListener("judo:map-ready", onMapReady);
+      window.removeEventListener("judo:markers-ready", onMarkersReady);
       clearTimeout(fadeTimer);
       clearTimeout(hideTimer);
     };

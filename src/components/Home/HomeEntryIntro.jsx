@@ -4,7 +4,7 @@ import { useLocation } from "react-router-dom";
 
 import {
   ENTRY_SPLASH_FADE_MS,
-  ENTRY_SPLASH_MIN_MS,
+  ENTRY_SPLASH_MAX_WAIT_MS,
 } from "../SplashScreen/EntrySplash";
 
 export const HOME_DUST_INTRO_STORAGE_KEY = "judo_home_center_dust_intro_v3";
@@ -149,7 +149,7 @@ export default function HomeEntryIntro() {
       timers.push(
         window.setTimeout(
           onSplashHidden,
-          ENTRY_SPLASH_MIN_MS + ENTRY_SPLASH_FADE_MS + 300
+          ENTRY_SPLASH_MAX_WAIT_MS + ENTRY_SPLASH_FADE_MS + 300
         )
       );
     }

@@ -188,6 +188,10 @@ import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStrip
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
 import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
+import {
+  peekHomeViewportPrefetch,
+  takeHomeViewportPrefetch,
+} from "../../utils/warmupHomeMapBoot";
 import { fetchMySavedPlacesForHomeMap } from "./fetchMySavedPlacesForMap";
 import {
   walkingRouteDisplayMinutes,
@@ -1375,14 +1379,32 @@ export default function Home() {
         mapViewportFetchInFlightRef.current += 1;
         setMapViewportDbLoading(true);
         try {
-          const bundle = await fetchMapPlacesInBounds(
-            { south, west, north, east, limit },
-            AI_API_BASE,
-          );
-          if (seq !== mapViewportLoadSeqRef.current) return;
+          let usedPrefetch = false;
+          const prefetchPromise = peekHomeViewportPrefetch();
+          if (prefetchPromise) {
+            const prefetched = await prefetchPromise;
+            takeHomeViewportPrefetch();
+            if (
+              prefetched &&
+              prefetched.cacheKey === cacheKey &&
+              Array.isArray(prefetched.plainRows)
+            ) {
+              plainRows = prefetched.plainRows;
+              joinResult = { rows: prefetched.joinRows || [], error: null };
+              usedPrefetch = true;
+            }
+          }
 
-          plainRows = bundle.places;
-          joinResult = { rows: bundle.joinRows, error: null };
+          if (!usedPrefetch) {
+            const bundle = await fetchMapPlacesInBounds(
+              { south, west, north, east, limit },
+              AI_API_BASE,
+            );
+            plainRows = bundle.places;
+            joinResult = { rows: bundle.joinRows, error: null };
+          }
+
+          if (seq !== mapViewportLoadSeqRef.current) return;
 
           if (!joinResult.error) {
             mapViewportFetchCacheRef.current[cacheKey] = {
@@ -1408,7 +1430,19 @@ export default function Home() {
 
       if (joinResult.error) {
         console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
-        setDbPlaces(formatBoundsPlaceRowsForMap(plainRows || []));
+        const fallbackPlaces = formatBoundsPlaceRowsForMap(plainRows || []);
+        setDbPlaces(fallbackPlaces);
+        if (fallbackPlaces.length > 0) {
+          try {
+            window.dispatchEvent(
+              new CustomEvent("judo:markers-ready", {
+                detail: { count: fallbackPlaces.length, joinFallback: true },
+              })
+            );
+          } catch {
+            /* ignore */
+          }
+        }
         if (import.meta.env.DEV) {
           devLog(
             "📦 bounds fetch 결과:",
@@ -8646,7 +8680,7 @@ const handleClearSearch = () => {
             onDismiss={dismissHomeCourseStampDock}
           />
           <HomeTodayTasteSuggest
-            visible={showTodayTasteSuggest}
+            eligible={showTodayTasteSuggest}
             profile={tasteProfile}
             places={displayedPlaces}
             onPickPlace={(place) => {

@@ -4438,39 +4438,44 @@ export default function StudioHome() {
   };
 
   const studioHeader = (
-    <>
-      <div
-        style={{
-          position: "absolute",
-          top: "12px",
-          left: "12px",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          maxWidth: "calc(100% - 24px)",
-          zIndex: 2,
-        }}
-      >
+    <div style={styles.studioScrollHeader}>
+      <div style={styles.studioTopRow}>
         <button
           type="button"
           onClick={() => navigate("/")}
           style={{
             ...studioCornerButtonStyle,
             backgroundColor: "#2ECC71",
+            flexShrink: 0,
           }}
         >
           홈
         </button>
+        <header style={styles.studioTitleBlock}>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "rgba(255,255,255,0.7)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            @{curatorProfile.username}님의
+          </div>
+          <h1
+            style={{
+              fontSize: "clamp(18px, 3.4vw, 22px)",
+              fontWeight: 800,
+              margin: "3px 0 0",
+              lineHeight: 1.15,
+              letterSpacing: "-0.03em",
+            }}
+          >
+            스튜디오
+          </h1>
+        </header>
+        <div style={styles.studioTopRowSpacer} aria-hidden />
       </div>
-      <div style={styles.studioScrollHeader}>
-      <header style={{ marginTop: "8px", marginBottom: "10px", padding: "0 8px" }}>
-        <div style={{ fontSize: "12px", fontWeight: 600, color: "rgba(255,255,255,0.7)", letterSpacing: "-0.02em" }}>
-          @{curatorProfile.username}님의
-        </div>
-        <h1 style={{ fontSize: "clamp(18px, 3.4vw, 22px)", fontWeight: 800, margin: "3px 0 0", lineHeight: 1.15, letterSpacing: "-0.03em" }}>
-          스튜디오
-        </h1>
-      </header>
       
       {/* 섹션 탭 — 한 줄 (좁으면 가로 스크롤) */}
       <div style={styles.topBarWrap}>
@@ -4539,8 +4544,7 @@ export default function StudioHome() {
           {STUDIO_TAB.archive}
         </button>
       </div>
-      </div>
-    </>
+    </div>
   );
 
   return (
@@ -7677,6 +7681,27 @@ const styles = {
     flexShrink: 0,
     padding: "12px 12px 0",
     boxSizing: "border-box",
+  },
+  studioTopRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "10px",
+    minWidth: 0,
+  },
+  studioTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    margin: 0,
+    padding: "2px 4px 0",
+    textAlign: "center",
+  },
+  /** 홈 버튼과 같은 너비 — 제목 가운데 정렬 균형 */
+  studioTopRowSpacer: {
+    flexShrink: 0,
+    width: "52px",
+    minWidth: "52px",
   },
   studioSectionInner: {
     textAlign: "left",

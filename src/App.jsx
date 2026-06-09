@@ -18,6 +18,7 @@ import CompletedCoursesPage from "./pages/CompletedCoursesPage";
 import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
 import HomeEntryIntro from "./components/Home/HomeEntryIntro";
+import { warmupHomeMapBoot } from "./utils/warmupHomeMapBoot";
 
 const AdminHubPage = lazyWithRetry(() => import("./pages/AdminHubPage"));
 const AdminApplicationsPage = lazyWithRetry(() => import("./pages/AdminApplicationsPage"));
@@ -55,6 +56,8 @@ function Lazy({ children }) {
 function App() {
   useEffect(() => {
     clearChunkReloadFlag();
+    warmupHomeMapBoot();
+    void import("./pages/Home/Home");
   }, []);
 
   return (
