@@ -4,7 +4,7 @@
  */
 
 import { SITUATION_FOLDER } from "../../utils/situationPlaceFilter";
-import { getMarkerTier, isCuratorListedPlace } from "../../utils/createMarker";
+import { getMarkerTier, isCuratorListedPlace, placeIsOnlyLoggedInCuratorListing } from "../../utils/createMarker";
 import {
   resolvePlaceWgs84,
   isLikelyKoreaWgs84,
@@ -506,9 +506,11 @@ function readKakaoMapCenterLatLng(mapRef) {
   return null;
 }
 
-/** 우측 마커 안내(단일·공동·프리미엄) 선택 시 지도에 표시할 장소만 남김 */
-function applyLegendCategoryFilter(places, legendCategory) {
+/** 우측 마커 안내(단일·공동·프리미엄) — 다른 큐레이터 추천 등급만 (본인 단독 추천은 별 버튼) */
+function applyLegendCategoryFilter(places, legendCategory, options = {}) {
   if (!legendCategory || !Array.isArray(places)) return places;
+
+  const { userId, curatorProfile } = options;
 
   if (
     legendCategory === "basic" ||
@@ -517,7 +519,14 @@ function applyLegendCategoryFilter(places, legendCategory) {
   ) {
     return places.filter((p) => {
       if (!isCuratorListedPlace(p)) return false;
-      return getMarkerTier(p).level === legendCategory;
+      if (getMarkerTier(p).level !== legendCategory) return false;
+      if (
+        userId &&
+        placeIsOnlyLoggedInCuratorListing(p, userId, curatorProfile)
+      ) {
+        return false;
+      }
+      return true;
     });
   }
 

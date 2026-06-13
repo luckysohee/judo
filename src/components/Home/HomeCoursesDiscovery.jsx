@@ -62,6 +62,7 @@ export function HomeCoursesEntryChip({
   return (
     <button
       type="button"
+      className={open ? undefined : "judo-courses-entry-hero"}
       onClick={onToggle}
       aria-expanded={open}
       aria-controls="home-courses-discovery-panel"
@@ -78,11 +79,12 @@ export function HomeCoursesEntryChip({
           alignItems: "center",
           justifyContent: "center",
           lineHeight: 0,
+          filter: "drop-shadow(0 0 4px rgba(239, 68, 68, 0.45))",
         }}
       >
         <svg
-          width="13"
-          height="13"
+          width="12"
+          height="12"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

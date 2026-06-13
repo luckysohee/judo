@@ -1,6 +1,10 @@
 import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILES } from "./courseProfiles.js";
-import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
+import {
+  haversineMeters,
+  resolvePlaceWgs84,
+} from "./placeCoords.js";
+import { courseWalkCrossesHanRiver } from "./courseRiverCrossing.js";
 import { getMinutesUntilClose } from "./timeUtils.js";
 import {
   calculateCoursePlaceScore,
@@ -151,6 +155,15 @@ export function regenerateSecondStep({
       return { ...place, lat: w.lat, lng: w.lng };
     })
     .filter(Boolean)
+    .filter((place) => {
+      if (!walkable && !userSecondPreferences) return true;
+      return !courseWalkCrossesHanRiver(
+        Number(distanceAnchor.lat),
+        Number(distanceAnchor.lng),
+        Number(place.lat),
+        Number(place.lng)
+      );
+    })
     .filter((place) => {
       if (isSameVenueForCourseStep(firstAnchor, place)) return false;
       if (useBridgeAnchor && bridgePlace) {

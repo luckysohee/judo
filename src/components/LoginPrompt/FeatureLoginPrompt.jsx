@@ -78,11 +78,11 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      backgroundColor: 'rgba(0, 0, 0, 0.92)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 9999
+      zIndex: 30000
     }}>
       <motion.div
         style={{
@@ -167,31 +167,33 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
             onClick={onLogin}
             style={{
               flex: 1,
-              padding: '14px 24px',
+              padding: '10px 14px',
               borderRadius: '10px',
               border: 'none',
               backgroundColor: '#3498db',
               color: '#ffffff',
-              fontSize: '16px',
+              fontSize: '13px',
               fontWeight: '600',
+              lineHeight: 1.35,
+              whiteSpace: 'pre-line',
               cursor: 'pointer'
             }}
             whileHover={{ backgroundColor: '#2980b9' }}
             whileTap={{ scale: 0.95 }}
           >
-            로그인하고 이용하기
+            {"로그인하고\n이용하기"}
           </motion.button>
 
           <motion.button
             type="button"
             onClick={onClose}
             style={{
-              padding: '14px 24px',
+              padding: '10px 16px',
               borderRadius: '10px',
               border: '1px solid rgba(255,255,255,0.2)',
               backgroundColor: 'transparent',
               color: 'rgba(255,255,255,0.7)',
-              fontSize: '16px',
+              fontSize: '13px',
               fontWeight: '500',
               cursor: 'pointer'
             }}

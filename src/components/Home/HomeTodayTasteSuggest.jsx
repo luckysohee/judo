@@ -100,8 +100,8 @@ export default function HomeTodayTasteSuggest({
                 overflowY: "auto",
                 borderRadius: 20,
                 padding: "20px 18px 16px",
-                background: "linear-gradient(180deg, #faf5ff 0%, #fff 100%)",
-                border: "1px solid rgba(124, 58, 237, 0.2)",
+                background: "linear-gradient(180deg, #f7f7f7 0%, #fff 100%)",
+                border: "1px solid rgba(17, 17, 17, 0.12)",
                 boxShadow: "0 24px 64px rgba(0, 0, 0, 0.28)",
                 boxSizing: "border-box",
               }}
@@ -122,7 +122,7 @@ export default function HomeTodayTasteSuggest({
                       margin: 0,
                       fontSize: 17,
                       fontWeight: 800,
-                      color: "#4c1d95",
+                      color: "#111",
                       letterSpacing: "-0.03em",
                     }}
                   >
@@ -149,8 +149,8 @@ export default function HomeTodayTasteSuggest({
                     height: 32,
                     border: "none",
                     borderRadius: 10,
-                    background: "rgba(124, 58, 237, 0.1)",
-                    color: "#5b21b6",
+                    background: "rgba(17, 17, 17, 0.08)",
+                    color: "#111",
                     fontSize: 18,
                     lineHeight: 1,
                     cursor: "pointer",
@@ -181,7 +181,7 @@ export default function HomeTodayTasteSuggest({
                         width: "100%",
                         padding: "12px 14px",
                         borderRadius: 14,
-                        border: "1px solid rgba(124, 58, 237, 0.18)",
+                        border: "1px solid rgba(17, 17, 17, 0.1)",
                         background: "#fff",
                         cursor: "pointer",
                         textAlign: "left",
@@ -192,7 +192,7 @@ export default function HomeTodayTasteSuggest({
                         style={{
                           fontSize: 14,
                           fontWeight: 700,
-                          color: "#1e1b4b",
+                          color: "#111",
                         }}
                       >
                         {name}
@@ -231,7 +231,7 @@ export default function HomeTodayTasteSuggest({
                   type="checkbox"
                   checked={hideForDay}
                   onChange={(e) => setHideForDay(e.target.checked)}
-                  style={{ width: 16, height: 16, accentColor: "#7c3aed" }}
+                  style={{ width: 16, height: 16, accentColor: "#111" }}
                 />
                 오늘 하루 안 보기
               </label>
@@ -244,7 +244,7 @@ export default function HomeTodayTasteSuggest({
                   padding: "11px 14px",
                   borderRadius: 12,
                   border: "none",
-                  background: "linear-gradient(135deg, #7c3aed, #5b21b6)",
+                  background: "#111",
                   color: "#fff",
                   fontSize: 14,
                   fontWeight: 700,
@@ -273,12 +273,12 @@ export default function HomeTodayTasteSuggest({
               zIndex: 84,
               padding: "8px 14px",
               borderRadius: 999,
-              border: "1px solid rgba(124, 58, 237, 0.35)",
+              border: "1px solid rgba(17, 17, 17, 0.14)",
               background: "rgba(255, 255, 255, 0.94)",
-              boxShadow: "0 4px 16px rgba(91, 33, 182, 0.18)",
+              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
               fontSize: 12,
               fontWeight: 700,
-              color: "#5b21b6",
+              color: "#111",
               cursor: "pointer",
               whiteSpace: "nowrap",
             }}

@@ -124,10 +124,11 @@ export default function CuratorFilterBar({
                   onProfileClick?.(curator);
                 }}
                 style={{
-                  fontSize: "9px",
+                  fontSize: "8px",
                   fontWeight: "700",
-                  padding: "1px 4px",
-                  borderRadius: "8px",
+                  height: "18px",
+                  padding: "0 4px",
+                  borderRadius: "999px",
                   backgroundColor: rankConfig.bg,
                   color: rankConfig.text,
                   border: `1px solid ${rankConfig.border}`,
@@ -136,7 +137,11 @@ export default function CuratorFilterBar({
                   backdropFilter: "blur(8px)",
                   WebkitBackdropFilter: "blur(8px)",
                   cursor: "pointer",
-                  lineHeight: 1.2,
+                  lineHeight: 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxSizing: "border-box",
                 }}
               >
                 {rankConfig.label.split(' ')[0]}
@@ -157,7 +162,8 @@ const styles = {
 
   scrollRow: {
     display: "flex",
-    gap: "8px",
+    alignItems: "center",
+    gap: "6px",
     overflowX: "auto",
     paddingBottom: "2px",
     scrollbarWidth: "none",
@@ -166,17 +172,22 @@ const styles = {
 
   chip: {
     flexShrink: 0,
-    height: "34px",
+    height: "26px",
+    boxSizing: "border-box",
     border: "1px solid rgba(0,0,0,0.08)",
     backgroundColor: "#ffffff",
     color: "#111111",
     borderRadius: "999px",
-    padding: "0 12px",
-    fontSize: "12px",
+    padding: "0 10px",
+    fontSize: "11px",
     fontWeight: 700,
+    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     backdropFilter: "blur(10px)",
     WebkitBackdropFilter: "blur(10px)",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+    boxShadow: "0 4px 14px rgba(0,0,0,0.1)",
     whiteSpace: "nowrap",
     touchAction: "manipulation",
   },
@@ -184,11 +195,12 @@ const styles = {
   curatorChip: {
     display: "flex",
     alignItems: "center",
-    gap: "4px",
+    gap: "3px",
     flexShrink: 0,
     height: "26px",
+    boxSizing: "border-box",
     borderRadius: "999px",
-    padding: "2px",
+    padding: "0 2px",
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
     backgroundColor: "rgba(18, 18, 18, 0.88)",
@@ -241,9 +253,10 @@ const styles = {
     border: "none",
     background: "none",
     fontSize: "11px",
-    fontWeight: "600",
+    fontWeight: 700,
+    lineHeight: 1,
     cursor: "pointer",
-    padding: "0 4px",
+    padding: "0 5px",
     borderRadius: "999px",
     whiteSpace: "nowrap",
     backdropFilter: "blur(12px)",
@@ -251,6 +264,9 @@ const styles = {
     backgroundColor: "rgba(255, 255, 255, 0.05)",
     color: "#ffffff",
     textShadow: "0 1px 2px rgba(0, 0, 0, 0.3)",
+    display: "inline-flex",
+    alignItems: "center",
+    height: "100%",
   },
 
   chipActive: {

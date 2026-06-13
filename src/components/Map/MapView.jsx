@@ -1822,7 +1822,7 @@ const MapView = forwardRef(({
       validPlaces.length > 0 &&
       !skipViewportAdjust &&
       !isLockedRef.current &&
-      !userInteractedRef.current &&
+      (!userInteractedRef.current || courseSecondPickMode) &&
       !selectedPlace &&
       lastAutoFitPlacesSigRef.current !== sig;
 

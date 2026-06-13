@@ -277,7 +277,7 @@ export const styles = {
     textShadow: "0 1px 0 rgba(255,255,255,0.8)",
   },
 
-  /** 로고 = 홈 전체 새로고침(상태 초기화) */
+  /** 로고 = 홈 전체 새로고침(상태 초기화) — 옆 칩보다 크게, 헤더 행 세로 중앙 정렬 */
   logoHomeButton: {
     margin: 0,
     padding: 0,
@@ -289,6 +289,10 @@ export const styles = {
     letterSpacing: "-1.5px",
     color: "#111",
     lineHeight: 1,
+    height: "30px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     flexShrink: 0,
     cursor: "pointer",
     WebkitTapHighlightColor: "transparent",
@@ -320,6 +324,7 @@ export const styles = {
     alignItems: "flex-end",
     gap: "8px",
     pointerEvents: "auto",
+    overflow: "visible",
   },
 
   /** 낮 모드 안내 바(한 줄) 아래로 별·마커·내위치·코스 버튼 내림 */
@@ -348,7 +353,7 @@ export const styles = {
 
   legendMyLocationButton: {
     pointerEvents: "auto",
-    width: "28px",
+    width: "100%",
     height: "28px",
     borderRadius: "9px",
     border: "1px solid rgba(255,255,255,0.22)",
@@ -376,53 +381,77 @@ export const styles = {
     display: "inline-block",
   },
 
-  /** 지도 우측 — 내 위치 아래 「코스」(주도 다크 글래스 · 검색바 톤) */
+  /** 지도 우측 — 별·범례·내 위치·코스 한 줄(28px) 세로 정렬 */
+  legendMapControlsColumn: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    width: "28px",
+    gap: "8px",
+    flexShrink: 0,
+    overflow: "visible",
+  },
+
+  legendMapLegendStack: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    width: "100%",
+    gap: "8px",
+  },
+
+  /** 지도 우측 — 내 위치 아래 「코스」(메인 CTA · 레드 글로우) */
   legendCoursesEntryButton: {
     pointerEvents: "auto",
-    width: "32px",
+    width: "100%",
     minHeight: "38px",
-    padding: "5px 4px 4px",
+    padding: "5px 2px 4px",
     gap: "3px",
     borderRadius: "9px",
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(17, 17, 17, 0.9)",
+    border: "1.5px solid rgba(239, 68, 68, 0.55)",
+    background:
+      "linear-gradient(165deg, rgba(40, 12, 12, 0.96) 0%, rgba(17, 17, 17, 0.94) 100%)",
     backdropFilter: "blur(14px) saturate(160%)",
     WebkitBackdropFilter: "blur(14px) saturate(160%)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.32)",
+      "inset 0 1px 0 rgba(255,255,255,0.14), 0 0 10px rgba(239, 68, 68, 0.32), 0 4px 16px rgba(0,0,0,0.32)",
     cursor: "pointer",
     display: "inline-flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    color: "rgba(255,255,255,0.94)",
+    color: "#fff7f7",
     flexShrink: 0,
     transition:
       "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
   },
 
   legendCoursesEntryButtonActive: {
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(10, 10, 10, 0.96)",
+    animation: "none",
+    border: "1.5px solid rgba(252, 165, 165, 0.92)",
+    background: "rgba(24, 8, 8, 0.98)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.14), 0 6px 20px rgba(0,0,0,0.42)",
-    transform: "scale(1.04)",
+      "inset 0 1px 0 rgba(255,255,255,0.16), 0 0 16px rgba(239, 68, 68, 0.45), 0 6px 20px rgba(0,0,0,0.42)",
+    transform: "scale(1.05)",
   },
 
   legendCoursesEntryLabel: {
     fontSize: "8px",
-    fontWeight: 800,
+    fontWeight: 900,
     lineHeight: 1,
-    letterSpacing: "-0.03em",
+    letterSpacing: "-0.02em",
     whiteSpace: "nowrap",
     marginTop: "1px",
+    color: "#fecaca",
+    textShadow: "0 0 8px rgba(239, 68, 68, 0.55)",
   },
 
   /** 코스 칩 + 도장 이어찍기 칩 세로 묶음 */
   legendCoursesChipStack: {
     display: "flex",
     flexDirection: "column",
-    alignItems: "flex-end",
+    alignItems: "stretch",
+    width: "100%",
     gap: "6px",
     flexShrink: 0,
   },
@@ -430,9 +459,9 @@ export const styles = {
   /** 코스 버튼 바로 아래 — 숨겨 둔 도장 시트 다시 열기 */
   legendCourseStampResumeButton: {
     pointerEvents: "auto",
-    width: "32px",
+    width: "100%",
     minHeight: "38px",
-    padding: "5px 4px 4px",
+    padding: "5px 2px 4px",
     gap: "3px",
     borderRadius: "9px",
     border: "1px solid rgba(251,191,36,0.72)",
@@ -1547,6 +1576,31 @@ export const styles = {
     letterSpacing: "-0.02em",
   },
 
+  aiSheetPreviewColumn: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 6,
+    flexShrink: 0,
+    width: 82,
+  },
+
+  aiSheetCuratorPickBadgeUnderPhoto: {
+    display: "block",
+    width: "100%",
+    boxSizing: "border-box",
+    textAlign: "center",
+    fontSize: "9px",
+    fontWeight: 800,
+    lineHeight: 1.25,
+    color: "#1b7a43",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    borderRadius: "8px",
+    padding: "4px 5px",
+    background: "rgba(46, 204, 113, 0.14)",
+    letterSpacing: "-0.03em",
+  },
+
   aiSheetRankCuratorPick: {
     background: "linear-gradient(145deg, #2ecc71 0%, #1fa85a 100%)",
     color: "#fff",
@@ -1709,14 +1763,19 @@ export const styles = {
 
   aiSheetNameRow: {
     display: "flex",
-    alignItems: "center",
-    gap: "8px",
+    alignItems: "flex-start",
+    minWidth: 0,
   },
 
   aiSheetName: {
+    flex: 1,
+    minWidth: 0,
     fontSize: "15px",
     fontWeight: 800,
     color: "#111",
+    lineHeight: 1.35,
+    wordBreak: "keep-all",
+    overflowWrap: "anywhere",
   },
 
   aiSavedDot: {

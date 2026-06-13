@@ -5,7 +5,7 @@
  * 카카오 MarkerImage(data:image/svg+xml)용 문자열만 생성한다.
  */
 
-import { buildCourseVenueNameLabelSvg } from "./mapMarkerVenueLabel.js";
+import { buildCourseVenueNameLabelSvg, shouldShowCourseStepRouteBadge } from "./mapMarkerVenueLabel.js";
 
 /** viewBox 0 0 16 16 */
 export const BOOTSTRAP_GEO_ALT_FILL_D =
@@ -89,7 +89,7 @@ export function buildCuratorPinSvg({
     : "";
 
   const courseCaptionRaw =
-    place?.isCoursePin && place?.courseMapCaption
+    shouldShowCourseStepRouteBadge(place)
       ? String(place.courseMapCaption).trim().slice(0, 14)
       : "";
   const courseCaptionW = courseCaptionRaw

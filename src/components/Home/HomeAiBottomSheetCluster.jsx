@@ -546,11 +546,6 @@ export default function HomeAiBottomSheetCluster({
                           <div style={styles.aiSheetMain}>
                             <div style={styles.aiSheetNameRow}>
                               <span style={styles.aiSheetName}>{displayBusinessName}</span>
-                              {isCuratorOverlap ? (
-                                <span style={styles.aiSheetCuratorPickBadge}>
-                                  큐레이터 추천
-                                </span>
-                              ) : null}
                             </div>
 
                             <div style={styles.aiSheetMeta}>
@@ -628,6 +623,7 @@ export default function HomeAiBottomSheetCluster({
                               </div>
                             ) : null}
                           </div>
+                          <div style={styles.aiSheetPreviewColumn}>
                           <div
                             style={styles.aiSheetPreviewWrap}
                             role="button"
@@ -692,6 +688,12 @@ export default function HomeAiBottomSheetCluster({
                             ) : (
                               <div style={styles.aiSheetPreviewFallback}>사진 없음</div>
                             )}
+                          </div>
+                          {isCuratorOverlap ? (
+                            <span style={styles.aiSheetCuratorPickBadgeUnderPhoto}>
+                              큐레이터 추천
+                            </span>
+                          ) : null}
                           </div>
                         </div>
                         </button>

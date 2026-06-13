@@ -1,6 +1,7 @@
 import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILE_ORDER, COURSE_PROFILES } from "./courseProfiles.js";
 import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
+import { courseWalkCrossesHanRiver } from "./courseRiverCrossing.js";
 import { REGION_KEYWORDS } from "./searchParser.js";
 import { getSeasonalMenuMismatchPenalty } from "./placeSeasonality.js";
 import { getMinutesUntilClose, isPlaceOpenNow } from "./timeUtils.js";
@@ -822,7 +823,14 @@ function tryBuildCoursesForProfile({
             Number(first.lng),
             Number(second.lat),
             Number(second.lng)
-          ) >= SECOND_MIN_DISTANCE_METERS
+          ) >= SECOND_MIN_DISTANCE_METERS &&
+          (!parsedQuery.walkable ||
+            !courseWalkCrossesHanRiver(
+              Number(first.lat),
+              Number(first.lng),
+              Number(second.lat),
+              Number(second.lng)
+            ))
       )
       .map((second) => {
         const distance = haversineMeters(
@@ -961,7 +969,14 @@ function tryBuildCoursesForProfileThree({
             Number(bridge.lng),
             Number(s.lat),
             Number(s.lng)
-          ) >= SECOND_MIN_DISTANCE_METERS
+          ) >= SECOND_MIN_DISTANCE_METERS &&
+          (!parsedQuery.walkable ||
+            !courseWalkCrossesHanRiver(
+              Number(bridge.lat),
+              Number(bridge.lng),
+              Number(s.lat),
+              Number(s.lng)
+            ))
       )
       .map((s) => {
         const distance = haversineMeters(
@@ -1702,28 +1717,35 @@ export function generateCourseCandidatePool({
 }
 
 /** 코스 결과 전체 → 지도 마커(중복 id 제거). 선택 코스만 쓰려면 인자로 1요소 배열 전달 */
+export function resolveCourseStepMapCaption(step, stepCount = 0) {
+  if (typeof step?.label === "string" && step.label.trim()) {
+    return step.label.trim();
+  }
+  const stepNum = Number(step?.step) || 1;
+  if (stepNum === 1) return "1차";
+  if (stepCount >= 3 && stepNum === 2) return "쩜오차";
+  return "2차";
+}
+
 export function courseOptionsToMapPlaces(options = []) {
   const out = [];
   const seen = new Set();
   for (const course of options) {
+    const stepCount = course?.steps?.length ?? 0;
     for (const step of course?.steps || []) {
       const p = step.place;
       if (!p) continue;
       const w = resolvePlaceWgs84(p);
       if (!w || !Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
       const id = placeId(p);
-      const sid = id != null ? String(id) : `course_${out.length}`;
+      const stepNum = Number(step.step) || 1;
+      const sid =
+        id != null ? `${String(id)}-s${stepNum}` : `course_${out.length}`;
       if (seen.has(sid)) continue;
       seen.add(sid);
       const lat = w.lat;
       const lng = w.lng;
-      const stepNum = Number(step.step) || 1;
-      const mapCaption =
-        typeof step.label === "string" && step.label.trim()
-          ? step.label.trim()
-          : stepNum === 1
-            ? "1차"
-            : "2차";
+      const mapCaption = resolveCourseStepMapCaption(step, stepCount);
       out.push({
         ...p,
         id: sid,
@@ -1764,7 +1786,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       out.push({
         ...firstPlace,
         id: sid,
-        name: firstPlace.name,
+        name: firstPlace.name || firstPlace.place_name,
         place_name: firstPlace.place_name || firstPlace.name,
         lat: w.lat,
         lng: w.lng,
@@ -1791,7 +1813,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
         out.push({
           ...bp,
           id: bkey,
-          name: bp.name,
+          name: bp.name || bp.place_name,
           place_name: bp.place_name || bp.name,
           lat: wb.lat,
           lng: wb.lng,
@@ -1827,7 +1849,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
     out.push({
       ...p,
       id: key,
-      name: p.name,
+      name: p.name || p.place_name,
       place_name: p.place_name || p.name,
       lat: w.lat,
       lng: w.lng,

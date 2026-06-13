@@ -2,7 +2,7 @@ import MarkerLegend from "../Map/MarkerLegend";
 
 /**
  * 지도 좌측 범례(`MarkerLegend`) + 우측 "내 위치" 버튼 묶음.
- * 내 저장·추천 마커(별) 토글, 카테고리 필터, 내 위치 요청을 한 컴포넌트로 모아 Home의 JSX 잡음을 줄인다.
+ * 별 = 내가 폴더에 저장한 장소 / 마커 안내 3종 = 다른 큐레이터 추천 등급(단일·공동·프리미엄).
  */
 export default function HomeMapLegendBar({
   mapCloseTick,
@@ -15,9 +15,10 @@ export default function HomeMapLegendBar({
   mapLocationLoading,
   myLocationButtonStyle,
   myLocationSpinnerStyle,
+  stackStyle,
 }) {
   return (
-    <>
+    <div style={stackStyle}>
       <MarkerLegend
         mapCloseTick={mapCloseTick}
         savedOnly={savedOnly}
@@ -55,6 +56,6 @@ export default function HomeMapLegendBar({
           </svg>
         )}
       </button>
-    </>
+    </div>
   );
 }

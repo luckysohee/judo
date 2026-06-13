@@ -8,7 +8,7 @@ import {
 } from "../SplashScreen/EntrySplash";
 
 export const HOME_DUST_INTRO_STORAGE_KEY = "judo_home_center_dust_intro_v3";
-export const HOME_DUST_INTRO_HOLD_MS = 3000;
+export const HOME_DUST_INTRO_HOLD_MS = 4000;
 const FADE_IN_MS = 400;
 const FADE_OUT_MS = 500;
 export const HOME_DUST_INTRO_MS =
@@ -58,14 +58,6 @@ const titleStyle = {
   letterSpacing: "-0.035em",
   color: "#0f172a",
   lineHeight: 1.35,
-};
-
-const subStyle = {
-  margin: "12px 0 0",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#475569",
-  lineHeight: 1.45,
 };
 
 function shouldSkipIntro() {
@@ -197,9 +189,6 @@ export default function HomeEntryIntro() {
       <div style={{ ...innerStyle, opacity: opaque ? 1 : 0, transition }}>
         <div style={cardStyle}>
           <p style={titleStyle}>오늘은 어디서 한잔?</p>
-          <p style={subStyle}>
-            예: 합정 1차 어디로 — 탭하면 검색에 써 보세요
-          </p>
         </div>
       </div>
     </div>,

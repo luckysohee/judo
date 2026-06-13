@@ -37,13 +37,13 @@ export default function MarkerLegend({
         style={styles.savedOnlyButton}
         aria-label={
           savedOnly
-            ? "내 저장·추천 장소 마커 숨기기"
-            : "내 저장·추천 장소 마커 표시 (큐레이터는 비공개 추천 포함)"
+            ? "내가 저장한 장소 마커 숨기기"
+            : "내가 저장한 장소만 표시"
         }
         title={
           savedOnly
-            ? "내 저장·추천 장소 마커 숨기기"
-            : "내 저장·추천 장소 마커 표시 · 큐레이터는 내 비공개 추천까지"
+            ? "내가 저장한 장소 마커 숨기기"
+            : "내가 저장한 장소만 표시"
         }
       >
         <span
@@ -100,12 +100,20 @@ export default function MarkerLegend({
             </button>
           </div>
 
-          {items.map((item) => (
+          {items.map((item, index) => (
             <button
               key={item.key}
               type="button"
+              title={
+                item.key === "basic"
+                  ? "다른 큐레이터 1명이 추천한 장소"
+                  : item.key === "hot"
+                    ? "큐레이터 2명이 겹치는 공동 추천"
+                    : "큐레이터 3명 이상 겹치는 프리미엄"
+              }
               style={{
                 ...styles.rowButton,
+                ...(index === items.length - 1 ? { marginBottom: 0 } : null),
                 ...(activeCategory === item.key ? styles.rowButtonActive : null),
               }}
               onClick={() => onSelectCategory?.(item.key)}
@@ -120,25 +128,43 @@ export default function MarkerLegend({
   );
 }
 
+/** 지도 위 맑은 유리(glass) 표면 — blur·밝기·inset 하이라이트 */
+const MARKER_LEGEND_GLASS = {
+  blur: "blur(34px) saturate(190%) brightness(1.08)",
+  surface:
+    "linear-gradient(155deg, rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.18) 48%, rgba(255, 255, 255, 0.1) 100%)",
+  surfaceSoft:
+    "linear-gradient(160deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.12) 100%)",
+  border: "1px solid rgba(255, 255, 255, 0.48)",
+  borderSoft: "1px solid rgba(255, 255, 255, 0.38)",
+  shadow:
+    "0 8px 22px rgba(0, 0, 0, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.78), inset 0 -1px 0 rgba(255, 255, 255, 0.16)",
+  shadowSoft:
+    "0 6px 16px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.62)",
+  ink: "rgba(18, 20, 26, 0.88)",
+  inkMuted: "rgba(30, 34, 42, 0.72)",
+};
+
 const styles = {
   wrap: {
     pointerEvents: "auto",
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
+    width: "100%",
     gap: "8px",
   },
   savedOnlyButton: {
-    width: "28px",
+    width: "100%",
+    maxWidth: "100%",
     height: "28px",
     borderRadius: "999px",
-    border: "1px solid rgba(255, 255, 255, 0.72)",
-    backgroundColor: "rgba(255, 255, 255, 0.5)",
-    color: "rgba(255, 255, 255, 0.92)",
-    backdropFilter: "blur(18px) saturate(180%)",
-    WebkitBackdropFilter: "blur(18px) saturate(180%)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 18px rgba(0,0,0,0.1)",
+    border: MARKER_LEGEND_GLASS.borderSoft,
+    background: MARKER_LEGEND_GLASS.surfaceSoft,
+    color: MARKER_LEGEND_GLASS.ink,
+    backdropFilter: MARKER_LEGEND_GLASS.blur,
+    WebkitBackdropFilter: MARKER_LEGEND_GLASS.blur,
+    boxShadow: MARKER_LEGEND_GLASS.shadowSoft,
     cursor: "pointer",
     padding: 0,
     fontSize: "14px",
@@ -148,15 +174,15 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     transition:
-      "color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, text-shadow 0.2s ease",
+      "color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease",
   },
   savedOnlyStarOff: {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "rgba(255, 255, 255, 0.94)",
+    color: "rgba(255, 255, 255, 0.96)",
     filter:
-      "drop-shadow(0 0 0.75px rgba(0,0,0,0.28)) drop-shadow(0 1px 3px rgba(0,0,0,0.18))",
+      "drop-shadow(0 0 0.5px rgba(0,0,0,0.22)) drop-shadow(0 1px 2px rgba(0,0,0,0.14))",
   },
   savedOnlyStarOn: {
     display: "flex",
@@ -166,97 +192,109 @@ const styles = {
     filter: "drop-shadow(0 0 5px rgba(234, 179, 8, 0.55))",
   },
   collapsedButton: {
-    width: "28px",
-    height: "76px",
+    width: "100%",
+    maxWidth: "100%",
+    height: "58px",
     borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.28)",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    color: "#fff",
-    backdropFilter: "blur(24px) saturate(165%)",
-    WebkitBackdropFilter: "blur(24px) saturate(165%)",
+    border: MARKER_LEGEND_GLASS.borderSoft,
+    background: MARKER_LEGEND_GLASS.surfaceSoft,
+    color: MARKER_LEGEND_GLASS.ink,
+    backdropFilter: MARKER_LEGEND_GLASS.blur,
+    WebkitBackdropFilter: MARKER_LEGEND_GLASS.blur,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow:
-      "0 6px 18px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.2)",
+    boxShadow: MARKER_LEGEND_GLASS.shadowSoft,
     cursor: "pointer",
     padding: 0,
   },
   collapsedDots: {
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: "5px",
     alignItems: "center",
     justifyContent: "center",
   },
   collapsedDot: {
-    width: "8px",
-    height: "8px",
+    width: "7px",
+    height: "7px",
     borderRadius: "999px",
-    boxShadow: "0 0 0 2px rgba(255,255,255,0.2)",
+    boxShadow:
+      "0 0 0 1px rgba(255,255,255,0.55), 0 1px 3px rgba(0,0,0,0.12)",
   },
   container: {
-    padding: "10px",
-    backgroundColor: "rgba(18, 20, 28, 0.42)",
-    backdropFilter: "blur(28px) saturate(170%)",
-    WebkitBackdropFilter: "blur(28px) saturate(170%)",
-    border: "1px solid rgba(255,255,255,0.22)",
-    borderRadius: "14px",
-    color: "#fff",
-    fontSize: "11px",
-    width: "108px",
-    boxShadow:
-      "0 10px 28px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.16)",
+    alignSelf: "flex-end",
+    padding: "6px 7px",
+    background: MARKER_LEGEND_GLASS.surface,
+    backdropFilter: MARKER_LEGEND_GLASS.blur,
+    WebkitBackdropFilter: MARKER_LEGEND_GLASS.blur,
+    border: MARKER_LEGEND_GLASS.border,
+    borderRadius: "12px",
+    color: MARKER_LEGEND_GLASS.ink,
+    fontSize: "10px",
+    width: "96px",
+    maxWidth: "min(96px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)))",
+    boxSizing: "border-box",
+    boxShadow: MARKER_LEGEND_GLASS.shadow,
   },
   headerRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "6px",
-    marginBottom: "6px",
+    gap: "4px",
+    marginBottom: "4px",
   },
   title: {
-    fontWeight: "bold",
-    opacity: 0.88,
-    textShadow: "0 1px 2px rgba(0,0,0,0.25)",
+    fontWeight: 700,
+    fontSize: "9px",
+    color: MARKER_LEGEND_GLASS.inkMuted,
+    letterSpacing: "-0.02em",
+    textShadow: "0 1px 0 rgba(255,255,255,0.55)",
   },
   closeButton: {
-    width: "22px",
-    height: "22px",
+    width: "18px",
+    height: "18px",
     borderRadius: "999px",
-    border: "1px solid rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    backdropFilter: "blur(10px)",
-    WebkitBackdropFilter: "blur(10px)",
-    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.42)",
+    background: "rgba(255,255,255,0.28)",
+    backdropFilter: MARKER_LEGEND_GLASS.blur,
+    WebkitBackdropFilter: MARKER_LEGEND_GLASS.blur,
+    color: MARKER_LEGEND_GLASS.ink,
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "11px",
+    fontSize: "9px",
     flexShrink: 0,
+    padding: 0,
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
   },
   rowButton: {
     width: "100%",
     display: "flex",
     alignItems: "center",
-    gap: "6px",
-    marginBottom: "3px",
+    gap: "4px",
+    marginBottom: "2px",
     border: "none",
     backgroundColor: "transparent",
-    padding: "5px 3px",
-    borderRadius: "8px",
+    padding: "3px 2px",
+    borderRadius: "6px",
     cursor: "pointer",
     textAlign: "left",
   },
   rowButtonActive: {
-    backgroundColor: "rgba(255,255,255,0.14)",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
+    background:
+      "linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.28) 100%)",
+    backdropFilter: "blur(12px) saturate(160%)",
+    WebkitBackdropFilter: "blur(12px) saturate(160%)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
   },
-  dot: { width: "8px", height: "8px", borderRadius: "50%" },
+  dot: { width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0 },
   label: {
-    color: "#f5f5f5",
-    textShadow: "0 1px 2px rgba(0,0,0,0.2)",
+    color: MARKER_LEGEND_GLASS.ink,
+    fontSize: "9px",
+    lineHeight: 1.2,
+    fontWeight: 600,
+    textShadow: "0 1px 0 rgba(255,255,255,0.45)",
   },
 };

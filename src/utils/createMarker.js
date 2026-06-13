@@ -1,5 +1,6 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
-import { buildCourseVenueNameLabelSvg } from "./mapMarkerVenueLabel.js";
+import { buildCourseVenueNameLabelSvg, shouldShowCourseStepRouteBadge } from "./mapMarkerVenueLabel.js";
+import { curatorPlaceMatchesLoggedInCurator } from "./curatorPlacesIdentity.js";
 
 /** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
 export function isCourseBridgeMapPin(place) {
@@ -61,14 +62,49 @@ export function isCuratorListedPlace(place) {
   return false;
 }
 
+/** 장소에 추천을 단 distinct 큐레이터 수 (마커 안내 등급 기준) */
+export function countDistinctCuratorsOnPlace(place) {
+  if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
+    return place.curatorCount;
+  }
+
+  const ids = new Set();
+  if (Array.isArray(place?.curatorPlaces)) {
+    for (const cp of place.curatorPlaces) {
+      const cid = String(cp?.curator_id ?? "").trim().toLowerCase();
+      if (cid) ids.add(cid);
+      const uid = String(cp?.curators?.user_id ?? "").trim().toLowerCase();
+      if (uid) ids.add(uid);
+      const handle = String(cp?.curators?.username ?? "").trim().toLowerCase();
+      if (handle) ids.add(`@${handle}`);
+    }
+  }
+  if (ids.size > 0) return ids.size;
+
+  if (Array.isArray(place?.curators) && place.curators.length > 0) {
+    return place.curators.length;
+  }
+  return 0;
+}
+
+/** 로그인 큐레이터 본인만 추천한 장소(별 버튼 전용 — 마커 안내와 분리) */
+export function placeIsOnlyLoggedInCuratorListing(
+  place,
+  userId,
+  curatorProfile
+) {
+  if (countDistinctCuratorsOnPlace(place) !== 1) return false;
+  if (!Array.isArray(place?.curatorPlaces) || place.curatorPlaces.length === 0) {
+    return false;
+  }
+  return place.curatorPlaces.every((cp) =>
+    curatorPlaceMatchesLoggedInCurator(cp, curatorProfile, userId)
+  );
+}
+
 // 큐레이터 등급 — Bootstrap geo-alt-fill 핀 색 (단일 / 공동 / 프리미엄)
 export function getMarkerTier(place) {
-  let curatorCount = 1;
-  if (typeof place?.curatorCount === "number" && place.curatorCount > 0) {
-    curatorCount = place.curatorCount;
-  } else if (Array.isArray(place?.curators) && place.curators.length > 0) {
-    curatorCount = place.curators.length;
-  }
+  const curatorCount = countDistinctCuratorsOnPlace(place) || 1;
 
   if (curatorCount >= 3) {
     return {
@@ -279,10 +315,9 @@ function createMarkerSvg(
     `
     : "";
 
-  const courseCaptionRaw =
-    place.isCoursePin && place.courseMapCaption
-      ? String(place.courseMapCaption).trim().slice(0, 14)
-      : "";
+  const courseCaptionRaw = shouldShowCourseStepRouteBadge(place)
+    ? String(place.courseMapCaption).trim().slice(0, 14)
+    : "";
   const courseCaptionW = courseCaptionRaw
     ? Math.min(80, Math.max(52, courseCaptionRaw.length * 6 + 18))
     : 0;
@@ -415,28 +450,54 @@ function createMarkerImage(
     showHotFlame: Boolean(checkinMeta?.showHotFlame),
   };
 
-  /** 코스 쩜오차(1·2차 사이) — 소프트아이스크림 이모지 + 상호 */
+  /** 코스 쩜오차(1·2차 사이) — 🍦 + 「쩜오」배지 + 상호(넓은 라벨도 잘리지 않게) */
   if (isCourseBridgeMapPin(place)) {
-    const w = isSelected ? 52 : 44;
-    const baseH = isSelected ? 52 : 44;
-    const r = isSelected ? 22 : 19;
+    const pinW = isSelected ? 52 : 44;
+    const pinR = isSelected ? 22 : 19;
     const fs = isSelected ? 26 : 22;
-    const cx = w / 2;
-    const cy = baseH / 2;
-    const venueLabel = buildCourseVenueNameLabelSvg(cx, baseH + 1, place);
-    const h = baseH + venueLabel.height;
+    const badgeRaw = String(place.courseMapCaption || "쩜오").trim().slice(0, 8);
+    const badgeW = Math.min(72, Math.max(36, badgeRaw.length * 6 + 14));
+    const badgeH = 14;
+    const badgeY = 1;
+    const cy = badgeY + badgeH + pinR + 2;
+    const pinBottom = cy + pinR;
+    const venueProbe = buildCourseVenueNameLabelSvg(0, pinBottom + 1, place);
+    const totalW = Math.max(pinW, venueProbe.width, badgeW);
+    const cx = totalW / 2;
+    const venueLabel = buildCourseVenueNameLabelSvg(cx, pinBottom + 1, place);
+    const totalH = pinBottom + venueLabel.height;
     const svgString = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
         <defs>
           <filter id="bridgeShadow" x="-60%" y="-60%" width="220%" height="220%">
             <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#831843" flood-opacity="0.35" />
           </filter>
         </defs>
         <g filter="url(#bridgeShadow)">
+          <rect
+            x="${cx - badgeW / 2}"
+            y="${badgeY}"
+            width="${badgeW}"
+            height="${badgeH}"
+            rx="7"
+            fill="#9d174d"
+            stroke="#ffffff"
+            stroke-width="1.1"
+          />
+          <text
+            x="${cx}"
+            y="${badgeY + badgeH / 2 + 0.5}"
+            dominant-baseline="central"
+            text-anchor="middle"
+            font-size="8.5"
+            font-weight="800"
+            fill="#ffffff"
+            font-family="system-ui, Apple SD Gothic Neo, sans-serif"
+          >${escapeSvgText(badgeRaw)}</text>
           <circle
             cx="${cx}"
             cy="${cy}"
-            r="${r}"
+            r="${pinR}"
             fill="#fbcfe8"
             stroke="#ffffff"
             stroke-width="${isSelected ? 3.2 : 2.6}"
@@ -444,7 +505,7 @@ function createMarkerImage(
           <circle
             cx="${cx}"
             cy="${cy}"
-            r="${r - 2.5}"
+            r="${pinR - 2.5}"
             fill="none"
             stroke="rgba(157, 23, 77, 0.35)"
             stroke-width="1.2"
@@ -466,7 +527,7 @@ function createMarkerImage(
         const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
         return new window.kakao.maps.MarkerImage(
           encoded,
-          new window.kakao.maps.Size(w, h),
+          new window.kakao.maps.Size(totalW, totalH),
           {
             offset: new window.kakao.maps.Point(Math.round(cx), Math.round(cy)),
           }
