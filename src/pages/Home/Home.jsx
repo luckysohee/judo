@@ -207,6 +207,7 @@ import { verifyTopKakaoSearchCandidates } from "../../utils/verifyTopKakaoSearch
 import {
   mergePickedPlaceWithCuratorCatalog,
   findCuratorCatalogMatch,
+  enrichSearchResultWithCuratorCatalog,
   dedupeMapPlacesByKakaoId,
   normalizeKakaoPlaceId,
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
@@ -1097,6 +1098,11 @@ export default function Home() {
         }
       }
 
+      if (catalogHit) {
+        score += 26;
+        aiScoreSignals.curator_catalog_overlap = 26;
+      }
+
       if (wantsDayDrink) {
         let dayDrinkHit = placeSignalsDayDrinkCuratorMeta(place);
         if (!dayDrinkHit && catalogHit) {
@@ -1128,6 +1134,17 @@ export default function Home() {
         }
         if (/클럽|노래방|코인노래|룸싸롱|단란주점|댄스/i.test(catLower)) {
           score -= 38;
+        }
+      }
+
+      if (/노포|옛날감성|숨은맛집/i.test(kwSc)) {
+        if (
+          /유흥|노래방|코인노래|노래\s*주점|룸싸롱|단란주점|나이트|가라오케|캐비넷/i.test(
+            catLower
+          )
+        ) {
+          score -= 120;
+          aiScoreSignals.nopo_venue_mismatch = -120;
         }
       }
 
@@ -1185,8 +1202,10 @@ export default function Home() {
           ? signalWhy
           : facetWhyLine;
 
+      const withCatalog = enrichSearchResultWithCuratorCatalog(place, catalogHit);
+
       return {
-        ...place,
+        ...withCatalog,
         reasonEvidence,
         distance:
           typeof place.distance === "number" &&

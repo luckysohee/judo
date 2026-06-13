@@ -1528,6 +1528,30 @@ export const styles = {
     color: "#6c5ce7",
   },
 
+  aiSheetItemCuratorPick: {
+    border: "1px solid rgba(46, 204, 113, 0.42)",
+    background:
+      "linear-gradient(135deg, rgba(46, 204, 113, 0.1) 0%, rgba(255,255,255,0.94) 55%)",
+    boxShadow: "0 4px 14px rgba(46, 204, 113, 0.12)",
+  },
+
+  aiSheetCuratorPickBadge: {
+    flexShrink: 0,
+    fontSize: "10px",
+    fontWeight: 800,
+    color: "#1b7a43",
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    borderRadius: "999px",
+    padding: "3px 8px",
+    background: "rgba(46, 204, 113, 0.14)",
+    letterSpacing: "-0.02em",
+  },
+
+  aiSheetRankCuratorPick: {
+    background: "linear-gradient(145deg, #2ecc71 0%, #1fa85a 100%)",
+    color: "#fff",
+  },
+
   aiCuratorHighlight: {
     width: "100%",
     textAlign: "left",

@@ -422,7 +422,13 @@ export default function HomeAiBottomSheetCluster({
                         typeof place.curatorCount === "number" &&
                         place.curatorCount > 0
                           ? place.curatorCount
-                          : null;
+                          : Array.isArray(place.curatorPlaces) &&
+                              place.curatorPlaces.length > 0
+                            ? place.curatorPlaces.length
+                            : null;
+                      const isCuratorOverlap =
+                        Boolean(place.isCuratorCatalogOverlap) ||
+                        (cc != null && cc > 0);
                       const sheetTags = filterPlaceTagsForDisplay(
                         place.tags || []
                       );
@@ -474,6 +480,7 @@ export default function HomeAiBottomSheetCluster({
                         key={`${place?.id ?? place?.name ?? "p"}-${globalIndex}`}
                         style={{
                           ...styles.aiSheetItem,
+                          ...(isCuratorOverlap ? styles.aiSheetItemCuratorPick : {}),
                           display: "flex",
                           flexDirection: "row",
                           alignItems: "stretch",
@@ -525,11 +532,25 @@ export default function HomeAiBottomSheetCluster({
                           }}
                         >
                         <div style={styles.aiSheetItemTop}>
-                          <div style={styles.aiSheetRank}>{globalIndex + 1}</div>
+                          <div
+                            style={{
+                              ...styles.aiSheetRank,
+                              ...(isCuratorOverlap
+                                ? styles.aiSheetRankCuratorPick
+                                : {}),
+                            }}
+                          >
+                            {globalIndex + 1}
+                          </div>
 
                           <div style={styles.aiSheetMain}>
                             <div style={styles.aiSheetNameRow}>
                               <span style={styles.aiSheetName}>{displayBusinessName}</span>
+                              {isCuratorOverlap ? (
+                                <span style={styles.aiSheetCuratorPickBadge}>
+                                  큐레이터 추천
+                                </span>
+                              ) : null}
                             </div>
 
                             <div style={styles.aiSheetMeta}>
@@ -591,9 +612,9 @@ export default function HomeAiBottomSheetCluster({
                               </div>
                             ) : null}
 
-                            {cc != null ? (
+                            {isCuratorOverlap && cc != null ? (
                               <div style={styles.aiSheetCuratorSave}>
-                                저장한 큐레이터 {cc}명
+                                잔에 저장된 곳 · 큐레이터 {cc}명
                               </div>
                             ) : null}
 

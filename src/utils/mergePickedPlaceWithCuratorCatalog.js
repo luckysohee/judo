@@ -250,6 +250,55 @@ export function dedupeMapPlacesByKakaoId(places) {
   return [...out, ...noKid];
 }
 
+function curatorCountFromPlace(p) {
+  if (!p || typeof p !== "object") return 0;
+  if (typeof p.curatorCount === "number" && p.curatorCount > 0) {
+    return p.curatorCount;
+  }
+  if (Array.isArray(p.curatorPlaces) && p.curatorPlaces.length > 0) {
+    return p.curatorPlaces.length;
+  }
+  if (p.curatorReasons && typeof p.curatorReasons === "object") {
+    return Object.keys(p.curatorReasons).length;
+  }
+  return 0;
+}
+
+/** 검색 결과 행이 큐레이터 DB와 겹치는지 (바텀시트 배지용) */
+export function isCuratorSearchOverlapPlace(place) {
+  if (!place || typeof place !== "object") return false;
+  if (place.isCuratorCatalogOverlap) return true;
+  return curatorCountFromPlace(place) > 0;
+}
+
+/**
+ * 카카오 검색 후보 + DB 카탈로그 매칭 시 큐레이터 메타·배지 플래그를 붙임.
+ * @param {object} place
+ * @param {object | null} catalogHit `findCuratorCatalogMatch` 결과
+ */
+export function enrichSearchResultWithCuratorCatalog(place, catalogHit) {
+  if (!place || !catalogHit) return place;
+  const count = Math.max(
+    curatorCountFromPlace(catalogHit),
+    curatorCountFromPlace(place),
+  );
+  return {
+    ...place,
+    curatorPlaces: catalogHit.curatorPlaces ?? place.curatorPlaces,
+    curatorCount: count > 0 ? count : place.curatorCount,
+    curatorReasons: catalogHit.curatorReasons ?? place.curatorReasons,
+    curators: catalogHit.curators ?? place.curators,
+    curatorUsernames: catalogHit.curatorUsernames ?? place.curatorUsernames,
+    tags:
+      Array.isArray(catalogHit.tags) && catalogHit.tags.length
+        ? catalogHit.tags
+        : place.tags,
+    moods: catalogHit.moods ?? place.moods,
+    food_types: catalogHit.food_types ?? place.food_types,
+    isCuratorCatalogOverlap: true,
+  };
+}
+
 /**
  * 검색/지도에서 연 장소를 큐레이터 DB 카드와 같은 내용으로 맞춤
  * (curatorPlaces, 한 줄 평, UUID id 등)

@@ -911,11 +911,16 @@ export function expandFoodKakaoQueries(keyword) {
       out.add(`${compact} 야장`.replace(/\s+/g, " ").trim());
     }
   }
-  /** 「노포」는 카카오 키워드에 잘 안 붙는 경우가 많아 지명+주점류 동의어로 후보를 넓힌다. */
-  if (/노포/i.test(k)) {
-    for (const syn of ["주점", "호프", "술집", "포장마차", "이자카야"]) {
+  /**
+   * 「노포」= 오래된 식당·한식 맛집 의도.
+   * `주점`·`호프`로 넓히면 유흥·노래주점이 대량 유입되므로 음식점 동의어만 쓴다.
+   */
+  if (/노포|옛날감성|숨은맛집/i.test(k)) {
+    for (const syn of ["한식", "국밥", "음식점", "식당", "곱창"]) {
       const next = k
         .replace(/\s*노포\s*/gi, ` ${syn} `)
+        .replace(/\s*옛날감성\s*/gi, ` ${syn} `)
+        .replace(/\s*숨은맛집\s*/gi, ` ${syn} `)
         .replace(/\s+/g, " ")
         .trim();
       if (next && next !== k) out.add(next);
@@ -931,7 +936,7 @@ export function expandFoodKakaoQueries(keyword) {
  */
 export function kakaoMapSearchWantsBroadPlaceCategories(keyword) {
   const k = String(keyword || "").trim();
-  return /노포|옛날감성|골목술|술집|호프|주점|포장마차|포차|이자카야|와인바|맥주|소주|하이볼|2차|야장|펍|클럽|라운지|칵테일|혼술|회식\s*술|술\s*마실/i.test(
+  return /골목술|술집|호프|주점|포장마차|포차|이자카야|와인바|맥주|소주|하이볼|2차|야장|펍|클럽|라운지|칵테일|혼술|회식\s*술|술\s*마실/i.test(
     k
   );
 }
@@ -1134,6 +1139,28 @@ const SEAFOOD_NEGATIVE_RE =
 /** 상호·카테고리에 야외·노천 힌트 (랭킹·후보 축소 공통) */
 export const YAJANG_PLACE_HINT_RE =
   /야장|노천|포장마차|포차|테라스|야외|루프탑|옥상|가로수|길가|실외|마당|노상|이동식/i;
+
+/** 노포·옛날 맛집 검색 — 유흥·노래주점 제외용 */
+export const NOPO_DISALLOWED_VENUE_RE =
+  /유흥|노래방|코인노래|노래\s*주점|룸싸롱|단란주점|나이트\s*클럽|나이트클럽|가라오케|karaoke|캐비넷|매직미러|바다\s*유흥|쩜오|룸살롱/i;
+
+export function queryWantsNopoFoodFocus(rawQuery, parsedResult) {
+  const q = String(rawQuery || "");
+  if (/노포|옛날감성|숨은맛집|로컬\s*맛집/i.test(q)) return true;
+  const p = parsedResult || {};
+  const vibes = p.vibes?.length ? p.vibes : [p.vibe].filter(Boolean);
+  return vibes.includes("노포");
+}
+
+export function filterPlacesByNopoFocus(places) {
+  const list = Array.isArray(places) ? places : [];
+  return list.filter((pl) => {
+    const t = placeHaystack(pl);
+    if (NOPO_DISALLOWED_VENUE_RE.test(t)) return false;
+    if (/^[^>]*유흥[^>]*>/i.test(t)) return false;
+    return true;
+  });
+}
 
 export function queryWantsYajangFocus(rawQuery, parsedResult) {
   const q = String(rawQuery || "").toLowerCase();
@@ -1640,6 +1667,10 @@ export function filterPlacesByParsedIntent(
       p,
       options.curatorCatalogForYajang ?? null
     );
+  }
+
+  if (queryWantsNopoFoodFocus(rawQuery, p)) {
+    filtered = filterPlacesByNopoFocus(filtered);
   }
 
   if (!queryWantsSeasonalMenu(rawQuery, p)) {
