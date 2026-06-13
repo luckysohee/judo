@@ -482,6 +482,7 @@ function createMarkerImage(
   const curatorListed = isCuratorListedPlace(place);
   const useKakaoGenericPin =
     !curatorListed &&
+    !place.isCoursePin &&
     (Boolean(place.isKakaoPlace) || Boolean(place.courseMarkerPulse));
 
   if (useKakaoGenericPin) {

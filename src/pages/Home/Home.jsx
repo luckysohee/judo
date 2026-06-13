@@ -85,7 +85,9 @@ import {
   queryWantsSeafoodFocus,
   isObviousNonSeafoodKakaoPlace,
   queryWantsYajangFocus,
+  queryWantsNopoFoodFocus,
   queryWantsDayDrinkFocus,
+  scoreNopoSignals,
   YAJANG_PLACE_HINT_RE,
   placeSignalsYajangCuratorMeta,
   placeSignalsDayDrinkCuratorMeta,
@@ -1138,13 +1140,14 @@ export default function Home() {
       }
 
       if (/노포|옛날감성|숨은맛집/i.test(kwSc)) {
-        if (
-          /유흥|노래방|코인노래|노래\s*주점|룸싸롱|단란주점|나이트|가라오케|캐비넷/i.test(
-            catLower
-          )
-        ) {
+        const nopo = scoreNopoSignals(evidencePlace);
+        if (nopo.disallowed) {
           score -= 120;
           aiScoreSignals.nopo_venue_mismatch = -120;
+        } else if (nopo.score > 0) {
+          const add = Math.min(28, nopo.score * 4);
+          score += add;
+          aiScoreSignals.nopo_match = add;
         }
       }
 
@@ -3153,6 +3156,29 @@ export default function Home() {
     homeRailCourseCompleted,
   ]);
 
+  /** 1·2·쩜오 확정 코스 → 지도 핀(상호 라벨) + 뷰 맞춤 */
+  const syncMapCoursePinsFromCourse = useCallback(
+    (course) => {
+      if (!course?.steps?.length) return;
+      const pins = courseOptionsToMapPlaces([course]);
+      if (!pins.length) return;
+      coursePathDismissedForCourseKeyRef.current = null;
+      setKakaoPlaces(pins);
+      const bottom = Math.max(120, courseMapFitBottomPaddingPx + 56);
+      const padding = { top: 72, right: 44, bottom, left: 44 };
+      requestAnimationFrame(() => {
+        window.setTimeout(() => {
+          try {
+            mapRef.current?.fitToPlaces?.(pins, padding);
+          } catch (e) {
+            if (import.meta.env.DEV) devWarn("[map] fit course pins", e);
+          }
+        }, 96);
+      });
+    },
+    [setKakaoPlaces, courseMapFitBottomPaddingPx]
+  );
+
   const mapOverlayCourseDrive = isCourseMode
     ? courseDrivingMap
     : homeRailCourseDrive;
@@ -4050,6 +4076,9 @@ export default function Home() {
             ...mergedLoad,
             includeHalfStep: next,
           };
+          if (res.selectedCourse) {
+            syncMapCoursePinsFromCourse(res.selectedCourse);
+          }
           if (res.options?.length) {
             showToast(
               next
@@ -4076,6 +4105,7 @@ export default function Home() {
       selectedCourse,
       aiSheetOpen,
       courseOptions,
+      syncMapCoursePinsFromCourse,
     ]
   );
 
@@ -4573,6 +4603,8 @@ export default function Home() {
         return;
       }
       clearCourseSecondPickPulse();
+      syncMapCoursePinsFromCourse(picked);
+      setRecommendSheetPinnedCollapsed(true);
       setSelectedPlace(null);
       setAiSheetOpen(false);
       showToast("2차로 확정했어요. 길 안내를 확인해 보세요.", "success", 3200);
@@ -4581,6 +4613,7 @@ export default function Home() {
       findSecondCandidateCourseForPlace,
       applySecondStepPick,
       clearCourseSecondPickPulse,
+      syncMapCoursePinsFromCourse,
       showToast,
     ]
   );
@@ -7443,9 +7476,13 @@ const handleClearSearch = () => {
         let unifiedMapPlacesBackup = [];
         let unifiedBlogFromServer = [];
         let unifiedApiRespondedOk = false;
-        /** 상황 칩·사전 미등록 지명: 통합 API 전국 편향 — 카카오 SDK 「지역+업종」만 */
+        /** 노포: 네이버 로컬+블로그 통합 파이프라인 병렬 (키워드 검색도 사용) */
+        const wantsNopoUnified = queryWantsNopoFoodFocus(
+          nextQuery,
+          facetsForFilter,
+        );
         if (
-          !useBasicSearchPipeline &&
+          (!useBasicSearchPipeline || wantsNopoUnified) &&
           !chipAnchorsMapViewport &&
           !kakaoGeographicOnly
         ) {
@@ -7456,7 +7493,7 @@ const handleClearSearch = () => {
                 searchPhrases:
                   phrasesForUnified.length > 0 ? phrasesForUnified : [kwUnified],
                 includeBlog: true,
-                blogTimeoutMs: 14000,
+                blogTimeoutMs: wantsNopoUnified ? 18000 : 14000,
               },
               AI_API_BASE
             );

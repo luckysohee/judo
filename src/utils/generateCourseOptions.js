@@ -1727,7 +1727,7 @@ export function courseOptionsToMapPlaces(options = []) {
       out.push({
         ...p,
         id: sid,
-        name: p.name,
+        name: p.name || p.place_name,
         place_name: p.place_name || p.name,
         lat,
         lng,

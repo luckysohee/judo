@@ -438,12 +438,19 @@ export function useCourseSearch() {
           preserve && upgradedEngine.length
             ? findCoursePreservingLegEndpoints(preserve, upgradedEngine)
             : null;
-        setSelectedCourse(matched ?? upgradedEngine[0] ?? null);
+        const nextSelected = matched ?? upgradedEngine[0] ?? null;
+        setSelectedCourse(nextSelected);
         const { keys, pairs } = appendSeenFromCourses(upgradedEngine);
         setSeenCourseKeys(keys);
         setSeenVenuePairKeys(pairs);
         const mapPlaces = courseOptionsToMapPlaces(upgradedEngine);
-        return { handled: true, options: fullOptions, mapPlaces, parsed };
+        return {
+          handled: true,
+          options: fullOptions,
+          mapPlaces,
+          parsed,
+          selectedCourse: nextSelected,
+        };
       }
 
       const pool = await perf.time("generate_course_pool", async () =>

@@ -6,6 +6,11 @@
 
 import { SEARCH_DICTIONARY } from "./searchDictionary.js";
 import { findCuratorCatalogMatch } from "./mergePickedPlaceWithCuratorCatalog.js";
+import {
+  NOPO_DISALLOWED_VENUE_RE,
+  rankAndFilterNopoPlaces,
+  scoreNopoSignals,
+} from "./nopoSearchProfile.js";
 
 function uniqConcat(priorityFirst, second) {
   const seen = new Set();
@@ -912,11 +917,18 @@ export function expandFoodKakaoQueries(keyword) {
     }
   }
   /**
-   * 「노포」= 오래된 식당·한식 맛집 의도.
-   * `주점`·`호프`로 넓히면 유흥·노래주점이 대량 유입되므로 음식점 동의어만 쓴다.
+   * 「노포」= 오래된 식당·술집 + 노포 분위기. 골목·포장마차·호프 확장(유흥은 nopo 필터로 제거).
    */
   if (/노포|옛날감성|숨은맛집/i.test(k)) {
-    for (const syn of ["한식", "국밥", "음식점", "식당", "곱창"]) {
+    for (const syn of [
+      "한식",
+      "국밥",
+      "골목",
+      "포장마차",
+      "호프",
+      "이자카야",
+      "식당",
+    ]) {
       const next = k
         .replace(/\s*노포\s*/gi, ` ${syn} `)
         .replace(/\s*옛날감성\s*/gi, ` ${syn} `)
@@ -936,6 +948,8 @@ export function expandFoodKakaoQueries(keyword) {
  */
 export function kakaoMapSearchWantsBroadPlaceCategories(keyword) {
   const k = String(keyword || "").trim();
+  /** 노포: 이름에 음식점이 안 적힌 오래된 술집도 후보에 넣고 nopo 필터로 정리 */
+  if (/노포|옛날감성|숨은맛집/i.test(k)) return true;
   return /골목술|술집|호프|주점|포장마차|포차|이자카야|와인바|맥주|소주|하이볼|2차|야장|펍|클럽|라운지|칵테일|혼술|회식\s*술|술\s*마실/i.test(
     k
   );
@@ -1140,10 +1154,6 @@ const SEAFOOD_NEGATIVE_RE =
 export const YAJANG_PLACE_HINT_RE =
   /야장|노천|포장마차|포차|테라스|야외|루프탑|옥상|가로수|길가|실외|마당|노상|이동식/i;
 
-/** 노포·옛날 맛집 검색 — 유흥·노래주점 제외용 */
-export const NOPO_DISALLOWED_VENUE_RE =
-  /유흥|노래방|코인노래|노래\s*주점|룸싸롱|단란주점|나이트\s*클럽|나이트클럽|가라오케|karaoke|캐비넷|매직미러|바다\s*유흥|쩜오|룸살롱/i;
-
 export function queryWantsNopoFoodFocus(rawQuery, parsedResult) {
   const q = String(rawQuery || "");
   if (/노포|옛날감성|숨은맛집|로컬\s*맛집/i.test(q)) return true;
@@ -1153,14 +1163,10 @@ export function queryWantsNopoFoodFocus(rawQuery, parsedResult) {
 }
 
 export function filterPlacesByNopoFocus(places) {
-  const list = Array.isArray(places) ? places : [];
-  return list.filter((pl) => {
-    const t = placeHaystack(pl);
-    if (NOPO_DISALLOWED_VENUE_RE.test(t)) return false;
-    if (/^[^>]*유흥[^>]*>/i.test(t)) return false;
-    return true;
-  });
+  return rankAndFilterNopoPlaces(places, { minKeep: 3 });
 }
+
+export { NOPO_DISALLOWED_VENUE_RE, scoreNopoSignals };
 
 export function queryWantsYajangFocus(rawQuery, parsedResult) {
   const q = String(rawQuery || "").toLowerCase();

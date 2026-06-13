@@ -5,28 +5,86 @@ import {
   kakaoMapSearchWantsBroadPlaceCategories,
   queryWantsNopoFoodFocus,
 } from "./searchParser.js";
+import { scoreNopoSignals } from "./nopoSearchProfile.js";
 
 describe("노포 검색", () => {
-  it("expandFoodKakaoQueries — 주점·호프로 넓히지 않음", () => {
+  it("expandFoodKakaoQueries — 골목·포장마차·호프 포함, 유흥 키워드 없음", () => {
     const qs = expandFoodKakaoQueries("강남구 노포");
     expect(qs).toContain("강남구 노포");
-    expect(qs.some((q) => /주점|호프|유흥/.test(q))).toBe(false);
-    expect(qs.some((q) => /한식|국밥|음식점/.test(q))).toBe(true);
+    expect(qs.some((q) => /골목|포장마차|호프/.test(q))).toBe(true);
+    expect(qs.some((q) => /유흥|노래/.test(q))).toBe(false);
   });
 
-  it("노포 검색은 FD6 음식점 카테고리 유지", () => {
-    expect(kakaoMapSearchWantsBroadPlaceCategories("강남구 노포")).toBe(false);
+  it("노포 검색은 broad 카테고리(술집 후보) + 필터로 정리", () => {
+    expect(kakaoMapSearchWantsBroadPlaceCategories("강남구 노포")).toBe(true);
     expect(kakaoMapSearchWantsBroadPlaceCategories("을지로 술집")).toBe(true);
   });
 
-  it("filterPlacesByNopoFocus — 유흥·노래주점 제거", () => {
+  it("filterPlacesByNopoFocus — 유흥·비업소 제거, 노포 신호 우선", () => {
     const rows = [
       { place_name: "강남유흥주점", category_name: "유흥주점" },
       { place_name: "샤론노래주점", category_name: "노래방" },
+      { place_name: "골목식당노무", category_name: "법률,행정" },
       { place_name: "할매국밥", category_name: "한식>국밥" },
+      { place_name: "골목 포장마차", category_name: "포장마차" },
     ];
     const kept = filterPlacesByNopoFocus(rows);
-    expect(kept.map((p) => p.place_name)).toEqual(["할매국밥"]);
+    expect(kept.map((p) => p.place_name)).not.toContain("강남유흥주점");
+    expect(kept.map((p) => p.place_name)).not.toContain("샤론노래주점");
+    expect(kept.map((p) => p.place_name)).not.toContain("골목식당노무");
+    expect(kept.map((p) => p.place_name)).toContain("할매국밥");
+    expect(kept.map((p) => p.place_name)).toContain("골목 포장마차");
+  });
+
+  it("scoreNopoSignals — 체인 브랜드 제외 (프릳츠·깔리)", () => {
+    for (const row of [
+      { place_name: "프릳츠 커피", category_name: "카페>커피전문점" },
+      { place_name: "깔리 테이블", category_name: "양식>브런치" },
+      { place_name: "스타벅스 강남역점", category_name: "카페>커피전문점" },
+    ]) {
+      const s = scoreNopoSignals(row);
+      expect(s.disallowed).toBe(true);
+      expect(s.signals).toContain("chain");
+    }
+  });
+
+  it("scoreNopoSignals — 노가리체인은 메뉴명이라 체인으로 안 봄", () => {
+    const s = scoreNopoSignals({
+      place_name: "원조만선호프 노가리체인본점",
+      category_name: "한식>호프,요리주점",
+      tags: ["노포"],
+    });
+    expect(s.disallowed).toBe(false);
+    expect(s.signals).not.toContain("chain");
+  });
+
+  it("scoreNopoSignals — 체인이어도 큐레이터 노포 태그면 예외", () => {
+    const s = scoreNopoSignals({
+      place_name: "프릳츠 커피",
+      category_name: "카페>커피전문점",
+      tags: ["노포"],
+    });
+    expect(s.disallowed).toBe(false);
+    expect(s.signals).toContain("chain_curator_exception");
+  });
+
+  it("scoreNopoSignals — 법률·행정 카테고리는 상호에 식당이 있어도 제외", () => {
+    const s = scoreNopoSignals({
+      place_name: "골목식당노무",
+      category_name: "법률,행정",
+    });
+    expect(s.disallowed).toBe(true);
+    expect(s.signals).toContain("non_venue_category");
+  });
+
+  it("scoreNopoSignals — 분위기만으로도 점수", () => {
+    const s = scoreNopoSignals({
+      place_name: "골목 이자카야",
+      category_name: "이자카야",
+      tags: ["노포감성"],
+    });
+    expect(s.disallowed).toBe(false);
+    expect(s.score).toBeGreaterThan(2);
   });
 
   it("queryWantsNopoFoodFocus", () => {
