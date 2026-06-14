@@ -74,6 +74,9 @@ function startViewportPrefetch() {
 /** 앱 마운트 직후 — Kakao SDK + 성수 기본 bbox places·밀도 병렬 선요청 */
 export function warmupHomeMapBoot() {
   loadKakaoMapsSdk().catch(() => {});
+  void import("../pages/Home/Home");
+  void import("../components/Map/MapView");
+  void import("./createMarker");
   startViewportPrefetch();
   const params = buildInitialViewportPrefetchParams();
   if (params?.fetchBounds) {

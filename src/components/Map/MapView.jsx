@@ -732,6 +732,8 @@ const MapView = forwardRef(({
   }, []);
 
   const prevPlacesSigRef = useRef("");
+  /** 첫 진입 부트 — 스플래시·인트로가 실제 핀 렌더 완료를 기다릴 때 1회만 신호 */
+  const mapMarkersBootPaintedRef = useRef(false);
 
   const [mapReady, setMapReady] = useState(false);
   
@@ -1860,6 +1862,31 @@ const MapView = forwardRef(({
       setTimeout(() => {
         ignoreViewportEventRef.current = false;
       }, 450);
+    }
+
+    if (
+      !mapMarkersBootPaintedRef.current &&
+      validPlaces.length > 0 &&
+      !mapDensityLayerActive
+    ) {
+      mapMarkersBootPaintedRef.current = true;
+      const paintedCount = validPlaces.length;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            if (typeof window !== "undefined") {
+              window.__judoMarkersPainted = true;
+              window.dispatchEvent(
+                new CustomEvent("judo:map-markers-painted", {
+                  detail: { count: paintedCount },
+                })
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        });
+      });
     }
   }, [
     places,
