@@ -206,6 +206,10 @@ import {
   peekHomeViewportPrefetch,
   takeHomeViewportPrefetch,
 } from "../../utils/warmupHomeMapBoot";
+import {
+  readHomeMapViewportSessionCache,
+  writeHomeMapViewportSessionCache,
+} from "../../utils/homeMapViewportSessionCache";
 import { fetchMySavedPlacesForHomeMap } from "./fetchMySavedPlacesForMap";
 import {
   walkingRouteDisplayMinutes,
@@ -268,6 +272,7 @@ import {
   getJudoOperationMode,
 } from "../../utils/judoOperationMode";
 
+import { defaultHomeMapViewportBounds } from "../../utils/homeMapViewportBounds";
 import {
   AI_API_BASE,
   appendSelectedPlacePinIfMissing,
@@ -279,7 +284,6 @@ import {
   canonicalCuratorChipToken,
   collectCuratorIdsForRescueMatch,
   COURSE_GPS_DEFAULT_RADIUS_M,
-  defaultHomeMapViewportBounds,
   DRINKS_SITUATION_CHIP_RESULT_HINTS,
   DRINKS_SITUATION_CHIP_SINGLE_SHOT_QUERY,
   DRINKS_SITUATION_CHIP_UI_LABELS,
@@ -1313,7 +1317,9 @@ export default function Home() {
     return reasons.length > 0 ? reasons.join(', ') : '검색·거리 기준 후보';
   };
 
-  const [dbPlaces, setDbPlaces] = useState([]); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
+  const [dbPlaces, setDbPlaces] = useState(
+    () => readHomeMapViewportSessionCache()?.merged ?? [],
+  ); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
   /** 탭 새로고침마다 바뀌는 값 — 큐레이터 스트립 첫 후보 로테이션·동순위 섞기 */
   const curatorSpotlightSaltRef = useRef(
     (typeof crypto !== "undefined" && crypto.getRandomValues
@@ -1329,12 +1335,12 @@ export default function Home() {
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
   const isFirstViewportScheduleRef = useRef(true);
+  /** mount effect에서 선요청 시작 — map idle 중복 fetch 방지 */
+  const bootViewportLoadStartedRef = useRef(false);
   /** 직전 성공 fetch padded bbox — 미세 팬·줌 시 API 생략 */
   const lastFetchedViewportRef = useRef(null);
   /** 첫 뷰포트 마커 부트스트랩 — 이후 팬은 선마커 없이 한 번에 갱신 */
   const mapMarkersBootstrappedRef = useRef(false);
-  const MAP_VIEWPORT_SESSION_CACHE_KEY = "judo_map_viewport_places_v1";
-  const MAP_VIEWPORT_SESSION_CACHE_TTL_MS = 12 * 60 * 1000;
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
   /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
@@ -1377,15 +1383,6 @@ export default function Home() {
     }
   }, []);
 
-  const nextPaintFrame = useCallback(
-    () =>
-      new Promise((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(resolve);
-        });
-      }),
-    []
-  );
 
   /** 인트로 질문에 답하도록 검색창 포커스 (동네·1차 시작 입력) */
   /** 검색어가 있을 땐 뷰포트마다 DB 전량 갱신하지 않음(검색·카카오 쪽 우선). */
@@ -1444,7 +1441,6 @@ export default function Home() {
           const prefetchPromise = peekHomeViewportPrefetch();
           if (prefetchPromise) {
             const prefetched = await prefetchPromise;
-            takeHomeViewportPrefetch();
             if (
               prefetched &&
               prefetched.cacheKey === cacheKey &&
@@ -1453,6 +1449,7 @@ export default function Home() {
               plainRows = prefetched.plainRows;
               joinResult = { rows: prefetched.joinRows || [], error: null };
               usedPrefetch = true;
+              takeHomeViewportPrefetch();
             }
           }
 
@@ -1528,7 +1525,6 @@ export default function Home() {
         const plainPlaces = formatBoundsPlaceRowsForMap(plainRows);
         setDbPlaces(plainPlaces);
         emitMapMarkersReady(plainPlaces.length, { phase: "plain" });
-        await nextPaintFrame();
       }
 
       const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
@@ -1542,9 +1538,13 @@ export default function Home() {
         ...fromJoin,
         ...formatBoundsPlaceRowsForMap(extraPlain),
       ];
-      startTransition(() => {
+      if (isBootViewport) {
         setDbPlaces(merged);
-      });
+      } else {
+        startTransition(() => {
+          setDbPlaces(merged);
+        });
+      }
       mapMarkersBootstrappedRef.current = true;
       lastFetchedViewportRef.current = {
         padded,
@@ -1555,28 +1555,18 @@ export default function Home() {
           ? selectedCuratorsRef.current.join("|")
           : "",
       };
-      if (merged.length > 0 && !isBootViewport) {
-        emitMapMarkersReady(merged.length, { phase: "full" });
-      } else if (merged.length > 0 && isBootViewport && cached) {
-        emitMapMarkersReady(merged.length, { phase: "full" });
+      if (merged.length > 0) {
+        emitMapMarkersReady(merged.length, {
+          phase: isBootViewport ? "boot-full" : "full",
+        });
       }
 
-      try {
-        if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(
-            MAP_VIEWPORT_SESSION_CACHE_KEY,
-            JSON.stringify({
-              ts: Date.now(),
-              cacheKey,
-              plainRows: plainRows || [],
-              joinRows: joinResult.rows || [],
-              merged,
-            })
-          );
-        }
-      } catch {
-        /* ignore quota */
-      }
+      writeHomeMapViewportSessionCache({
+        cacheKey,
+        plainRows: plainRows || [],
+        joinRows: joinResult.rows || [],
+        merged,
+      });
 
       if (import.meta.env.DEV) {
         devLog("📦 bounds fetch 결과:", merged.length, {
@@ -1591,7 +1581,7 @@ export default function Home() {
         setMapViewportDbLoading(false);
       }
     },
-    [query, emitMapMarkersReady, nextPaintFrame]
+    [query, emitMapMarkersReady]
   );
 
   const loadMapDensityForViewport = useCallback(
@@ -1664,6 +1654,13 @@ export default function Home() {
 
   const scheduleDbPlacesForBounds = useCallback(
     (boundsRaw, mapLevel) => {
+      if (
+        bootViewportLoadStartedRef.current &&
+        mapViewportFetchInFlightRef.current > 0
+      ) {
+        return;
+      }
+
       const widenForSituation = Boolean(situationFolderFilterRef.current);
       const hasCuratorChipFilter =
         Array.isArray(selectedCuratorsRef.current) &&
@@ -4184,36 +4181,26 @@ export default function Home() {
     ]
   );
 
+  useLayoutEffect(() => {
+    const parsed = readHomeMapViewportSessionCache();
+    if (!parsed?.merged?.length) return;
+    mapMarkersBootstrappedRef.current = true;
+    if (parsed.cacheKey && parsed.plainRows && parsed.joinRows) {
+      mapViewportFetchCacheRef.current[parsed.cacheKey] = {
+        plainRows: parsed.plainRows,
+        joinRows: parsed.joinRows,
+      };
+    }
+    emitMapMarkersReady(parsed.merged.length, { fromSessionCache: true });
+    if (import.meta.env.DEV) {
+      devLog("📦 session viewport cache hit:", parsed.merged.length);
+    }
+  }, [emitMapMarkersReady]);
+
   /** 지도 SDK·idle 전 성수 기본 bbox로 places 선요청 + 세션 캐시로 즉시 마커 */
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(MAP_VIEWPORT_SESSION_CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const age = Date.now() - Number(parsed?.ts || 0);
-        if (
-          age >= 0 &&
-          age < MAP_VIEWPORT_SESSION_CACHE_TTL_MS &&
-          Array.isArray(parsed?.merged) &&
-          parsed.merged.length > 0
-        ) {
-          setDbPlaces(parsed.merged);
-          mapMarkersBootstrappedRef.current = true;
-          if (parsed.cacheKey && parsed.plainRows && parsed.joinRows) {
-            mapViewportFetchCacheRef.current[parsed.cacheKey] = {
-              plainRows: parsed.plainRows,
-              joinRows: parsed.joinRows,
-            };
-          }
-          emitMapMarkersReady(parsed.merged.length, { fromSessionCache: true });
-          if (import.meta.env.DEV) {
-            devLog("📦 session viewport cache hit:", parsed.merged.length);
-          }
-        }
-      }
-    } catch {
-      /* ignore */
-    }
+    bootViewportLoadStartedRef.current = true;
+    isFirstViewportScheduleRef.current = false;
 
     const defaultBounds = defaultHomeMapViewportBounds(5);
     lastMapBoundsRef.current = defaultBounds;

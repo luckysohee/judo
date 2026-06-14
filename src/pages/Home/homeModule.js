@@ -20,6 +20,10 @@ import {
   legacyCompactUuidToDashed,
   legacyPlaceCuratorIdCompactsForProfile,
 } from "../../utils/curatorLegacyPlaceIds";
+import {
+  SEONGSU_MAP_CENTER,
+  defaultHomeMapViewportBounds,
+} from "../../utils/homeMapViewportBounds";
 
 /** 낮 모드에서 지도 LIVE 펄스용으로 빈 Set 재사용 */
 const EMPTY_LIVE_PLACE_IDS = new Set();
@@ -372,22 +376,6 @@ function sanitizeBusinessName(v) {
     if (lastGood) s = lastGood;
   }
   return s.trim();
-}
-
-/** MapView `DEFAULT_MAP_CENTER` 와 동일 — 첫 진입·정렬 기준점 등(술 상황 칩은 지도를 여기로 끌지 않음) */
-const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
-
-/** MapView 초기 level(5) 성수 뷰 — 지도 idle 전 places-in-bounds 선요청용 */
-function defaultHomeMapViewportBounds(mapLevel = 5) {
-  const lat = SEONGSU_MAP_CENTER.lat;
-  const lng = SEONGSU_MAP_CENTER.lng;
-  const scale = Math.pow(2, Math.max(0, 8 - mapLevel));
-  const latHalf = 0.009 * scale;
-  const lngHalf = 0.011 * scale;
-  return {
-    sw: { lat: lat - latHalf, lng: lng - lngHalf },
-    ne: { lat: lat + latHalf, lng: lng + lngHalf },
-  };
 }
 
 /** 검색 피크·하단 탭·safe area — 과하면 지도가 더 어긋나 보여서 보수적으로만 보정 */

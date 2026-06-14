@@ -4,21 +4,9 @@ import { getHomeMapViewportPlaceLimit } from "./homeMapViewportLimit";
 import { getAiApiBaseUrl } from "./apiBaseUrl";
 import { padLatLngBounds } from "./fetchCuratorPlacesInBounds";
 import { loadKakaoMapsSdk } from "./loadKakaoMapsSdk";
-
-/** MapView `DEFAULT_MAP_CENTER` 와 동일 */
-const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
-
-function defaultHomeMapViewportBounds(mapLevel = 5) {
-  const lat = SEONGSU_MAP_CENTER.lat;
-  const lng = SEONGSU_MAP_CENTER.lng;
-  const scale = Math.pow(2, Math.max(0, 8 - mapLevel));
-  const latHalf = 0.009 * scale;
-  const lngHalf = 0.011 * scale;
-  return {
-    sw: { lat: lat - latHalf, lng: lng - lngHalf },
-    ne: { lat: lat + latHalf, lng: lng + lngHalf },
-  };
-}
+import { formatBoundsPlaceRowsForMap } from "./formatBoundsPlaceRowsForMap";
+import { writeHomeMapViewportSessionCache } from "./homeMapViewportSessionCache";
+import { defaultHomeMapViewportBounds } from "./homeMapViewportBounds";
 
 function buildInitialViewportPrefetchParams() {
   const boundsRaw = defaultHomeMapViewportBounds(5);
@@ -59,11 +47,22 @@ function startViewportPrefetch() {
     params.fetchBounds,
     getAiApiBaseUrl(),
   )
-    .then((bundle) => ({
-      ...params,
-      plainRows: bundle.places,
-      joinRows: bundle.joinRows,
-    }))
+    .then((bundle) => {
+      const result = {
+        ...params,
+        plainRows: bundle.places,
+        joinRows: bundle.joinRows,
+      };
+      if (Array.isArray(result.plainRows) && result.plainRows.length > 0) {
+        writeHomeMapViewportSessionCache({
+          cacheKey: params.cacheKey,
+          plainRows: result.plainRows,
+          joinRows: result.joinRows || [],
+          merged: formatBoundsPlaceRowsForMap(result.plainRows),
+        });
+      }
+      return result;
+    })
     .catch((err) => {
       viewportPrefetchPromise = null;
       if (import.meta.env.DEV) {
