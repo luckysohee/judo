@@ -5,11 +5,10 @@ import {
   JUDO_CHECKIN_SCHEDULE_ERROR,
 } from '../utils/judoOperationMode';
 
+import { createRandomUuid } from '../utils/createRandomUuid';
+
 function newRealtimeTopicSuffix() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+  return createRandomUuid();
 }
 
 export const useRealtimeCheckins = () => {

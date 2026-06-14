@@ -183,3 +183,19 @@ export function homeDrinksSituationStripBottomCss() {
   return `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + ${homeHotStripBarHeightPx()}px + 8px + env(safe-area-inset-bottom, 0px))`;
 }
 
+/** 코스 「쩜오 추가」 플로팅 — 핫스트립 위 */
+export function homeCourseHalfStepFloatingBtnBottomCss() {
+  return `calc(${HOME_HOT_STRIP_NAV_CLEARANCE_PX}px + ${homeHotStripBarHeightPx()}px + 10px + env(safe-area-inset-bottom, 0px))`;
+}
+
+/** 도보 루트 fit — 구간 거리 라벨이 검색바·핫스트립에 가리지 않게 */
+export function homeCourseRouteMapFitBottomPaddingPx() {
+  return (
+    HOME_HOT_STRIP_NAV_CLEARANCE_PX +
+    homeHotStripBarHeightPx() +
+    HOME_SEARCH_BAR_DOCK_BOTTOM_PX +
+    HOME_SEARCH_BAR_HEIGHT_PX +
+    24
+  );
+}
+

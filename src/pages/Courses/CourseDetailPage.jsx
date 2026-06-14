@@ -29,14 +29,15 @@ import CourseMapPreview from "../../components/Course/CourseMapPreview";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import {
-  studioCoursesShell,
   studioCoursesInner,
   studioCoursesCard,
   studioCoursesBtnPrimary,
   studioCoursesBtnGhost,
   studioCoursesBtnDanger,
   studioCoursesRowActions,
+  studioCoursesScrollMain,
 } from "../Studio/studioCoursesSharedStyles";
+import StudioScrollLayout from "../../components/Studio/StudioScrollLayout";
 import {
   canBookmarkPublishedPublicCourse,
   getCourseVisibilityBadge,
@@ -582,19 +583,19 @@ export default function CourseDetailPage() {
 
   if (phase === "loading" || (phase === "ok" && !course)) {
     return (
-      <div style={studioCoursesShell}>
+      <StudioScrollLayout mainStyle={studioCoursesScrollMain}>
         <div style={{ ...studioCoursesInner, paddingTop: "28px" }}>
           <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)" }}>
             불러오는 중…
           </div>
         </div>
-      </div>
+      </StudioScrollLayout>
     );
   }
 
   if (phase === "forbidden" || !course) {
     return (
-      <div style={studioCoursesShell}>
+      <StudioScrollLayout mainStyle={studioCoursesScrollMain}>
         <div style={{ ...studioCoursesInner, paddingTop: "28px" }}>
           <p style={{ fontSize: "15px", lineHeight: 1.55, marginBottom: "16px" }}>
             이 코스는 비공개이거나 접근 권한이 없어요.
@@ -607,7 +608,7 @@ export default function CourseDetailPage() {
             홈으로
           </button>
         </div>
-      </div>
+      </StudioScrollLayout>
     );
   }
 
@@ -615,12 +616,11 @@ export default function CourseDetailPage() {
   const tags = Array.isArray(course.theme_tags) ? course.theme_tags : [];
 
   return (
-    <div style={studioCoursesShell}>
+    <StudioScrollLayout mainStyle={studioCoursesScrollMain}>
       <div
         style={{
           ...studioCoursesInner,
           maxWidth: "min(560px, 100%)",
-          paddingBottom: "32px",
         }}
       >
         <div
@@ -1310,6 +1310,6 @@ export default function CourseDetailPage() {
           </div>
         ) : null}
       </div>
-    </div>
+    </StudioScrollLayout>
   );
 }

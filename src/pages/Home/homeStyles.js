@@ -1,4 +1,5 @@
 import {
+  homeCourseHalfStepFloatingBtnBottomCss,
   homeDrinksSituationStripBottomCss,
   homeSearchBarStackBottomCss,
   HOME_UI_DOCK_RADIUS_PX,
@@ -91,8 +92,9 @@ export const styles = {
   courseAddHalfStepFloatingBtn: {
     position: "absolute",
     right: "14px",
-    bottom: "calc(160px + env(safe-area-inset-bottom, 0px))",
-    zIndex: 131,
+    bottom: homeCourseHalfStepFloatingBtnBottomCss(),
+    zIndex: 260,
+    pointerEvents: "auto",
     padding: "10px 14px",
     borderRadius: 999,
     border: "1px solid rgba(124, 58, 237, 0.48)",
@@ -489,6 +491,41 @@ export const styles = {
     letterSpacing: "-0.03em",
     whiteSpace: "nowrap",
     marginTop: "1px",
+  },
+
+  /** 코스 칩 바로 아래 — 취향 「오늘 여기 어때요?」 재진입 */
+  legendTodayTasteEntryButton: {
+    pointerEvents: "auto",
+    width: "100%",
+    minHeight: "32px",
+    padding: "4px 2px 3px",
+    gap: "2px",
+    borderRadius: "9px",
+    border: "1px solid rgba(255, 255, 255, 0.22)",
+    background: "rgba(22, 24, 28, 0.28)",
+    backdropFilter: "blur(14px) saturate(150%)",
+    WebkitBackdropFilter: "blur(14px) saturate(150%)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.1), 0 3px 12px rgba(0,0,0,0.16)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "rgba(255,255,255,0.94)",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+  },
+
+  legendTodayTasteEntryLabel: {
+    fontSize: "7px",
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+    color: "rgba(250, 245, 255, 0.92)",
   },
 
   bottomBarContainer: {

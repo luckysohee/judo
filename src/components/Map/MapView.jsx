@@ -1923,10 +1923,32 @@ const MapView = forwardRef(({
 
   // 3. 선택된 장소로 부드럽게 이동 (검색 결과는 y/x만 있고 lat/lng 없는 경우 많음)
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !selectedPlace) return;
+    if (!mapReady || !mapRef.current) return;
+
+    const restoreMapGestures = () => {
+      if (lockMapGesturesRef.current) return;
+      try {
+        if (typeof mapRef.current?.setDraggable === "function") {
+          mapRef.current.setDraggable(true);
+        }
+        if (typeof mapRef.current?.setZoomable === "function") {
+          mapRef.current.setZoomable(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    if (!selectedPlace) {
+      restoreMapGestures();
+      return;
+    }
 
     const wgs = resolvePlaceCoords(selectedPlace);
-    if (!wgs || !Number.isFinite(wgs.lat) || !Number.isFinite(wgs.lng)) return;
+    if (!wgs || !Number.isFinite(wgs.lat) || !Number.isFinite(wgs.lng)) {
+      restoreMapGestures();
+      return;
+    }
 
     lastMoveReasonRef.current = "place-click";
     lockAutoMove(800, "place-click");

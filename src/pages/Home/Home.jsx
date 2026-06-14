@@ -36,7 +36,7 @@ import { supabase } from "../../lib/supabase";
 import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
 import { followUser } from "../../utils/userProfileFollows";
 import { runWhenIdle } from "../../utils/runWhenIdle";
-import { createPerfTrace } from "../../utils/devPerfTrace.js";
+import { createRandomUuid } from "../../utils/createRandomUuid";
 
 import {
   getPlaceFolderIds,
@@ -116,7 +116,9 @@ import HomeCoursesDiscoveryPanel, {
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
-import HomeTodayTasteSuggest from "../../components/Home/HomeTodayTasteSuggest";
+import HomeTodayTasteSuggest, {
+  HomeTodayTasteEntryChip,
+} from "../../components/Home/HomeTodayTasteSuggest";
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
 import TasteOnboardingGate from "../../components/Onboarding/TasteOnboardingGate";
 import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
@@ -192,7 +194,10 @@ import {
   homeRailCourseMapFitPadding,
   homeRailCourseSheetHeightPx,
 } from "../../utils/homeRailCourseUi";
-import { homeCoursesDiscoveryStampSheetHeightPx } from "../../utils/homeHotStripLayout";
+import {
+  homeCourseRouteMapFitBottomPaddingPx,
+  homeCoursesDiscoveryStampSheetHeightPx,
+} from "../../utils/homeHotStripLayout";
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
 import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
@@ -2062,6 +2067,10 @@ export default function Home() {
   /** 미리보기 도장 행 — DB 반영 후 재조회 */
   const [homeCourseStampStateVersion, setHomeCourseStampStateVersion] =
     useState(0);
+  const [todayTasteEntryChip, setTodayTasteEntryChip] = useState({
+    visible: false,
+    onOpen: () => {},
+  });
   const closeHomeCoursesPanel = useCallback(() => {
     setHomeCoursesPanelOpen(false);
     setHomeCourseBrowse(null);
@@ -3120,15 +3129,6 @@ export default function Home() {
       !courseIncludeHalfStep
   );
 
-  /** 1·2차 확정·도보 루트·쩜오 추가 — 핫스트립·상황 칩이 플로팅 버튼을 가리지 않게 */
-  const hideHomeMapChromeForCourseRouteView = useMemo(
-    () =>
-      Boolean(courseMapOverlay) ||
-      canAddHalfStepNow ||
-      courseSecondPickMode,
-    [courseMapOverlay, canAddHalfStepNow, courseSecondPickMode]
-  );
-
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
     if (
@@ -3165,6 +3165,15 @@ export default function Home() {
     homeCourseFollowMinimized,
     homeRailCourseCompleted,
   ]);
+
+  /** 도보 루트 fit — 쩜오→2차 등 구간 라벨이 하단 UI에 가리지 않게 */
+  const courseOverlayMapFitBottomPaddingPx = useMemo(() => {
+    if (!courseMapOverlay) return courseMapFitBottomPaddingPx;
+    return Math.max(
+      courseMapFitBottomPaddingPx,
+      homeCourseRouteMapFitBottomPaddingPx()
+    );
+  }, [courseMapOverlay, courseMapFitBottomPaddingPx]);
 
   /** 1·2·쩜오 확정 코스 → 지도 핀(상호 라벨) + 뷰 맞춤 */
   const syncMapCoursePinsFromCourse = useCallback(
@@ -3273,15 +3282,13 @@ export default function Home() {
       pathOverlayHidesChrome ||
       Boolean(arrivalWalkingOverlay) ||
       courseSecondPickMode ||
-      courseSecondFindModalOpen ||
-      canAddHalfStepNow
+      courseSecondFindModalOpen
     );
   }, [
     courseMapOverlay,
     arrivalWalkingOverlay,
     courseSecondPickMode,
     courseSecondFindModalOpen,
-    canAddHalfStepNow,
     homeCoursesBrowseActive,
     homeCoursesStampSheetActive,
     homeCourseFollowMinimized,
@@ -5302,20 +5309,24 @@ export default function Home() {
    * 맞춤 추천 시트가 접힌 피크·2차 고르기·루트 안내 중 — 하단 HOT/큐레이터/마퀴가 지도·시트를 가리지 않게
    */
   const hideHomeMapChromeForRecommendPeek = useMemo(() => {
-    if (hideHomeMapChromeForCourseRouteView) return true;
     const hasRecommendSheet =
       (aiRecommendedIds.length > 0 || useImportRecPlacesForAiSheet) &&
       !simpleMapSearchMarkersOnly &&
       !selectedPlace;
     if (!hasRecommendSheet) return false;
-    return recommendSheetPinnedCollapsed;
+    return (
+      recommendSheetPinnedCollapsed ||
+      courseSecondPickMode ||
+      Boolean(courseMapOverlay)
+    );
   }, [
-    hideHomeMapChromeForCourseRouteView,
     aiRecommendedIds.length,
     useImportRecPlacesForAiSheet,
     simpleMapSearchMarkersOnly,
     selectedPlace,
     recommendSheetPinnedCollapsed,
+    courseSecondPickMode,
+    courseMapOverlay,
   ]);
 
   const showTodayTasteSuggest = useMemo(() => {
@@ -6408,7 +6419,7 @@ const handleClearSearch = () => {
       return;
     }
 
-    const searchSessionId = crypto.randomUUID();
+    const searchSessionId = createRandomUuid();
     searchSessionIdRef.current = searchSessionId;
     lastSearchSubmitTelemetryRef.current = null;
     lastSearchLogIdRef.current = null;
@@ -8752,7 +8763,7 @@ const handleClearSearch = () => {
           hideWhenPreviewOpen={
             Boolean(selectedPlace) ||
             aiSheetOpen ||
-            hideHomeMapChromeForCourseRouteView ||
+            courseSecondPickMode ||
             hideHomeMapChromeForRecommendPeek ||
             hideMapChromeForLoginPrompt ||
             (aiRecommendedIds.length > 0 && Boolean(String(query || "").trim()))
@@ -8921,10 +8932,10 @@ const handleClearSearch = () => {
             }
             situationFolderFilter={situationFolderFilter}
             courseOverlay={courseMapOverlay}
-            courseOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
+            courseOverlayFitBottomPaddingPx={courseOverlayMapFitBottomPaddingPx}
             onCourseOverlayDismiss={dismissCourseMapPath}
             arrivalWalkingOverlay={arrivalWalkingOverlay}
-            arrivalWalkingOverlayFitBottomPaddingPx={courseMapFitBottomPaddingPx}
+            arrivalWalkingOverlayFitBottomPaddingPx={courseOverlayMapFitBottomPaddingPx}
             onArrivalWalkingOverlayDismiss={dismissArrivalWalkingOverlay}
             courseSecondPickMode={courseSecondPickMode}
             regionBoundaryOverlay={regionBoundaryOverlay}
@@ -8979,8 +8990,15 @@ const handleClearSearch = () => {
             eligible={showTodayTasteSuggest}
             profile={tasteProfile}
             places={displayedPlaces}
+            tastePreviewOpen={
+              Boolean(selectedPlace?.tasteTodayPickSession)
+            }
+            onEntryChipChange={setTodayTasteEntryChip}
             onPickPlace={(place) => {
-              setSelectedPlaceWithAnalytics(place, "taste_today");
+              setSelectedPlaceWithAnalytics(
+                { ...place, tasteTodayPickSession: true },
+                "taste_today"
+              );
               const w = resolvePlaceWgs84(place);
               if (w && mapRef.current?.moveToLocation) {
                 mapRef.current.moveToLocation(w.lat, w.lng);
@@ -9037,6 +9055,9 @@ const handleClearSearch = () => {
               setSelectedPlaceWithAnalytics(mapTarget, "recommend_detail");
             }}
           />
+        </div>
+
+        {!homeSearchMode.isOpen && !hideMapChromeForLoginPrompt ? (
           <HomeMapFloatingActions
             showSearchHere={showMapSearchHereButton}
             onSearchHere={() => {
@@ -9056,7 +9077,7 @@ const handleClearSearch = () => {
             halfStepDisabled={isLoadingCourse || isAiSearching}
             halfStepStyles={styles.courseAddHalfStepFloatingBtn}
           />
-        </div>
+        ) : null}
 
         <CourseSecondFindModal
           open={courseSecondFindModalOpen}
@@ -9234,6 +9255,12 @@ const handleClearSearch = () => {
               buttonStyle={styles.legendCoursesEntryButton}
               activeButtonStyle={styles.legendCoursesEntryButtonActive}
               labelStyle={styles.legendCoursesEntryLabel}
+            />
+            <HomeTodayTasteEntryChip
+              visible={todayTasteEntryChip.visible}
+              onOpen={todayTasteEntryChip.onOpen}
+              buttonStyle={styles.legendTodayTasteEntryButton}
+              labelStyle={styles.legendTodayTasteEntryLabel}
             />
             <HomeCourseStampResumeChip
               visible={showHomeCourseStampResume}

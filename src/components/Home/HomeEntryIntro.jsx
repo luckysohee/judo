@@ -8,7 +8,7 @@ import {
 } from "../SplashScreen/EntrySplash";
 
 export const HOME_DUST_INTRO_STORAGE_KEY = "judo_home_center_dust_intro_v3";
-export const HOME_DUST_INTRO_HOLD_MS = 4000;
+export const HOME_DUST_INTRO_HOLD_MS = 2500;
 const FADE_IN_MS = 400;
 const FADE_OUT_MS = 500;
 export const HOME_DUST_INTRO_MS =

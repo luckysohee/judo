@@ -24,7 +24,7 @@ export default function HomeMapFloatingActions({
             left: "50%",
             transform: "translateX(-50%)",
             bottom: "calc(108px + env(safe-area-inset-bottom, 0px))",
-            zIndex: 130,
+            zIndex: 260,
             padding: "11px 18px",
             borderRadius: 999,
             border: "1px solid rgba(124, 58, 237, 0.55)",
@@ -35,6 +35,7 @@ export default function HomeMapFloatingActions({
             cursor: "pointer",
             boxShadow: "0 4px 18px rgba(0,0,0,0.14)",
             WebkitTapHighlightColor: "transparent",
+            pointerEvents: "auto",
           }}
         >
           여기서 검색

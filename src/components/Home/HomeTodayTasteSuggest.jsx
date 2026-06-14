@@ -9,20 +9,63 @@ import {
 } from "../../utils/todayTasteSuggestDismiss";
 
 /**
+ * 홈 지도 우측 — 코스 칩 아래 「오늘 여기 어때요?」 재진입 칩.
+ */
+export function HomeTodayTasteEntryChip({
+  visible = false,
+  onOpen,
+  title = "오늘 여기 어때요?",
+  buttonStyle = {},
+  labelStyle = {},
+}) {
+  if (!visible || typeof onOpen !== "function") return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={title}
+      title={title}
+      style={buttonStyle}
+    >
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          lineHeight: 0,
+          fontSize: 11,
+        }}
+        aria-hidden
+      >
+        ✨
+      </span>
+      <span style={labelStyle}>오늘</span>
+    </button>
+  );
+}
+
+/**
  * 홈 유휴 시 — 설문 취향 기반 「오늘 여기 어때요?」 팝업 (룰만, GPT 없음)
  * - 첫 진입 시 자동 1회 (세션·오늘 안보기 제외)
- * - 닫힌 뒤에는 상단 칩으로 다시 열기
+ * - 장소 클릭 시 미리보기만 열고, 닫으면 나머지 추천 팝업 다시
+ * - 명시적으로 닫으면 코스 칩 아래 작은 칩으로 다시 열기
  */
 export default function HomeTodayTasteSuggest({
   eligible = false,
   profile,
   places = [],
   onPickPlace,
+  /** 취향 팝업에서 고른 장소 미리보기가 열려 있는지 */
+  tastePreviewOpen = false,
+  /** 재진입 칩 — 부모(지도 범례 스택)에 렌더 */
+  onEntryChipChange,
 }) {
   const [open, setOpen] = useState(false);
   const [hideForDay, setHideForDay] = useState(false);
   const [hiddenForDay, setHiddenForDay] = useState(isTodayTasteSuggestHiddenForDay);
-  const [dismissedThisVisit, setDismissedThisVisit] = useState(false);
+  const [userDismissedModal, setUserDismissedModal] = useState(false);
+  const [pickedKeys, setPickedKeys] = useState(() => new Set());
 
   const hasProfile = tasteProfileHasSignals(profile);
   const picks = useMemo(() => {
@@ -30,16 +73,27 @@ export default function HomeTodayTasteSuggest({
     return pickTodayTastePlaces(places, profile, { limit: 3 });
   }, [hasProfile, places, profile]);
 
+  const placeKey = useCallback((place) => {
+    const id = place?.id ?? place?.place_id ?? place?.kakao_place_id;
+    if (id != null && String(id).trim() !== "") return String(id);
+    return String(place?.name || place?.place_name || "").trim();
+  }, []);
+
+  const unpicked = useMemo(
+    () => picks.filter((p) => !pickedKeys.has(placeKey(p))),
+    [picks, pickedKeys, placeKey]
+  );
+
   const canOffer = eligible && hasProfile && picks.length > 0;
 
   const closePopup = useCallback(
     (opts = {}) => {
-      const { persistHideForDay = false } = opts;
+      const { persistHideForDay = false, explicitDismiss = true } = opts;
       if (persistHideForDay || hideForDay) {
         hideTodayTasteSuggestForDay();
         setHiddenForDay(true);
-      } else {
-        setDismissedThisVisit(true);
+      } else if (explicitDismiss) {
+        setUserDismissedModal(true);
       }
       setOpen(false);
       setHideForDay(false);
@@ -53,23 +107,75 @@ export default function HomeTodayTasteSuggest({
       return;
     }
     if (hiddenForDay) return;
+    if (pickedKeys.size > 0) return;
     if (wasTodayTasteSuggestAutoShownThisSession()) return;
     setOpen(true);
     markTodayTasteSuggestAutoShownThisSession();
-  }, [canOffer, hiddenForDay]);
+  }, [canOffer, hiddenForDay, pickedKeys.size]);
+
+  /** 취향 팝업에서 골랐다가 미리보기만 닫았을 때 — 나머지 장소 팝업 다시 */
+  useEffect(() => {
+    if (tastePreviewOpen) return;
+    if (!canOffer || hiddenForDay || userDismissedModal) return;
+    if (pickedKeys.size === 0 || unpicked.length === 0) return;
+    setOpen(true);
+  }, [
+    tastePreviewOpen,
+    canOffer,
+    hiddenForDay,
+    userDismissedModal,
+    pickedKeys.size,
+    unpicked.length,
+  ]);
 
   const showEntryChip =
-    canOffer && !open && !hiddenForDay && dismissedThisVisit;
+    canOffer &&
+    !open &&
+    !hiddenForDay &&
+    userDismissedModal &&
+    unpicked.length > 0;
 
   const handlePick = useCallback(
     (place) => {
-      closePopup({ persistHideForDay: false });
+      const key = placeKey(place);
+      if (key) {
+        setPickedKeys((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+      }
+      setOpen(false);
       onPickPlace?.(place);
     },
-    [closePopup, onPickPlace]
+    [onPickPlace, placeKey]
   );
 
-  if (!canOffer && !open) return null;
+  const openEntryModal = useCallback(() => {
+    setUserDismissedModal(false);
+    setOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof onEntryChipChange !== "function") return;
+    onEntryChipChange(
+      showEntryChip
+        ? { visible: true, onOpen: openEntryModal }
+        : { visible: false, onOpen: openEntryModal }
+    );
+  }, [showEntryChip, openEntryModal, onEntryChipChange]);
+
+  useEffect(() => {
+    if (typeof onEntryChipChange !== "function") return;
+    return () => {
+      onEntryChipChange({ visible: false, onOpen: () => {} });
+    };
+  }, [onEntryChipChange]);
+
+  const listPlaces = unpicked.length > 0 ? unpicked : picks;
+  const hasMoreAfterPick = pickedKeys.size > 0 && unpicked.length > 0;
+
+  if (!canOffer && !open && !showEntryChip) return null;
 
   const modal =
     open && typeof document !== "undefined"
@@ -137,6 +243,9 @@ export default function HomeTodayTasteSuggest({
                     }}
                   >
                     설문에 담은 취향으로 골랐어요.
+                    {hasMoreAfterPick
+                      ? ` · ${unpicked.length}곳 더`
+                      : ""}
                   </p>
                 </div>
                 <button
@@ -168,7 +277,7 @@ export default function HomeTodayTasteSuggest({
                   margin: "14px 0 16px",
                 }}
               >
-                {picks.map((place) => {
+                {listPlaces.map((place) => {
                   const name = String(
                     place?.name || place?.place_name || "장소"
                   ).trim();
@@ -259,40 +368,5 @@ export default function HomeTodayTasteSuggest({
         )
       : null;
 
-  const entryChip =
-    showEntryChip && typeof document !== "undefined"
-      ? createPortal(
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            style={{
-              position: "fixed",
-              top: "calc(52px + env(safe-area-inset-top, 0px))",
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 84,
-              padding: "8px 14px",
-              borderRadius: 999,
-              border: "1px solid rgba(17, 17, 17, 0.14)",
-              background: "rgba(255, 255, 255, 0.94)",
-              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
-              fontSize: 12,
-              fontWeight: 700,
-              color: "#111",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            ✨ 오늘 여기 어때요?
-          </button>,
-          document.body
-        )
-      : null;
-
-  return (
-    <>
-      {modal}
-      {entryChip}
-    </>
-  );
+  return modal;
 }
