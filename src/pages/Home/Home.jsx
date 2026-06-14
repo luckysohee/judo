@@ -103,7 +103,9 @@ import {
   placeKeyForFeedback,
   computeSearchFeedbackBoost,
   rpcIncrementSearchPlaceFeedbackImpressions,
+  fetchGlobalPlaceSearchEngagementMap,
 } from "../../utils/searchPlaceFeedback";
+import { rankCuratorSpotlightPlaces } from "../../utils/curatorSpotlightRank";
 import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
 import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
@@ -1326,6 +1328,7 @@ export default function Home() {
       ? crypto.getRandomValues(new Uint32Array(1))[0]
       : Math.floor(Math.random() * 0xffffffff)) >>> 0,
   );
+  const [spotlightEngagementMap, setSpotlightEngagementMap] = useState({});
   /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
   const forceReopenAiSheetAfterSearchRef = useRef(false);
 
@@ -5097,33 +5100,22 @@ export default function Home() {
 
   const curatorSpotlightPlaces = useMemo(() => {
     const salt = curatorSpotlightSaltRef.current >>> 0;
-    const fnvId = (place) => {
-      const s = String(place?.id ?? place?.place_id ?? "");
-      let h = 2166136261 >>> 0;
-      for (let i = 0; i < s.length; i++) {
-        h ^= s.charCodeAt(i);
-        h = Math.imul(h, 16777619) >>> 0;
-      }
-      return h >>> 0;
+    return rankCuratorSpotlightPlaces(
+      dbPlaces,
+      spotlightEngagementMap,
+      salt
+    );
+  }, [dbPlaces, spotlightEngagementMap]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchGlobalPlaceSearchEngagementMap({ maxAgeDays: 14 }).then((map) => {
+      if (!cancelled) setSpotlightEngagementMap(map || {});
+    });
+    return () => {
+      cancelled = true;
     };
-    const ranked = [...dbPlaces]
-      .filter((p) => (p.curatorCount || 0) >= 1)
-      .sort((a, b) => {
-        const dc = (b.curatorCount || 0) - (a.curatorCount || 0);
-        if (dc !== 0) return dc;
-        const ta = (fnvId(a) ^ salt) >>> 0;
-        const tb = (fnvId(b) ^ salt) >>> 0;
-        if (ta !== tb) return ta < tb ? -1 : 1;
-        return String(a.name || "").localeCompare(String(b.name || ""));
-      });
-    const pool = ranked.slice(0, 56);
-    const win = 12;
-    const n = pool.length;
-    if (n <= win) return pool;
-    const maxOff = n - win;
-    const off = (salt % (maxOff + 1)) | 0;
-    return pool.slice(off, off + win);
-  }, [dbPlaces]);
+  }, []);
 
   // 외부 데이터를 저장할 상태 추가
   const [externalPlaces, setExternalPlaces] = useState([]);
@@ -8874,7 +8866,7 @@ const handleClearSearch = () => {
             curatorColorMap={curatorColorMap}
             savedColorMap={savedColorMap}
             livePlaceIds={
-              judoMode.isDayMode ? EMPTY_LIVE_PLACE_IDS : livePlaceIds
+              judoMode.canShowLiveFlame ? livePlaceIds : EMPTY_LIVE_PLACE_IDS
             }
             userFolders={userSavedPlaces} // 사용자 폴더 정보 전달
             onQuickSave={handleQuickSave} // 쾌속 잔 채우기 핸들러 전달
@@ -8890,7 +8882,7 @@ const handleClearSearch = () => {
             onMapViewportChange={onMapViewportChange}
             checkinCountByPlaceId={placeCheckinCounts}
             hotRankTopPlaceIds={
-              judoMode.isDayMode ? null : hotRankTopPlaceIds
+              judoMode.canShowHotNow ? hotRankTopPlaceIds : null
             }
             canShowLiveFlame={judoMode.canShowLiveFlame}
             onMapBackgroundClick={handleHomeMapBackgroundClick}

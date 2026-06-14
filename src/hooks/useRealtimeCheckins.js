@@ -1,9 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import {
-  getJudoOperationMode,
-  JUDO_CHECKIN_SCHEDULE_ERROR,
-} from '../utils/judoOperationMode';
 
 import { createRandomUuid } from '../utils/createRandomUuid';
 import { isOwnCheckinRow } from '../utils/checkinDisplayName.js';
@@ -185,12 +181,6 @@ export const useRealtimeCheckins = () => {
     skipDistanceCheck = false,
   }) => {
     try {
-      if (!getJudoOperationMode().canCheckIn) {
-        const err = new Error(JUDO_CHECKIN_SCHEDULE_ERROR);
-        err.code = JUDO_CHECKIN_SCHEDULE_ERROR;
-        throw err;
-      }
-
       const { data, error } = await supabase.rpc("perform_check_in_nearby", {
         p_user_nickname: userNickname,
         p_place_id: String(placeId),

@@ -30,7 +30,7 @@ export default function CuratorPicksStrip({ places, onPick, visible }) {
 
   if (!visible || !places?.length) return null;
 
-  const durationSec = Math.min(56, Math.max(22, places.length * 9));
+  const durationSec = Math.min(96, Math.max(48, places.length * 16));
 
   return (
     <>

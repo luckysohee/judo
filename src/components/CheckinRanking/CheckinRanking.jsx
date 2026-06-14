@@ -10,7 +10,7 @@ import {
 const CheckinRanking = ({ position = 'sidebar', judoMode = null }) => {
   const { checkinRanking } = useRealtimeCheckins();
   const { showToast } = useToast();
-  const dayLocked = Boolean(judoMode?.isDayMode);
+  const dayLocked = !judoMode?.canCheckIn;
 
   const getPositionStyles = () => {
     const baseStyles = {

@@ -15,24 +15,23 @@ export const JUDO_CHECKIN_SCHEDULE_TOAST =
 export const JUDO_CHECKIN_SCHEDULE_ERROR = "checkin_schedule_closed";
 
 /**
- * 낮 모드에서만 줄이는 것: 한잔함·실시간 불꽃·「지금 뜨는 곳」(및 동일 정책을 쓰는 실시간 스트립/랭킹 UI).
- * 검색·지도 fetch·장소 상세·픽/저장·큐레이터·코스 추천 로직에는 넣지 않는다.
+ * 낮·밤 구분은 카피(검색 placeholder 등)용. 한잔함·LIVE·핫 스트립은 상시 오픈.
  */
 export function getJudoOperationMode(now = new Date()) {
   const hour = now.getHours();
 
-  /* 밤 모드: 오후 4시~자정. getHours()는 0~23이므로 hour >= 16 만으로 충분 */
+  /* 밤 모드: 오후 4시~자정 — UI 톤·placeholder 분기용 */
   const isNightMode = hour >= JUDO_OPEN_HOUR;
 
   return {
-    isOpen: isNightMode,
+    isOpen: true,
 
     isNightMode,
     isDayMode: !isNightMode,
 
-    canCheckIn: isNightMode,
-    canShowLiveFlame: isNightMode,
-    canShowHotNow: isNightMode,
+    canCheckIn: true,
+    canShowLiveFlame: true,
+    canShowHotNow: true,
 
     modeLabel: isNightMode ? "night" : "day",
   };
@@ -49,7 +48,7 @@ export function getJudoModeCopy(mode) {
 
   return {
     headline: "오늘 저녁 어디 갈까?",
-    sub: JUDO_DAY_BRAND_LINE,
+    sub: "장소를 찾아보고 한잔 기록을 남겨 보세요.",
     checkInDisabledText: JUDO_CHECKIN_SCHEDULE_TOAST,
   };
 }

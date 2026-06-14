@@ -66,7 +66,7 @@ export default function HotCheckinStrip({
   const { showToast } = useToast();
   const [tab, setTab] = useState(TAB_HOT);
 
-  const dayLocked = Boolean(judoMode?.isDayMode);
+  const dayLocked = !judoMode?.canCheckIn;
   const dayScheduleToast = () => {
     const t = judoMode ? getJudoModeCopy(judoMode).checkInDisabledText : "";
     showToast(t || JUDO_CHECKIN_SCHEDULE_TOAST, "info", 3200);

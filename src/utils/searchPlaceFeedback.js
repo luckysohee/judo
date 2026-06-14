@@ -116,6 +116,48 @@ export async function fetchSearchFeedbackBoostMap(normalizedQuery) {
   return out;
 }
 
+/**
+ * 검색어별 `search_place_feedback`를 place_key로 합산 — 홈 큐레이터 칩 선발용.
+ * @param {{ maxAgeDays?: number }} [opts]
+ */
+export async function fetchGlobalPlaceSearchEngagementMap(opts = {}) {
+  const maxAgeDays = Math.max(7, Math.min(120, Number(opts.maxAgeDays) || 14));
+  const since = new Date(
+    Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const { data, error } = await supabase
+    .from("search_place_feedback")
+    .select("place_key, impression_count, click_count")
+    .gte("updated_at", since)
+    .limit(4000);
+  if (error) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[search-feedback] global engagement:",
+        error.message || error
+      );
+    }
+    return {};
+  }
+  const out = {};
+  for (const row of data || []) {
+    const k = row?.place_key != null ? String(row.place_key).trim() : "";
+    if (!k) continue;
+    const bucket = out[k] || { impressions: 0, clicks: 0 };
+    bucket.impressions += Math.max(0, Number(row.impression_count) || 0);
+    bucket.clicks += Math.max(0, Number(row.click_count) || 0);
+    out[k] = bucket;
+  }
+  return out;
+}
+
+/** 노출·클릭 가중 — 클릭을 더 크게 */
+export function computeSpotlightEngagementScore(impressions, clicks) {
+  const impr = Math.max(0, Number(impressions) || 0);
+  const clk = Math.max(0, Number(clicks) || 0);
+  return clk * 2.5 + impr * 0.4;
+}
+
 export async function rpcIncrementSearchPlaceFeedbackImpressions({
   normalizedQuery,
   area,
