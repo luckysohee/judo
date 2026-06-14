@@ -48,8 +48,8 @@ export function HomeTodayTasteEntryChip({
 /**
  * 홈 유휴 시 — 설문 취향 기반 「오늘 여기 어때요?」 팝업 (룰만, GPT 없음)
  * - 첫 진입 시 자동 1회 (세션·오늘 안보기 제외)
- * - 장소 클릭 시 미리보기만 열고, 닫으면 나머지 추천 팝업 다시
- * - 명시적으로 닫으면 코스 칩 아래 작은 칩으로 다시 열기
+ * - 장소 클릭 시 미리보기만 열고 목록은 그대로, 미리보기 닫으면 팝업 복귀
+ * - X·닫기·바깥 탭으로만 닫고 코스 칩 아래 작은 칩으로 재진입
  */
 export default function HomeTodayTasteSuggest({
   eligible = false,
@@ -65,24 +65,13 @@ export default function HomeTodayTasteSuggest({
   const [hideForDay, setHideForDay] = useState(false);
   const [hiddenForDay, setHiddenForDay] = useState(isTodayTasteSuggestHiddenForDay);
   const [userDismissedModal, setUserDismissedModal] = useState(false);
-  const [pickedKeys, setPickedKeys] = useState(() => new Set());
+  const [reopenAfterPreview, setReopenAfterPreview] = useState(false);
 
   const hasProfile = tasteProfileHasSignals(profile);
   const picks = useMemo(() => {
     if (!hasProfile) return [];
     return pickTodayTastePlaces(places, profile, { limit: 3 });
   }, [hasProfile, places, profile]);
-
-  const placeKey = useCallback((place) => {
-    const id = place?.id ?? place?.place_id ?? place?.kakao_place_id;
-    if (id != null && String(id).trim() !== "") return String(id);
-    return String(place?.name || place?.place_name || "").trim();
-  }, []);
-
-  const unpicked = useMemo(
-    () => picks.filter((p) => !pickedKeys.has(placeKey(p))),
-    [picks, pickedKeys, placeKey]
-  );
 
   const canOffer = eligible && hasProfile && picks.length > 0;
 
@@ -107,25 +96,25 @@ export default function HomeTodayTasteSuggest({
       return;
     }
     if (hiddenForDay) return;
-    if (pickedKeys.size > 0) return;
     if (wasTodayTasteSuggestAutoShownThisSession()) return;
     setOpen(true);
     markTodayTasteSuggestAutoShownThisSession();
-  }, [canOffer, hiddenForDay, pickedKeys.size]);
+  }, [canOffer, hiddenForDay]);
 
-  /** 취향 팝업에서 골랐다가 미리보기만 닫았을 때 — 나머지 장소 팝업 다시 */
+  /** 미리보기만 닫았을 때 — 목록 그대로 팝업 복귀 (X로 닫은 경우 제외) */
   useEffect(() => {
     if (tastePreviewOpen) return;
-    if (!canOffer || hiddenForDay || userDismissedModal) return;
-    if (pickedKeys.size === 0 || unpicked.length === 0) return;
+    if (!reopenAfterPreview || !canOffer || hiddenForDay || userDismissedModal) {
+      return;
+    }
     setOpen(true);
+    setReopenAfterPreview(false);
   }, [
     tastePreviewOpen,
+    reopenAfterPreview,
     canOffer,
     hiddenForDay,
     userDismissedModal,
-    pickedKeys.size,
-    unpicked.length,
   ]);
 
   const showEntryChip =
@@ -133,22 +122,15 @@ export default function HomeTodayTasteSuggest({
     !open &&
     !hiddenForDay &&
     userDismissedModal &&
-    unpicked.length > 0;
+    picks.length > 0;
 
   const handlePick = useCallback(
     (place) => {
-      const key = placeKey(place);
-      if (key) {
-        setPickedKeys((prev) => {
-          const next = new Set(prev);
-          next.add(key);
-          return next;
-        });
-      }
+      setReopenAfterPreview(true);
       setOpen(false);
       onPickPlace?.(place);
     },
-    [onPickPlace, placeKey]
+    [onPickPlace]
   );
 
   const openEntryModal = useCallback(() => {
@@ -172,8 +154,7 @@ export default function HomeTodayTasteSuggest({
     };
   }, [onEntryChipChange]);
 
-  const listPlaces = unpicked.length > 0 ? unpicked : picks;
-  const hasMoreAfterPick = pickedKeys.size > 0 && unpicked.length > 0;
+  const listPlaces = picks;
 
   if (!canOffer && !open && !showEntryChip) return null;
 
@@ -243,9 +224,6 @@ export default function HomeTodayTasteSuggest({
                     }}
                   >
                     설문에 담은 취향으로 골랐어요.
-                    {hasMoreAfterPick
-                      ? ` · ${unpicked.length}곳 더`
-                      : ""}
                   </p>
                 </div>
                 <button
