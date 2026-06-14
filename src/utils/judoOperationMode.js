@@ -1,6 +1,6 @@
 export const JUDO_OPEN_HOUR = 16;
 
-/** 낮 모드 브랜드 한 줄 — 헤더(`judoCopy.sub`) 전용 */
+/** 낮 모드 짧은 힌트 — 핫 스트립·토스트 등 (홈 상단 배너 없음) */
 export const JUDO_DAY_BRAND_LINE =
   "지금은 미리 픽하는 시간. 오후 4시. 한잔(live check in) 가능 시간";
 

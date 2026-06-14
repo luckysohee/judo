@@ -3,6 +3,9 @@ import {
   homeDrinksSituationStripBottomCss,
   homeSearchBarStackBottomCss,
   HOME_UI_DOCK_RADIUS_PX,
+  HOME_RECOMMEND_SHEET_DOCK_INSET_PX,
+  HOME_RECOMMEND_SHEET_PEEK_INNER_PAD_PX,
+  HOME_RECOMMEND_SHEET_PEEK_SEARCH_GAP_PX,
 } from "../../utils/homeHotStripLayout.js";
 
 const glassWhiteStrong = "rgba(255, 255, 255, 0.9)";
@@ -185,75 +188,6 @@ export const styles = {
     minWidth: 0,
   },
 
-  /**
-   * 낮 모드: 헤더 아래 한 줄 풀폭 바 — 키워드 강조 + 우측 카운트다운 pill.
-   */
-  judoDayNoticeFixedBar: {
-    position: "fixed",
-    left: "6px",
-    right: "6px",
-    top: "calc(64px + env(safe-area-inset-top, 0px))",
-    zIndex: 24980,
-    boxSizing: "border-box",
-    width: "calc(100% - 12px)",
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    margin: 0,
-    padding: "8px 10px",
-    borderRadius: "12px",
-    background:
-      "linear-gradient(135deg, rgba(28, 28, 32, 0.82) 0%, rgba(12, 12, 16, 0.76) 100%)",
-    backdropFilter: "blur(18px) saturate(165%)",
-    WebkitBackdropFilter: "blur(18px) saturate(165%)",
-    border: "1px solid rgba(255, 255, 255, 0.14)",
-    borderLeft: "3px solid rgba(251, 191, 36, 0.92)",
-    boxShadow:
-      "0 8px 28px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.12)",
-    pointerEvents: "none",
-    WebkitFontSmoothing: "antialiased",
-  },
-  judoDayNoticeCopy: {
-    flex: "1 1 auto",
-    minWidth: 0,
-    margin: 0,
-    padding: 0,
-    whiteSpace: "nowrap",
-    lineHeight: 1.2,
-    letterSpacing: "-0.03em",
-    fontSize: "11.5px",
-  },
-  judoDayNoticeMuted: {
-    fontWeight: 550,
-    color: "rgba(255, 255, 255, 0.68)",
-  },
-  judoDayNoticeEm: {
-    fontWeight: 800,
-    color: "#ffffff",
-  },
-  judoDayNoticeLiveTag: {
-    fontWeight: 700,
-    color: "#fde68a",
-    letterSpacing: "0.01em",
-  },
-  judoDayNoticeTimer: {
-    flex: "0 0 auto",
-    flexShrink: 0,
-    padding: "3px 7px",
-    borderRadius: "999px",
-    textAlign: "center",
-    background:
-      "linear-gradient(180deg, rgba(251, 191, 36, 0.22) 0%, rgba(245, 158, 11, 0.14) 100%)",
-    border: "1px solid rgba(251, 191, 36, 0.42)",
-    color: "#fde68a",
-    fontSize: "clamp(10px, 2.6vw, 12px)",
-    fontWeight: 800,
-    fontVariantNumeric: "tabular-nums",
-    letterSpacing: "0.06em",
-    lineHeight: 1.2,
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
-  },
-
   logoNightTagline: {
     display: "flex",
     flexDirection: "column",
@@ -327,11 +261,6 @@ export const styles = {
     gap: "8px",
     pointerEvents: "auto",
     overflow: "visible",
-  },
-
-  /** 낮 모드 안내 바(한 줄) 아래로 별·마커·내위치·코스 버튼 내림 */
-  legendOverlayBelowDayNotice: {
-    top: "calc(118px + env(safe-area-inset-top, 0px))",
   },
 
   legendSecondPickResetButton: {
@@ -545,6 +474,13 @@ export const styles = {
     zIndex: 160,
   },
 
+  /** 접힌 추천 피크 — 검색바 좌·우 inset(시트와 동일 폭) */
+  homeRecommendDockBottomBarCollapsed: {
+    paddingLeft: `${HOME_RECOMMEND_SHEET_DOCK_INSET_PX}px`,
+    paddingRight: `${HOME_RECOMMEND_SHEET_DOCK_INSET_PX}px`,
+    boxSizing: "border-box",
+  },
+
   searchWrapper: {
     position: "relative",
     flex: 1,
@@ -555,9 +491,15 @@ export const styles = {
     overflow: "visible",
   },
 
-  /** 맞춤 추천 시트 바로 위 — 상단 직각·하단만 둥글게(시트와 한 덩어리) */
+  /** 맞춤 추천 시트 바로 위 — 펼침 시 하단만 둥글게(시트와 한 덩어리) */
   searchWrapperSheetDocked: {
     borderRadius: `0 0 ${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px`,
+    overflow: "hidden",
+  },
+
+  /** 접힌 피크 — 검색바와 동일 폭(래퍼 padding 대신 컨테이너 inset) */
+  searchWrapperSheetDockedCollapsed: {
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px`,
     overflow: "hidden",
   },
 
@@ -912,6 +854,15 @@ export const styles = {
     justifyContent: "flex-end",
     alignItems: "center",
     gap: 0,
+    boxSizing: "border-box",
+  },
+
+  /** 접힌 추천 피크 — 시트·검색바와 동일 좌·우 inset, 하단은 검색바와 간격 */
+  homeRecommendDockOverlayCollapsed: {
+    padding: `${HOME_RECOMMEND_SHEET_DOCK_INSET_PX}px`,
+    paddingBottom: `${HOME_RECOMMEND_SHEET_DOCK_INSET_PX + HOME_RECOMMEND_SHEET_PEEK_SEARCH_GAP_PX}px`,
+    boxSizing: "border-box",
+    alignItems: "stretch",
   },
 
   expandSearchWrap: {
@@ -1042,6 +993,16 @@ export const styles = {
     minWidth: 0,
   },
 
+  /** 접힌 피크 — 뱃지·텍스트·화살표 사이 여백 */
+  aiPeekBarRowCollapsed: {
+    gap: "12px",
+    padding: "2px 0",
+  },
+
+  aiPeekTextWrapCollapsed: {
+    padding: "2px 0",
+  },
+
   /** 맞춤 추천 — 통합 바텀시트(헤더+리스트) */
   aiRecommendSheetCluster: {
     width: "100%",
@@ -1055,25 +1016,57 @@ export const styles = {
     width: "100%",
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
-    backdropFilter: "blur(18px)",
-    WebkitBackdropFilter: "blur(18px)",
+    overflow: "visible",
+    background: "transparent",
   },
 
   aiRecommendMergedShellCollapsed: {
-    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`,
     marginBottom: 0,
-    /** 검색바와 붙일 때 아래 그림자가 빈 틈처럼 보이지 않게 */
-    boxShadow: "0 -4px 20px rgba(0,0,0,0.14)",
+    padding: 0,
+    boxSizing: "border-box",
+    background: "transparent",
+    backdropFilter: "none",
+    WebkitBackdropFilter: "none",
+    boxShadow: "none",
+    borderRadius: 0,
   },
 
   aiRecommendMergedShellExpanded: {
-    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`,
+    padding: `${HOME_RECOMMEND_SHEET_DOCK_INSET_PX}px`,
+    boxSizing: "border-box",
     height: "min(66vh, 720px)",
     maxHeight: "min(66vh, 720px)",
     marginBottom: 0,
+    background: "transparent",
+    backdropFilter: "none",
+    WebkitBackdropFilter: "none",
+    boxShadow: "none",
+    borderRadius: 0,
+  },
+
+  /** 접힌·펼침 공통 카드 — 검색바와 동일 검정 */
+  aiRecommendDockSurface: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    background: "rgba(18, 19, 18, 0.94)",
+    boxSizing: "border-box",
+  },
+
+  aiRecommendDockSurfaceCollapsed: {
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px`,
     boxShadow:
-      "0 -4px 24px rgba(0,0,0,0.14), 0 12px 32px rgba(0,0,0,0.16)",
+      "0 -2px 16px rgba(0,0,0,0.18), 0 8px 28px rgba(0,0,0,0.2)",
+  },
+
+  aiRecommendDockSurfaceExpanded: {
+    flex: 1,
+    minHeight: 0,
+    height: "100%",
+    borderRadius: `${HOME_UI_DOCK_RADIUS_PX}px`,
+    boxShadow:
+      "0 -4px 24px rgba(0,0,0,0.16), 0 12px 32px rgba(0,0,0,0.18)",
   },
 
   /** 손잡이 + 헤더 — 당겨 닫기 */
@@ -1081,7 +1074,7 @@ export const styles = {
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
-    background: "rgba(17,17,17,0.9)",
+    background: "transparent",
     touchAction: "none",
     userSelect: "none",
     WebkitUserSelect: "none",
@@ -1089,6 +1082,18 @@ export const styles = {
 
   aiRecommendSheetChromeDragging: {
     cursor: "grabbing",
+  },
+
+  /** 접힌 피크 — 크롬 안쪽 여백(상·우·하·좌) */
+  aiRecommendSheetChromeCollapsed: {
+    padding: `${HOME_RECOMMEND_SHEET_PEEK_INNER_PAD_PX}px`,
+    boxSizing: "border-box",
+  },
+
+  /** 펼친 시트 — 헤더 좌우 여백 */
+  aiRecommendSheetChromeExpanded: {
+    padding: "4px 12px 0",
+    boxSizing: "border-box",
   },
 
   aiRecommendSheetPullStrip: {
@@ -1109,12 +1114,31 @@ export const styles = {
     flexShrink: 0,
   },
 
+  /** 접힌 피크 — 핸들 위·아래 여백 */
+  aiRecommendSheetPullStripCollapsed: {
+    height: "auto",
+    paddingTop: 0,
+    paddingBottom: "8px",
+  },
+
   aiRecommendSheetHeaderRow: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
     padding: "0 12px 14px 16px",
     flexShrink: 0,
+  },
+
+  /** 접힌 피크 — 크롬 padding과 겹치지 않게 */
+  aiRecommendSheetHeaderRowCollapsed: {
+    padding: 0,
+    gap: "10px",
+  },
+
+  /** 펼친 시트 — 헤더 하단 여백 */
+  aiRecommendSheetHeaderRowExpanded: {
+    padding: "0 4px 12px",
+    gap: "10px",
   },
 
   aiRecommendSheetHeader: {
@@ -1339,9 +1363,10 @@ export const styles = {
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    background: "rgba(255,255,255,0.94)",
+    background: "rgba(255,255,255,0.96)",
     borderTop: "1px solid rgba(255,255,255,0.1)",
     pointerEvents: "auto",
+    boxSizing: "border-box",
   },
 
   /** @deprecated 코스 등 — 맞춤 추천은 aiRecommendSheetBody */

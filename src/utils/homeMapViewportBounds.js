@@ -1,3 +1,6 @@
+import { padLatLngBounds } from "./fetchCuratorPlacesInBounds";
+import { getHomeMapViewportPlaceLimit } from "./homeMapViewportLimit";
+
 /** MapView `DEFAULT_MAP_CENTER` 와 동일 */
 export const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
 
@@ -12,4 +15,48 @@ export function defaultHomeMapViewportBounds(mapLevel = 5) {
     sw: { lat: lat - latHalf, lng: lng - lngHalf },
     ne: { lat: lat + latHalf, lng: lng + lngHalf },
   };
+}
+
+/**
+ * @param {{ sw: { lat: number, lng: number }, ne: { lat: number, lng: number } }} boundsRaw
+ * @param {number} [mapLevel]
+ * @param {{ widenForSituation?: boolean, limit?: number, padRatio?: number }} [opts]
+ */
+export function computeHomeViewportCacheKey(
+  boundsRaw,
+  mapLevel = 5,
+  { widenForSituation = false, limit: limitOverride, padRatio } = {},
+) {
+  const pad = padRatio ?? (widenForSituation ? 0.24 : 0.12);
+  const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, pad);
+  if (!padded) return null;
+
+  const level =
+    typeof mapLevel === "number" && Number.isFinite(mapLevel) ? mapLevel : 5;
+  const limit =
+    limitOverride ??
+    getHomeMapViewportPlaceLimit(level, { widenForSituation });
+  const r4 = (n) => Number(n).toFixed(4);
+  const mode = widenForSituation ? "sit" : "all";
+
+  return {
+    cacheKey: `${r4(padded.sw.lat)}_${r4(padded.sw.lng)}_${r4(padded.ne.lat)}_${r4(padded.ne.lng)}_${limit}_${mode}`,
+    padded,
+    south: padded.sw.lat,
+    west: padded.sw.lng,
+    north: padded.ne.lat,
+    east: padded.ne.lng,
+    limit,
+    level,
+    widenForSituation,
+    mode,
+  };
+}
+
+/** 성수 첫 진입(level 5) 세션 캐시 키 — 다른 뷰포트 캐시는 첫 화면에 쓰지 않음 */
+export function getSeongsuBootViewportCacheKey(mapLevel = 5) {
+  return computeHomeViewportCacheKey(
+    defaultHomeMapViewportBounds(mapLevel),
+    mapLevel,
+  )?.cacheKey;
 }

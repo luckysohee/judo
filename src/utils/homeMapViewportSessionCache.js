@@ -17,6 +17,17 @@ export function readHomeMapViewportSessionCache() {
   }
 }
 
+/**
+ * 성수 첫 진입용 — cacheKey가 현재 부트 뷰포트와 일치할 때만 즉시 마커 복원.
+ * @param {string | null | undefined} bootCacheKey
+ */
+export function readHomeMapViewportSessionCacheForBoot(bootCacheKey) {
+  const parsed = readHomeMapViewportSessionCache();
+  if (!parsed) return null;
+  if (bootCacheKey && parsed.cacheKey !== bootCacheKey) return null;
+  return parsed;
+}
+
 /** @param {{ cacheKey?: string, plainRows?: object[], joinRows?: object[], merged: object[] }} payload */
 export function writeHomeMapViewportSessionCache(payload) {
   if (typeof sessionStorage === "undefined") return;

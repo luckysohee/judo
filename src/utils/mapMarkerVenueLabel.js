@@ -65,9 +65,11 @@ export function buildCourseVenueNameLabelSvg(centerX, topY, place, opts = {}) {
   if (!name) return { svg: "", height: 0, width: 0 };
 
   const label = name.slice(0, maxLen);
-  const barW = Math.min(Math.max(label.length * 7 + 10, 34), 118);
-  const barH = 14;
-  const x = centerX - barW / 2;
+  const barW = Math.round(Math.min(Math.max(label.length * 7.5 + 12, 36), 124));
+  const barH = 15;
+  const x = Math.round(centerX - barW / 2);
+  const y = Math.round(topY);
+  const textY = Math.round(y + barH / 2);
   const isFirst = isCourseFirstStepPin(place);
   const barFill = isFirst ? "#dc2626" : "rgba(15,23,42,0.92)";
   const barStroke = isFirst ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.88)";
@@ -79,23 +81,25 @@ export function buildCourseVenueNameLabelSvg(centerX, topY, place, opts = {}) {
       <g>
         <rect
           x="${x}"
-          y="${topY}"
+          y="${y}"
           width="${barW}"
           height="${barH}"
           rx="3"
           fill="${barFill}"
           stroke="${barStroke}"
-          stroke-width="0.9"
+          stroke-width="1"
+          shape-rendering="crispEdges"
         />
         <text
-          x="${centerX}"
-          y="${topY + barH / 2 + 0.5}"
+          x="${Math.round(centerX)}"
+          y="${textY}"
           dominant-baseline="central"
           text-anchor="middle"
-          font-size="8.5"
+          font-size="10"
           font-weight="800"
           fill="#ffffff"
-          font-family="system-ui, Apple SD Gothic Neo, sans-serif"
+          text-rendering="geometricPrecision"
+          font-family="system-ui, -apple-system, Apple SD Gothic Neo, sans-serif"
         >${escapeSvgText(label)}</text>
       </g>`,
   };

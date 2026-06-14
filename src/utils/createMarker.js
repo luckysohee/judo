@@ -4,6 +4,11 @@ import {
   buildCourseVenueNameLabelSvg,
   shouldShowCourseStepRouteBadge,
 } from "./mapMarkerVenueLabel.js";
+import {
+  closeMarkerSvgDoc,
+  markerGroundShadowSvg,
+  openMarkerSvgDoc,
+} from "./mapMarkerSvg.js";
 import { curatorPlaceMatchesLoggedInCurator } from "./curatorPlacesIdentity.js";
 
 /** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
@@ -397,6 +402,7 @@ function createMarkerSvg(
           fill="${tier.fill}"
           stroke="${stroke}"
           stroke-width="1.65"
+          shape-rendering="geometricPrecision"
         />
 
         ${premiumGlow}
@@ -432,24 +438,19 @@ function createMarkerSvg(
   const totalSvgH = svgH + venueLabel.height;
   const totalSvgW = venueLabel.totalW;
   const pinShift = totalSvgW / 2 - size / 2;
+  const pinCx = pinShift === 0 ? size / 2 : totalSvgW / 2;
+  const pinShadowY = Math.round(size / 2 + circleRadius + 2);
 
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${totalSvgW}" height="${totalSvgH}" viewBox="0 0 ${totalSvgW} ${totalSvgH}">
-      <defs>
-        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
-        </filter>
-      </defs>
-
-      <g filter="url(#shadow)">
-        ${
-          pinShift === 0
-            ? pinGraphics
-            : `<g transform="translate(${pinShift},0)">${pinGraphics}</g>`
-        }
-        ${venueLabel.svg}
-      </g>
-    </svg>
+    ${openMarkerSvgDoc(totalSvgW, totalSvgH)}
+      ${markerGroundShadowSvg(pinCx, pinShadowY, circleRadius, shadowOpacity + 0.04)}
+      ${
+        pinShift === 0
+          ? pinGraphics
+          : `<g transform="translate(${pinShift},0)">${pinGraphics}</g>`
+      }
+      ${venueLabel.svg}
+    ${closeMarkerSvgDoc()}
   `;
 }
 
@@ -484,38 +485,35 @@ function createMarkerImage(
     const venueLabel = buildCourseVenueNameLabelSvg(cx, pinBottom + 1, place);
     const totalH = pinBottom + venueLabel.height;
     const svgString = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
-        <defs>
-          <filter id="bridgeShadow" x="-60%" y="-60%" width="220%" height="220%">
-            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#831843" flood-opacity="0.35" />
-          </filter>
-        </defs>
-        <g filter="url(#bridgeShadow)">
-          <rect
-            x="${cx - badgeW / 2}"
-            y="${badgeY}"
-            width="${badgeW}"
-            height="${badgeH}"
-            rx="7"
-            fill="#9d174d"
-            stroke="#ffffff"
-            stroke-width="1.1"
-          />
-          <text
-            x="${cx}"
-            y="${badgeY + badgeH / 2 + 0.5}"
-            dominant-baseline="central"
-            text-anchor="middle"
-            font-size="8.5"
-            font-weight="800"
-            fill="#ffffff"
-            font-family="system-ui, Apple SD Gothic Neo, sans-serif"
-          >${escapeSvgText(badgeRaw)}</text>
-          <circle
-            cx="${cx}"
-            cy="${cy}"
-            r="${pinR}"
-            fill="#fbcfe8"
+      ${openMarkerSvgDoc(totalW, totalH)}
+        ${markerGroundShadowSvg(cx, pinBottom + 1, pinR, 0.28)}
+        <rect
+          x="${cx - badgeW / 2}"
+          y="${badgeY}"
+          width="${badgeW}"
+          height="${badgeH}"
+          rx="7"
+          fill="#9d174d"
+          stroke="#ffffff"
+          stroke-width="1.1"
+          shape-rendering="geometricPrecision"
+        />
+        <text
+          x="${cx}"
+          y="${badgeY + badgeH / 2 + 0.5}"
+          dominant-baseline="central"
+          text-anchor="middle"
+          font-size="8.5"
+          font-weight="800"
+          fill="#ffffff"
+          text-rendering="geometricPrecision"
+          font-family="system-ui, Apple SD Gothic Neo, sans-serif"
+        >${escapeSvgText(badgeRaw)}</text>
+        <circle
+          cx="${cx}"
+          cy="${cy}"
+          r="${pinR}"
+          fill="#fbcfe8"
             stroke="#ffffff"
             stroke-width="${isSelected ? 3.2 : 2.6}"
           />
@@ -535,9 +533,8 @@ function createMarkerImage(
             font-size="${fs}"
             font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif"
           >🍦</text>
-          ${venueLabel.svg}
-        </g>
-      </svg>
+        ${venueLabel.svg}
+      ${closeMarkerSvgDoc()}
     `;
     try {
       if (window.kakao?.maps?.MarkerImage) {
@@ -576,6 +573,7 @@ function createMarkerImage(
       const h = Math.round(pillY + pillH + 8);
       const cx = w / 2;
       const pillX = cx - capKW / 2;
+      const anchorY = pillY + pillH;
       const countBadge =
         meta.checkinCount > 0
           ? `<g>
@@ -584,23 +582,16 @@ function createMarkerImage(
         </g>`
           : "";
       const hotOnlySvg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-        <defs>
-          <filter id="hotChipShade" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#000000" flood-opacity="0.28" />
-          </filter>
-        </defs>
+      ${openMarkerSvgDoc(w, h)}
+        ${markerGroundShadowSvg(cx, anchorY, capKW / 2, 0.26)}
         <text x="${cx}" y="${pillY / 2}" dominant-baseline="middle" text-anchor="middle" font-size="${flameFs}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">🔥</text>
-        <g filter="url(#hotChipShade)">
-          <rect x="${pillX}" y="${pillY}" width="${capKW}" height="${pillH}" rx="${pillH / 2}" fill="rgba(124,58,237,0.94)" stroke="rgba(255,255,255,0.9)" stroke-width="0.85"/>
-          <text x="${cx}" y="${pillY + pillH / 2 + 0.5}" dominant-baseline="middle" text-anchor="middle" font-size="8" font-weight="800" fill="#ffffff" font-family="system-ui, Apple SD Gothic Neo, sans-serif">${escapeSvgText(capLabel)}</text>
-        </g>
+        <rect x="${pillX}" y="${pillY}" width="${capKW}" height="${pillH}" rx="${pillH / 2}" fill="rgba(124,58,237,0.94)" stroke="rgba(255,255,255,0.9)" stroke-width="0.85" shape-rendering="geometricPrecision"/>
+        <text x="${cx}" y="${pillY + pillH / 2 + 0.5}" dominant-baseline="middle" text-anchor="middle" font-size="8.5" font-weight="800" fill="#ffffff" text-rendering="geometricPrecision" font-family="system-ui, Apple SD Gothic Neo, sans-serif">${escapeSvgText(capLabel)}</text>
         ${countBadge}
-      </svg>`;
+      ${closeMarkerSvgDoc()}`;
       try {
         if (window.kakao?.maps?.MarkerImage) {
           const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(hotOnlySvg)}`;
-          const anchorY = pillY + pillH;
           return new window.kakao.maps.MarkerImage(
             encoded,
             new window.kakao.maps.Size(w, h),
@@ -616,13 +607,17 @@ function createMarkerImage(
 
     const name = place.name || place.place_name || '알 수 없는 장소';
     const nameSafe = escapeSvgText(name);
-    const nameWidth = Math.min(name.length * 8 + 10, 120);
-    const totalWidth = Math.max(30, nameWidth);
+    const nameWidth = Math.round(Math.min(name.length * 8.5 + 12, 128));
+    const totalWidth = Math.max(32, nameWidth);
     const capK = String(mapShortCaption || "").trim().slice(0, 8);
     const capKW = capK
       ? Math.min(78, Math.max(36, capK.length * 7 + 12))
       : 0;
     const totalHeight = 35 + 25 + (capK ? 14 : 0); // 핀 + 상호명 라벨 + 선택 자막
+    const labelTop = Math.round(totalHeight - 21);
+    const labelTextY = Math.round(labelTop + 9);
+    const pinTipY = Math.round(totalHeight * 0.75);
+    const pinHalfW = Math.round(totalHeight * 0.15);
     const kakaoCount =
       meta.checkinCount > 0
         ? `<g><circle cx="${totalWidth - 10}" cy="${totalHeight * 0.22}" r="9" fill="#E11D48" stroke="#fff" stroke-width="1.5"/><text x="${totalWidth - 10}" y="${totalHeight * 0.22 + 1}" dominant-baseline="middle" text-anchor="middle" fill="#fff" font-size="8" font-weight="800" font-family="Arial,sans-serif">${meta.checkinCount > 99 ? "99+" : meta.checkinCount}</text></g>`
@@ -655,62 +650,55 @@ function createMarkerImage(
 
     // 상호·핀을 먼저 그린 뒤 불꽃·HOT 자막·한잔 수를 위에 올림(SVG는 후순위가 앞면)
     const svgString = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
-        <defs>
-          <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3" />
-          </filter>
-        </defs>
-        <!-- 상호명 라벨 (블랙 박스 + 흰 글씨) -->
+      ${openMarkerSvgDoc(totalWidth, totalHeight)}
         <rect
-          x="${(totalWidth - nameWidth) / 2}"
-          y="${totalHeight - 20}"
+          x="${Math.round((totalWidth - nameWidth) / 2)}"
+          y="${labelTop}"
           width="${nameWidth}"
-          height="16"
+          height="17"
           rx="2"
           fill="#000000"
+          shape-rendering="crispEdges"
         />
         <text
-          x="${totalWidth / 2}"
-          y="${totalHeight - 8}"
+          x="${Math.round(totalWidth / 2)}"
+          y="${labelTextY}"
+          dominant-baseline="central"
           text-anchor="middle"
           font-size="11"
-          font-family="Arial, sans-serif"
+          font-family="system-ui, -apple-system, Apple SD Gothic Neo, sans-serif"
           fill="#ffffff"
-          font-weight="bold"
+          font-weight="800"
+          text-rendering="geometricPrecision"
         >
           ${nameSafe}
         </text>
-        
-        <!-- 카카오 기본 빨간 핀 모양 -->
-        <g filter="url(#shadow)">
-          <path
-            d="M ${totalWidth/2} ${totalHeight*0.15}
-               C ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.35}
-               C ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 - totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2} ${totalHeight*0.75}
-               C ${totalWidth/2 + totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.35}
-               C ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}
-               Z"
-            fill="${isSelected ? '#CC0000' : '#FF4444'}"
-          />
-          <!-- 내부 원 -->
-          <circle
-            cx="${totalWidth/2}"
-            cy="${totalHeight*0.35}"
-            r="${totalHeight*0.08}"
-            fill="white"
-          />
-        </g>
+        ${markerGroundShadowSvg(totalWidth / 2, pinTipY + 1, pinHalfW, 0.28)}
+        <path
+          d="M ${totalWidth/2} ${totalHeight*0.15}
+             C ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.35}
+             C ${totalWidth/2 - totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 - totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2} ${totalHeight*0.75}
+             C ${totalWidth/2 + totalHeight*0.05} ${totalHeight*0.55}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.45}, ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.35}
+             C ${totalWidth/2 + totalHeight*0.15} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}, ${totalWidth/2} ${totalHeight*0.15}
+             Z"
+          fill="${isSelected ? '#CC0000' : '#FF4444'}"
+          shape-rendering="geometricPrecision"
+        />
+        <circle
+          cx="${totalWidth/2}"
+          cy="${totalHeight*0.35}"
+          r="${totalHeight*0.08}"
+          fill="white"
+        />
         ${kakaoCount}
         ${capKBlock || ""}
-      </svg>
+      ${closeMarkerSvgDoc()}
     `;
     
     // 카카오 마커 이미지 생성 — 앵커는 핀 끝(좌표). 맨 아래(상호 라벨 끝)로 두면 전부 북쪽으로 밀려 2시 방향처럼 보임
     try {
       if (window.kakao?.maps?.MarkerImage) {
         const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
-        const pinTipY = Math.round(totalHeight * 0.75);
         return new window.kakao.maps.MarkerImage(
           encoded,
           new window.kakao.maps.Size(totalWidth, totalHeight),

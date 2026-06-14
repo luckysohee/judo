@@ -23,6 +23,7 @@ export default function HomeAiBottomSheetCluster({
   styles,
   forceSheetCollapsed = false,
   onSheetUserExpand,
+  onSheetCollapsedChange,
   onDismissRecommendSheet,
   setAiSheetOpen,
   isAiSearching,
@@ -122,6 +123,10 @@ export default function HomeAiBottomSheetCluster({
     }
   }, [forceSheetCollapsed]);
 
+  useEffect(() => {
+    onSheetCollapsedChange?.(sheetCollapsed);
+  }, [sheetCollapsed, onSheetCollapsedChange]);
+
   const syncDisplayedPlacesToMapMarkers = useCallback(() => {
     if (!Array.isArray(displayedPlaces) || displayedPlaces.length === 0) {
       return;
@@ -185,20 +190,43 @@ export default function HomeAiBottomSheetCluster({
                   }}
                 >
                   <div
+                    style={{
+                      ...styles.aiRecommendDockSurface,
+                      ...(sheetCollapsed
+                        ? styles.aiRecommendDockSurfaceCollapsed
+                        : styles.aiRecommendDockSurfaceExpanded),
+                    }}
+                  >
+                  <div
                     ref={sheetChromeRef}
                     style={{
                       ...styles.aiRecommendSheetChrome,
+                      ...(sheetCollapsed
+                        ? styles.aiRecommendSheetChromeCollapsed
+                        : styles.aiRecommendSheetChromeExpanded),
                       ...(pullDragging ? styles.aiRecommendSheetChromeDragging : {}),
                     }}
                   >
                     <div
-                      style={styles.aiRecommendSheetPullStrip}
+                      style={{
+                        ...styles.aiRecommendSheetPullStrip,
+                        ...(sheetCollapsed
+                          ? styles.aiRecommendSheetPullStripCollapsed
+                          : {}),
+                      }}
                       aria-hidden
                     >
                       <div style={styles.aiRecommendSheetHandle} />
                     </div>
 
-                    <div style={styles.aiRecommendSheetHeaderRow}>
+                    <div
+                      style={{
+                        ...styles.aiRecommendSheetHeaderRow,
+                        ...(sheetCollapsed
+                          ? styles.aiRecommendSheetHeaderRowCollapsed
+                          : styles.aiRecommendSheetHeaderRowExpanded),
+                      }}
+                    >
                       <button
                         type="button"
                         style={styles.aiRecommendSheetHeader}
@@ -209,11 +237,23 @@ export default function HomeAiBottomSheetCluster({
                         }
                         onClick={toggleSheetCollapsed}
                       >
-                        <div style={styles.aiPeekBarRow}>
+                        <div
+                          style={{
+                            ...styles.aiPeekBarRow,
+                            ...(sheetCollapsed ? styles.aiPeekBarRowCollapsed : {}),
+                          }}
+                        >
                           <div style={styles.aiPeekLeft}>
                             <span style={styles.aiPeekBadge}>맞춤</span>
 
-                            <div style={styles.aiPeekTextWrap}>
+                            <div
+                              style={{
+                                ...styles.aiPeekTextWrap,
+                                ...(sheetCollapsed
+                                  ? styles.aiPeekTextWrapCollapsed
+                                  : {}),
+                              }}
+                            >
                               <div style={styles.aiPeekTitle}>
                                 {isAiSearching
                                   ? "추천 리스트 준비 중"
@@ -733,6 +773,7 @@ export default function HomeAiBottomSheetCluster({
                   </div>
                 </div>
               ) : null}
+                  </div>
                 </div>
 
               {aiSheetPhotoViewerOpen && aiSheetPhotoViewerItems.length > 0

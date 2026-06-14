@@ -67,6 +67,8 @@ export default function SearchBar({
   searchInputRef = null,
   /** 맞춤 추천 시트가 바로 위에 붙을 때 — 상단 모서리 직각(시트와 연결) */
   sheetDockedAbove = false,
+  /** 접힌 피크 — 검색바도 시트와 동일 inset·네 모서리 둥글게 */
+  sheetDockedCollapsed = false,
 }) {
   const visibleSuggestions = Array.isArray(suggestions)
     ? suggestions.slice(0, 3)
@@ -849,13 +851,19 @@ export default function SearchBar({
             ? {
                 borderRadius: showKakaoResults
                   ? `${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px 0 0`
-                  : `0 0 ${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px`,
+                  : sheetDockedCollapsed
+                    ? `${HOME_UI_DOCK_RADIUS_PX}px`
+                    : `0 0 ${HOME_UI_DOCK_RADIUS_PX}px ${HOME_UI_DOCK_RADIUS_PX}px`,
                 borderTop: showKakaoResults
                   ? "1px solid rgba(255,255,255,0.08)"
-                  : "none",
+                  : sheetDockedCollapsed
+                    ? "1px solid rgba(255,255,255,0.08)"
+                    : "none",
                 boxShadow: showKakaoResults
                   ? styles.searchWrap.boxShadow
-                  : "0 4px 20px rgba(0,0,0,0.22)",
+                  : sheetDockedCollapsed
+                    ? "0 8px 24px rgba(0,0,0,0.28)"
+                    : "0 4px 20px rgba(0,0,0,0.22)",
               }
             : {
                 borderRadius: showKakaoResults ? "16px 16px 0 0" : "16px",

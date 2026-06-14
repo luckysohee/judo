@@ -6,6 +6,7 @@ import {
 } from '../utils/judoOperationMode';
 
 import { createRandomUuid } from '../utils/createRandomUuid';
+import { isOwnCheckinRow } from '../utils/checkinDisplayName.js';
 
 function newRealtimeTopicSuffix() {
   return createRandomUuid();
@@ -15,6 +16,36 @@ function newRealtimeTopicSuffix() {
 let recentCheckinsStore = [];
 const recentCheckinsListeners = new Set();
 let recentCheckinsBootstrapped = false;
+
+/** 홈 좌측 피드 — 초기 목록은 무시, 이후 실시간 타인 체크인만 */
+let peerCheckinFeedBootstrapped = false;
+const seenPeerCheckinIds = new Set();
+
+/**
+ * 타인 실시간 체크인만 반환(팝업 토스트·과거 목록 제외).
+ * @param {Array} rows
+ * @param {object|null} authUser
+ * @param {object|null} [profileRow]
+ */
+export function consumeNewPeerCheckinRows(rows, authUser, profileRow) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!peerCheckinFeedBootstrapped) {
+    for (const r of list) {
+      if (r?.id) seenPeerCheckinIds.add(String(r.id));
+    }
+    peerCheckinFeedBootstrapped = true;
+    return [];
+  }
+  const fresh = [];
+  for (const r of list) {
+    const id = String(r?.id ?? "");
+    if (!id || seenPeerCheckinIds.has(id)) continue;
+    seenPeerCheckinIds.add(id);
+    if (isOwnCheckinRow(r, authUser, profileRow)) continue;
+    fresh.push(r);
+  }
+  return fresh;
+}
 
 function publishRecentCheckins(next) {
   recentCheckinsStore = Array.isArray(next) ? next : [];

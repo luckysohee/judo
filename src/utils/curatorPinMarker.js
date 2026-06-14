@@ -9,6 +9,11 @@ import {
   buildCourseVenueNameLabelForMarker,
   shouldShowCourseStepRouteBadge,
 } from "./mapMarkerVenueLabel.js";
+import {
+  closeMarkerSvgDoc,
+  markerGroundShadowSvg,
+  openMarkerSvgDoc,
+} from "./mapMarkerSvg.js";
 
 /** viewBox 0 0 16 16 */
 export const BOOTSTRAP_GEO_ALT_FILL_D =
@@ -133,6 +138,7 @@ export function buildCuratorPinSvg({
         stroke="rgba(255,255,255,0.94)"
         stroke-width="0.5"
         stroke-linejoin="round"
+        shape-rendering="geometricPrecision"
       />
     </g>`;
 
@@ -152,17 +158,11 @@ export function buildCuratorPinSvg({
       : `<g transform="translate(${pinShift},0)">${halo}${liveRing}${pinBody}${savedDot}${overlapBadge}${liveBadge}${courseRouteBadge}${mapShortCaptionBadge}${checkinMarkerDecorationsSvg}</g>`;
 
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
-      <defs>
-        <filter id="pinShade" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
-        </filter>
-      </defs>
-      <g filter="url(#pinShade)">
-        ${pinGraphics}
-        ${venueLabel.svg}
-      </g>
-    </svg>`;
+    ${openMarkerSvgDoc(totalW, totalH)}
+      ${markerGroundShadowSvg(totalW / 2, pinH, pinW / 2, shadowOpacity + 0.05)}
+      ${pinGraphics}
+      ${venueLabel.svg}
+    ${closeMarkerSvgDoc()}`;
 
   return {
     svg,

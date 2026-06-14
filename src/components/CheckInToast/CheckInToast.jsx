@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRealtimeCheckins } from '../../hooks/useRealtimeCheckins';
+import { useRealtimeCheckins, consumeNewPeerCheckinRows } from '../../hooks/useRealtimeCheckins';
 import { useAuth } from '../../context/AuthContext';
 import { useToastSettings } from '../../hooks/useToastSettings';
 
 /** false — 실제 check_ins만 표시 (테스트용 데모 토스트 끔) */
 const SHOW_CHECKIN_TOAST_DEMO = false;
+
+/** 다른 사람 체크인 — 홈 좌측에 잠깐 보였다 사라짐 */
+const OTHER_CHECKIN_VISIBLE_MS = 7000;
 
 // 닉네임과 이모지콘 매핑
 const getUserDisplay = (userNickname) => {
@@ -43,11 +46,23 @@ const CheckInToast = () => {
   const { toastEnabled } = useToastSettings();
   const [displayCheckins, setDisplayCheckins] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
+  const hideTimersRef = useRef(new Set());
 
-  // 토스트 꺼져있으면 아예 렌더링 안 함
-  if (!toastEnabled) {
-    return null;
-  }
+  const scheduleHide = useCallback((groupId) => {
+    const timer = window.setTimeout(() => {
+      hideTimersRef.current.delete(timer);
+      setDisplayCheckins((prev) => prev.filter((g) => g.id !== groupId));
+    }, OTHER_CHECKIN_VISIBLE_MS);
+    hideTimersRef.current.add(timer);
+  }, []);
+
+  useEffect(
+    () => () => {
+      hideTimersRef.current.forEach((t) => window.clearTimeout(t));
+      hideTimersRef.current.clear();
+    },
+    []
+  );
 
   // 사용자 위치 가져오기
   useEffect(() => {
@@ -307,33 +322,28 @@ const CheckInToast = () => {
     }
   }, [recentCheckins]);
 
-  // 실제 체크인 데이터 처리
+  // 실시간으로 새로 들어온 타인 체크인만 — 홈 좌측 피드(최대 3줄, 잠시 후 사라짐)
   useEffect(() => {
-    if (recentCheckins.length === 0) {
-      setDisplayCheckins([]);
-      return;
-    }
+    const freshRows = consumeNewPeerCheckinRows(recentCheckins, user);
+    if (freshRows.length === 0) return;
 
-    // 3km 내 체크인 필터링
-    const nearbyCheckins = filterNearbyCheckins(recentCheckins.slice(0, 10));
+    const nearbyCheckins = filterNearbyCheckins(freshRows);
+    if (nearbyCheckins.length === 0) return;
 
-    // 체크인 데이터 그룹화
     const groupedCheckins = groupCheckins(nearbyCheckins);
-    const displayCheckins = groupedCheckins.slice(0, 3);
-    const formattedCheckins = displayCheckins.map(group => createGroupDisplay(group));
+    const formattedCheckins = groupedCheckins.map((group) =>
+      createGroupDisplay(group)
+    );
 
-    setDisplayCheckins(formattedCheckins);
-
-    // 방금 들어온 체크인만 8초 후 fade — 새로고침으로 불러온 기록은 유지
-    const now = Date.now();
-    formattedCheckins.forEach((group) => {
-      const ageMs = now - new Date(group.timestamp).getTime();
-      if (!Number.isFinite(ageMs) || ageMs > 120000) return;
-      setTimeout(() => {
-        setDisplayCheckins(prev => prev.filter(g => g.id !== group.id));
-      }, 8000);
+    setDisplayCheckins((prev) => {
+      const merged = [...formattedCheckins, ...prev];
+      const byId = new Map();
+      for (const item of merged) byId.set(item.id, item);
+      return Array.from(byId.values()).slice(0, 3);
     });
-  }, [recentCheckins, userLocation]);
+
+    formattedCheckins.forEach((group) => scheduleHide(group.id));
+  }, [recentCheckins, userLocation, user, scheduleHide]);
 
   // 시간 포맷 함수
   const getTimeAgo = (timestamp) => {
@@ -365,6 +375,10 @@ const CheckInToast = () => {
     textOverflow: "ellipsis",
     flexShrink: 0,
   };
+
+  if (!toastEnabled) {
+    return null;
+  }
 
   return (
     <div

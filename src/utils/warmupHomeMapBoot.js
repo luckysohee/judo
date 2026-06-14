@@ -1,33 +1,30 @@
 import { fetchMapPlacesInBounds } from "../api/placesInBounds";
 import { fetchMapPlaceDensityInBounds } from "../api/placesDensityInBounds";
-import { getHomeMapViewportPlaceLimit } from "./homeMapViewportLimit";
 import { getAiApiBaseUrl } from "./apiBaseUrl";
-import { padLatLngBounds } from "./fetchCuratorPlacesInBounds";
 import { loadKakaoMapsSdk } from "./loadKakaoMapsSdk";
 import { formatBoundsPlaceRowsForMap } from "./formatBoundsPlaceRowsForMap";
 import { writeHomeMapViewportSessionCache } from "./homeMapViewportSessionCache";
-import { defaultHomeMapViewportBounds } from "./homeMapViewportBounds";
+import {
+  computeHomeViewportCacheKey,
+  defaultHomeMapViewportBounds,
+} from "./homeMapViewportBounds";
 
 function buildInitialViewportPrefetchParams() {
   const boundsRaw = defaultHomeMapViewportBounds(5);
   const mapLevel = 5;
-  const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.12);
-  if (!padded) return null;
-
-  const limit = getHomeMapViewportPlaceLimit(mapLevel);
-  const r4 = (n) => Number(n).toFixed(4);
-  const cacheKey = `${r4(padded.sw.lat)}_${r4(padded.sw.lng)}_${r4(padded.ne.lat)}_${r4(padded.ne.lng)}_${limit}_all`;
+  const computed = computeHomeViewportCacheKey(boundsRaw, mapLevel);
+  if (!computed) return null;
 
   return {
     boundsRaw,
     mapLevel,
-    cacheKey,
+    cacheKey: computed.cacheKey,
     fetchBounds: {
-      south: padded.sw.lat,
-      west: padded.sw.lng,
-      north: padded.ne.lat,
-      east: padded.ne.lng,
-      limit,
+      south: computed.south,
+      west: computed.west,
+      north: computed.north,
+      east: computed.east,
+      limit: computed.limit,
     },
   };
 }

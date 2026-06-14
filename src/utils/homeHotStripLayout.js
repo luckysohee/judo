@@ -12,6 +12,18 @@ export const HOME_SEARCH_BAR_HEIGHT_PX = 54;
 /** 맞춤 시트 ↔ 검색바 도킹 시 공통 모서리(radius) */
 export const HOME_UI_DOCK_RADIUS_PX = 18;
 
+/** 펼친 맞춤 추천 시트 — 지도 가장자리 inset(상·우·하·좌) */
+export const HOME_RECOMMEND_SHEET_DOCK_INSET_PX = 12;
+
+/** 접힌 피크 — 크롬 안쪽 여백(상·우·하·좌) */
+export const HOME_RECOMMEND_SHEET_PEEK_INNER_PAD_PX = 12;
+
+/** 접힌 피크 ↔ 검색바 사이 여백 */
+export const HOME_RECOMMEND_SHEET_PEEK_SEARCH_GAP_PX = 10;
+
+/** @deprecated — 접힌 상태는 검색바와 동일 폭(바깥 inset 없음) */
+export const HOME_RECOMMEND_SHEET_PEEK_INSET_PX = 0;
+
 /** 맞춤 추천 시트·`mapCardOverlay` 하단 — 검색바 상단에 딱 붙음 */
 export function homeSearchBarStackBottomCss() {
   return `calc(${HOME_SEARCH_BAR_DOCK_BOTTOM_PX}px + ${HOME_SEARCH_BAR_HEIGHT_PX}px + env(safe-area-inset-bottom, 0px))`;

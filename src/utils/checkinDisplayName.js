@@ -101,3 +101,14 @@ export function checkinNicknameAliases(user, profileRow) {
   }
   return out;
 }
+
+/** 홈 피드·팝업 토스트 제외 — 본인 check_ins 행인지 */
+export function isOwnCheckinRow(row, user, profileRow) {
+  if (!user?.id || !row) return false;
+  if (row.user_id && String(row.user_id) === String(user.id)) return true;
+  const nick = String(row.user_nickname || "").trim().toLowerCase();
+  if (!nick) return false;
+  return checkinNicknameAliases(user, profileRow).some(
+    (alias) => String(alias).trim().toLowerCase() === nick
+  );
+}
