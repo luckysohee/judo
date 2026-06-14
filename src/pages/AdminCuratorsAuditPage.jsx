@@ -56,15 +56,18 @@ function curatorMatches(c, query) {
 
 const styles = {
   page: {
-    minHeight: "100vh",
+    height: "100dvh",
+    maxHeight: "100dvh",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
     backgroundColor: "#111111",
     color: "#ffffff",
     fontFamily:
       "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   header: {
-    position: "sticky",
-    top: 0,
+    flexShrink: 0,
     zIndex: 10,
     backgroundColor: "#111111",
     padding: "8px 12px",
@@ -100,6 +103,11 @@ const styles = {
     cursor: "pointer",
   },
   content: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehavior: "contain",
     padding: "8px 12px 24px",
   },
   tabs: {

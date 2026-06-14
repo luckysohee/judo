@@ -309,24 +309,30 @@ const CheckInToast = () => {
 
   // 실제 체크인 데이터 처리
   useEffect(() => {
-    if (recentCheckins.length > 0) {
-      // 3km 내 체크인 필터링
-      const nearbyCheckins = filterNearbyCheckins(recentCheckins.slice(0, 10));
-      
-      // 체크인 데이터 그룹화
-      const groupedCheckins = groupCheckins(nearbyCheckins);
-      const displayCheckins = groupedCheckins.slice(0, 3);
-      const formattedCheckins = displayCheckins.map(group => createGroupDisplay(group));
-      
-      setDisplayCheckins(formattedCheckins);
-      
-      // 8초 후 오래된 그룹 제거
-      formattedCheckins.forEach((group) => {
-        setTimeout(() => {
-          setDisplayCheckins(prev => prev.filter(g => g.id !== group.id));
-        }, 8000);
-      });
+    if (recentCheckins.length === 0) {
+      setDisplayCheckins([]);
+      return;
     }
+
+    // 3km 내 체크인 필터링
+    const nearbyCheckins = filterNearbyCheckins(recentCheckins.slice(0, 10));
+
+    // 체크인 데이터 그룹화
+    const groupedCheckins = groupCheckins(nearbyCheckins);
+    const displayCheckins = groupedCheckins.slice(0, 3);
+    const formattedCheckins = displayCheckins.map(group => createGroupDisplay(group));
+
+    setDisplayCheckins(formattedCheckins);
+
+    // 방금 들어온 체크인만 8초 후 fade — 새로고침으로 불러온 기록은 유지
+    const now = Date.now();
+    formattedCheckins.forEach((group) => {
+      const ageMs = now - new Date(group.timestamp).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > 120000) return;
+      setTimeout(() => {
+        setDisplayCheckins(prev => prev.filter(g => g.id !== group.id));
+      }, 8000);
+    });
   }, [recentCheckins, userLocation]);
 
   // 시간 포맷 함수

@@ -11,6 +11,41 @@ function newRealtimeTopicSuffix() {
   return createRandomUuid();
 }
 
+/** CheckInToast·CheckinButton 등 훅 인스턴스가 나뉘어도 최근 체크인 목록 공유 */
+let recentCheckinsStore = [];
+const recentCheckinsListeners = new Set();
+let recentCheckinsBootstrapped = false;
+
+function publishRecentCheckins(next) {
+  recentCheckinsStore = Array.isArray(next) ? next : [];
+  recentCheckinsListeners.forEach((fn) => fn(recentCheckinsStore));
+}
+
+function prependRecentCheckin(row) {
+  if (!row?.id) return;
+  const id = String(row.id);
+  const rest = recentCheckinsStore.filter((r) => String(r?.id) !== id);
+  publishRecentCheckins([row, ...rest].slice(0, 15));
+}
+
+async function fetchRecentCheckinsShared() {
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('check_ins')
+      .select(
+        'id, user_id, user_nickname, place_id, place_name, place_address, created_at',
+      )
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(15);
+    if (error) throw error;
+    publishRecentCheckins(Array.isArray(data) ? data : []);
+  } catch (error) {
+    console.error('최근 체크인 로드 오류:', error);
+  }
+}
+
 export const useRealtimeCheckins = () => {
   /** 동일 토픽명으로 여러 훅이 구독하면 "after subscribe()" 오류 → 컴포넌트마다 고유 채널 */
   const realtimeTopicRef = useRef(null);
@@ -19,8 +54,21 @@ export const useRealtimeCheckins = () => {
   }
   const [hotPlaces, setHotPlaces] = useState([]);
   const [checkinRanking, setCheckinRanking] = useState([]);
-  const [recentCheckins, setRecentCheckins] = useState([]);
+  const [recentCheckins, setRecentCheckins] = useState(recentCheckinsStore);
   const [placeCheckinCounts, setPlaceCheckinCounts] = useState({});
+
+  useEffect(() => {
+    const onUpdate = (next) => setRecentCheckins(next);
+    recentCheckinsListeners.add(onUpdate);
+    setRecentCheckins(recentCheckinsStore);
+    if (!recentCheckinsBootstrapped) {
+      recentCheckinsBootstrapped = true;
+      void fetchRecentCheckinsShared();
+    }
+    return () => {
+      recentCheckinsListeners.delete(onUpdate);
+    };
+  }, []);
 
   // 핫플레이스 데이터 가져오기
   const fetchHotPlaces = async () => {
@@ -129,6 +177,8 @@ export const useRealtimeCheckins = () => {
       const row = Array.isArray(data) ? data[0] : data;
       if (!row) throw new Error("checkin_no_row");
 
+      prependRecentCheckin(row);
+
       // 랭킹/핫플 새로고침은 N회 RPC를 순차 호출할 수 있어 수십 초 걸림 → UI 블로킹 방지
       void Promise.all([
         fetchHotPlaces(),
@@ -148,7 +198,7 @@ export const useRealtimeCheckins = () => {
     const loadInitialData = async () => {
       await Promise.all([
         fetchHotPlaces(),
-        fetchCheckinRanking()
+        fetchCheckinRanking(),
       ]);
     };
 
@@ -168,16 +218,15 @@ export const useRealtimeCheckins = () => {
         },
         async (payload) => {
           console.log('새로운 체크인:', payload.new);
-          
-          // 최근 체크인 목록에 추가
-          setRecentCheckins(prev => [payload.new, ...prev.slice(0, 9)]);
-          
+
+          prependRecentCheckin(payload.new);
+
           // 데이터 새로고침
           await Promise.all([
             fetchHotPlaces(),
             fetchCheckinRanking()
           ]);
-          
+
           // 해당 장소의 체크인 수 업데이트
           if (payload.new.place_id) {
             const count = await fetchPlaceCheckinCount(payload.new.place_id);
