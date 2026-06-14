@@ -1,5 +1,9 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
-import { buildCourseVenueNameLabelSvg, shouldShowCourseStepRouteBadge } from "./mapMarkerVenueLabel.js";
+import {
+  buildCourseVenueNameLabelForMarker,
+  buildCourseVenueNameLabelSvg,
+  shouldShowCourseStepRouteBadge,
+} from "./mapMarkerVenueLabel.js";
 import { curatorPlaceMatchesLoggedInCurator } from "./curatorPlacesIdentity.js";
 
 /** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
@@ -383,19 +387,7 @@ function createMarkerSvg(
     : "";
 
   const svgH = size + capBarH;
-  const venueLabel = buildCourseVenueNameLabelSvg(size / 2, size + 1, place);
-  const totalSvgH = svgH + venueLabel.height;
-  const totalSvgW = Math.max(size, venueLabel.width);
-
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${totalSvgW}" height="${totalSvgH}" viewBox="0 0 ${totalSvgW} ${totalSvgH}">
-      <defs>
-        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
-        </filter>
-      </defs>
-
-      <g filter="url(#shadow)">
+  const pinGraphics = `
         ${liveRing}
         ${outerRing}
         <circle
@@ -430,6 +422,31 @@ function createMarkerSvg(
         ${courseRouteBadge}
         ${bottomCaptionBar}
         ${checkinMarkerDecorations(size, checkinMeta)}
+  `;
+  const venueLabel = buildCourseVenueNameLabelForMarker(
+    size / 2,
+    size + 1,
+    place,
+    size
+  );
+  const totalSvgH = svgH + venueLabel.height;
+  const totalSvgW = venueLabel.totalW;
+  const pinShift = totalSvgW / 2 - size / 2;
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${totalSvgW}" height="${totalSvgH}" viewBox="0 0 ${totalSvgW} ${totalSvgH}">
+      <defs>
+        <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="${shadowOpacity}" />
+        </filter>
+      </defs>
+
+      <g filter="url(#shadow)">
+        ${
+          pinShift === 0
+            ? pinGraphics
+            : `<g transform="translate(${pinShift},0)">${pinGraphics}</g>`
+        }
         ${venueLabel.svg}
       </g>
     </svg>
@@ -756,15 +773,21 @@ function createMarkerImage(
   const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 48 : 38;
   const capBarH = !place?.isCoursePin && capForFolder ? 15 : 0;
-  const venueLabel = buildCourseVenueNameLabelSvg(size / 2, size + 1, place);
+  const venueLabel = buildCourseVenueNameLabelForMarker(
+    size / 2,
+    size + 1,
+    place,
+    size
+  );
+  const svgW = venueLabel.totalW;
   const svgH = size + capBarH + venueLabel.height;
-  const svgW = Math.max(size, venueLabel.width);
+  const pinAnchorY = size + capBarH;
 
   return new window.kakao.maps.MarkerImage(
     encoded,
     new window.kakao.maps.Size(svgW, svgH),
     {
-      offset: new window.kakao.maps.Point(size / 2, size / 2),
+      offset: new window.kakao.maps.Point(Math.round(svgW / 2), pinAnchorY),
     }
   );
 }

@@ -64,6 +64,18 @@ const styles = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  collapseBtn: {
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
+    borderRadius: 999,
+    padding: "5px 9px",
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: "pointer",
+    flexShrink: 0,
+    lineHeight: 1,
+  },
   topTitle: {
     flex: 1,
     minWidth: 0,
@@ -259,6 +271,8 @@ export default function HomeCourseDiscoveryDetail({
   onReplayStamps,
   user = null,
   isCurator = false,
+  /** 바텀시트 한 단계 접기(사진 스트립) */
+  onSheetCollapse,
 }) {
   const { showToast } = useToast();
   const [curatorName, setCuratorName] = useState("큐레이터");
@@ -546,6 +560,17 @@ export default function HomeCourseDiscoveryDetail({
           ← 목록
         </button>
         <p style={styles.topTitle}>코스 미리보기</p>
+        {typeof onSheetCollapse === "function" ? (
+          <button
+            type="button"
+            style={styles.collapseBtn}
+            onClick={() => onSheetCollapse()}
+            aria-label="시트 접기"
+            title="아래로 접기"
+          >
+            ∨ 접기
+          </button>
+        ) : null}
       </div>
 
       <div style={styles.scroll}>

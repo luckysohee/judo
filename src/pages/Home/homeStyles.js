@@ -501,21 +501,22 @@ export const styles = {
     padding: "4px 2px 3px",
     gap: "2px",
     borderRadius: "9px",
-    border: "1px solid rgba(255, 255, 255, 0.22)",
-    background: "rgba(22, 24, 28, 0.28)",
-    backdropFilter: "blur(14px) saturate(150%)",
-    WebkitBackdropFilter: "blur(14px) saturate(150%)",
+    border: "1px solid rgba(196, 181, 253, 0.82)",
+    background:
+      "linear-gradient(158deg, rgba(139, 92, 246, 0.78) 0%, rgba(56, 189, 248, 0.62) 100%)",
+    backdropFilter: "blur(14px) saturate(180%)",
+    WebkitBackdropFilter: "blur(14px) saturate(180%)",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.1), 0 3px 12px rgba(0,0,0,0.16)",
+      "inset 0 1px 0 rgba(255,255,255,0.28), 0 0 12px rgba(167, 139, 250, 0.5), 0 3px 14px rgba(79, 70, 229, 0.22)",
     cursor: "pointer",
     display: "inline-flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    color: "rgba(255,255,255,0.94)",
+    color: "#faf5ff",
     flexShrink: 0,
     transition:
-      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
   },
 
   legendTodayTasteEntryLabel: {
@@ -525,7 +526,8 @@ export const styles = {
     letterSpacing: "-0.03em",
     whiteSpace: "nowrap",
     marginTop: "1px",
-    color: "rgba(250, 245, 255, 0.92)",
+    color: "#f5f3ff",
+    textShadow: "0 0 7px rgba(167, 139, 250, 0.65)",
   },
 
   bottomBarContainer: {

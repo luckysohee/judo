@@ -5,7 +5,10 @@
  * 카카오 MarkerImage(data:image/svg+xml)용 문자열만 생성한다.
  */
 
-import { buildCourseVenueNameLabelSvg, shouldShowCourseStepRouteBadge } from "./mapMarkerVenueLabel.js";
+import {
+  buildCourseVenueNameLabelForMarker,
+  shouldShowCourseStepRouteBadge,
+} from "./mapMarkerVenueLabel.js";
 
 /** viewBox 0 0 16 16 */
 export const BOOTSTRAP_GEO_ALT_FILL_D =
@@ -133,9 +136,20 @@ export function buildCuratorPinSvg({
       />
     </g>`;
 
-  const venueLabel = buildCourseVenueNameLabelSvg(pinW / 2, pinH + 1, place);
-  const totalW = Math.max(pinW, venueLabel.width);
+  const venueLabel = buildCourseVenueNameLabelForMarker(
+    pinW / 2,
+    pinH + 1,
+    place,
+    pinW
+  );
+  const totalW = venueLabel.totalW;
+  const pinShift = totalW / 2 - pinW / 2;
   const totalH = pinH + venueLabel.height;
+
+  const pinGraphics =
+    pinShift === 0
+      ? `${halo}${liveRing}${pinBody}${savedDot}${overlapBadge}${liveBadge}${courseRouteBadge}${mapShortCaptionBadge}${checkinMarkerDecorationsSvg}`
+      : `<g transform="translate(${pinShift},0)">${halo}${liveRing}${pinBody}${savedDot}${overlapBadge}${liveBadge}${courseRouteBadge}${mapShortCaptionBadge}${checkinMarkerDecorationsSvg}</g>`;
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
@@ -145,15 +159,7 @@ export function buildCuratorPinSvg({
         </filter>
       </defs>
       <g filter="url(#pinShade)">
-        ${halo}
-        ${liveRing}
-        ${pinBody}
-        ${savedDot}
-        ${overlapBadge}
-        ${liveBadge}
-        ${courseRouteBadge}
-        ${mapShortCaptionBadge}
-        ${checkinMarkerDecorationsSvg}
+        ${pinGraphics}
         ${venueLabel.svg}
       </g>
     </svg>`;

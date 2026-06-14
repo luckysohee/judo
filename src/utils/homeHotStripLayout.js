@@ -1,3 +1,5 @@
+import { verticalSnapSheetHeightFor } from "../hooks/useVerticalSnapSheet.js";
+
 /** 홈 `HotCheckinStrip` — 검색바 위 여백(px) */
 export const HOME_HOT_STRIP_NAV_CLEARANCE_PX = 108;
 
@@ -197,5 +199,34 @@ export function homeCourseRouteMapFitBottomPaddingPx() {
     HOME_SEARCH_BAR_HEIGHT_PX +
     24
   );
+}
+
+/**
+ * 코스 바텀시트 스냅별 높이(px) — 지도 fit padding·레이아웃 계산용
+ * @param {'expanded'|'collapsed'|'minimized'|'closed'} snap
+ */
+export function homeCoursesDiscoverySheetHeightPxForSnap(
+  snap,
+  {
+    browseMode = false,
+    layoutHeightPx,
+    visibleHeightPx,
+    keyboardOpen = false,
+  } = {}
+) {
+  if (snap === "closed") return 0;
+  const expandedPx = homeCoursesDiscoverySheetExpandedPx(layoutHeightPx, {
+    visibleH: visibleHeightPx,
+    keyboardOpen,
+  });
+  const collapsedPx = browseMode
+    ? HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_BROWSE_PX
+    : HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX;
+  const minimizedPx = HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX;
+  return verticalSnapSheetHeightFor(snap, {
+    expandedPx,
+    collapsedPx,
+    minimizedPx,
+  });
 }
 

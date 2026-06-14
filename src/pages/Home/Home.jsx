@@ -196,6 +196,7 @@ import {
 } from "../../utils/homeRailCourseUi";
 import {
   homeCourseRouteMapFitBottomPaddingPx,
+  homeCoursesDiscoverySheetHeightPxForSnap,
   homeCoursesDiscoveryStampSheetHeightPx,
 } from "../../utils/homeHotStripLayout";
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
@@ -2813,11 +2814,16 @@ export default function Home() {
           sheetStepsFromDrivingMap(homeRailCourseDrive).length,
           { completed: homeRailCourseCompleted }
         )
-      : homeRailCourseSheetHeightPx(
-          typeof window !== "undefined" ? window.innerHeight : homeViewportH,
-          false,
-          false
-        );
+      : homeCoursesBrowseActive && homeCoursesSheetSnap !== "closed"
+        ? homeCoursesDiscoverySheetHeightPxForSnap(homeCoursesSheetSnap, {
+            browseMode: true,
+            layoutHeightPx: homeViewportH,
+          })
+        : homeRailCourseSheetHeightPx(
+            typeof window !== "undefined" ? window.innerHeight : homeViewportH,
+            false,
+            false
+          );
     const padding = homeRailCourseMapFitPadding(sheetPx);
     const t = window.setTimeout(() => {
       mapRef.current?.fitToPlaces?.(pins, padding);
@@ -2827,9 +2833,11 @@ export default function Home() {
     homeRailCourseDrive,
     isCourseMode,
     homeViewportH,
+    homeCoursesBrowseActive,
     homeCoursesBrowseFollowActive,
     homeCourseFollowMinimized,
     homeRailCourseCompleted,
+    homeCoursesSheetSnap,
   ]);
 
   /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */

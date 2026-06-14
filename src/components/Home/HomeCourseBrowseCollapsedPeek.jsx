@@ -42,6 +42,38 @@ const styles = {
     color: T.textFaint,
     whiteSpace: "nowrap",
   },
+  minimizeBtn: {
+    flexShrink: 0,
+    margin: 0,
+    padding: "3px 8px",
+    borderRadius: 999,
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
+  expandBtn: {
+    flexShrink: 0,
+    margin: 0,
+    padding: "3px 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(167,139,250,0.45)",
+    background: "rgba(124,58,237,0.22)",
+    color: "rgba(237,233,254,0.96)",
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
+  titleActions: {
+    display: "flex",
+    flexShrink: 0,
+    alignItems: "center",
+    gap: 4,
+  },
   scroll: {
     display: "flex",
     flexDirection: "row",
@@ -207,6 +239,7 @@ export default function HomeCourseBrowseCollapsedPeek({
   guideStepIndex = 0,
   following = false,
   onExpand,
+  onSheetMinimize,
   user = null,
   stampStateVersion = 0,
 }) {
@@ -239,15 +272,50 @@ export default function HomeCourseBrowseCollapsedPeek({
     String(followCourseId) === String(course?.courseId || "").trim();
 
   const hint = followingThis
-    ? "도장 중 · 위로 밀어 펼치기"
+    ? "위로 밀어 펼치기"
     : "위로 밀어 펼치기";
+
+  const titleActions =
+    typeof onSheetMinimize === "function" ||
+    typeof onExpand === "function" ? (
+      <div style={styles.titleActions}>
+        {typeof onExpand === "function" ? (
+          <button
+            type="button"
+            data-sheet-no-drag
+            style={styles.expandBtn}
+            onClick={() => onExpand()}
+            aria-label="코스 상세 펼치기"
+            title="처음 펼친 화면으로"
+          >
+            펼치기
+          </button>
+        ) : null}
+        {typeof onSheetMinimize === "function" ? (
+          <button
+            type="button"
+            data-sheet-no-drag
+            style={styles.minimizeBtn}
+            onClick={() => onSheetMinimize()}
+            aria-label="시트 더 접기"
+            title="지도만 크게 보기"
+          >
+            더 접기
+          </button>
+        ) : (
+          <span style={styles.hint}>{hint}</span>
+        )}
+      </div>
+    ) : (
+      <span style={styles.hint}>{hint}</span>
+    );
 
   if (cover) {
     return (
       <div style={styles.root} aria-label={`${title} 커버 미리보기`}>
         <div style={styles.titleRow}>
           <h3 style={styles.title}>{title}</h3>
-          <span style={styles.hint}>{hint}</span>
+          {titleActions}
         </div>
         <button
           type="button"
@@ -270,7 +338,7 @@ export default function HomeCourseBrowseCollapsedPeek({
       <div style={styles.root}>
         <div style={styles.titleRow}>
           <h3 style={styles.title}>{title}</h3>
-          <span style={styles.hint}>{hint}</span>
+          {titleActions}
         </div>
         <p
           style={{
@@ -291,7 +359,7 @@ export default function HomeCourseBrowseCollapsedPeek({
     <div style={styles.root} aria-label={`${title} 장소 미리보기`}>
       <div style={styles.titleRow}>
         <h3 style={styles.title}>{title}</h3>
-        <span style={styles.hint}>{hint}</span>
+        {titleActions}
       </div>
       <div style={styles.scroll} role="list">
         {steps.map((step, i) => {

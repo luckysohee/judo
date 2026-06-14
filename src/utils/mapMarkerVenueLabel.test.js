@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCourseVenueNameLabelForMarker,
   buildCourseVenueNameLabelSvg,
   shouldShowCourseVenueNameLabel,
 } from "./mapMarkerVenueLabel.js";
@@ -19,6 +20,24 @@ describe("mapMarkerVenueLabel", () => {
       })
     ).toBe(true);
     expect(shouldShowCourseVenueNameLabel({ isCoursePin: false })).toBe(false);
+    expect(
+      shouldShowCourseVenueNameLabel({
+        courseMarkerPulse: true,
+        name: "펄스만",
+      })
+    ).toBe(true);
+  });
+
+  it("centers wide venue labels inside marker svg", () => {
+    const longName = "성수동길골목포장마차";
+    const { svg, totalW } = buildCourseVenueNameLabelForMarker(19, 40, {
+      isCoursePin: true,
+      name: longName,
+    }, 38);
+    expect(totalW).toBeGreaterThan(38);
+    expect(svg).toContain(longName.slice(0, 14));
+    const rectX = svg.match(/<rect[^>]*x="([^"]+)"/)?.[1];
+    expect(Number(rectX)).toBeGreaterThanOrEqual(0);
   });
 
   it("renders pulse candidate venue name", () => {

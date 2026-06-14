@@ -209,8 +209,43 @@ function mergeTwoPlacesSameKakaoId(a, b) {
     address_name: primary.address_name || secondary.address_name || "",
     blogInsight: primary.blogInsight ?? secondary.blogInsight,
   };
+  const courseSrc = primary.isCoursePin
+    ? primary
+    : secondary.isCoursePin
+      ? secondary
+      : primary.courseMarkerPulse
+        ? primary
+        : secondary.courseMarkerPulse
+          ? secondary
+          : null;
+  const courseFields = courseSrc
+    ? {
+        isCoursePin: Boolean(courseSrc.isCoursePin),
+        courseMapCaption: courseSrc.courseMapCaption,
+        courseStepIndex: courseSrc.courseStepIndex,
+        courseMarkerPulse: Boolean(
+          primary.courseMarkerPulse || secondary.courseMarkerPulse
+        ),
+        courseMarkerSolid: Boolean(
+          primary.courseMarkerSolid || secondary.courseMarkerSolid
+        ),
+        courseStepThumbUrl:
+          primary.courseStepThumbUrl || secondary.courseStepThumbUrl,
+        name:
+          courseSrc.name ||
+          courseSrc.place_name ||
+          mergedCore.name ||
+          mergedCore.place_name,
+        place_name:
+          courseSrc.place_name ||
+          courseSrc.name ||
+          mergedCore.place_name ||
+          mergedCore.name,
+      }
+    : {};
   return {
     ...mergedCore,
+    ...courseFields,
     reasonEvidence: collectReasonEvidence(mergedCore),
   };
 }

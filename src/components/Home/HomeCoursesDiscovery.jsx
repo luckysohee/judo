@@ -42,6 +42,19 @@ const dragHandleStyles = {
     background: "rgba(255,255,255,0.28)",
     flexShrink: 0,
   },
+  expandBtn: {
+    flexShrink: 0,
+    margin: 0,
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(167,139,250,0.45)",
+    background: "rgba(124,58,237,0.22)",
+    color: "rgba(237,233,254,0.96)",
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
 };
 
 /**
@@ -203,6 +216,8 @@ export default function HomeCoursesDiscoveryPanel({
     onDragHandlePointerDown,
     toggleSnap,
     setSnapExpanded,
+    setSnapCollapsed,
+    setSnapMinimized,
   } = useVerticalSnapSheet({
     enabled: open,
     expandedPx,
@@ -235,11 +250,12 @@ export default function HomeCoursesDiscoveryPanel({
     wasBrowseModeRef.current = browseMode;
   }, [open, browseMode, setSnapExpanded, sheetResetKey]);
 
-  /** 맨 아래 스냅 = 시트 끄기 — 핸들만 남기지 않음 */
+  /** 목록 모드에서만 최소 스냅 = 패널 닫기 (미리보기+지도는 핸들만 남김) */
   useEffect(() => {
     if (!open || isDragging || snap !== "minimized") return;
+    if (browseMode) return;
     onClose?.();
-  }, [open, snap, isDragging, onClose]);
+  }, [open, snap, isDragging, onClose, browseMode]);
 
   useEffect(() => {
     if (!onSnapChange) return;
@@ -247,7 +263,7 @@ export default function HomeCoursesDiscoveryPanel({
       onSnapChange("closed");
       return;
     }
-    if (snap === "minimized" && !isDragging) return;
+    if (snap === "minimized" && !isDragging && !browseMode) return;
     const heights = { expandedPx, collapsedPx, minimizedPx };
     const reported = isDragging
       ? nearestVerticalSnapSheetSnap(heightPx, heights)
@@ -262,10 +278,12 @@ export default function HomeCoursesDiscoveryPanel({
     collapsedPx,
     minimizedPx,
     onSnapChange,
+    browseMode,
   ]);
 
   if (!open) return null;
 
+  const browseTitle = String(browseCourse?.title || "").trim() || "코스";
   const panelTitle = browseMode ? "코스 미리보기" : "코스";
   const sheetBottomCss = homeHotStripCoursesWrapBottomCss(keyboardInsetPx);
   const sheetMaxHeightCss = homeCoursesDiscoverySheetMaxHeightCss(
@@ -321,10 +339,16 @@ export default function HomeCoursesDiscoveryPanel({
           tabIndex={0}
           aria-label={
             snap === "expanded"
-              ? "코스 시트 한 단계 접기. 아래로 드래그하거나 탭하세요."
+              ? browseMode
+                ? "코스 시트 한 단계 접기. 아래로 드래그하거나 탭하세요."
+                : "코스 시트 한 단계 접기. 아래로 드래그하거나 탭하세요."
               : snap === "collapsed"
-                ? "코스 시트 접기·펼치기. 아래로 더 내리면 닫힙니다."
-                : "코스 시트 펼치기. 위로 드래그하거나 탭하세요."
+                ? browseMode
+                  ? "코스 시트 더 접기. 아래로 드래그하거나 탭하세요."
+                  : "코스 시트 접기·펼치기. 아래로 더 내리면 닫힙니다."
+                : browseMode
+                  ? "코스 시트 펼치기. 위로 드래그하거나 탭하세요."
+                  : "코스 시트 펼치기. 위로 드래그하거나 탭하세요."
           }
           style={{
             ...dragHandleStyles.zone,
@@ -332,10 +356,12 @@ export default function HomeCoursesDiscoveryPanel({
             ...(snap === "minimized"
               ? {
                   flexDirection: "row",
-                  justifyContent: "center",
+                  justifyContent: browseMode ? "flex-start" : "center",
                   alignItems: "center",
                   gap: 8,
                   paddingBottom: 6,
+                  paddingLeft: browseMode ? 4 : undefined,
+                  paddingRight: browseMode ? 4 : undefined,
                 }
               : null),
           }}
@@ -343,7 +369,11 @@ export default function HomeCoursesDiscoveryPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              toggleSnap();
+              if (browseMode && snap !== "expanded") {
+                setSnapExpanded();
+              } else {
+                toggleSnap();
+              }
             }
           }}
           onDoubleClick={(e) => {
@@ -352,6 +382,38 @@ export default function HomeCoursesDiscoveryPanel({
           }}
         >
           <span style={dragHandleStyles.pill} aria-hidden />
+          {browseMode && snap === "minimized" ? (
+            <>
+              <span
+                style={{
+                  flex: "1 1 auto",
+                  minWidth: 0,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.92)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {browseTitle}
+              </span>
+              <button
+                type="button"
+                data-sheet-no-drag
+                style={dragHandleStyles.expandBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSnapExpanded();
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label="코스 상세 펼치기"
+                title="처음 펼친 화면으로"
+              >
+                ↑ 펼치기
+              </button>
+            </>
+          ) : null}
         </div>
         {browseMode ? (
           sheetListExpanded ? (
@@ -380,6 +442,7 @@ export default function HomeCoursesDiscoveryPanel({
                 onStartFollow={onBrowseStartFollow}
                 onStampStateRefresh={onStampStateRefresh}
                 onReplayStamps={onReplayStamps}
+                onSheetCollapse={setSnapCollapsed}
               />
             </div>
           ) : sheetListPeek && browseCourse && !browseLoading ? (
@@ -390,6 +453,7 @@ export default function HomeCoursesDiscoveryPanel({
               guideStepIndex={guideStepIndex}
               following={followingThisPreview}
               onExpand={setSnapExpanded}
+              onSheetMinimize={setSnapMinimized}
               user={user}
               stampStateVersion={stampStateVersion}
             />

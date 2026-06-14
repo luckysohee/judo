@@ -1,6 +1,6 @@
 /** 코스 1·2·쩜오차 확정 핀 + 2차 찾기 깜빡임 후보 — 마커 아래 상호 */
 export function shouldShowCourseVenueNameLabel(place) {
-  return Boolean(place?.isCoursePin);
+  return Boolean(place?.isCoursePin) || Boolean(place?.courseMarkerPulse);
 }
 
 /** 코스 1차 핀 — 상호 라벨 강조색 */
@@ -33,6 +33,29 @@ function escapeSvgText(s) {
  * @param {{ maxLen?: number }} [opts]
  * @returns {{ svg: string, height: number, width: number }}
  */
+/**
+ * 핀 본체 너비보다 라벨이 넓을 때 SVG 가운데 정렬(잘림 방지).
+ * @returns {{ svg: string, height: number, width: number, totalW: number }}
+ */
+export function buildCourseVenueNameLabelForMarker(
+  pinCenterX,
+  pinBottomY,
+  place,
+  pinWidth,
+  opts = {}
+) {
+  if (!shouldShowCourseVenueNameLabel(place)) {
+    return { svg: "", height: 0, width: 0, totalW: pinWidth };
+  }
+  const probe = buildCourseVenueNameLabelSvg(pinCenterX, pinBottomY, place, opts);
+  const totalW = Math.max(pinWidth, probe.width);
+  if (totalW <= pinWidth) {
+    return { ...probe, totalW };
+  }
+  const centered = buildCourseVenueNameLabelSvg(totalW / 2, pinBottomY, place, opts);
+  return { ...centered, totalW };
+}
+
 export function buildCourseVenueNameLabelSvg(centerX, topY, place, opts = {}) {
   if (!shouldShowCourseVenueNameLabel(place)) {
     return { svg: "", height: 0, width: 0 };
