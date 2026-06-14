@@ -4,6 +4,9 @@ import { useRealtimeCheckins } from '../../hooks/useRealtimeCheckins';
 import { useAuth } from '../../context/AuthContext';
 import { useToastSettings } from '../../hooks/useToastSettings';
 
+/** false — 실제 check_ins만 표시 (테스트용 데모 토스트 끔) */
+const SHOW_CHECKIN_TOAST_DEMO = false;
+
 // 닉네임과 이모지콘 매핑
 const getUserDisplay = (userNickname) => {
   const nicknameMap = {
@@ -187,9 +190,9 @@ const CheckInToast = () => {
     }
   };
 
-  // 테스트용 시뮬레이션 (실제 체크인이 없을 때만)
+  // 테스트용 시뮬레이션 (실제 체크인이 없을 때만) — SHOW_CHECKIN_TOAST_DEMO 로 on/off
   useEffect(() => {
-    // 실제 체크인이 없으면 테스트 데이터 표시
+    if (!SHOW_CHECKIN_TOAST_DEMO) return;
     if (recentCheckins.length === 0) {
       // 가끔 여러 명이 동시에 체크인하는 시나리오 추가
       const createTestScenario = () => {
