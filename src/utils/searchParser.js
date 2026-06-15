@@ -873,12 +873,30 @@ export function parsePartySize(query) {
 /** 카카오 키워드 검색용: 인원·구어 제거 */
 export function stripPartyAndChatterForKeywordSearch(query) {
   return String(query || "")
+    .replace(/\d{1,2}\s*명이서/gi, " ")
     .replace(/\d{1,2}\s*명/gi, " ")
     .replace(/\d{1,2}\s*인\b/gi, " ")
+    .replace(/친구\s*(?:랑|와|하고)?/gi, " ")
     .replace(/우리\s*지금|우리는|우리가|지금\s*우리/gi, " ")
+    .replace(/가볍게\s*한잔/gi, " ")
+    .replace(/가볍게/gi, " ")
+    .replace(/한잔/gi, " ")
     .replace(/에서(?=\s|$)/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** «친구 N명 성수에서 가볍게 한잔» 등 — 카카오 키워드용 술집 의도 */
+export function inferCasualDrinkMapIntentPhrase(query) {
+  const q = String(query || "").trim();
+  if (!q) return null;
+  if (/가볍게\s*한잔|가볍게|한잔|한\s*잔/i.test(q)) {
+    return "술집";
+  }
+  if (/\d{1,2}\s*명/.test(q) && /(?:한잔|술|모임|모이|마시)/i.test(q)) {
+    return "술집";
+  }
+  return null;
 }
 
 /**

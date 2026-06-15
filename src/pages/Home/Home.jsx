@@ -35,6 +35,7 @@ import { syncAuthProviderToProfile } from "../../lib/syncAuthProviderToProfile";
 import { followUser } from "../../utils/userProfileFollows";
 import { runWhenIdle } from "../../utils/runWhenIdle";
 import { createRandomUuid } from "../../utils/createRandomUuid";
+import { createPerfTrace } from "../../utils/devPerfTrace";
 
 import {
   getPlaceFolderIds,
@@ -68,6 +69,7 @@ import {
   getKakaoKeywordSuffix,
   stripPartyAndChatterForKeywordSearch,
   homeSearchQueryHasMoodIntentHint,
+  inferCasualDrinkMapIntentPhrase,
   lockKeywordToClientForKakaoHint,
   filterPlacesByParsedIntent,
   buildRecommendationWhyLine,
@@ -93,7 +95,7 @@ import {
 import { buildCuratorSearchHighlights } from "../../utils/searchCuratorHighlights";
 import { getSearchLoadingMessage } from "../../utils/searchLoadingMessage";
 import { fetchSearchIntentAssist } from "../../utils/searchAIAssistant";
-import { buildExpansionSuggestions } from "../../utils/searchExpansionSuggestions";
+import { buildExpansionSuggestions, pickAreaLabelFromQuery } from "../../utils/searchExpansionSuggestions";
 import { insertSearchLog, insertPlaceClickLog } from "../../utils/searchAnalytics";
 import {
   normalizeQueryForFeedback,
@@ -6397,7 +6399,7 @@ const handleClearSearch = () => {
     searchFeedbackContextRef.current = null;
 
     const searchUiStartedAt = Date.now();
-    const MIN_SEARCH_LOADING_MS = 1800;
+    const MIN_SEARCH_LOADING_MS = 700;
     let shouldOpenAiSheetAfterLoad = false;
     let searchHadError = false;
     let searchPerfTrace = null;
@@ -6429,7 +6431,8 @@ const handleClearSearch = () => {
     }
     aiRecommendExclusiveRef.current =
       isSituationChipSearch || !useBasicSearchPipeline;
-    let skipMinSearchLoading = useBasicSearchPipeline || isSituationChipSearch;
+    let skipMinSearchLoading =
+      useBasicSearchPipeline || isSituationChipSearch || !useCoursePipeline;
 
     const normalizedQueryForFeedback = normalizeQueryForFeedback(nextQuery);
     let searchScoreOptsBase = { searchFeedbackByPlaceKey: {} };
@@ -7128,6 +7131,14 @@ const handleClearSearch = () => {
         } else {
           intentPhraseMap = matchedFoodKeywordMap || barKeywordMap || null;
         }
+        if (!intentPhraseMap) {
+          intentPhraseMap = inferCasualDrinkMapIntentPhrase(nextQuery);
+        }
+        const casualDrinkIntent = inferCasualDrinkMapIntentPhrase(nextQuery);
+        const casualDrinkMapQuery =
+          casualDrinkIntent && locationName
+            ? `${locationName} ${casualDrinkIntent}`.trim()
+            : null;
 
         const tailAfterLocationMap = locationName
           ? kwForMap
@@ -7343,11 +7354,21 @@ const handleClearSearch = () => {
         } else {
           mapQuery = lockKw
             ? clientMapQuery
-            : kakaoHint
+            : casualDrinkMapQuery
+              ? casualDrinkMapQuery
+              : kakaoHint
               ? mapPlaceSuffix
                 ? `${kakaoHint} ${mapPlaceSuffix}`.trim()
                 : kakaoHint
               : searchKeywordApi;
+
+          if (casualDrinkMapQuery && locationName) {
+            mapFallbackQueries = [
+              casualDrinkMapQuery,
+              `${locationName} 와인바`,
+              `${locationName} 이자카야`,
+            ].filter((q, i, arr) => arr.indexOf(q) === i && q !== mapQuery);
+          }
 
           const noIntentAssistAiParse =
             !useBasicSearchPipeline && !intentAssist;
@@ -7476,6 +7497,9 @@ const handleClearSearch = () => {
           };
         })();
 
+        const skipViewportFilterCasualDrink =
+          Boolean(casualDrinkIntent) && Boolean(locationName);
+
         const filterPlacesByMapViewport = (places) => {
           const bounds =
             chipAnchorsMapViewport
@@ -7485,6 +7509,7 @@ const handleClearSearch = () => {
             !bounds ||
             !window.kakao?.maps ||
             geoAnchoredUnified ||
+            skipViewportFilterCasualDrink ||
             !Array.isArray(places)
           ) {
             return places;
@@ -7644,12 +7669,27 @@ const handleClearSearch = () => {
         mapPlaces = filterPlacesByMapViewport(mapPlaces);
         const chipViewportPlacesBeforeIntent =
           chipAnchorsMapViewport ? mapPlaces.slice() : null;
+        const mapPlacesBeforeIntentFilter = mapPlaces.slice();
         mapPlaces = filterPlacesByParsedIntent(
           mapPlaces,
           facetsForFilter,
           nextQuery,
           mapIntentFilterOpts
         );
+        if (
+          casualDrinkIntent &&
+          mapPlaces.length === 0 &&
+          mapPlacesBeforeIntentFilter.length > 0
+        ) {
+          mapPlaces = filterMapSearchPlacesByRegionProximity(
+            mapPlacesBeforeIntentFilter,
+            {
+              sortOrigin,
+              locationName: String(locationName || "").trim(),
+              maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
+            }
+          );
+        }
         if (
           chipAnchorsMapViewport &&
           chipViewportPlacesBeforeIntent &&
@@ -7789,13 +7829,21 @@ const handleClearSearch = () => {
             if (mp.length === 0) {
               mp = await searchMapBars(r, locationName || null);
             }
-            const mpViewport = filterPlacesByMapViewport(mp);
-            const mpFiltered = filterPlacesByParsedIntent(
-              mpViewport,
-              facetsForFilter,
-              nextQuery,
-              mapIntentFilterOpts
-            );
+            const mpViewport = casualDrinkIntent
+              ? mp
+              : filterPlacesByMapViewport(mp);
+            const mpFiltered = casualDrinkIntent
+              ? filterMapSearchPlacesByRegionProximity(mpViewport, {
+                  sortOrigin,
+                  locationName: String(locationName || pickAreaLabelFromQuery(r, facetsForFilter?.region) || "").trim(),
+                  maxDistanceKm: mapSearchMaxDistanceKmForLocation(locationName),
+                })
+              : filterPlacesByParsedIntent(
+                  filterPlacesByMapViewport(mp),
+                  facetsForFilter,
+                  nextQuery,
+                  mapIntentFilterOpts
+                );
             const sp = calculateLocalAIScores(
               mpFiltered,
               nextQuery,
@@ -7809,7 +7857,54 @@ const handleClearSearch = () => {
               break;
             }
           }
-          if (scoredPlaces.length === 0) {
+          if (scoredPlaces.length === 0 && casualDrinkIntent) {
+            const areaLabel =
+              locationName ||
+              pickAreaLabelFromQuery(nextQuery, facetsForFilter?.region);
+            const pinned = resolveParsedRegionsFromQuery(nextQuery, facetsForFilter);
+            const regionPool = filteredByCuratorPlaces.filter((place) => {
+              if (!areaLabel && pinned.length === 0) return false;
+              const hay = [
+                place?.name,
+                place?.address,
+                place?.region,
+                place?.address_name,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              if (pinned.length > 0) {
+                return pinned.some((reg) =>
+                  hay.includes(String(reg).toLowerCase())
+                );
+              }
+              return hay.includes(String(areaLabel).toLowerCase());
+            });
+            if (regionPool.length > 0) {
+              const asSearchRows = regionPool.map((p) => ({
+                ...p,
+                lat: Number(p.lat ?? p.y),
+                lng: Number(p.lng ?? p.x),
+                y: String(p.y ?? p.lat ?? ""),
+                x: String(p.x ?? p.lng ?? ""),
+                place_name: p.name || p.place_name,
+                category_name: p.category || p.category_name || "",
+                id: String(p.id),
+              }));
+              const spDb = calculateLocalAIScores(
+                asSearchRows,
+                nextQuery,
+                null,
+                sortOrigin,
+                await withSearchSocialBoost(asSearchRows)
+              );
+              if (spDb.length > 0) {
+                scoredPlaces = spDb;
+                relaxationUsedMap = `${areaLabel} 술집`;
+              }
+            }
+          }
+          if (scoredPlaces.length === 0 && !casualDrinkIntent) {
             setSearchExpandUX({
               headline: expandPack.headline,
               subline: expandPack.subline,
@@ -7822,11 +7917,13 @@ const handleClearSearch = () => {
             });
           } else {
             setSearchExpandUX(null);
-            showToast(
-              `범위를 넓혀 «${relaxationUsedMap}»(으)로 찾았어요`,
-              "info",
-              4200
-            );
+            if (relaxationUsedMap) {
+              showToast(
+                `«${relaxationUsedMap}» 기준으로 찾았어요`,
+                "info",
+                4200
+              );
+            }
           }
         } else if (scoredPlaces.length === 0 && chipAnchorsMapViewport) {
           /** 칩은 화면 기준 검색만 — 무관 한 확장 토스트·UX 억제(예: 「서울 맥주」) */
@@ -8098,11 +8195,11 @@ const handleClearSearch = () => {
           setMapViewportSearchLock(false);
         }
 
-        if (kakaoFormattedPlaces.length === 0) {
-          devLog("⚠️ 검색 결과가 없거나 맵 레퍼런스가 없습니다:", {
-            hasPlaces: kakaoFormattedPlaces.length > 0,
+        if (biasedScoredPlaces.length === 0 && mergedMap.length === 0) {
+          devLog("⚠️ 카카오·DB 검색 결과 없음:", {
+            mapQuery,
+            locationName: locationName || null,
             hasMapRef: !!mapRef.current,
-            kakaoApi: !!window.kakao?.maps,
           });
         }
 

@@ -832,6 +832,17 @@ function findDbCuratorRowForChip(rawSel, dbCurators) {
   return null;
 }
 
+/** 큐레이터 칩·하이라이트 → `/curator-profile/:slug` 경로용 slug */
+function resolveCuratorProfileSlug(rawKey, dbCurators) {
+  const row = findDbCuratorRowForChip(rawKey, dbCurators);
+  if (row) {
+    const slug = String(row.slug ?? row.username ?? "").trim();
+    if (slug) return slug;
+  }
+  const fallback = String(rawKey ?? "").trim();
+  return fallback || null;
+}
+
 /** `curator_places.curator_id`(= user_id) 와 직접 비교할 auth·프로필 uuid 집합 */
 function collectCuratorIdsForRescueMatch(c) {
   const s = new Set();
@@ -1170,6 +1181,7 @@ export {
   curatorJoinRowLooksComplete,
   attachCuratorsToCuratorPlaceRows,
   findDbCuratorRowForChip,
+  resolveCuratorProfileSlug,
   collectCuratorIdsForRescueMatch,
   canonicalCuratorChipToken,
   buildMergedSavedPlaceKeySet,

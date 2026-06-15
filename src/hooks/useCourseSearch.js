@@ -110,12 +110,26 @@ function withTwoStepCourseIntent(parsed) {
 }
 
 /** `places`에 is_archived 컬럼이 없는 DB면 .eq 필터가 400 — select 후 로컬 필터 */
+let coursePlacesCache = null;
+let coursePlacesCacheAt = 0;
+const COURSE_PLACES_CACHE_MS = 5 * 60 * 1000;
+
 async function fetchCoursePlacesRows(supabaseClient) {
+  if (
+    coursePlacesCache &&
+    Date.now() - coursePlacesCacheAt < COURSE_PLACES_CACHE_MS
+  ) {
+    return { rows: coursePlacesCache, error: null };
+  }
+
   const { data, error } = await supabaseClient.from("places").select("*");
   if (error) return { rows: [], error };
   const rows = Array.isArray(data) ? data : [];
+  const filtered = rows.filter((p) => p?.is_archived !== true);
+  coursePlacesCache = filtered;
+  coursePlacesCacheAt = Date.now();
   return {
-    rows: rows.filter((p) => p?.is_archived !== true),
+    rows: filtered,
     error: null,
   };
 }

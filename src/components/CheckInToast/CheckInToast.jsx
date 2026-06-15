@@ -40,6 +40,9 @@ const getUserDisplay = (userNickname) => {
   return nicknameMap[userNickname];
 };
 
+/** 체크인 피드 거리 필터 기본점 — 성수 (비보안 HTTP dev 등 GPS 불가 시) */
+const DEFAULT_FEED_LOCATION = { lat: 37.54465, lng: 127.05595 };
+
 const CheckInToast = () => {
   const { recentCheckins } = useRealtimeCheckins();
   const { user } = useAuth();
@@ -64,33 +67,40 @@ const CheckInToast = () => {
     []
   );
 
-  // 사용자 위치 가져오기
+  // 사용자 위치 가져오기 (HTTPS·localhost만 — http LAN dev는 GPS 생략)
   useEffect(() => {
-    if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        (error) => {
-          console.log('위치 가져오기 실패:', error);
-          // 기본 위치 (서울 시청)
-          setUserLocation({ lat: 37.5665, lng: 126.9780 });
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 5000,
-          maximumAge: 60000 // 1분 캐시
-        }
-      );
+    const canUseGeolocation =
+      typeof window !== "undefined" &&
+      window.isSecureContext &&
+      typeof navigator !== "undefined" &&
+      navigator.geolocation;
 
-      return () => navigator.geolocation.clearWatch(watchId);
-    } else {
-      // 기본 위치
-      setUserLocation({ lat: 37.5665, lng: 126.9780 });
+    if (!canUseGeolocation) {
+      setUserLocation(DEFAULT_FEED_LOCATION);
+      return undefined;
     }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (error) => {
+        if (import.meta.env.DEV && error?.code !== 1) {
+          console.log("위치 가져오기 실패:", error);
+        }
+        setUserLocation(DEFAULT_FEED_LOCATION);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 60000,
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
   // 거리 계산 함수 (Haversine 공식)

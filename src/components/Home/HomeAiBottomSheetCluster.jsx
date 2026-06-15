@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { useRecommendSheetPullDismiss } from "../../hooks/useRecommendSheetPullDismiss";
 import HomeBlogReviewSection from "./HomeBlogReviewSection";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
@@ -8,7 +9,10 @@ import {
   recommendPlaceSubtitle,
   siblingPlaceNamesFromBatch,
 } from "../../utils/recommendationPlaceCopy";
-import { sanitizeSheetStoryLine, canonicalCuratorChipToken } from "../../pages/Home/homeModule.js";
+import {
+  sanitizeSheetStoryLine,
+  resolveCuratorProfileSlug,
+} from "../../pages/Home/homeModule.js";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName";
 
@@ -69,6 +73,7 @@ export default function HomeAiBottomSheetCluster({
   aiSheetPhotoViewerOpen,
   closeAiSheetPhotoViewer,
 }) {
+  const navigate = useNavigate();
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const handlePullRelease = useCallback(
     ({ dy, dragged }) => {
@@ -171,6 +176,18 @@ export default function HomeAiBottomSheetCluster({
       return next;
     });
   }, [consumeHeaderClick, onSheetUserExpand, syncDisplayedPlacesToMapMarkers]);
+
+  const handleCuratorHighlightPick = useCallback(
+    (highlight) => {
+      const slug =
+        resolveCuratorProfileSlug(highlight?.curatorUsername, dbCurators) ||
+        resolveCuratorProfileSlug(highlight?.curatorId, dbCurators);
+      if (!slug) return;
+      setAiSheetOpen(false);
+      navigate(`/curator-profile/${encodeURIComponent(slug)}`);
+    },
+    [dbCurators, navigate, setAiSheetOpen]
+  );
 
   return (
             <>
@@ -750,20 +767,25 @@ export default function HomeAiBottomSheetCluster({
                           <button
                             key={h.key}
                             type="button"
-                            style={styles.aiCuratorHighlight}
-                            onClick={() => {
-                              setShowAll(false);
-                              setSelectedCurators([
-                                canonicalCuratorChipToken(
-                                  h.curatorUsername,
-                                  dbCurators
-                                ),
-                              ]);
-                              setAiSheetOpen(false);
+                            style={{
+                              ...styles.aiCuratorHighlight,
+                              touchAction: "manipulation",
+                              WebkitTapHighlightColor: "transparent",
+                            }}
+                            aria-label={`${h.sub} 큐레이터 프로필 보기`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCuratorHighlightPick(h);
                             }}
                           >
                             <div style={styles.aiCuratorHighlightHead}>{h.headline}</div>
-                            <div style={styles.aiCuratorHighlightSub}>{h.sub}</div>
+                            <div style={styles.aiCuratorHighlightSub}>
+                              {h.sub}
+                              <span style={styles.aiCuratorHighlightCta}>
+                                {" "}
+                                프로필 보기 ›
+                              </span>
+                            </div>
                           </button>
                         ))}
                       </>

@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { getAnalyticsSupabase } from "../lib/analyticsSupabase";
 import {
   normalizeTagsForSearchLog,
   primaryParsedFood,
@@ -15,6 +16,62 @@ import {
 
 export function getAnalyticsUserId(user) {
   return user?.id ? String(user.id) : "anonymous";
+}
+
+/** React `user`는 만료 JWT로 stale일 수 있음 — 서버 검증 세션만 신뢰 */
+async function resolveAnalyticsUser() {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data?.user?.id) {
+      return data.user;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** 로그인·만료 JWT에 따라 analytics 요청 클라이언트 분리 */
+function pickAnalyticsClient(analyticsUser) {
+  if (analyticsUser?.id) return supabase;
+  const bare = getAnalyticsSupabase();
+  return bare || supabase;
+}
+
+function isMissingRpcError(error) {
+  return /function.*does not exist|42883|PGRST202|Could not find the function/i.test(
+    String(error?.message || error || "")
+  );
+}
+
+async function insertSearchLogViaRpc(client, row) {
+  const { data, error } = await client.rpc("insert_search_log_analytics", {
+    p_row: row,
+  });
+  if (!error && data != null) {
+    return String(data);
+  }
+  if (error && !isMissingRpcError(error) && import.meta.env.DEV) {
+    console.warn(
+      "[searchAnalytics] insert_search_log_analytics RPC:",
+      error.message || error
+    );
+  }
+  return isMissingRpcError(error) ? null : null;
+}
+
+async function insertPlaceClickViaRpc(client, row) {
+  const { error } = await client.rpc("insert_place_click_log_analytics", {
+    p_row: row,
+  });
+  if (!error) return true;
+  if (error && !isMissingRpcError(error) && import.meta.env.DEV) {
+    console.warn(
+      "[searchAnalytics] insert_place_click_log_analytics RPC:",
+      error.message || error
+    );
+  }
+  return isMissingRpcError(error) ? false : false;
 }
 
 function analyticsFlags(user) {
@@ -46,6 +103,9 @@ export async function insertSearchLog({
   submitKeywordAiFallback = false,
 }) {
   if (!sessionId || !userQuery) return null;
+
+  const analyticsUser = await resolveAnalyticsUser();
+  const analyticsClient = pickAnalyticsClient(analyticsUser);
 
   const purpose =
     parsed?.situation ??
@@ -80,11 +140,14 @@ export async function insertSearchLog({
         ? String(submitInitialSearchKind).trim()
         : null,
     submit_keyword_ai_fallback: Boolean(submitKeywordAiFallback),
-    ...analyticsFlags(user),
+    ...analyticsFlags(analyticsUser),
   };
 
   try {
-    let { data, error } = await supabase
+    const rpcId = await insertSearchLogViaRpc(analyticsClient, row);
+    if (rpcId) return rpcId;
+
+    let { data, error } = await analyticsClient
       .from("search_logs")
       .insert(row)
       .select("id")
@@ -112,7 +175,7 @@ export async function insertSearchLog({
       void submit_initial_search_kind;
       void submit_keyword_ai_fallback;
       void normalized_query;
-      const retry = await supabase
+      const retry = await analyticsClient
         .from("search_logs")
         .insert(legacyRow)
         .select("id")
@@ -121,7 +184,12 @@ export async function insertSearchLog({
       data = retry.data;
     }
     if (error) {
-      console.warn("[searchAnalytics] search_logs insert:", error.message || error);
+      if (import.meta.env.DEV) {
+        console.warn(
+          "[searchAnalytics] search_logs insert:",
+          error.message || error
+        );
+      }
       return null;
     }
     return data?.id != null ? String(data.id) : null;
@@ -157,6 +225,9 @@ export async function insertPlaceClickLog({
   const pid = clickedPlaceId != null ? String(clickedPlaceId) : "";
   if (!pid) return;
 
+  const analyticsUser = await resolveAnalyticsUser();
+  const analyticsClient = pickAnalyticsClient(analyticsUser);
+
   const row = {
     clicked_place_id: pid,
     clicked_curator_id: clickedCuratorId != null ? String(clickedCuratorId) : null,
@@ -182,11 +253,16 @@ export async function insertPlaceClickLog({
       userVisibleCandidateCount >= 0
         ? Math.round(userVisibleCandidateCount)
         : null,
-    ...analyticsFlags(user),
+    ...analyticsFlags(analyticsUser),
   };
 
   try {
-    let { error } = await supabase.from("place_click_logs").insert(row);
+    const rpcOk = await insertPlaceClickViaRpc(analyticsClient, row);
+    let error = null;
+    if (!rpcOk) {
+      const res = await analyticsClient.from("place_click_logs").insert(row);
+      error = res.error;
+    }
     if (
       error &&
       /column|schema|does not exist|42703/i.test(String(error.message || error))
@@ -206,11 +282,16 @@ export async function insertPlaceClickLog({
       void search_log_id;
       void user_query;
       void normalized_query;
-      const retry = await supabase.from("place_click_logs").insert(legacyRow);
+      const retry = await analyticsClient.from("place_click_logs").insert(legacyRow);
       error = retry.error;
     }
     if (error) {
-      console.warn("[searchAnalytics] place_click_logs insert:", error.message || error);
+      if (import.meta.env.DEV) {
+        console.warn(
+          "[searchAnalytics] place_click_logs insert:",
+          error.message || error
+        );
+      }
     } else {
       if (
         searchClickPath &&

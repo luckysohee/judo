@@ -1678,6 +1678,8 @@ export const styles = {
     padding: "12px 14px",
     background: "rgba(108, 92, 231, 0.06)",
     cursor: "pointer",
+    position: "relative",
+    zIndex: 1,
   },
 
   aiCuratorHighlightHead: {
@@ -1692,6 +1694,11 @@ export const styles = {
     fontSize: "12px",
     fontWeight: 600,
     color: "rgba(17,17,17,0.55)",
+  },
+
+  aiCuratorHighlightCta: {
+    fontWeight: 700,
+    color: "#6c5ce7",
   },
 
   aiSheetItem: {
