@@ -33,9 +33,7 @@ const overlayStyle = {
 const backdropStyle = {
   position: "absolute",
   inset: 0,
-  background: "rgba(248, 250, 252, 0.72)",
-  WebkitBackdropFilter: "blur(20px) saturate(1.08)",
-  backdropFilter: "blur(20px) saturate(1.08)",
+  background: "#000000",
 };
 
 const innerStyle = {
@@ -46,22 +44,12 @@ const innerStyle = {
   width: "100%",
 };
 
-const cardStyle = {
-  margin: "0 auto",
-  padding: "22px 26px",
-  borderRadius: 20,
-  background: "#ffffff",
-  boxShadow:
-    "0 4px 24px rgba(15, 23, 42, 0.12), 0 16px 48px rgba(15, 23, 42, 0.14)",
-  border: "1px solid rgba(255, 255, 255, 0.95)",
-};
-
 const titleStyle = {
   margin: 0,
   fontSize: "clamp(19px, 4.8vw, 23px)",
   fontWeight: 800,
   letterSpacing: "-0.035em",
-  color: "#0f172a",
+  color: "#ffffff",
   lineHeight: 1.35,
 };
 
@@ -239,9 +227,7 @@ export default function HomeEntryIntro() {
         style={{ ...backdropStyle, opacity: opaque ? 1 : 0, transition }}
       />
       <div style={{ ...innerStyle, opacity: opaque ? 1 : 0, transition }}>
-        <div style={cardStyle}>
-          <p style={titleStyle}>오늘은 어디서 한잔?</p>
-        </div>
+        <p style={titleStyle}>오늘은 어디서 한잔?</p>
       </div>
     </div>,
     document.body
