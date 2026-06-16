@@ -70,6 +70,8 @@ const COURSE_LEADING_TOKEN_TO_AREA = {
   대학로: "혜화",
   이화: "혜화",
   명륜: "혜화",
+  문정: "문정",
+  문정역: "문정",
 };
 
 function regionKeyForExactSynonym(tokenLower) {

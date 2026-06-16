@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { fetchCuratorRowByRouteKey } from "../utils/curatorRoute";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { useAuth } from "../context/AuthContext";
 import { fetchUserPickedPlaces } from "../api/placePicks";
@@ -8,6 +9,12 @@ import PickUserButton, {
   PickCountsRow,
 } from "../components/PickUserButton/PickUserButton";
 import PlacePicksPublicList from "../components/PlacePick/PlacePicksPublicList";
+import MapView from "../components/Map/MapView";
+import {
+  buildHomeCuratorPlaceFocusState,
+} from "../utils/homeCuratorPlaceNavigation";
+import { formatCuratorProfilePlacesForMapView } from "../utils/formatCuratorProfilePlacesForHomeMap";
+import { fetchPlacesForCuratorPage } from "../utils/supabasePlaces";
 import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
 import { isPlaceSaved } from "../utils/storage";
@@ -28,6 +35,8 @@ export default function CuratorProfilePage() {
   const [loading, setLoading] = useState(true);
   const [profilePickRows, setProfilePickRows] = useState([]);
   const [profilePicksLoading, setProfilePicksLoading] = useState(false);
+  const [recommendedPlaces, setRecommendedPlaces] = useState([]);
+  const [recommendedPlacesLoading, setRecommendedPlacesLoading] = useState(false);
   const [pickDetailPlace, setPickDetailPlace] = useState(null);
   const [receivedPickCount, setReceivedPickCount] = useState(0);
   const [outgoingPickCount, setOutgoingPickCount] = useState(0);
@@ -56,13 +65,7 @@ export default function CuratorProfilePage() {
       return;
     }
     try {
-      const { data, error } = await supabase
-        .from("curators")
-        .select("*")
-        .eq("slug", decodedSlug)
-        .single();
-
-      if (error) throw error;
+      const data = await fetchCuratorRowByRouteKey(supabase, decodedSlug);
       setCurator(data);
     } catch (error) {
       console.error("fetch curator error:", error);
@@ -99,6 +102,50 @@ export default function CuratorProfilePage() {
       cancelled = true;
     };
   }, [curator?.user_id]);
+
+  useEffect(() => {
+    if (!curator) {
+      setRecommendedPlaces([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setRecommendedPlacesLoading(true);
+    void fetchPlacesForCuratorPage(curator)
+      .then((rows) => {
+        if (!cancelled) setRecommendedPlaces(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("CuratorProfilePage curator_places:", e);
+        if (!cancelled) setRecommendedPlaces([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRecommendedPlacesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [curator]);
+
+  const recommendedMapPlaces = useMemo(
+    () =>
+      formatCuratorProfilePlacesForMapView(
+        recommendedPlaces,
+        curator?.display_name || curator?.name
+      ),
+    [recommendedPlaces, curator?.display_name, curator?.name]
+  );
+
+  const openRecommendedPlaceOnHomeMap = useCallback(
+    (place) => {
+      const placeId = String(place?.id ?? "").trim();
+      const navState = buildHomeCuratorPlaceFocusState({
+        curatorUserId: curator?.user_id,
+        placeId,
+      });
+      if (navState && placeId) navigate("/", { state: navState });
+    },
+    [curator?.user_id, navigate]
+  );
 
   useEffect(() => {
     const uid = curator?.user_id;
@@ -223,6 +270,36 @@ export default function CuratorProfilePage() {
         </div>
 
         <div style={styles.picksSection}>
+          <div style={styles.picksTitle}>
+            추천 장소
+            {recommendedPlaces.length > 0 ? ` (${recommendedPlaces.length})` : ""}
+          </div>
+          <p style={styles.picksHint}>
+            큐레이터가 등록한 추천 술집입니다. 마커를 누르면 홈 지도에서 볼 수
+            있어요.
+          </p>
+          {recommendedPlacesLoading ? (
+            <div style={styles.mapPlaceholder}>지도 불러오는 중…</div>
+          ) : recommendedMapPlaces.length === 0 ? (
+            <div style={styles.mapPlaceholder}>추천 장소가 없습니다</div>
+          ) : (
+            <div style={styles.mapWrap}>
+              <MapView
+                places={recommendedMapPlaces}
+                selectedPlace={null}
+                setSelectedPlace={(place) => {
+                  if (place) openRecommendedPlaceOnHomeMap(place);
+                }}
+                showFloatingLocationButton={false}
+                closePlacePreviewOnMapClick={false}
+                skipKoreaBBoxForCuratorPins
+                placesFitBoundsPadding={56}
+              />
+            </div>
+          )}
+        </div>
+
+        <div style={{ ...styles.picksSection, marginTop: 32 }}>
           <div style={styles.picksTitle}>픽한 가게</div>
           <p style={styles.picksHint}>
             공개 추천(place_picks). 개인 저장 폴더와 별도입니다.
@@ -232,6 +309,17 @@ export default function CuratorProfilePage() {
             loading={profilePicksLoading}
             showCuratorPickBadge
             onRowClick={(row) => {
+              const placeId = String(
+                row?.place_id ?? row?.places?.id ?? ""
+              ).trim();
+              const navState = buildHomeCuratorPlaceFocusState({
+                curatorUserId: curator?.user_id,
+                placeId,
+              });
+              if (navState && placeId) {
+                navigate("/", { state: navState });
+                return;
+              }
               const p = placePickJoinRowToDetailPlace(row);
               if (p) setPickDetailPlace(p);
             }}
@@ -331,5 +419,20 @@ const styles = {
     color: "#9a9a9a",
     margin: "0 0 12px",
     lineHeight: 1.45,
+  },
+  mapWrap: {
+    height: 280,
+    borderRadius: 16,
+    overflow: "hidden",
+    border: "1px solid #2a2a2a",
+  },
+  mapPlaceholder: {
+    fontSize: 13,
+    color: "#9a9a9a",
+    textAlign: "center",
+    padding: "56px 16px",
+    borderRadius: 16,
+    border: "1px solid #2a2a2a",
+    background: "#171717",
   },
 };

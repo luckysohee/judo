@@ -108,11 +108,11 @@ function createMapRouteDismissButton(cfg) {
 const COURSE_LEG_LABEL_TEXT_STYLE = [
   "padding:5px 10px",
   "background:rgba(255,255,255,0.96)",
-  "border:1px solid rgba(124,58,237,0.45)",
+  "border:1px solid rgba(17,17,17,0.35)",
   "border-radius:10px",
   "font-size:11px",
   "font-weight:700",
-  "color:#5b21b6",
+  "color:#111111",
   "white-space:nowrap",
   "text-align:center",
   "line-height:1.35",
@@ -167,7 +167,7 @@ function createCourseLegLabelOverlayContent(cfg) {
         "padding:0 8px 2px",
         "font-size:10px",
         "font-weight:600",
-        "color:#6d28d9",
+        "color:#111111",
         "line-height:1.35",
         "text-align:center",
         "white-space:nowrap",
@@ -182,8 +182,8 @@ function createCourseLegLabelOverlayContent(cfg) {
       createMapRouteDismissButton({
         ariaLabel: "경로 끄기",
         title: "경로 숨기기",
-        borderColor: "rgba(124,58,237,0.55)",
-        textColor: "#5b21b6",
+        borderColor: "rgba(17,17,17,0.45)",
+        textColor: "#111111",
         ignoreMapClickRef: cfg.ignoreMapClickRef,
         onDismiss: cfg.onDismiss,
       })

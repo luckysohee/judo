@@ -1,6 +1,10 @@
+import { useEffect, useMemo, useState, useCallback } from "react";
+import MapView from "../Map/MapView";
+import PlacePreviewCard from "../PlaceCard/PlacePreviewCard";
+import { formatCuratorProfilePlacesForMapView } from "../../utils/formatCuratorProfilePlacesForHomeMap";
+
 /**
  * 큐레이터/일반 사용자 카드 클릭 시 띄우는 미니 프로필 + 픽 모달.
- * Home에서 inline JSX로 약 260줄을 차지하던 영역을 분리.
  */
 export default function HomeFollowCuratorModal({
   open,
@@ -11,7 +15,59 @@ export default function HomeFollowCuratorModal({
   curator,
   currentUserUsername,
   onFollow,
+  isGeneralUserProfile = false,
+  recommendedPlaces = [],
+  placesLoading = false,
+  getPlacePreviewSaved,
+  getUserRole,
+  canCheckIn = true,
+  onSavedToSupabase,
 }) {
+  const [previewPlace, setPreviewPlace] = useState(null);
+
+  const placeCount =
+    typeof curator?.placeCount === "number"
+      ? curator.placeCount
+      : recommendedPlaces.length;
+  const mapPlaces = useMemo(
+    () =>
+      formatCuratorProfilePlacesForMapView(
+        recommendedPlaces,
+        curator?.displayName || curator?.username
+      ),
+    [recommendedPlaces, curator?.displayName, curator?.username]
+  );
+
+  useEffect(() => {
+    if (!open) setPreviewPlace(null);
+  }, [open]);
+
+  const resolvePreviewPlace = useCallback(
+    (mapPlace) => {
+      if (!mapPlace) return null;
+      const id = String(mapPlace.id ?? "").trim();
+      const raw = recommendedPlaces.find((p) => String(p.id) === id);
+      if (!raw) return mapPlace;
+      return {
+        ...mapPlace,
+        ...raw,
+        name: raw.name ?? mapPlace.name,
+        comment: raw.comment ?? mapPlace.comment,
+        lat: mapPlace.lat ?? raw.lat,
+        lng: mapPlace.lng ?? raw.lng,
+      };
+    },
+    [recommendedPlaces]
+  );
+
+  const previewSaved = useMemo(
+    () =>
+      previewPlace && typeof getPlacePreviewSaved === "function"
+        ? getPlacePreviewSaved(previewPlace)
+        : { isSaved: false, folderColor: undefined },
+    [previewPlace, getPlacePreviewSaved]
+  );
+
   if (!open) return null;
   const isSelf = Boolean(
     curator?.username && currentUserUsername && curator.username === currentUserUsername
@@ -43,9 +99,9 @@ export default function HomeFollowCuratorModal({
     border: "1px solid rgba(255,255,255,0.12)",
     boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
     padding: "clamp(14px, 3.8vw, 18px)",
-    width: "min(100%, 320px)",
+    width: "min(100%, 360px)",
     maxWidth: "100%",
-    maxHeight: "min(86dvh, 520px)",
+    maxHeight: "min(90dvh, 580px)",
     boxSizing: "border-box",
     overflowX: "hidden",
     overflowY: "auto",
@@ -54,12 +110,20 @@ export default function HomeFollowCuratorModal({
     backdropFilter: "blur(18px) saturate(150%)",
     WebkitBackdropFilter: "blur(18px) saturate(150%)",
     margin: "auto",
+    position: "relative",
+    zIndex: 1,
   };
 
   const avatarSize = "clamp(44px, 11vw, 52px)";
 
   return (
-    <div style={overlayStyle} onClick={onClose}>
+    <div
+      style={overlayStyle}
+      onClick={() => {
+        if (previewPlace) setPreviewPlace(null);
+        else onClose?.();
+      }}
+    >
       <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
         <div style={{ marginBottom: 10 }}>
           <span
@@ -175,7 +239,7 @@ export default function HomeFollowCuratorModal({
               borderRadius: "10px",
               border: "1px solid rgba(255,255,255,0.12)",
               textAlign: "left",
-              maxHeight: "88px",
+              maxHeight: "72px",
               overflowY: "auto",
             }}
           >
@@ -232,6 +296,86 @@ export default function HomeFollowCuratorModal({
         </div>
 
         <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+          {!isGeneralUserProfile ? (
+            <div style={{ marginBottom: 12, textAlign: "left" }}>
+              <div
+                style={{
+                  fontSize: "clamp(12px, 3.2vw, 13px)",
+                  fontWeight: 800,
+                  color: "rgba(255,255,255,0.88)",
+                  marginBottom: 6,
+                }}
+              >
+                추천 장소 지도
+                {typeof placeCount === "number" ? ` (${placeCount})` : ""}
+              </div>
+              <p
+                style={{
+                  margin: "0 0 8px",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.5)",
+                  lineHeight: 1.4,
+                }}
+              >
+                마커를 누르면 이 프로필 안에서 장소 카드가 열려요.
+              </p>
+              {placesLoading ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.5)",
+                    padding: "48px 0",
+                    textAlign: "center",
+                    borderRadius: 14,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  지도 불러오는 중…
+                </div>
+              ) : mapPlaces.length === 0 ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.5)",
+                    padding: "48px 0",
+                    textAlign: "center",
+                    borderRadius: 14,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  추천 장소가 없습니다
+                </div>
+              ) : (
+                <div
+                  style={{
+                    height: 220,
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                  }}
+                >
+                  <MapView
+                    places={mapPlaces}
+                    selectedPlace={previewPlace}
+                    setSelectedPlace={(place) => {
+                      if (!place) {
+                        setPreviewPlace(null);
+                        return;
+                      }
+                      setPreviewPlace(resolvePreviewPlace(place));
+                    }}
+                    showFloatingLocationButton={false}
+                    closePlacePreviewOnMapClick={false}
+                    skipKoreaBBoxForCuratorPins
+                    placesFitBoundsPadding={48}
+                  />
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {isSelf ? (
             <div
               style={{
@@ -281,6 +425,44 @@ export default function HomeFollowCuratorModal({
           )}
         </div>
       </div>
+
+      {previewPlace ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1010,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            padding:
+              "max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px))",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              width: "min(100%, 360px)",
+              maxHeight: "min(88dvh, 620px)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              pointerEvents: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PlacePreviewCard
+              place={previewPlace}
+              isSaved={previewSaved.isSaved}
+              savedFolderColor={previewSaved.folderColor}
+              canCheckIn={canCheckIn}
+              onClose={() => setPreviewPlace(null)}
+              getUserRole={getUserRole}
+              onSavedToSupabase={onSavedToSupabase}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

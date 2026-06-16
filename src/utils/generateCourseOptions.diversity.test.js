@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterByArea,
   generateCourseOptions,
+  resolveCourseAreaPool,
 } from "./generateCourseOptions.js";
 import { parseCourseQuery } from "./parseCourseQuery.js";
 
@@ -117,5 +118,84 @@ describe("generateCourseOptions diversity", () => {
       maxOptions: 3,
     });
     expect(options.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("문정 데이트 코스는 잠실이 아니라 문정 지역으로 파싱하고 잠실 주소는 제외한다", () => {
+    const parsed = parseCourseQuery("문정 데이트 코스");
+    expect(parsed.area).toBe("문정");
+
+    const munjeong = mockPlace(
+      "m1",
+      "문정 와인바",
+      "와인바",
+      37.486,
+      127.122,
+      {
+        address: "서울 송파구 문정동",
+        region: "문정",
+      }
+    );
+    const jamsil = mockPlace(
+      "j1",
+      "잠실 포차",
+      "포차",
+      37.513,
+      127.1,
+      {
+        address: "서울 송파구 잠실동",
+        region: "잠실",
+      }
+    );
+    const inArea = filterByArea([munjeong, jamsil], "문정");
+    expect(inArea.map((p) => p.id)).toEqual(["m1"]);
+  });
+
+  it("문정 소규모 풀에서도 데이트 2단 코스를 1개 이상 만든다", () => {
+    const parsed = parseCourseQuery("문정 데이트 코스");
+    const places = [
+      mockPlace("m1", "문정 비스트로", "양식", 37.486, 127.122, {
+        address: "서울 송파구 문정동",
+        region: "문정",
+        tags: ["데이트", "식사가능"],
+        curator_count: +2,
+      }),
+      mockPlace("m2", "문정 와인바", "와인바", 37.487, 127.124, {
+        address: "서울 송파구 문정동",
+        region: "문정",
+        tags: ["데이트", "2차"],
+        curator_count: 1,
+      }),
+      mockPlace("m3", "문정 바", "바", 37.485, 127.12, {
+        address: "서울 송파구 문정동",
+        region: "문정",
+        tags: ["데이트"],
+        curator_count: 1,
+      }),
+    ];
+    const options = generateCourseOptions({
+      parsedQuery: parsed,
+      places,
+      maxOptions: 3,
+    });
+    expect(options.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("문정 — 주소에 동네명이 없어도 좌표가 권역 안이면 코스 풀에 포함", () => {
+    const parsed = parseCourseQuery("문정 데이트 코스");
+    const onlyCoords = mockPlace("c1", "히든 와인", "와인바", 37.486, 127.123, {
+      address: "서울 송파구",
+      region: "송파",
+      tags: ["데이트"],
+      curator_count: 2,
+    });
+    const mate = mockPlace("c2", "히든 바", "바", 37.487, 127.121, {
+      address: "서울 송파구",
+      region: "송파",
+      tags: ["데이트", "2차"],
+      curator_count: 1,
+    });
+    expect(filterByArea([onlyCoords], "문정")).toHaveLength(0);
+    const { areaPlaces } = resolveCourseAreaPool([onlyCoords, mate], parsed);
+    expect(areaPlaces.length).toBeGreaterThanOrEqual(2);
   });
 });

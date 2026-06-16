@@ -143,15 +143,15 @@ export default function HomeCourseMergedSheet({
                     <div
                       style={{
                         padding: "12px 14px 4px",
-                        borderBottom: "1px solid rgba(124, 58, 237, 0.12)",
-                        background: "rgba(250,245,255,0.5)",
+                        borderBottom: "1px solid rgba(17, 17, 17, 0.12)",
+                        background: "rgba(245,245,245,0.5)",
                       }}
                     >
                       <div
                         style={{
                           fontSize: 11,
                           fontWeight: 800,
-                          color: "#5b21b6",
+                          color: "#111111",
                           marginBottom: 8,
                         }}
                       >
@@ -184,15 +184,15 @@ export default function HomeCourseMergedSheet({
                                 borderRadius: 999,
                                 border: `1px solid ${
                                   selected
-                                    ? "rgba(91, 33, 182, 0.85)"
+                                    ? "rgba(17, 17, 17, 0.85)"
                                     : "rgba(92, 64, 51, 0.25)"
                                 }`,
                                 background: selected
-                                  ? "rgba(91, 33, 182, 0.12)"
+                                  ? "rgba(17, 17, 17, 0.12)"
                                   : "rgba(255,255,255,0.95)",
                                 fontSize: 12,
                                 fontWeight: selected ? 800 : 600,
-                                color: selected ? "#4c1d95" : "#5c4033",
+                                color: selected ? "#111111" : "#5c4033",
                                 cursor: busy ? "wait" : "pointer",
                                 opacity: busy ? 0.65 : 1,
                               }}
@@ -235,8 +235,8 @@ export default function HomeCourseMergedSheet({
                           margin: "8px 12px 0",
                           padding: "8px 10px 10px",
                           borderRadius: 10,
-                          background: "#faf8ff",
-                          border: "1px solid rgba(91, 33, 182, 0.18)",
+                          background: "#f5f5f5",
+                          border: "1px solid rgba(17, 17, 17, 0.18)",
                           boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                         }}
                       >
@@ -279,10 +279,10 @@ export default function HomeCourseMergedSheet({
                               padding: "4px 8px",
                               borderRadius: 8,
                               border: !courseIncludeHalfStep
-                                ? "1px solid rgba(91, 33, 182, 0.55)"
+                                ? "1px solid rgba(17, 17, 17, 0.55)"
                                 : "1px solid rgba(15, 23, 42, 0.1)",
                               background: !courseIncludeHalfStep
-                                ? "rgba(91, 33, 182, 0.08)"
+                                ? "rgba(17, 17, 17, 0.08)"
                                 : "#ffffff",
                               cursor:
                                 isLoadingCourse || isAiSearching
@@ -305,7 +305,7 @@ export default function HomeCourseMergedSheet({
                                 width: 14,
                                 height: 14,
                                 flexShrink: 0,
-                                accentColor: "#6d28d9",
+                                accentColor: "#111111",
                                 cursor:
                                   isLoadingCourse || isAiSearching
                                     ? "wait"
@@ -342,10 +342,10 @@ export default function HomeCourseMergedSheet({
                               padding: "4px 8px",
                               borderRadius: 8,
                               border: courseIncludeHalfStep
-                                ? "1px solid #6d28d9"
+                                ? "1px solid #111111"
                                 : "1px solid rgba(15, 23, 42, 0.1)",
                               background: courseIncludeHalfStep
-                                ? "rgba(109, 40, 217, 0.06)"
+                                ? "rgba(17, 17, 17, 0.06)"
                                 : "#ffffff",
                               cursor:
                                 isLoadingCourse || isAiSearching
@@ -368,7 +368,7 @@ export default function HomeCourseMergedSheet({
                                 width: 14,
                                 height: 14,
                                 flexShrink: 0,
-                                accentColor: "#6d28d9",
+                                accentColor: "#111111",
                                 cursor:
                                   isLoadingCourse || isAiSearching
                                     ? "wait"
@@ -443,11 +443,11 @@ export default function HomeCourseMergedSheet({
                         flexShrink: 0,
                         padding: "4px 10px",
                         borderRadius: 8,
-                        border: "1px solid rgba(124, 58, 237, 0.35)",
+                        border: "1px solid rgba(17, 17, 17, 0.35)",
                         background: "rgba(255,255,255,0.98)",
                         fontSize: 11,
                         fontWeight: 700,
-                        color: "#5b21b6",
+                        color: "#111111",
                         cursor: "pointer",
                         whiteSpace: "nowrap",
                       };
@@ -481,10 +481,10 @@ export default function HomeCourseMergedSheet({
                           borderRadius: 12,
                           background: "rgba(255,255,255,0.92)",
                           border: isSel
-                            ? "2px solid rgba(124, 58, 237, 0.55)"
+                            ? "2px solid rgba(17, 17, 17, 0.55)"
                             : "1px solid rgba(92, 64, 51, 0.12)",
                           boxShadow: isSel
-                            ? "0 6px 18px rgba(124, 58, 237, 0.15)"
+                            ? "0 6px 18px rgba(17, 17, 17, 0.15)"
                             : "0 4px 14px rgba(0,0,0,0.06)",
                           cursor: "pointer",
                           outline: "none",
@@ -510,7 +510,7 @@ export default function HomeCourseMergedSheet({
                             style={{
                               fontSize: 12,
                               fontWeight: 700,
-                              color: "#5b21b6",
+                              color: "#111111",
                               marginBottom: 8,
                               lineHeight: 1.5,
                             }}
@@ -535,7 +535,7 @@ export default function HomeCourseMergedSheet({
                                   marginTop: 6,
                                   paddingTop: 6,
                                   borderTop:
-                                    "1px solid rgba(124, 58, 237, 0.22)",
+                                    "1px solid rgba(17, 17, 17, 0.22)",
                                   fontWeight: 800,
                                 }}
                               >
@@ -548,7 +548,7 @@ export default function HomeCourseMergedSheet({
                             style={{
                               fontSize: 12,
                               fontWeight: 700,
-                              color: "#5b21b6",
+                              color: "#111111",
                               marginBottom: 8,
                               lineHeight: 1.45,
                             }}
@@ -563,11 +563,11 @@ export default function HomeCourseMergedSheet({
                               marginBottom: 6,
                               padding: "5px 8px",
                               borderRadius: 7,
-                              background: "rgba(250, 245, 255, 0.98)",
-                              border: "1px solid rgba(124, 58, 237, 0.32)",
+                              background: "rgba(245, 245, 245, 0.98)",
+                              border: "1px solid rgba(17, 17, 17, 0.32)",
                               fontSize: 11,
                               fontWeight: 600,
-                              color: "#5b21b6",
+                              color: "#111111",
                               lineHeight: 1.35,
                               letterSpacing: "-0.01em",
                               wordBreak: "keep-all",
@@ -624,11 +624,11 @@ export default function HomeCourseMergedSheet({
                                 style={{
                                   ...pickChip,
                                   background: s0Picked
-                                    ? "rgba(250,245,255,0.98)"
+                                    ? "rgba(245,245,245,0.98)"
                                     : "rgba(255,255,255,0.98)",
                                   border: s0Picked
-                                    ? "1px solid rgba(124, 58, 237, 0.65)"
-                                    : "1px solid rgba(124, 58, 237, 0.35)",
+                                    ? "1px solid rgba(17, 17, 17, 0.65)"
+                                    : "1px solid rgba(17, 17, 17, 0.35)",
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -697,11 +697,11 @@ export default function HomeCourseMergedSheet({
                                 style={{
                                   ...pickChip,
                                   background: s1Picked
-                                    ? "rgba(250,245,255,0.98)"
+                                    ? "rgba(245,245,245,0.98)"
                                     : "rgba(255,255,255,0.98)",
                                   border: s1Picked
-                                    ? "1px solid rgba(124, 58, 237, 0.65)"
-                                    : "1px solid rgba(124, 58, 237, 0.35)",
+                                    ? "1px solid rgba(17, 17, 17, 0.65)"
+                                    : "1px solid rgba(17, 17, 17, 0.35)",
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -784,11 +784,11 @@ export default function HomeCourseMergedSheet({
                                     style={{
                                       ...pickChip,
                                       background: s2Picked
-                                        ? "rgba(250,245,255,0.98)"
+                                        ? "rgba(245,245,245,0.98)"
                                         : "rgba(255,255,255,0.98)",
                                       border: s2Picked
-                                        ? "1px solid rgba(124, 58, 237, 0.65)"
-                                        : "1px solid rgba(124, 58, 237, 0.35)",
+                                        ? "1px solid rgba(17, 17, 17, 0.65)"
+                                        : "1px solid rgba(17, 17, 17, 0.35)",
                                     }}
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -834,8 +834,8 @@ export default function HomeCourseMergedSheet({
                         style={{
                           flexShrink: 0,
                           padding: "8px 10px 10px",
-                          background: "rgba(250,245,255,0.55)",
-                          borderBottom: "1px solid rgba(124, 58, 237, 0.12)",
+                          background: "rgba(245,245,245,0.55)",
+                          borderBottom: "1px solid rgba(17, 17, 17, 0.12)",
                         }}
                       >
                         <div
@@ -853,7 +853,7 @@ export default function HomeCourseMergedSheet({
                             style={{
                               fontSize: 10,
                               fontWeight: 800,
-                              color: "#5b21b6",
+                              color: "#111111",
                               flexShrink: 0,
                               letterSpacing: "-0.02em",
                             }}
@@ -882,7 +882,7 @@ export default function HomeCourseMergedSheet({
                             {courseIncludeHalfStep ? (
                               <>
                                 <span
-                                  style={{ margin: "0 4px", color: "#d4c4f0" }}
+                                  style={{ margin: "0 4px", color: "rgba(17, 17, 17, 0.28)" }}
                                 >
                                   |
                                 </span>
@@ -890,7 +890,7 @@ export default function HomeCourseMergedSheet({
                                 {courseComposeSlotBridge?.place?.name ?? "—"}
                               </>
                             ) : null}
-                            <span style={{ margin: "0 4px", color: "#d4c4f0" }}>
+                            <span style={{ margin: "0 4px", color: "rgba(17, 17, 17, 0.28)" }}>
                               |
                             </span>
                             <span style={{ color: "#888" }}>2</span>{" "}
@@ -957,11 +957,11 @@ export default function HomeCourseMergedSheet({
                                 courseComposeSlotFirst &&
                                 courseComposeSlotBridge &&
                                 courseComposeSlotSecond
-                                  ? "rgba(124, 58, 237, 0.95)"
+                                  ? "rgba(17, 17, 17, 0.95)"
                                   : !courseIncludeHalfStep &&
                                       courseComposeSlotFirst &&
                                       courseComposeSlotSecond
-                                    ? "rgba(124, 58, 237, 0.95)"
+                                    ? "rgba(17, 17, 17, 0.95)"
                                     : "rgba(0,0,0,0.08)",
                               fontSize: 10,
                               fontWeight: 800,
@@ -1064,13 +1064,13 @@ export default function HomeCourseMergedSheet({
                                 type="button"
                                 disabled={courseChipBusy}
                                 style={{
-                                  border: "1px solid rgba(124, 58, 237, 0.35)",
+                                  border: "1px solid rgba(17, 17, 17, 0.35)",
                                   borderRadius: 999,
                                   padding: "8px 12px",
-                                  background: "rgba(250,245,255,0.98)",
+                                  background: "rgba(245,245,245,0.98)",
                                   fontSize: 12,
                                   fontWeight: 700,
-                                  color: "#5b21b6",
+                                  color: "#111111",
                                   cursor: courseChipBusy ? "wait" : "pointer",
                                   opacity: courseChipBusy ? 0.65 : 1,
                                 }}
@@ -1117,7 +1117,7 @@ export default function HomeCourseMergedSheet({
                             width: "100%",
                             marginTop: "10px",
                             paddingTop: "8px",
-                            borderTop: "1px solid rgba(124, 58, 237, 0.15)",
+                            borderTop: "1px solid rgba(17, 17, 17, 0.15)",
                           }}
                         >
                           <button

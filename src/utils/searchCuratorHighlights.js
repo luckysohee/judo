@@ -53,9 +53,23 @@ function curatorFilterKeyForId(curatorId, dbPlaces, dbCurators) {
   return cid;
 }
 
+function curatorProfileSlugForId(curatorId, dbCurators) {
+  const cid = String(curatorId ?? "").trim();
+  if (!cid) return "";
+  const c = (dbCurators || []).find(
+    (x) =>
+      String(x.userId ?? "").trim() === cid ||
+      String(x.id ?? "").trim() === cid ||
+      String(x.filterKey ?? "").trim() === cid ||
+      String(x.username ?? "").trim() === cid
+  );
+  if (!c) return "";
+  return String(c.slug ?? c.username ?? "").trim();
+}
+
 /**
  * 검색 의도(주종·지역)와 맞는 DB 추천 장소가 많은 큐레이터 카피.
- * @returns {{ key: string, headline: string, sub: string, curatorId: string, curatorUsername: string }[]}
+ * @returns {{ key: string, headline: string, sub: string, curatorId: string, curatorUsername: string, profileSlug: string }[]}
  */
 export function buildCuratorSearchHighlights(query, dbPlaces, dbCurators) {
   const q = String(query || "").trim();
@@ -87,6 +101,7 @@ export function buildCuratorSearchHighlights(query, dbPlaces, dbCurators) {
         sub: `${curatorDisplayName(cid, dbPlaces, dbCurators)} · ${n}곳`,
         curatorId: cid,
         curatorUsername: curatorFilterKeyForId(cid, dbPlaces, dbCurators),
+        profileSlug: curatorProfileSlugForId(cid, dbCurators),
       });
     }
   }
@@ -119,6 +134,7 @@ export function buildCuratorSearchHighlights(query, dbPlaces, dbCurators) {
         sub: `${curatorDisplayName(cid, dbPlaces, dbCurators)} · ${n}곳`,
         curatorId: cid,
         curatorUsername: curatorFilterKeyForId(cid, dbPlaces, dbCurators),
+        profileSlug: curatorProfileSlugForId(cid, dbCurators),
       });
     }
   }

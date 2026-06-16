@@ -20,14 +20,12 @@ export function closeMarkerSvgDoc() {
 }
 
 /**
- * feDropShadow 대신 바닥 타원 — 핀 가장자리가 흐려지지 않음
- * @param {number} cx
- * @param {number} baseY — 그림자 중심 Y (핀 끝 근처)
- * @param {number} halfW — 핀 반너비
- * @param {number} [opacity]
+ * 핀 바닥 그림자 — 비활성(지도가 지저분해 보여 제거)
+ * @param {number} _cx
+ * @param {number} _baseY
+ * @param {number} _halfW
+ * @param {number} [_opacity]
  */
-export function markerGroundShadowSvg(cx, baseY, halfW, opacity = 0.24) {
-  const rx = Math.max(3, Math.round(halfW * 0.38));
-  const ry = Math.max(2, Math.round(halfW * 0.1));
-  return `<ellipse cx="${Math.round(cx)}" cy="${Math.round(baseY)}" rx="${rx}" ry="${ry}" fill="rgba(0,0,0,${opacity})" />`;
+export function markerGroundShadowSvg(_cx, _baseY, _halfW, _opacity = 0.24) {
+  return "";
 }

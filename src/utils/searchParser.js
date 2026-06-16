@@ -34,7 +34,9 @@ function buildRegionKeywords() {
     종로: ["종로", "종로3가", "종로5가", "광화문", "시청", "서울역"],
     명동: ["명동", "명동입구", "회현", "충무로"],
     신촌: ["신촌", "이대", "아현", "공덕"],
-    잠실: ["잠실", "잠실역", "송파", "문정", "복정"],
+    /** 문정·가락 — 잠실(석촌·롯데)과 분리 */
+    문정: ["문정", "문정역", "문정동", "문정로", "가락동", "가락시장", "장지동"],
+    잠실: ["잠실", "잠실역", "잠실동", "석촌", "송파", "복정"],
     /** 이태원·한남 인접 권역(단일 클러스터) */
     이태원: [
       "이태원",
@@ -89,6 +91,7 @@ function buildRegionKeywords() {
     "종로",
     "명동",
     "신촌",
+    "문정",
     "잠실",
     "부산",
     "대구",
@@ -130,6 +133,7 @@ const REGION_CENTER_COORDS = {
   종로: { lat: 37.57, lng: 126.979 },
   명동: { lat: 37.5636, lng: 126.985 },
   신촌: { lat: 37.5558, lng: 126.9364 },
+  문정: { lat: 37.4859, lng: 127.1224 },
   잠실: { lat: 37.5133, lng: 127.1002 },
   서초: { lat: 37.4837, lng: 127.0324 },
 };
@@ -146,9 +150,21 @@ const REGION_PROXIMITY_KM = {
   종로: 3,
   명동: 2.5,
   신촌: 2.4,
+  문정: 2.2,
   잠실: 3.5,
   서초: 2.8,
 };
+
+/** 지명 코스·지도 이동 폴백 — 카카오 keywordSearch 실패 시 */
+export function getRegionCenterCoords(regionKey) {
+  const k = normalizeRegionClusterKey(String(regionKey || "").trim());
+  if (!k) return null;
+  const center = REGION_CENTER_COORDS[k];
+  if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) {
+    return null;
+  }
+  return { lat: center.lat, lng: center.lng };
+}
 
 /**
  * 쿼리 지역과 주소·상호가 명백히 다른 동네일 때 제외.
@@ -292,6 +308,13 @@ function placeWithinRegionProximity(place, regionKey) {
   return haversineKm(center.lat, center.lng, lat, lng) <= maxKm;
 }
 
+/** 주소에 동네명이 없어도 좌표가 권역 안이면 코스 후보에 포함 */
+export function filterPlacesByRegionProximity(places, regionKey) {
+  const key = normalizeRegionClusterKey(String(regionKey || "").trim());
+  if (!key || !Array.isArray(places)) return [];
+  return places.filter((p) => placeWithinRegionProximity(p, key));
+}
+
 function placeMatchesPinnedRegions(place, parsedRegions, rawQuery) {
   if (!Array.isArray(parsedRegions) || parsedRegions.length === 0) {
     return true;
@@ -360,6 +383,9 @@ export function findAreaKeywordInQuery(query) {
     "을지로3가",
     "종로3가",
     "광화문",
+    "문정",
+    "문정역",
+    "문정동",
   ];
   for (const s of EXTRA) {
     if (q.includes(s) && s.length >= bestLen) {
@@ -677,6 +703,7 @@ export function extractHomeMapLocationName(kwForMap) {
   if (!shouldKeepExtractedLocationForMapSearch(locationName)) {
     if (q.includes("동대문")) locationName = "동대문";
     else if (q.includes("성수")) locationName = "성수";
+    else if (q.includes("문정")) locationName = "문정";
     else if (q.includes("강남")) locationName = "강남";
     else if (q.includes("삼성")) locationName = "삼성";
     else if (q.includes("서울")) locationName = "서울";

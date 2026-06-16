@@ -339,7 +339,7 @@ function createMarkerSvg(
           width="${courseCaptionW}"
           height="15"
           rx="7.5"
-          fill="#5b21b6"
+          fill="#171717"
           stroke="#ffffff"
           stroke-width="1.2"
         />

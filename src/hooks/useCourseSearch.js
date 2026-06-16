@@ -2,8 +2,12 @@ import { useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { isCourseQuery } from "../utils/isCourseQuery";
 import { parseCourseQuery } from "../utils/parseCourseQuery";
-import { findAreaKeywordInQuery } from "../utils/searchParser.js";
-import { normalizePlaces } from "../utils/normalizePlace";
+import {
+  normalizeHangulSearchCompounds,
+  extractHomeMapLocationName,
+  regionKeyForLocationToken,
+  findAreaKeywordInQuery,
+} from "../utils/searchParser.js";
 import {
   generateCourseOptions,
   generateCourseCandidatePool,
@@ -18,7 +22,7 @@ import { compactCourseCandidatesForAssist } from "../utils/compactCourseCandidat
 import { raceCourseComposeAssist } from "../utils/fetchCourseComposeAssist.js";
 import { applyCourseComposeAssist } from "../utils/applyCourseComposeAssist.js";
 import { haversineMeters, resolvePlaceWgs84 } from "../utils/placeCoords.js";
-import { normalizeHangulSearchCompounds } from "../utils/searchParser.js";
+import { normalizePlaces } from "../utils/normalizePlace";
 import { regenerateSecondStep } from "../utils/regenerateSecondStep.js";
 import { regenerateFirstStep } from "../utils/regenerateFirstStep.js";
 import {
@@ -27,9 +31,34 @@ import {
   mergeCoursePlacePoolsWithKakao,
 } from "../utils/augmentCourseSecondPlacesWithKakao.js";
 import { createPerfTrace } from "../utils/devPerfTrace.js";
+import { fetchCoursePlacesForNamedArea } from "../utils/fetchCoursePlacesForNamedArea.js";
 
 const ENABLE_COURSE_COMPOSE_ASSIST =
   import.meta.env.VITE_ENABLE_COURSE_COMPOSE_ASSIST !== "false";
+
+function dedupePlaceRowsById(list) {
+  const seen = new Set();
+  const out = [];
+  for (const p of list) {
+    if (!p || typeof p !== "object") continue;
+    const id = p.id ?? p.place_id ?? p.kakao_place_id;
+    if (id == null || id === "") {
+      out.push(p);
+      continue;
+    }
+    const k = String(id);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
+function toCoursePlaceRow(place) {
+  if (!place || typeof place !== "object") return null;
+  if (place._raw && typeof place._raw === "object") return place._raw;
+  return place;
+}
 
 /** 쩜오차용 카카오 키워드 검색 중심 — 내 위치 우선, 없으면 코스 풀 좌표 평균 */
 function resolveCourseKakaoAnchorPlace(placesForCourse, userOrigin) {
@@ -303,14 +332,28 @@ export function useCourseSearch() {
     setIsCourseMode(true);
     setIsLoadingCourse(true);
 
-    const parsed = parseCourseQuery(trimmed, {
+    const parsed0 = parseCourseQuery(trimmed, {
       includeHalfStep: Boolean(loadOpts?.includeHalfStep),
     });
+    const mapNamed = extractHomeMapLocationName(trimmed);
+    const areaReinforced =
+      parsed0?.area ||
+      regionKeyForLocationToken(mapNamed) ||
+      (mapNamed && String(mapNamed).trim().length >= 2
+        ? String(mapNamed).trim()
+        : null);
+    const parsed =
+      areaReinforced && parsed0?.area !== areaReinforced
+        ? { ...parsed0, area: areaReinforced }
+        : parsed0;
+    const namedAreaCourse = Boolean(parsed?.area || mapNamed);
     setCourseQueryParsed(parsed);
 
     const perf = createPerfTrace("course:engine", {
       query: trimmed,
       area: parsed?.area ?? null,
+      mapNamed: mapNamed || null,
+      namedAreaCourse,
       dateMode: parsed?.dateMode ?? null,
     });
     let perfEnded = false;
@@ -361,8 +404,38 @@ export function useCourseSearch() {
         return { handled: true, options: [], mapPlaces: [], parsed };
       }
 
-      const normalizedPlaces = normalizePlaces(rows);
-      if (!normalizedPlaces.length) {
+      const augment = Array.isArray(loadOpts?.placesAugment)
+        ? loadOpts.placesAugment
+        : [];
+      let boundsRows = [];
+      if (namedAreaCourse && parsed?.area) {
+        try {
+          boundsRows = await perf.time("course_bounds_fetch", () =>
+            fetchCoursePlacesForNamedArea(parsed.area, {
+              curatorRows: loadOpts?.curatorRows || [],
+            })
+          );
+        } catch (boundsErr) {
+          if (import.meta.env.DEV) {
+            console.warn("course named area bounds fetch:", boundsErr);
+          }
+        }
+      }
+
+      const mergedRows = dedupePlaceRowsById([
+        ...boundsRows.map(toCoursePlaceRow).filter(Boolean),
+        ...(Array.isArray(rows) ? rows : []),
+        ...augment.map(toCoursePlaceRow).filter(Boolean),
+      ]);
+
+      const normalizedPlaces = normalizePlaces(mergedRows);
+      const boundsNormalized =
+        namedAreaCourse && boundsRows.length
+          ? normalizePlaces(boundsRows.map(toCoursePlaceRow).filter(Boolean))
+          : [];
+      const coursePlacePool =
+        boundsNormalized.length >= 2 ? boundsNormalized : normalizedPlaces;
+      if (!coursePlacePool.length) {
         setCourseError(
           "코스용 장소 목록이 비어 있어요. Supabase `places`에 데이터가 있는지 확인해 주세요."
         );
@@ -376,7 +449,8 @@ export function useCourseSearch() {
       }
 
       const origin = loadOpts?.userOrigin;
-      const strictNearbyOnly = Boolean(loadOpts?.strictNearbyOnly);
+      const strictNearbyOnly =
+        Boolean(loadOpts?.strictNearbyOnly) && !namedAreaCourse;
       const maxParam = Number(loadOpts?.maxDistanceMeters);
       const maxM =
         Number.isFinite(maxParam) && maxParam > 0
@@ -384,7 +458,7 @@ export function useCourseSearch() {
           : origin
             ? 3000
             : 9000;
-      let placesForCourse = normalizedPlaces;
+      let placesForCourse = coursePlacePool;
       if (
         origin &&
         Number.isFinite(Number(origin.lat)) &&
@@ -392,14 +466,13 @@ export function useCourseSearch() {
       ) {
         const olat = Number(origin.lat);
         const olng = Number(origin.lng);
-        const near = normalizedPlaces.filter((p) => {
+        const near = coursePlacePool.filter((p) => {
           const c = resolvePlaceWgs84(p);
           if (!c) return false;
           return haversineMeters(c.lat, c.lng, olat, olng) <= maxM;
         });
-        const namedAreaCourse = Boolean(parsed?.area);
         /** 지명 코스: 전역 풀 → `generateCourseOptions` 안 `resolveCourseAreaPool`. 반경만이면 비성수 DB에서 0건. */
-        if (strictNearbyOnly && !namedAreaCourse) {
+        if (strictNearbyOnly) {
           placesForCourse = near;
         } else if (!strictNearbyOnly && !namedAreaCourse && near.length >= 8) {
           placesForCourse = near;
@@ -520,11 +593,12 @@ export function useCourseSearch() {
       }
 
       if (!options.length) {
+        const areaLabel = String(parsed?.area || "").trim();
         setCourseError(
-          strictNearbyOnly && origin
-            ? `${Math.round(maxM / 1000)}km 안에서 맞는 코스를 찾지 못했어요. 검색어를 바꾸거나 지역을 넣어 보세요.`
-            : parsed.area
-              ? "조건에 맞는 코스를 찾지 못했어요. 지역·태그 데이터를 더 넣으면 좋아져요."
+          areaLabel
+            ? `「${areaLabel}」 일대에서 맞는 코스를 찾지 못했어요. 장소·태그가 더 쌓이면 좋아져요.`
+            : strictNearbyOnly && origin
+              ? `${Math.round(maxM / 1000)}km 안에서 맞는 코스를 찾지 못했어요. 검색어를 바꾸거나 지역을 넣어 보세요.`
               : "조건에 맞는 코스를 찾지 못했어요. 검색에 지역(예: 을지로)을 넣어 보세요."
         );
       }
@@ -548,6 +622,7 @@ export function useCourseSearch() {
         options: options.length,
         pool: pool.length,
         placesPool: placesForCourse.length,
+        boundsPlaces: boundsRows.length,
       });
       return {
         handled: true,

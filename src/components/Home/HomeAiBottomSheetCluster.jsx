@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 import { useRecommendSheetPullDismiss } from "../../hooks/useRecommendSheetPullDismiss";
 import HomeBlogReviewSection from "./HomeBlogReviewSection";
 import { resolvePlaceWgs84 } from "../../utils/placeCoords";
@@ -9,10 +8,7 @@ import {
   recommendPlaceSubtitle,
   siblingPlaceNamesFromBatch,
 } from "../../utils/recommendationPlaceCopy";
-import {
-  sanitizeSheetStoryLine,
-  resolveCuratorProfileSlug,
-} from "../../pages/Home/homeModule.js";
+import { sanitizeSheetStoryLine } from "../../pages/Home/homeModule.js";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName";
 
@@ -66,14 +62,11 @@ export default function HomeAiBottomSheetCluster({
   setAiSheetPhotoViewerIndex,
   setAiSheetPhotoViewerOpen,
   curatorSearchHighlightList,
-  setShowAll,
-  setSelectedCurators,
-  dbCurators,
+  onCuratorHighlightPick,
   blogReviews,
   aiSheetPhotoViewerOpen,
   closeAiSheetPhotoViewer,
 }) {
-  const navigate = useNavigate();
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const handlePullRelease = useCallback(
     ({ dy, dragged }) => {
@@ -179,14 +172,9 @@ export default function HomeAiBottomSheetCluster({
 
   const handleCuratorHighlightPick = useCallback(
     (highlight) => {
-      const slug =
-        resolveCuratorProfileSlug(highlight?.curatorUsername, dbCurators) ||
-        resolveCuratorProfileSlug(highlight?.curatorId, dbCurators);
-      if (!slug) return;
-      setAiSheetOpen(false);
-      navigate(`/curator-profile/${encodeURIComponent(slug)}`);
+      onCuratorHighlightPick?.(highlight);
     },
-    [dbCurators, navigate, setAiSheetOpen]
+    [onCuratorHighlightPick]
   );
 
   return (

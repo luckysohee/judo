@@ -189,6 +189,7 @@ export default function HomeCoursesDiscoveryPanel({
   onSnapChange,
   /** 코스 칩으로 목록 열 때 스냅·높이 초기화 */
   sheetResetKey = 0,
+  onOpenCurator,
 }) {
   const {
     bottomPx: keyboardInsetPx,
@@ -443,6 +444,7 @@ export default function HomeCoursesDiscoveryPanel({
                 onStampStateRefresh={onStampStateRefresh}
                 onReplayStamps={onReplayStamps}
                 onSheetCollapse={setSnapCollapsed}
+                onOpenCurator={onOpenCurator}
               />
             </div>
           ) : sheetListPeek && browseCourse && !browseLoading ? (

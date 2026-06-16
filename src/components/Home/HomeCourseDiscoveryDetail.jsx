@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { isCourseLikedByMe, toggleCuratorCourseLike } from "../../api/courseLikes";
 import {
   importPublicCuratorCourseSnapshot,
@@ -131,6 +131,28 @@ const styles = {
     fontWeight: 600,
     color: T.textSub,
     lineHeight: 1.45,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 0,
+  },
+  metaSep: {
+    margin: "0 4px",
+    color: T.textMuted,
+    fontWeight: 600,
+  },
+  curatorBtn: {
+    margin: 0,
+    padding: "3px 9px",
+    borderRadius: 999,
+    border: T.chipBorder,
+    background: T.chipActiveBg,
+    color: T.text,
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: "pointer",
+    lineHeight: 1.35,
+    WebkitTapHighlightColor: "transparent",
   },
   metric: {
     fontSize: 11,
@@ -273,9 +295,12 @@ export default function HomeCourseDiscoveryDetail({
   isCurator = false,
   /** 바텀시트 한 단계 접기(사진 스트립) */
   onSheetCollapse,
+  /** 큐레이터 프로필(홈 팔로우 모달) */
+  onOpenCurator,
 }) {
   const { showToast } = useToast();
   const [curatorName, setCuratorName] = useState("큐레이터");
+  const [curatorProfile, setCuratorProfile] = useState(null);
   const [metricLine, setMetricLine] = useState(null);
   const [likedByMe, setLikedByMe] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -361,6 +386,7 @@ export default function HomeCourseDiscoveryDetail({
     const cid = String(course?.curator_id || "").trim();
     if (!cid) {
       setCuratorName("큐레이터");
+      setCuratorProfile(null);
       return undefined;
     }
     void (async () => {
@@ -370,6 +396,7 @@ export default function HomeCourseDiscoveryDetail({
         .eq("id", cid)
         .maybeSingle();
       if (!cancelled) {
+        setCuratorProfile(data || null);
         setCuratorName(curatorLabelFromProfile(data));
       }
     })();
@@ -543,8 +570,7 @@ export default function HomeCourseDiscoveryDetail({
     place_id: String(s.place_id || places[i]?.place_id || "").trim(),
     memo: places[i]?.memo || s.memo,
   }));
-  const metaBits = [
-    curatorName,
+  const metaRest = [
     course.area,
     thumbSteps.length > 0
       ? `${thumbSteps.length}곳`
@@ -552,6 +578,18 @@ export default function HomeCourseDiscoveryDetail({
         ? `${places.length}곳`
         : null,
   ].filter(Boolean);
+  const curatorId = String(course?.curator_id || "").trim();
+  const canOpenCuratorProfile =
+    Boolean(curatorId) && typeof onOpenCurator === "function";
+
+  const handleCuratorClick = () => {
+    if (!canOpenCuratorProfile) return;
+    onOpenCurator({
+      curatorId,
+      name: curatorName,
+      profile: curatorProfile,
+    });
+  };
 
   return (
     <div style={styles.root} aria-label="코스 상세">
@@ -585,7 +623,37 @@ export default function HomeCourseDiscoveryDetail({
           {course.description ? (
             <p style={styles.desc}>{course.description}</p>
           ) : null}
-          <p style={styles.meta}>{metaBits.join(" · ")}</p>
+          <div style={styles.meta}>
+            {[
+              canOpenCuratorProfile ? (
+                <button
+                  key="curator"
+                  type="button"
+                  style={styles.curatorBtn}
+                  onClick={handleCuratorClick}
+                  aria-label={`${curatorName} 큐레이터 프로필`}
+                >
+                  {curatorName}
+                </button>
+              ) : curatorName ? (
+                <span key="curator">{curatorName}</span>
+              ) : null,
+              ...metaRest.map((bit, i) => (
+                <span key={`meta-${i}-${bit}`}>{bit}</span>
+              )),
+            ]
+              .filter(Boolean)
+              .map((node, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? (
+                    <span style={styles.metaSep} aria-hidden>
+                      ·
+                    </span>
+                  ) : null}
+                  {node}
+                </Fragment>
+              ))}
+          </div>
           {metricLine ? (
             <p style={styles.metric}>
               {metricLine.emoji} {metricLine.text}

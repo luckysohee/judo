@@ -14,7 +14,7 @@ import { COURSE_SECOND_FIND_DISTANCE_OPTIONS } from "../../pages/Home/homeModule
 const SECTION_LABEL_STYLE = {
   fontSize: 12,
   fontWeight: 700,
-  color: "#5b21b6",
+  color: "#111111",
   marginBottom: 6,
 };
 
@@ -30,12 +30,12 @@ function chipStyle(on) {
     padding: "6px 11px",
     borderRadius: 999,
     border: on
-      ? "1px solid rgba(124, 58, 237, 0.65)"
+      ? "1px solid rgba(17, 17, 17, 0.55)"
       : "1px solid rgba(92, 64, 51, 0.18)",
-    background: on ? "rgba(250,245,255,0.98)" : "rgba(255,255,255,0.95)",
+    background: on ? "rgba(245,245,245,0.98)" : "rgba(255,255,255,0.95)",
     fontSize: 12,
     fontWeight: 700,
-    color: on ? "#5b21b6" : "#5c4033",
+    color: on ? "#111111" : "#5c4033",
     cursor: "pointer",
   };
 }
@@ -277,7 +277,7 @@ export default function CourseSecondFindModal({
               padding: "10px 16px",
               borderRadius: 10,
               border: "none",
-              background: "rgba(124, 58, 237, 0.92)",
+              background: "rgba(17, 17, 17, 0.92)",
               fontSize: 13,
               fontWeight: 800,
               color: "#fff",

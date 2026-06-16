@@ -453,6 +453,7 @@ const MAP_PAN_STATION_ALIAS = new Set([
   "건대",
   "홍대",
   "신촌",
+  "문정",
   "잠실",
   "여의도",
   "압구정",
@@ -835,12 +836,49 @@ function findDbCuratorRowForChip(rawSel, dbCurators) {
 /** 큐레이터 칩·하이라이트 → `/curator-profile/:slug` 경로용 slug */
 function resolveCuratorProfileSlug(rawKey, dbCurators) {
   const row = findDbCuratorRowForChip(rawKey, dbCurators);
-  if (row) {
-    const slug = String(row.slug ?? row.username ?? "").trim();
-    if (slug) return slug;
+  if (!row) return null;
+  const slug = String(row.slug ?? row.username ?? "").trim();
+  return slug || null;
+}
+
+/** AI 추천 시트 큐레이터 하이라이트 → CuratorFilterBar와 동일한 `dbCurators` 행 */
+function resolveCuratorRowForHighlight(highlight, dbCurators) {
+  if (!highlight) return null;
+  const keys = [
+    highlight.curatorId,
+    highlight.profileSlug,
+    highlight.curatorUsername,
+  ]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+  for (const key of keys) {
+    const row = findDbCuratorRowForChip(key, dbCurators);
+    if (row) return row;
   }
-  const fallback = String(rawKey ?? "").trim();
-  return fallback || null;
+  return null;
+}
+
+/** 프로필·딥링크 → 홈 큐레이터 칩 필터 토큰 (칩 바에 없어도 auth uid 로 필터 가능) */
+function resolveCuratorChipTokenForMapFilter(curatorSource, dbCurators) {
+  const keys = [
+    curatorSource?.userId,
+    curatorSource?.user_id,
+    curatorSource?.profileSlug,
+    curatorSource?.slug,
+    curatorSource?.username,
+    curatorSource?.filterKey,
+    curatorSource?.id,
+  ]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+  for (const key of keys) {
+    const token = canonicalCuratorChipToken(key, dbCurators);
+    if (token) return token;
+  }
+  const uuid = keys.find((k) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)
+  );
+  return uuid || keys[0] || "";
 }
 
 /** `curator_places.curator_id`(= user_id) 와 직접 비교할 auth·프로필 uuid 집합 */
@@ -1182,6 +1220,8 @@ export {
   attachCuratorsToCuratorPlaceRows,
   findDbCuratorRowForChip,
   resolveCuratorProfileSlug,
+  resolveCuratorRowForHighlight,
+  resolveCuratorChipTokenForMapFilter,
   collectCuratorIdsForRescueMatch,
   canonicalCuratorChipToken,
   buildMergedSavedPlaceKeySet,

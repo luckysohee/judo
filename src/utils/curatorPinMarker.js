@@ -111,7 +111,7 @@ export function buildCuratorPinSvg({
       .replace(/"/g, "&quot;");
   const courseRouteBadge = courseCaptionRaw
     ? `<g>
-        <rect x="${pinW / 2 - courseCaptionW / 2}" y="1" width="${courseCaptionW}" height="14" rx="7" fill="#5b21b6" stroke="#ffffff" stroke-width="1" />
+        <rect x="${pinW / 2 - courseCaptionW / 2}" y="1" width="${courseCaptionW}" height="14" rx="7" fill="#171717" stroke="#ffffff" stroke-width="1" />
         <text x="${pinW / 2}" y="8" dominant-baseline="central" text-anchor="middle" font-size="8" font-weight="800" fill="#ffffff" font-family="system-ui, -apple-system, Arial, sans-serif">${escapeSvgText(courseCaptionRaw)}</text>
       </g>`
     : "";

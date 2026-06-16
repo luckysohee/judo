@@ -2,7 +2,7 @@ import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILE_ORDER, COURSE_PROFILES } from "./courseProfiles.js";
 import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { courseWalkCrossesHanRiver } from "./courseRiverCrossing.js";
-import { REGION_KEYWORDS } from "./searchParser.js";
+import { REGION_KEYWORDS, normalizeRegionClusterKey, filterPlacesByRegionProximity } from "./searchParser.js";
 import { getSeasonalMenuMismatchPenalty } from "./placeSeasonality.js";
 import { getMinutesUntilClose, isPlaceOpenNow } from "./timeUtils.js";
 
@@ -112,7 +112,26 @@ function placeMatchesArea(place, areaKey) {
   } else {
     matched = blob.includes(String(areaKey).toLowerCase());
   }
+  if (
+    !matched &&
+    place.region &&
+    normalizeRegionClusterKey(place.region) ===
+      normalizeRegionClusterKey(areaKey)
+  ) {
+    matched = true;
+  }
   if (!matched) return false;
+  if (areaKey === "문정") {
+    const b = blob.toLowerCase();
+    if (
+      /잠실|석촌|신천|방이|올림픽|롯데월드|송파구\s*잠실/.test(b) &&
+      !b.includes("문정") &&
+      !b.includes("가락") &&
+      !b.includes("장지")
+    ) {
+      return false;
+    }
+  }
   if (areaKey === "을지로" || areaKey === "동대문" || areaKey === "혜화") {
     const b = blob.toLowerCase();
     if (
@@ -635,6 +654,17 @@ export function filterByArea(places, area) {
  * 짧은 단어만 쓰지 않음(부산 중구 등 오탐 방지).
  */
 const COURSE_AREA_FALLBACK_PHRASES = {
+  문정: [
+    "서울특별시 송파구 문정",
+    "서울 송파구 문정",
+    "송파구 문정",
+    "문정동",
+    "문정역",
+    "문정로",
+    "가락동",
+    "가락시장",
+    "장지동",
+  ],
   문래: [
     "서울특별시 영등포구",
     "서울 영등포구",
@@ -754,18 +784,29 @@ function filterPlacesByCourseAreaFallback(places, areaKey) {
  * 코스 엔진·1·2차 재생성 공통: 지역 키워드 매칭 → 주소구문 완화 → 그래도 없으면 area 해제·전체 풀
  */
 export function resolveCourseAreaPool(places, parsedQuery) {
-  let areaPlaces = filterByArea(places, parsedQuery.area);
-  let effectiveParsed = parsedQuery;
-  if (!areaPlaces.length && parsedQuery.area) {
-    const relaxed = filterPlacesByCourseAreaFallback(places, parsedQuery.area);
-    if (relaxed.length) {
-      areaPlaces = relaxed;
-    } else {
-      areaPlaces = places;
-      effectiveParsed = { ...parsedQuery, area: null };
-    }
+  const area = parsedQuery?.area;
+  if (!area) {
+    return { areaPlaces: places, effectiveParsed: parsedQuery };
   }
-  return { areaPlaces, effectiveParsed };
+
+  const byKeyword = filterByArea(places, area);
+  const byFallback = filterPlacesByCourseAreaFallback(places, area);
+  const byProx = filterPlacesByRegionProximity(places, area);
+
+  const seen = new Set();
+  const areaPlaces = [];
+  for (const p of [...byKeyword, ...byFallback, ...byProx]) {
+    const id = placeId(p);
+    const k =
+      id != null
+        ? String(id)
+        : `${p?.lat ?? p?.y ?? ""}_${p?.lng ?? p?.x ?? ""}_${p?.name ?? ""}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    areaPlaces.push(p);
+  }
+
+  return { areaPlaces, effectiveParsed: parsedQuery };
 }
 
 function choosePattern(parsed) {
@@ -1160,17 +1201,38 @@ function buildCoursesWithProfile({
     poolSizes.firstShuffleCap,
     rng
   );
-  const secondPool = rankByRule(places, rule2, parsedQuery, profile);
+  const namedArea = Boolean(parsedQuery?.area);
+  const smallNamedPool =
+    namedArea && Array.isArray(places) && places.length > 0 && places.length <= 14;
+
+  let secondPool = rankByRule(places, rule2, parsedQuery, profile);
+  if (!secondPool.length && smallNamedPool) {
+    secondPool = rankByRule(places, rule1, parsedQuery, profile);
+  }
+  if (!secondPool.length && smallNamedPool) {
+    secondPool = places
+      .map(withResolvedCoords)
+      .filter(Boolean)
+      .map((place) => ({
+        ...place,
+        matchScore: Math.max(
+          8,
+          Number(place.curatorCount ?? place.curator_count ?? 0) * 2
+        ),
+      }))
+      .filter((place) => place.matchScore > 0);
+  }
 
   if (!firstCandidates.length || !secondPool.length) return [];
 
   const walkable = Boolean(parsedQuery.walkable);
-  const namedArea = Boolean(parsedQuery?.area);
-  /** 지명 코스: 1·2차가 홍대·상수까지 퍼지지 않게 상한을 낮춤 */
+  /** 지명 코스: 1·2차가 홍대·상수까지 퍼지지 않게 상한을 낮춤. 소규모 동네는 한 단계 더 넓힘 */
   const distanceTiers = namedArea
-    ? walkable
-      ? [480, 750, 1200, 2000, Number.POSITIVE_INFINITY]
-      : [1500, 2800, 4200, Number.POSITIVE_INFINITY]
+    ? smallNamedPool
+      ? [2500, 5000, 8000, 12000, Number.POSITIVE_INFINITY]
+      : walkable
+        ? [480, 750, 1200, 2000, Number.POSITIVE_INFINITY]
+        : [1500, 2800, 4200, Number.POSITIVE_INFINITY]
     : walkable
       ? [500, 700, 1000, 3000, Number.POSITIVE_INFINITY]
       : [2000, 8000, Number.POSITIVE_INFINITY];

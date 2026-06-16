@@ -61,6 +61,8 @@ import {
   extractLocationAnchorFromQuery,
   extractHomeMapLocationName,
   normalizeHangulSearchCompounds,
+  regionKeyForLocationToken,
+  getRegionCenterCoords,
   shouldKeepExtractedLocationForMapSearch,
   isLikelyNaturalLanguageSearchQuery,
   HOME_SEARCH_KIND,
@@ -204,6 +206,15 @@ import {
 } from "../../utils/homeHotStripLayout";
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
 import { readHomeStartCourseFollowId } from "../../utils/homeCourseFollowNavigation";
+import {
+  buildHomeCuratorPlaceFocusState,
+  readHomeCuratorPlaceFocusState,
+} from "../../utils/homeCuratorPlaceNavigation";
+import {
+  formatCuratorProfilePlaceForHomeMap,
+  formatCuratorProfilePlacesForHomeMap,
+} from "../../utils/formatCuratorProfilePlacesForHomeMap";
+import { fetchPlacesForCuratorPage } from "../../utils/supabasePlaces";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   peekHomeViewportPrefetch,
@@ -301,6 +312,8 @@ import {
   mergeSituationChipCuratorPlaces,
   placeMatchesSavedKeySet,
   readKakaoMapCenterLatLng,
+  resolveCuratorChipTokenForMapFilter,
+  resolveCuratorRowForHighlight,
   searchMapBottomChromePx,
   SEARCH_INTENT_ASSIST_MS,
   SEONGSU_MAP_CENTER,
@@ -1719,6 +1732,9 @@ export default function Home() {
   const searchFeedbackContextRef = useRef(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
+  const [modalCuratorPlaces, setModalCuratorPlaces] = useState([]);
+  const [modalCuratorPlacesLoading, setModalCuratorPlacesLoading] =
+    useState(false);
   const [saveTargetPlace, setSaveTargetPlace] = useState(null);
   const {
     kakaoPlaces,
@@ -4353,6 +4369,61 @@ export default function Home() {
     [dbCurators]
   );
 
+  const handleCuratorHighlightPick = useCallback(
+    (highlight) => {
+      let curator = resolveCuratorRowForHighlight(highlight, dbCurators);
+      if (!curator) {
+        const slug =
+          String(highlight?.profileSlug ?? "").trim() ||
+          String(highlight?.curatorUsername ?? "").trim();
+        const displayName =
+          String(highlight?.sub ?? "")
+            .split("·")[0]
+            ?.trim() || slug;
+        if (!slug && !highlight?.curatorId) return;
+        curator = {
+          username: slug || highlight.curatorId,
+          name: displayName,
+          displayName,
+          slug: slug || undefined,
+          userId: highlight?.curatorId || undefined,
+          isCurator: true,
+        };
+      }
+      setAiSheetOpen(false);
+      setSelectedCurator(curator);
+      setShowFollowModal(true);
+    },
+    [dbCurators]
+  );
+
+  const handleCourseBrowseCuratorOpen = useCallback(
+    ({ curatorId, name, profile } = {}) => {
+      const cid = String(curatorId ?? "").trim();
+      if (!cid) return;
+      let curator = findDbCuratorRowForChip(cid, dbCurators);
+      if (!curator) {
+        const slug = String(profile?.username ?? "").trim();
+        const displayName =
+          String(name ?? "").trim() ||
+          String(profile?.display_name ?? "").trim() ||
+          slug ||
+          "큐레이터";
+        curator = {
+          userId: cid,
+          name: displayName,
+          displayName,
+          username: slug || displayName,
+          slug: slug || undefined,
+          isCurator: true,
+        };
+      }
+      setSelectedCurator(curator);
+      setShowFollowModal(true);
+    },
+    [dbCurators]
+  );
+
   const hotRankTopPlaceIds = useMemo(
     () => new Set(rankingTop5.map((r) => String(r.place_id))),
     [rankingTop5]
@@ -4935,6 +5006,30 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlace, folders, savedMap]);
 
+  const resolvePlacePreviewSaved = useCallback(
+    (place) => {
+      if (!place) return { isSaved: false, folderColor: undefined };
+      const keys = [
+        place.id,
+        place.place_id,
+        place.kakao_place_id,
+        place.kakaoId,
+      ]
+        .filter((x) => x != null && x !== "")
+        .map((x) => String(x));
+      const uniq = [...new Set(keys)];
+      let isSavedFlag = false;
+      let folderColor;
+      for (const k of uniq) {
+        if (isPlaceSaved(k)) isSavedFlag = true;
+        const c = getPrimarySavedFolderColor(k, folders);
+        if (c && !folderColor) folderColor = c;
+      }
+      return { isSaved: isSavedFlag, folderColor };
+    },
+    [folders, savedMap]
+  );
+
   const mySavedOnlyDisplayPlaces = useMemo(() => {
     if (!user?.id) return [];
 
@@ -5029,17 +5124,32 @@ export default function Home() {
       const rescued = dbPlaces.filter((place) =>
         selectedCurators.some((rawSel) => {
           const row = findDbCuratorRowForChip(rawSel, dbCurators);
-          if (!row) return false;
-          const ids = collectCuratorIdsForRescueMatch(row);
+          if (row) {
+            const ids = collectCuratorIdsForRescueMatch(row);
+            const matched = (place.curatorPlaces || []).some((cp) => {
+              const cid = String(cp.curator_id ?? "").trim().toLowerCase();
+              if (cid) {
+                const cCompact = cid.replace(/-/g, "");
+                return ids.has(cid) || ids.has(cCompact);
+              }
+              const cpUser = String(cp.curators?.username ?? "").trim().toLowerCase();
+              const rowUser = String(row.username ?? "").trim().toLowerCase();
+              return Boolean(cpUser && rowUser && cpUser === rowUser);
+            });
+            if (matched) return true;
+          }
+          /** 칩 바에 없는 큐레이터 — auth uid 등 raw 토큰으로 curator_places 직접 매칭 */
+          const want = expandCuratorChipSelectionKeys(rawSel, dbCurators);
           return (place.curatorPlaces || []).some((cp) => {
             const cid = String(cp.curator_id ?? "").trim().toLowerCase();
-            if (cid) {
-              const cCompact = cid.replace(/-/g, "");
-              return ids.has(cid) || ids.has(cCompact);
+            if (!cid) return false;
+            const cCompact = cid.replace(/-/g, "");
+            for (const w of want) {
+              const wl = String(w).trim().toLowerCase();
+              if (!wl) continue;
+              if (cid === wl || cCompact === wl.replace(/-/g, "")) return true;
             }
-            const cpUser = String(cp.curators?.username ?? "").trim().toLowerCase();
-            const rowUser = String(row.username ?? "").trim().toLowerCase();
-            return Boolean(cpUser && rowUser && cpUser === rowUser);
+            return false;
           });
         })
       );
@@ -6087,6 +6197,129 @@ const handleClearSearch = () => {
   resetCourseSearch();
 };
 
+  const focusCuratorPlaceOnMap = useCallback(
+    async (curatorSource, rawPlace) => {
+      if (!curatorSource || !rawPlace) return;
+
+      handleClearSearch();
+      setShowFollowModal(false);
+
+      const authUid = String(
+        curatorSource.userId ?? curatorSource.user_id ?? ""
+      ).trim();
+      const chipToken = resolveCuratorChipTokenForMapFilter(
+        curatorSource,
+        dbCurators
+      );
+
+      setShowSavedOnly(false);
+      setLegendCategory(null);
+      setShowAll(false);
+      if (chipToken) setSelectedCurators([chipToken]);
+
+      let mapPlaces = [];
+      try {
+        if (authUid) {
+          const rows = await fetchPlacesForCuratorPage({
+            user_id: authUid,
+            id: curatorSource.id,
+          });
+          mapPlaces = formatCuratorProfilePlacesForHomeMap(rows, authUid);
+        }
+      } catch (e) {
+        console.warn("focusCuratorPlaceOnMap places:", e);
+      }
+
+      const focusId = String(rawPlace.id ?? rawPlace.place_id ?? "").trim();
+      let focusPlace =
+        mapPlaces.find((p) => String(p.id) === focusId) ||
+        formatCuratorProfilePlaceForHomeMap(rawPlace, authUid);
+
+      if (!focusPlace) return;
+
+      if (mapPlaces.length > 0) {
+        setDbPlaces((prev) => {
+          const seen = new Set(prev.map((p) => String(p.id)));
+          const additions = mapPlaces.filter((p) => !seen.has(String(p.id)));
+          if (additions.length === 0) return prev;
+          return [...additions, ...prev];
+        });
+      } else {
+        setDbPlaces((prev) => {
+          const id = String(focusPlace.id);
+          if (prev.some((p) => String(p.id) === id)) return prev;
+          return [focusPlace, ...prev];
+        });
+      }
+
+      const w = resolvePlaceWgs84(focusPlace);
+      if (w) {
+        requestAnimationFrame(() => {
+          if (mapRef.current?.panToAbovePreview) {
+            mapRef.current.panToAbovePreview(w.lat, w.lng);
+          } else {
+            mapRef.current?.moveToLocation?.(w.lat, w.lng);
+          }
+          mapRef.current?.setZoomLevel?.(4);
+        });
+      }
+
+      setSelectedPlaceWithAnalytics(focusPlace, "curator_profile");
+    },
+    [dbCurators, setSelectedPlaceWithAnalytics]
+  );
+
+  /** 큐레이터 프로필·딥링크 → 홈 지도에서 추천 장소 포커스 */
+  useEffect(() => {
+    const focus = readHomeCuratorPlaceFocusState(location.state);
+    if (!focus) return;
+
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: {} }
+    );
+
+    const run = async () => {
+      let curatorSource = null;
+      if (focus.curatorUserId) {
+        curatorSource =
+          dbCurators.find(
+            (c) => String(c.userId ?? "").trim() === focus.curatorUserId
+          ) || { user_id: focus.curatorUserId, userId: focus.curatorUserId };
+      } else if (focus.curatorChipKey) {
+        curatorSource =
+          findDbCuratorRowForChip(focus.curatorChipKey, dbCurators) || {
+            username: focus.curatorChipKey,
+          };
+      }
+      if (!curatorSource) return;
+
+      let rawPlace = { id: focus.placeId };
+      if (focus.placeId) {
+        try {
+          const { data, error } = await supabase
+            .from("places")
+            .select("*")
+            .eq("id", focus.placeId)
+            .maybeSingle();
+          if (!error && data) rawPlace = data;
+        } catch (e) {
+          console.warn("home curator place focus fetch:", e);
+        }
+      }
+      await focusCuratorPlaceOnMap(curatorSource, rawPlace);
+    };
+
+    void run();
+  }, [
+    location.state,
+    location.pathname,
+    location.search,
+    navigate,
+    dbCurators,
+    focusCuratorPlaceOnMap,
+  ]);
+
   // 카카오 자동완성 클릭·엔터: 지도 이동 + 확정 마커 + 미리보기 카드
   const handleKakaoPlaceSelect = useCallback(
     (kakaoPlace) => {
@@ -6256,8 +6489,15 @@ const handleClearSearch = () => {
       /걸어서|도보|걸어가기|걸어갈|걸어다니기/i.test(nextQuery);
 
     /** 코스+주변 의도: 검색 직후 브라우저 위치 권한 요청 (내 위치·근처·도보 등) */
+    const namedLocationForCourseEarly =
+      useCoursePipeline
+        ? extractHomeMapLocationName(
+            stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery
+          )
+        : null;
     const wantsCourseGps =
       useCoursePipeline &&
+      !namedLocationForCourseEarly &&
       (explicitNearMe ||
         effectiveLocationPinned ||
         walkIntent ||
@@ -6506,8 +6746,7 @@ const handleClearSearch = () => {
         const preferNamedAreaCourseOrigin =
           Boolean(namedLocationForCourse) &&
           !explicitNearMe &&
-          !hasSearchPinAnchor &&
-          !isLocationBasedSearch;
+          !hasSearchPinAnchor;
 
         if (
           preferNamedAreaCourseOrigin &&
@@ -6543,15 +6782,31 @@ const handleClearSearch = () => {
             ) {
               courseLoadOpts = {
                 userOrigin: coords,
-                /** 을지로 등 지명 앵커 시 성수·성동 쪽까지 넓게 잡히지 않게 상한을 낮춤 */
+                /** 지명 코스는 `parseCourseQuery.area` + 지역 필터 — GPS 반경으로 후보를 자르지 않음 */
                 maxDistanceMeters: 3200,
-                strictNearbyOnly: true,
+                strictNearbyOnly: false,
               };
               courseSearchOriginKind = "named_area";
               if (mapRef.current.moveToLocation) {
                 mapRef.current.moveToLocation(coords.lat, coords.lng);
               }
               mapRef.current.setZoomLevel?.(5);
+            } else {
+              const regionKey =
+                regionKeyForLocationToken(namedLocationForCourse) ||
+                regionKeyForLocationToken(panKw);
+              const center = getRegionCenterCoords(regionKey);
+              if (center) {
+                courseLoadOpts = {
+                  userOrigin: center,
+                  strictNearbyOnly: false,
+                };
+                courseSearchOriginKind = "named_area";
+                if (mapRef.current.moveToLocation) {
+                  mapRef.current.moveToLocation(center.lat, center.lng);
+                }
+                mapRef.current.setZoomLevel?.(5);
+              }
             }
           } catch (panErr) {
             if (import.meta.env.DEV) {
@@ -6595,6 +6850,8 @@ const handleClearSearch = () => {
         const mergedCourseLoadOpts = {
           ...(courseLoadOpts || {}),
           includeHalfStep: courseIncludeHalfStep,
+          placesAugment: dbPlaces,
+          curatorRows: curatorAttachRowsRef.current || [],
         };
         courseLastLoadOptsRef.current = mergedCourseLoadOpts;
         const res = await (searchPerfTrace
@@ -8573,6 +8830,44 @@ const handleClearSearch = () => {
     }
   }, [selectedCurator]);
 
+  useEffect(() => {
+    if (
+      !showFollowModal ||
+      !selectedCurator ||
+      selectedCurator.isCurator === false
+    ) {
+      setModalCuratorPlaces([]);
+      setModalCuratorPlacesLoading(false);
+      return undefined;
+    }
+    const authUid = String(
+      selectedCurator.userId ?? selectedCurator.user_id ?? ""
+    ).trim();
+    if (!authUid) {
+      setModalCuratorPlaces([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setModalCuratorPlacesLoading(true);
+    void fetchPlacesForCuratorPage({
+      user_id: authUid,
+      id: selectedCurator.id,
+    })
+      .then((rows) => {
+        if (!cancelled) setModalCuratorPlaces(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => {
+        console.warn("modal curator places:", e);
+        if (!cancelled) setModalCuratorPlaces([]);
+      })
+      .finally(() => {
+        if (!cancelled) setModalCuratorPlacesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showFollowModal, selectedCurator]);
+
   // 팔로우 모달에 표시할 큐레이터 정보
   const getModalCurator = () => {
     if (selectedCurator) {
@@ -8748,6 +9043,13 @@ const handleClearSearch = () => {
         curator={testCurator}
         currentUserUsername={curatorProfile?.username}
         onFollow={(username) => handleFollow(username)}
+        isGeneralUserProfile={isGeneralUserProfile}
+        recommendedPlaces={modalCuratorPlaces}
+        placesLoading={modalCuratorPlacesLoading}
+        getPlacePreviewSaved={resolvePlacePreviewSaved}
+        getUserRole={getUserRole}
+        canCheckIn={judoMode.canCheckIn}
+        onSavedToSupabase={loadUserSavedPlaces}
       />
 
       <div style={styles.page}>
@@ -8792,6 +9094,7 @@ const handleClearSearch = () => {
           onStampStateRefresh={bumpHomeCourseStampState}
           onSnapChange={setHomeCoursesSheetSnap}
           sheetResetKey={homeCoursesSheetResetKey}
+          onOpenCurator={handleCourseBrowseCuratorOpen}
         />
         <HotCheckinStrip
           rankingTop5={hotStripPlaceRows}
@@ -9677,9 +9980,7 @@ const handleClearSearch = () => {
               setAiSheetPhotoViewerIndex={setAiSheetPhotoViewerIndex}
               setAiSheetPhotoViewerOpen={setAiSheetPhotoViewerOpen}
               curatorSearchHighlightList={curatorSearchHighlightList}
-              setShowAll={setShowAll}
-              setSelectedCurators={setSelectedCurators}
-              dbCurators={dbCurators}
+              onCuratorHighlightPick={handleCuratorHighlightPick}
               blogReviews={blogReviews}
               aiSheetPhotoViewerOpen={aiSheetPhotoViewerOpen}
               closeAiSheetPhotoViewer={closeAiSheetPhotoViewer}
