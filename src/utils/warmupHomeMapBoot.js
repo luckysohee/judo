@@ -8,11 +8,14 @@ import {
   computeHomeViewportCacheKey,
   defaultHomeMapViewportBounds,
 } from "./homeMapViewportBounds";
+import { HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT } from "./homeMapViewportLimit";
 
 function buildInitialViewportPrefetchParams() {
   const boundsRaw = defaultHomeMapViewportBounds(5);
   const mapLevel = 5;
-  const computed = computeHomeViewportCacheKey(boundsRaw, mapLevel);
+  const computed = computeHomeViewportCacheKey(boundsRaw, mapLevel, {
+    limit: HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT,
+  });
   if (!computed) return null;
 
   return {

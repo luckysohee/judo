@@ -28,13 +28,38 @@ import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const PAGE_TITLE_APP = "주도";
 
-function curatorLabelFromProfile(p) {
+function formatCuratorAtHandle(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  return s.startsWith("@") ? s : `@${s}`;
+}
+
+function curatorHandleFromCuratorRow(row) {
+  if (!row || typeof row !== "object") return "";
+  return formatCuratorAtHandle(row.slug || row.username);
+}
+
+function curatorHandleFromProfile(p) {
+  if (!p || typeof p !== "object") return "";
+  return formatCuratorAtHandle(p.username);
+}
+
+function curatorDisplayNameFromCuratorRow(row) {
+  if (!row || typeof row !== "object") return "큐레이터";
+  const nick = String(row.name || row.display_name || "").trim();
+  if (nick) return nick;
+  const handle = String(row.slug || row.username || "").trim();
+  if (!handle) return "큐레이터";
+  return handle.startsWith("@") ? handle.slice(1) : handle;
+}
+
+function curatorDisplayNameFromProfile(p) {
   if (!p || typeof p !== "object") return "큐레이터";
   const dn = String(p.display_name || "").trim();
   if (dn) return dn;
   const un = String(p.username || "").trim();
-  if (un) return un.startsWith("@") ? un : `@${un}`;
-  return "큐레이터";
+  if (!un) return "큐레이터";
+  return un.startsWith("@") ? un.slice(1) : un;
 }
 
 const styles = {
@@ -297,9 +322,16 @@ export default function HomeCourseDiscoveryDetail({
   onSheetCollapse,
   /** 큐레이터 프로필(홈 팔로우 모달) */
   onOpenCurator,
+  /** `dbCurators` 등에서 즉시 핸들 복원 — profiles.username 비어 있어도 버튼 표시 */
+  resolveCuratorHandle,
 }) {
   const { showToast } = useToast();
-  const [curatorName, setCuratorName] = useState("큐레이터");
+  /** 코스미리보기 버튼에 표시할 큐레이터 핸들(@username) */
+  const [curatorHandle, setCuratorHandle] = useState("큐레이터");
+  /** 팔로우/프로필 모달에서 쓸 표시명(display_name 우선) */
+  const [curatorDisplayName, setCuratorDisplayName] = useState(
+    "큐레이터"
+  );
   const [curatorProfile, setCuratorProfile] = useState(null);
   const [metricLine, setMetricLine] = useState(null);
   const [likedByMe, setLikedByMe] = useState(false);
@@ -385,25 +417,56 @@ export default function HomeCourseDiscoveryDetail({
     let cancelled = false;
     const cid = String(course?.curator_id || "").trim();
     if (!cid) {
-      setCuratorName("큐레이터");
+      setCuratorHandle("큐레이터");
+      setCuratorDisplayName("큐레이터");
       setCuratorProfile(null);
       return undefined;
     }
+
+    const hint =
+      typeof resolveCuratorHandle === "function"
+        ? resolveCuratorHandle(cid)
+        : null;
+    if (hint) {
+      setCuratorHandle(hint);
+    }
+
     void (async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, display_name, username")
-        .eq("id", cid)
-        .maybeSingle();
-      if (!cancelled) {
-        setCuratorProfile(data || null);
-        setCuratorName(curatorLabelFromProfile(data));
-      }
+      const [curRes, profRes] = await Promise.all([
+        supabase
+          .from("curators")
+          .select("slug, username, name, display_name")
+          .eq("user_id", cid)
+          .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("id, display_name, username")
+          .eq("id", cid)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+
+      const curatorRow =
+        curRes.data && !curRes.error ? curRes.data : null;
+      const profile =
+        profRes.data && !profRes.error ? profRes.data : null;
+
+      setCuratorProfile(profile);
+      const handle =
+        curatorHandleFromCuratorRow(curatorRow) ||
+        curatorHandleFromProfile(profile) ||
+        hint ||
+        "큐레이터";
+      setCuratorHandle(handle);
+      setCuratorDisplayName(
+        curatorDisplayNameFromCuratorRow(curatorRow) ||
+          curatorDisplayNameFromProfile(profile)
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [course?.curator_id]);
+  }, [course?.curator_id, resolveCuratorHandle]);
 
   useEffect(() => {
     let cancelled = false;
@@ -584,10 +647,18 @@ export default function HomeCourseDiscoveryDetail({
 
   const handleCuratorClick = () => {
     if (!canOpenCuratorProfile) return;
+    const handleBare = String(curatorHandle || "")
+      .trim()
+      .replace(/^@/, "");
     onOpenCurator({
       curatorId,
-      name: curatorName,
-      profile: curatorProfile,
+      name: curatorDisplayName,
+      profile: {
+        ...(curatorProfile && typeof curatorProfile === "object"
+          ? curatorProfile
+          : {}),
+        username: handleBare || curatorProfile?.username || "",
+      },
     });
   };
 
@@ -631,12 +702,12 @@ export default function HomeCourseDiscoveryDetail({
                   type="button"
                   style={styles.curatorBtn}
                   onClick={handleCuratorClick}
-                  aria-label={`${curatorName} 큐레이터 프로필`}
+                  aria-label={`${curatorHandle} 큐레이터 프로필`}
                 >
-                  {curatorName}
+                  {curatorHandle}
                 </button>
-              ) : curatorName ? (
-                <span key="curator">{curatorName}</span>
+              ) : curatorHandle ? (
+                <span key="curator">{curatorHandle}</span>
               ) : null,
               ...metaRest.map((bit, i) => (
                 <span key={`meta-${i}-${bit}`}>{bit}</span>

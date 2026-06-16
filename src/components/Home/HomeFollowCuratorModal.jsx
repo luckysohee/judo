@@ -125,7 +125,35 @@ export default function HomeFollowCuratorModal({
       }}
     >
       <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={{ marginBottom: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 10,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (previewPlace) setPreviewPlace(null);
+              else onClose?.();
+            }}
+            aria-label="미리보기로 돌아가기"
+            style={{
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.08)",
+              color: "rgba(255,255,255,0.9)",
+              borderRadius: 999,
+              padding: "6px 10px",
+              fontSize: 12,
+              fontWeight: 900,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            ←
+          </button>
           <span
             style={{
               display: "inline-flex",
@@ -138,12 +166,12 @@ export default function HomeFollowCuratorModal({
               color: "rgba(255,255,255,0.9)",
               background: "rgba(255,255,255,0.08)",
               border: "1px solid rgba(255,255,255,0.2)",
+              lineHeight: 1,
             }}
           >
             {roleLabel}
           </span>
         </div>
-
         <div style={{ marginBottom: 12 }}>
           <div
             style={{

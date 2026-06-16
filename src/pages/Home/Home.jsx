@@ -168,6 +168,7 @@ import { fetchMapPlaceDensityInBounds } from "../../api/placesDensityInBounds";
 import { debounce } from "../../utils/debounce";
 import {
   getHomeMapViewportPlaceLimit,
+  HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT,
   HOME_MAP_DENSITY_LAYER_MIN_LEVEL,
   shouldSkipMapViewportRefetch,
 } from "../../utils/homeMapViewportLimit";
@@ -1410,6 +1411,7 @@ export default function Home() {
       const snap = curatorAttachRowsRef.current || [];
 
       const widenForSituation = Boolean(situationFolderFilterRef.current);
+      const isBootViewport = !mapMarkersBootstrappedRef.current;
       const level =
         typeof mapLevel === "number" && Number.isFinite(mapLevel)
           ? mapLevel
@@ -1417,12 +1419,16 @@ export default function Home() {
               Number.isFinite(lastMapLevelRef.current)
             ? lastMapLevelRef.current
             : 6;
-      const limit = widenLimit
+      const baseLimit = widenLimit
         ? getHomeMapViewportPlaceLimit(level, {
             hasCuratorChipFilter: true,
             widenForSituation,
           })
         : getHomeMapViewportPlaceLimit(level, { widenForSituation });
+      // 첫 진입은 SVG 마커 페인트 CPU 비용이 커서, boot 때만 시작 limit을 낮춘다.
+      const limit = isBootViewport
+        ? HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT
+        : baseLimit;
       const computed = computeHomeViewportCacheKey(boundsRaw, level, {
         widenForSituation,
         limit,
@@ -1437,7 +1443,6 @@ export default function Home() {
       let joinResult;
 
       const cached = mapViewportFetchCacheRef.current[cacheKey];
-      const isBootViewport = !mapMarkersBootstrappedRef.current;
       if (cached) {
         plainRows = cached.plainRows;
         joinResult = { rows: cached.joinRows, error: null };
@@ -2172,7 +2177,8 @@ export default function Home() {
     [homeGlobalFollowSession?.course_id, homeRailActiveSession?.course_id]
   );
 
-  const dismissHomeRailCourseMap = useCallback(async () => {
+  const dismissHomeRailCourseMap = useCallback(async (options = {}) => {
+    const keepCoursesPanelOpen = Boolean(options.keepCoursesPanelOpen);
     const cid = String(homeRailCourseDrive?.courseId || "").trim();
     const followId = homeFollowCourseId;
     const previewingOtherWhileFollowing =
@@ -2208,7 +2214,7 @@ export default function Home() {
     setHomeCourseStampDock(null);
     if (keepFollow && cid) {
       void refreshHomeRailCourseStampState(cid);
-    } else {
+    } else if (!keepCoursesPanelOpen) {
       setHomeCoursesPanelOpen(false);
       setHomeCourseBrowse(null);
       setHomeCourseBrowseLoading(false);
@@ -2382,7 +2388,9 @@ export default function Home() {
     const browseId = String(homeCourseBrowse?.courseId || "").trim();
     setHomeCourseBrowse(null);
     setHomeCourseBrowseLoading(false);
-    /** 미리보기 ← 목록 — 따라가기 중이면 도장 시트가 아니라 코스 레일 */
+    /** 미리보기 ← 목록 — 코스 시트(목록)는 유지 */
+    setHomeCoursesPanelOpen(true);
+    setHomeCoursesSheetSnap("expanded");
     setHomeCourseStampBackedToRail(true);
     const mapId = String(homeRailCourseDrive?.courseId || "").trim();
     const followingThis =
@@ -2390,7 +2398,7 @@ export default function Home() {
       browseId &&
       homeFollowCourseId === browseId;
     if (browseId && mapId === browseId && !followingThis) {
-      void dismissHomeRailCourseMap();
+      void dismissHomeRailCourseMap({ keepCoursesPanelOpen: true });
     }
   }, [
     homeCourseBrowse?.courseId,
@@ -4420,6 +4428,16 @@ export default function Home() {
       }
       setSelectedCurator(curator);
       setShowFollowModal(true);
+    },
+    [dbCurators]
+  );
+
+  const resolveCuratorHandleForUser = useCallback(
+    (curatorUserId) => {
+      const row = findDbCuratorRowForChip(curatorUserId, dbCurators);
+      const raw = String(row?.slug ?? row?.username ?? "").trim();
+      if (!raw) return null;
+      return raw.startsWith("@") ? raw : `@${raw}`;
     },
     [dbCurators]
   );
@@ -9095,6 +9113,7 @@ const handleClearSearch = () => {
           onSnapChange={setHomeCoursesSheetSnap}
           sheetResetKey={homeCoursesSheetResetKey}
           onOpenCurator={handleCourseBrowseCuratorOpen}
+          resolveCuratorHandle={resolveCuratorHandleForUser}
         />
         <HotCheckinStrip
           rankingTop5={hotStripPlaceRows}
