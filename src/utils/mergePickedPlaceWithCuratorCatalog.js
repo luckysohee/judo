@@ -209,20 +209,29 @@ function mergeTwoPlacesSameKakaoId(a, b) {
     address_name: primary.address_name || secondary.address_name || "",
     blogInsight: primary.blogInsight ?? secondary.blogInsight,
   };
-  const courseSrc = primary.isCoursePin
-    ? primary
-    : secondary.isCoursePin
-      ? secondary
-      : primary.courseMarkerPulse
-        ? primary
-        : secondary.courseMarkerPulse
-          ? secondary
-          : null;
+  const courseSrc = (() => {
+    if (!primary?.isCoursePin && !secondary?.isCoursePin) {
+      if (primary.courseMarkerPulse || secondary.courseMarkerPulse) {
+        return primary.courseMarkerPulse ? primary : secondary;
+      }
+      return null;
+    }
+    const score = (p) => {
+      if (!p?.isCoursePin) return 0;
+      if (/쩜오/.test(String(p.courseMapCaption || ""))) return 3;
+      if (Number(p.courseStepIndex) === 2 && Number(p.courseLegCount) >= 3) {
+        return 2;
+      }
+      return 1;
+    };
+    return score(primary) >= score(secondary) ? primary : secondary;
+  })();
   const courseFields = courseSrc
     ? {
         isCoursePin: Boolean(courseSrc.isCoursePin),
         courseMapCaption: courseSrc.courseMapCaption,
         courseStepIndex: courseSrc.courseStepIndex,
+        courseLegCount: courseSrc.courseLegCount,
         courseMarkerPulse: Boolean(
           primary.courseMarkerPulse || secondary.courseMarkerPulse
         ),

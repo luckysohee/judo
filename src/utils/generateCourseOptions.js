@@ -1778,15 +1778,47 @@ export function generateCourseCandidatePool({
   return merged.slice(0, cap);
 }
 
+/** 3단 코스 가운데 쩜오차 스텝 — 라벨 오타·누락에도 🍦 마커 판별 */
+export function isCourseBridgeStep(step, stepCount = 0) {
+  const label = String(step?.label || "").trim();
+  if (/쩜오/.test(label)) return true;
+  const stepNum = Number(step?.step) || 1;
+  return stepCount >= 3 && stepNum === 2;
+}
+
 /** 코스 결과 전체 → 지도 마커(중복 id 제거). 선택 코스만 쓰려면 인자로 1요소 배열 전달 */
 export function resolveCourseStepMapCaption(step, stepCount = 0) {
+  if (isCourseBridgeStep(step, stepCount)) return "쩜오차";
   if (typeof step?.label === "string" && step.label.trim()) {
     return step.label.trim();
   }
   const stepNum = Number(step?.step) || 1;
   if (stepNum === 1) return "1차";
-  if (stepCount >= 3 && stepNum === 2) return "쩜오차";
   return "2차";
+}
+
+/**
+ * 조합 미리보기 vs 선택 코스 — 2칸 compose가 3단 selectedCourse(쩜오 포함)를 가리지 않게.
+ */
+export function resolveCourseDrivingMap(composePreview, selectedCourse) {
+  if (!composePreview?.steps?.length) return selectedCourse ?? null;
+  if (!selectedCourse?.steps?.length) return composePreview;
+
+  const previewSteps = composePreview.steps;
+  const selectedSteps = selectedCourse.steps;
+  const previewHasBridge = previewSteps.some((s) =>
+    isCourseBridgeStep(s, previewSteps.length),
+  );
+  const selectedHasBridge = selectedSteps.some((s) =>
+    isCourseBridgeStep(s, selectedSteps.length),
+  );
+
+  if (selectedHasBridge && !previewHasBridge && previewSteps.length <= 2) {
+    return selectedCourse;
+  }
+  if (previewSteps.length > selectedSteps.length) return composePreview;
+  if (previewHasBridge) return composePreview;
+  return composePreview;
 }
 
 export function courseOptionsToMapPlaces(options = []) {
@@ -1822,6 +1854,7 @@ export function courseOptionsToMapPlaces(options = []) {
         isCoursePin: true,
         courseMapCaption: mapCaption,
         courseStepIndex: stepNum,
+        courseLegCount: stepCount,
         courseStepThumbUrl:
           p.courseStepThumbUrl ||
           p.step_image_url ||
@@ -1886,6 +1919,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
           isCoursePin: true,
           courseMapCaption: "쩜오차",
           courseStepIndex: 2,
+          courseLegCount: 3,
           courseMarkerPulse: false,
         });
       }

@@ -11,11 +11,13 @@ import {
 } from "./mapMarkerSvg.js";
 import { curatorPlaceMatchesLoggedInCurator } from "./curatorPlacesIdentity.js";
 
-/** 코스 지도에서 1·2차 사이 쩜오차 핀 — `courseMapCaption`에 「쩜오」 포함 */
+/** 코스 지도에서 1·2차 사이 쩜오차 핀 — 🍦 전용 SVG */
 export function isCourseBridgeMapPin(place) {
+  if (!place?.isCoursePin) return false;
+  if (/쩜오/.test(String(place?.courseMapCaption || ""))) return true;
   return (
-    Boolean(place?.isCoursePin) &&
-    /쩜오/.test(String(place?.courseMapCaption || ""))
+    Number(place.courseStepIndex) === 2 &&
+    Number(place.courseLegCount) >= 3
   );
 }
 
@@ -550,6 +552,7 @@ function createMarkerImage(
     } catch (e) {
       console.error("쩜오차 마커 이미지 생성 오류:", e);
     }
+    return null;
   }
 
   // 검색·카카오 API 전용 핀 (DB 큐레이터 추천은 아래 등급 마커 사용)

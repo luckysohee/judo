@@ -277,6 +277,7 @@ import {
   courseOptionsToMapPlaces,
   courseSecondCandidatesToPulseMapPlaces,
   placeId,
+  resolveCourseDrivingMap,
 } from "../../utils/generateCourseOptions.js";
 import {
   filterPlacesBySituationFolder,
@@ -2909,6 +2910,25 @@ export default function Home() {
         return;
       }
 
+      const selSteps = selectedCourse?.steps || [];
+      const selHasTwoLeg =
+        selSteps.length === 2 &&
+        selSteps[0]?.place &&
+        selSteps[selSteps.length - 1]?.place;
+      const bridgeOnlyPick =
+        courseIncludeHalfStep &&
+        selHasTwoLeg &&
+        !courseComposeSlotBridge?.place &&
+        !courseComposeSlotFirst?.place &&
+        !courseComposeSlotSecond?.place &&
+        pid !== placeId(selSteps[0]?.place) &&
+        pid !== placeId(selSteps[selSteps.length - 1]?.place);
+
+      if (bridgeOnlyPick) {
+        setCourseComposeSlotBridge(clone);
+        return;
+      }
+
       if (!courseComposeSlotFirst?.place) {
         setCourseComposeSlotFirst(clone);
         return;
@@ -2936,6 +2956,7 @@ export default function Home() {
       courseComposeSlotFirst,
       courseComposeSlotBridge,
       courseComposeSlotSecond,
+      selectedCourse,
     ]
   );
 
@@ -2954,10 +2975,38 @@ export default function Home() {
 
   /** 조합 미리보기: 쩜오 토글 시 1·쩜오·2 세 칸, 아니면 1·2만 지도에 반영 */
   const composePreviewCourse = useMemo(() => {
-    const a = courseComposeSlotFirst;
-    const b = courseComposeSlotSecond;
-    const mid = courseIncludeHalfStep ? courseComposeSlotBridge : null;
-    if (!a && !b && !mid) return null;
+    const slotFirst = courseComposeSlotFirst;
+    const slotSecond = courseComposeSlotSecond;
+    const slotBridge = courseIncludeHalfStep ? courseComposeSlotBridge : null;
+
+    const hasComposeSlot =
+      slotFirst?.place || slotBridge?.place || slotSecond?.place;
+    if (!hasComposeSlot) return null;
+
+    const selSteps = selectedCourse?.steps || [];
+    const selFirstStep =
+      selSteps[0]?.place
+        ? {
+            ...selSteps[0],
+            label: selSteps[0].label ?? "1차",
+            place: selSteps[0].place,
+          }
+        : null;
+    const selLastStep =
+      selSteps.length >= 2 && selSteps[selSteps.length - 1]?.place
+        ? {
+            ...selSteps[selSteps.length - 1],
+            label: selSteps[selSteps.length - 1].label ?? "2차",
+            place: selSteps[selSteps.length - 1].place,
+          }
+        : null;
+
+    /** 쩜오 칸만 채운 경우 — 선택 코스 1·2차와 합쳐 🍦 마커·3구간 루트 표시 */
+    const a = slotFirst?.place ? slotFirst : selFirstStep;
+    const b = slotSecond?.place ? slotSecond : selLastStep;
+    const mid = slotBridge;
+
+    if (!a?.place && !b?.place && !mid?.place) return null;
 
     const legMeters = (p0, p1) => {
       const w0 = resolvePlaceWgs84(p0);
@@ -3098,9 +3147,13 @@ export default function Home() {
     courseComposeSlotBridge,
     courseComposeSlotSecond,
     courseIncludeHalfStep,
+    selectedCourse,
   ]);
 
-  const courseDrivingMap = composePreviewCourse ?? selectedCourse;
+  const courseDrivingMap = useMemo(
+    () => resolveCourseDrivingMap(composePreviewCourse, selectedCourse),
+    [composePreviewCourse, selectedCourse],
+  );
   const canAddHalfStepNow = Boolean(
     isCourseMode &&
       courseDrivingMap &&
@@ -4047,6 +4100,7 @@ export default function Home() {
       clearImportRecommendationOverlay,
       selectedCourse,
       aiSheetOpen,
+      clearCourseSecondPickPulse,
     ]
   );
 
@@ -4056,6 +4110,7 @@ export default function Home() {
       const previousSelection = selectedCourse;
       const sheetOpenBefore = aiSheetOpen;
       setCourseIncludeHalfStep(next);
+      clearCourseSecondPickPulse();
       setCourseComposeSlotFirst(null);
       setCourseComposeSlotBridge(null);
       setCourseComposeSlotSecond(null);
@@ -4126,8 +4181,24 @@ export default function Home() {
           };
           if (res.selectedCourse) {
             syncMapCoursePinsFromCourse(res.selectedCourse);
+            if (
+              next &&
+              (res.selectedCourse.steps?.length ?? 0) === 2 &&
+              previousSelection?.steps?.length === 2
+            ) {
+              const st = res.selectedCourse.steps;
+              setCourseComposeSlotFirst({ ...st[0] });
+              setCourseComposeSlotBridge(null);
+              setCourseComposeSlotSecond({
+                ...st[st.length - 1],
+              });
+            }
           }
-          if (res.options?.length) {
+          const bridgeInserted =
+            next &&
+            (res.selectedCourse?.steps?.length ?? 0) >= 3 &&
+            (previousSelection?.steps?.length ?? 0) <= 2;
+          if (res.options?.length && (next ? bridgeInserted : true)) {
             showToast(
               next
                 ? "쩜오차(달달 구간)를 넣은 코스로 다시 짰어요."
@@ -6183,22 +6254,8 @@ const handleClearSearch = () => {
       navigate("/", { replace: true });
       return;
     }
-    homeSearchMode.close();
-    handleClearSearch();
-    setSelectedCurators([]);
-    setShowAll(true);
-    setShowSavedOnly(false);
-    setLegendCategory(null);
-    setSituationFolderFilter(null);
-    setMutualSearchPanelOpen(false);
-    if (homeCourseBrowse) clearHomeCourseBrowse();
-  }, [
-    location.pathname,
-    navigate,
-    homeSearchMode,
-    homeCourseBrowse,
-    clearHomeCourseBrowse,
-  ]);
+    window.location.href = "/";
+  }, [location.pathname, navigate]);
 
   const focusCuratorPlaceOnMap = useCallback(
     async (curatorSource, rawPlace) => {

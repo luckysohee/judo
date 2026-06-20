@@ -117,14 +117,21 @@ function findCoursePreservingLegEndpoints(previous, candidates) {
   const oFirst = placeId(os[0]?.place);
   const oLast = placeId(os[os.length - 1]?.place);
   if (oFirst == null || oLast == null) return null;
+  let best = null;
   for (const c of candidates) {
     const ns = c.steps;
     if (!ns?.length) continue;
     const nFirst = placeId(ns[0]?.place);
     const nLast = placeId(ns[ns.length - 1]?.place);
-    if (nFirst === oFirst && nLast === oLast) return c;
+    if (nFirst !== oFirst || nLast !== oLast) continue;
+    if (
+      !best ||
+      (ns.length ?? 0) > (best.steps?.length ?? 0)
+    ) {
+      best = c;
+    }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -510,30 +517,29 @@ export function useCourseSearch() {
         loadOpts.halfStepBaseCourses.length > 0
       ) {
         const base = loadOpts.halfStepBaseCourses;
-        const preservedMyOwn = base.filter((c) => c?.profileKey === "my_own");
-        const engine = base.filter((c) => c?.profileKey !== "my_own");
-        const upgradedEngine = upgradeTwoStepCoursesToHalfStep({
+        const upgradedAll = upgradeTwoStepCoursesToHalfStep({
           parsedQuery: parsed,
           places: placesForCourse,
           bridgeAugment: bridgeAugmentForEngine,
-          existingCourses: engine,
+          existingCourses: base,
         });
-        const fullOptions = [...upgradedEngine, ...preservedMyOwn];
-        setCourseOptions(fullOptions);
+        setCourseOptions(upgradedAll);
         const preserve = loadOpts?.preserveSelectionFromCourse;
         const matched =
-          preserve && upgradedEngine.length
-            ? findCoursePreservingLegEndpoints(preserve, upgradedEngine)
+          preserve && upgradedAll.length
+            ? findCoursePreservingLegEndpoints(preserve, upgradedAll)
             : null;
-        const nextSelected = matched ?? upgradedEngine[0] ?? null;
+        const nextSelected = matched ?? preserve ?? upgradedAll[0] ?? null;
         setSelectedCourse(nextSelected);
-        const { keys, pairs } = appendSeenFromCourses(upgradedEngine);
+        const { keys, pairs } = appendSeenFromCourses(upgradedAll);
         setSeenCourseKeys(keys);
         setSeenVenuePairKeys(pairs);
-        const mapPlaces = courseOptionsToMapPlaces(upgradedEngine);
+        const mapPlaces = courseOptionsToMapPlaces(
+          nextSelected ? [nextSelected] : upgradedAll,
+        );
         return {
           handled: true,
-          options: fullOptions,
+          options: upgradedAll,
           mapPlaces,
           parsed,
           selectedCourse: nextSelected,
