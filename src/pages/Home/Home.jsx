@@ -1379,14 +1379,6 @@ export default function Home() {
   /** 앱 켜둔 상태에서 운영 모드 자동 전환(분 단위 체크) */
   const now = useTickingNow();
 
-  const dismissHomeDustIntro = useCallback(() => {
-    try {
-      window.dispatchEvent(new CustomEvent("judo:dust-intro-dismiss"));
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
   const homeSearchInputRef = useRef(null);
 
   const emitMapMarkersReady = useCallback((count, extra = {}) => {
@@ -1810,20 +1802,6 @@ export default function Home() {
     }
   }, [query]);
 
-  /** 홈 첫 진입 인트로 — 검색·카드·AI 검색 시 App 레벨 오버레이 닫기 */
-  useEffect(() => {
-    const idle =
-      !selectedPlace &&
-      !String(query || "").trim() &&
-      !isAiSearching;
-    if (!idle) dismissHomeDustIntro();
-  }, [
-    selectedPlace,
-    query,
-    isAiSearching,
-    dismissHomeDustIntro,
-  ]);
-
   /** 지도 빈 곳 클릭 시 증가 → MarkerLegend 패널 닫기 */
   const [markerGuideMapCloseTick, setMarkerGuideMapCloseTick] = useState(0);
 
@@ -1903,21 +1881,6 @@ export default function Home() {
   useEffect(() => {
     setHomeSearchHistoryList(loadHomeSearchHistory(user?.id));
   }, [user?.id]);
-
-  useEffect(() => {
-    const onTap = () => {
-      homeSearchMode.open();
-      window.requestAnimationFrame(() => {
-        try {
-          homeSearchInputRef.current?.focus?.();
-        } catch {
-          // ignore
-        }
-      });
-    };
-    window.addEventListener("judo:dust-intro-tap", onTap);
-    return () => window.removeEventListener("judo:dust-intro-tap", onTap);
-  }, [homeSearchMode]);
 
   const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
 
@@ -6215,6 +6178,28 @@ const handleClearSearch = () => {
   resetCourseSearch();
 };
 
+  const handleLogoHomeClick = useCallback(() => {
+    if (location.pathname !== "/") {
+      navigate("/", { replace: true });
+      return;
+    }
+    homeSearchMode.close();
+    handleClearSearch();
+    setSelectedCurators([]);
+    setShowAll(true);
+    setShowSavedOnly(false);
+    setLegendCategory(null);
+    setSituationFolderFilter(null);
+    setMutualSearchPanelOpen(false);
+    if (homeCourseBrowse) clearHomeCourseBrowse();
+  }, [
+    location.pathname,
+    navigate,
+    homeSearchMode,
+    homeCourseBrowse,
+    clearHomeCourseBrowse,
+  ]);
+
   const focusCuratorPlaceOnMap = useCallback(
     async (curatorSource, rawPlace) => {
       if (!curatorSource || !rawPlace) return;
@@ -9491,12 +9476,10 @@ const handleClearSearch = () => {
           <div style={styles.headerTopRow}>
             <button
               type="button"
-              onClick={() => {
-                window.location.href = "/";
-              }}
+              onClick={handleLogoHomeClick}
               style={styles.logoHomeButton}
-              title="홈(새로고침)"
-              aria-label="홈으로 이동하여 새로고침"
+              title="홈으로"
+              aria-label="홈으로 이동"
             >
               JUDO
             </button>

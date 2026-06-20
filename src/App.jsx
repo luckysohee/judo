@@ -17,7 +17,6 @@ import CourseDetailPage from "./pages/Courses/CourseDetailPage";
 import CompletedCoursesPage from "./pages/CompletedCoursesPage";
 import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay";
 import EntrySplash from "./components/SplashScreen/EntrySplash";
-import HomeEntryIntro from "./components/Home/HomeEntryIntro";
 import { warmupHomeMapBoot } from "./utils/warmupHomeMapBoot";
 
 const AdminHubPage = lazyWithRetry(() => import("./pages/AdminHubPage"));
@@ -64,7 +63,6 @@ function App() {
     <ToastProvider>
     <CourseCompletionOverlay />
     <EntrySplash />
-    <HomeEntryIntro />
     <PostLoginAdminRedirect />
     <Routes>
       <Route path="/" element={<Lazy><Home /></Lazy>} />

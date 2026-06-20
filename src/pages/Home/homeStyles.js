@@ -38,60 +38,6 @@ export const styles = {
     minHeight: 0,
     overflow: "hidden",
   },
-  /** 첫 진입만 — 지도 블러 스크림 + 중앙 카피 (fixed로 지도 레이어 위 확실히 덮음) */
-  homeDustIntroOverlay: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 95000,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "auto",
-    cursor: "pointer",
-    padding: "24px 20px",
-    overflow: "hidden",
-  },
-  homeDustIntroBackdrop: {
-    position: "absolute",
-    inset: 0,
-    background: "rgba(248, 250, 252, 0.58)",
-    WebkitBackdropFilter: "blur(20px) saturate(1.08)",
-    backdropFilter: "blur(20px) saturate(1.08)",
-    willChange: "opacity",
-  },
-  homeDustIntroInner: {
-    position: "relative",
-    zIndex: 1,
-    textAlign: "center",
-    maxWidth: 360,
-    width: "100%",
-    willChange: "opacity, transform",
-  },
-  homeDustIntroTextCard: {
-    margin: "0 auto",
-    padding: "22px 26px",
-    borderRadius: 20,
-    background: "rgba(255, 255, 255, 0.94)",
-    boxShadow:
-      "0 4px 24px rgba(15, 23, 42, 0.08), 0 16px 48px rgba(15, 23, 42, 0.1)",
-    border: "1px solid rgba(255, 255, 255, 0.9)",
-  },
-  homeDustIntroTitle: {
-    margin: 0,
-    fontSize: "clamp(19px, 4.8vw, 23px)",
-    fontWeight: 800,
-    letterSpacing: "-0.035em",
-    color: "#0f172a",
-    lineHeight: 1.35,
-  },
-  homeDustIntroSub: {
-    margin: "12px 0 0",
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#475569",
-    letterSpacing: "-0.01em",
-    lineHeight: 1.45,
-  },
   courseAddHalfStepFloatingBtn: {
     position: "absolute",
     right: "14px",
@@ -213,7 +159,7 @@ export const styles = {
     textShadow: "0 1px 0 rgba(255,255,255,0.8)",
   },
 
-  /** 로고 = 홈 전체 새로고침(상태 초기화) — 옆 칩보다 크게, 헤더 행 세로 중앙 정렬 */
+  /** 로고 = 홈으로(소프트 이동·상태 초기화) — 새로고침·스플래시 없음 */
   logoHomeButton: {
     margin: 0,
     padding: 0,

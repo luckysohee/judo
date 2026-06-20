@@ -387,8 +387,6 @@ function searchMapBottomChromePx() {
   );
 }
 
-const HOME_CENTER_DUST_INTRO_KEY = "judo_home_center_dust_intro_v3";
-
 /** KST 기준 검색바 placeholder — 오후 / 밤 / 그 외 */
 function getHomeSearchPlaceholderKst(homeSearchChannel) {
   let hour;
@@ -1200,7 +1198,6 @@ export {
   SEONGSU_MAP_CENTER,
   defaultHomeMapViewportBounds,
   searchMapBottomChromePx,
-  HOME_CENTER_DUST_INTRO_KEY,
   getHomeSearchPlaceholderKst,
   COURSE_SECOND_FIND_DISTANCE_OPTIONS,
   AI_API_BASE,
