@@ -1,5 +1,8 @@
 import { padLatLngBounds } from "./fetchCuratorPlacesInBounds";
-import { getHomeMapViewportPlaceLimit } from "./homeMapViewportLimit";
+import {
+  getHomeMapViewportPlaceLimit,
+  HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT,
+} from "./homeMapViewportLimit";
 
 /** MapView `DEFAULT_MAP_CENTER` 와 동일 */
 export const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
@@ -53,10 +56,11 @@ export function computeHomeViewportCacheKey(
   };
 }
 
-/** 성수 첫 진입(level 5) 세션 캐시 키 — 다른 뷰포트 캐시는 첫 화면에 쓰지 않음 */
+/** 성수 첫 진입(level 5) 세션 캐시 키 — boot limit(40)과 fetch·prefetch 키 일치 */
 export function getSeongsuBootViewportCacheKey(mapLevel = 5) {
   return computeHomeViewportCacheKey(
     defaultHomeMapViewportBounds(mapLevel),
     mapLevel,
+    { limit: HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT },
   )?.cacheKey;
 }

@@ -1485,6 +1485,7 @@ export default function Home() {
           }
         } catch (e) {
           console.error("❌ 뷰포트 추천 로드 실패:", e);
+          bootViewportLoadStartedRef.current = false;
           return;
         } finally {
           mapViewportFetchInFlightRef.current = Math.max(
@@ -1526,17 +1527,6 @@ export default function Home() {
           setMapViewportDbLoading(false);
         }
         return;
-      }
-
-      if (
-        isBootViewport &&
-        !cached &&
-        Array.isArray(plainRows) &&
-        plainRows.length > 0
-      ) {
-        const plainPlaces = formatBoundsPlaceRowsForMap(plainRows);
-        setDbPlaces(plainPlaces);
-        emitMapMarkersReady(plainPlaces.length, { phase: "plain" });
       }
 
       const filtered = filterJoinRowsToBounds(joinResult.rows || [], padded);
@@ -4264,6 +4254,7 @@ export default function Home() {
       const computed = computeHomeViewportCacheKey(
         defaultHomeMapViewportBounds(5),
         5,
+        { limit: HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT },
       );
       if (computed) {
         lastFetchedViewportRef.current = {
