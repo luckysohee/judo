@@ -1,4 +1,16 @@
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
+import { createTtlCache } from "./simpleTtlCache.js";
+
+/** 동일 bbox 재요청·warmup+Home 동시 호출 완화 (인스턴스 메모리) */
+const PLACES_IN_BOUNDS_CACHE_TTL_MS = 90 * 1000;
+const placesInBoundsCache = createTtlCache(160, PLACES_IN_BOUNDS_CACHE_TTL_MS);
+/** @type {Map<string, Promise<object>>} */
+const placesInBoundsInflight = new Map();
+
+function boundsCacheKey(south, west, north, east, limit) {
+  const r4 = (n) => Number(n).toFixed(4);
+  return `${r4(south)}_${r4(west)}_${r4(north)}_${r4(east)}_${limit}`;
+}
 
 async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit }) {
   const placesSelectVariants = [
@@ -126,6 +138,74 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
   return { places, joinRows, error: null };
 }
 
+async function loadPlacesInBoundsPayload(sb, { south, west, north, east, limit }) {
+  let data = null;
+  let error = null;
+  try {
+    const rpcRes = await sb.rpc("get_places_in_bounds", {
+      south,
+      west,
+      north,
+      east,
+      p_limit: limit,
+    });
+    data = rpcRes.data;
+    error = rpcRes.error;
+  } catch (e) {
+    error = e;
+    console.warn("get_places_in_bounds thrown", e?.message || e);
+  }
+
+  if (error) {
+    console.error("get_places_in_bounds", error);
+    const msg = error.message || String(error);
+    const timedOut =
+      error?.name === "AbortError" ||
+      error?.name === "TimeoutError" ||
+      /aborted|timeout/i.test(msg);
+    if (/bounds_too_large/i.test(msg)) {
+      return { error: "bounds_too_large", timedOut: false };
+    }
+    const fallback = await fetchPlacesInBoundsFallback(sb, {
+      south,
+      west,
+      north,
+      east,
+      limit,
+    });
+    if (fallback.error) {
+      console.error("get_places_in_bounds fallback_failed", fallback.error);
+      return {
+        error: timedOut
+          ? "places query timed out — check Supabase/Railway env"
+          : msg,
+        timedOut,
+      };
+    }
+    return {
+      ok: true,
+      places: fallback.places,
+      join_rows: fallback.joinRows,
+      limit,
+      fallback: true,
+    };
+  }
+
+  if (!data || typeof data !== "object") {
+    return { error: "empty rpc payload", timedOut: false };
+  }
+
+  const places = Array.isArray(data.places) ? data.places : [];
+  const joinRows = Array.isArray(data.join_rows) ? data.join_rows : [];
+
+  return {
+    ok: true,
+    places,
+    join_rows: joinRows,
+    limit,
+  };
+}
+
 /**
  * GET /api/places-in-bounds?south=&west=&north=&east=&limit=
  * Supabase RPC `get_places_in_bounds` — service role 전용.
@@ -149,77 +229,60 @@ export async function handlePlacesInBounds(req, res) {
     Math.max(1, Number.isFinite(rawLim) ? Math.floor(rawLim) : 80),
   );
 
-  const { client: sb, error: envErr } = createSupabaseServiceClient();
-  if (envErr || !sb) {
-    return res.status(503).json({
-      ok: false,
-      message:
-        "Supabase service role 키가 server 환경변수에 없어요 (SUPABASE_SERVICE_ROLE_KEY)",
-    });
+  const cacheKey = boundsCacheKey(south, west, north, east, limit);
+  const cached = placesInBoundsCache.get(cacheKey);
+  if (cached) {
+    return res.json({ ...cached, cached: true });
   }
 
-  let data = null;
-  let error = null;
-  try {
-    const res = await sb.rpc("get_places_in_bounds", {
-      south,
-      west,
-      north,
-      east,
-      p_limit: limit,
-    });
-    data = res.data;
-    error = res.error;
-  } catch (e) {
-    error = e;
-    console.warn("get_places_in_bounds thrown", e?.message || e);
-  }
+  let inflight = placesInBoundsInflight.get(cacheKey);
+  if (!inflight) {
+    inflight = (async () => {
+      const { client: sb, error: envErr } = createSupabaseServiceClient();
+      if (envErr || !sb) {
+        return {
+          status: 503,
+          body: {
+            ok: false,
+            message:
+              "Supabase service role 키가 server 환경변수에 없어요 (SUPABASE_SERVICE_ROLE_KEY)",
+          },
+        };
+      }
 
-  if (error) {
-    console.error("get_places_in_bounds", error);
-    const msg = error.message || String(error);
-    const timedOut =
-      error?.name === "AbortError" ||
-      error?.name === "TimeoutError" ||
-      /aborted|timeout/i.test(msg);
-    if (/bounds_too_large/i.test(msg)) {
-      return res.status(400).json({ ok: false, message: "bounds too large" });
-    }
-    // 구버전 DB 함수(cp.menu_reason 미존재 등)에서는 폴백 조회로 서비스 지속.
-    const fallback = await fetchPlacesInBoundsFallback(sb, {
-      south,
-      west,
-      north,
-      east,
-      limit,
-    });
-    if (fallback.error) {
-      console.error("get_places_in_bounds fallback_failed", fallback.error);
-      return res.status(timedOut ? 504 : 500).json({
-        ok: false,
-        message: timedOut ? "places query timed out — check Supabase/Railway env" : msg,
+      const payload = await loadPlacesInBoundsPayload(sb, {
+        south,
+        west,
+        north,
+        east,
+        limit,
       });
-    }
-    return res.json({
-      ok: true,
-      places: fallback.places,
-      join_rows: fallback.joinRows,
-      limit,
-      fallback: true,
+
+      if (payload.ok) {
+        placesInBoundsCache.set(cacheKey, payload);
+        return { status: 200, body: payload };
+      }
+
+      if (payload.error === "bounds_too_large") {
+        return {
+          status: 400,
+          body: { ok: false, message: "bounds too large" },
+        };
+      }
+
+      return {
+        status: payload.timedOut ? 504 : 500,
+        body: {
+          ok: false,
+          message: payload.error || "places-in-bounds failed",
+        },
+      };
+    })().finally(() => {
+      placesInBoundsInflight.delete(cacheKey);
     });
+    placesInBoundsInflight.set(cacheKey, inflight);
   }
 
-  if (!data || typeof data !== "object") {
-    return res.status(500).json({ ok: false, message: "empty rpc payload" });
-  }
-
-  const places = Array.isArray(data.places) ? data.places : [];
-  const joinRows = Array.isArray(data.join_rows) ? data.join_rows : [];
-
-  return res.json({
-    ok: true,
-    places,
-    join_rows: joinRows,
-    limit,
-  });
+  const result = await inflight;
+  return res.status(result.status).json(result.body);
 }

@@ -218,6 +218,7 @@ import {
 import { fetchPlacesForCuratorPage } from "../../utils/supabasePlaces";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
+  getHomeViewportPrefetchCacheKey,
   peekHomeViewportPrefetch,
   takeHomeViewportPrefetch,
 } from "../../utils/warmupHomeMapBoot";
@@ -1446,7 +1447,11 @@ export default function Home() {
         }
         try {
           let usedPrefetch = false;
-          const prefetchPromise = peekHomeViewportPrefetch();
+          const prefetchCacheKey = getHomeViewportPrefetchCacheKey();
+          const prefetchPromise =
+            prefetchCacheKey && prefetchCacheKey === cacheKey
+              ? peekHomeViewportPrefetch()
+              : null;
           if (prefetchPromise) {
             const prefetched = await prefetchPromise;
             if (
@@ -1617,10 +1622,6 @@ export default function Home() {
         return;
       }
 
-      const seq = ++mapDensityLoadSeqRef.current;
-      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.06);
-      if (!padded) return;
-
       const level =
         typeof mapLevel === "number" && Number.isFinite(mapLevel)
           ? mapLevel
@@ -1628,6 +1629,16 @@ export default function Home() {
               Number.isFinite(lastMapLevelRef.current)
             ? lastMapLevelRef.current
             : 8;
+
+      /** level 5 첫 화면은 상세 마커만 — 밀도 API 불필요 */
+      if (level < HOME_MAP_DENSITY_LAYER_MIN_LEVEL) {
+        setMapDensityClusters([]);
+        return;
+      }
+
+      const seq = ++mapDensityLoadSeqRef.current;
+      const padded = padLatLngBounds(boundsRaw.sw, boundsRaw.ne, 0.06);
+      if (!padded) return;
 
       const r3 = (n) => Number(n).toFixed(3);
       const cacheKey = `${r3(padded.sw.lat)}_${r3(padded.sw.lng)}_${r3(padded.ne.lat)}_${r3(padded.ne.lng)}_${level}`;
@@ -1680,6 +1691,16 @@ export default function Home() {
 
   const scheduleDbPlacesForBounds = useCallback(
     (boundsRaw, mapLevel) => {
+      if (String(query || "").trim()) return;
+
+      /** mount 부트 로드 진행 중 — idle bbox로 2번째 places-in-bounds 방지 */
+      if (
+        bootViewportLoadStartedRef.current &&
+        !mapMarkersBootstrappedRef.current
+      ) {
+        return;
+      }
+
       const widenForSituation = Boolean(situationFolderFilterRef.current);
       const level =
         typeof mapLevel === "number" && Number.isFinite(mapLevel)
@@ -1691,6 +1712,7 @@ export default function Home() {
       const limit = getHomeMapViewportPlaceLimit(level, { widenForSituation });
       const skipPayload = {
         boundsRaw,
+        mapLevel: level,
         limit,
         hasCuratorChipFilter: false,
         widenForSituation,
@@ -4269,7 +4291,6 @@ export default function Home() {
     lastMapBoundsRef.current = defaultBounds;
     lastMapLevelRef.current = 5;
     void loadDbPlacesForViewport({ boundsRaw: defaultBounds, mapLevel: 5 });
-    void loadMapDensityForViewport({ boundsRaw: defaultBounds, mapLevel: 7 });
     /** mount-only warm start */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -4284,7 +4305,13 @@ export default function Home() {
         setMapZoomLevel(level);
       }
       if (bounds?.sw && bounds?.ne) {
-        debouncedLoadMapDensity({ boundsRaw: bounds, mapLevel: level });
+        if (
+          typeof level === "number" &&
+          Number.isFinite(level) &&
+          level >= HOME_MAP_DENSITY_LAYER_MIN_LEVEL
+        ) {
+          debouncedLoadMapDensity({ boundsRaw: bounds, mapLevel: level });
+        }
         scheduleDbPlacesForBounds(bounds, level);
       }
       if (

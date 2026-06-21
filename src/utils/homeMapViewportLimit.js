@@ -52,12 +52,11 @@ export function boundsFullyInside(inner, outer) {
 
 /**
  * 직전 fetch padded bbox 안이면 재요청 생략 (팬·미세 줌).
- * @param {{ boundsRaw: object, limit: number, hasCuratorChipFilter: boolean, widenForSituation: boolean, curatorCacheKey?: string }} next
+ * @param {{ boundsRaw: object, limit: number, mapLevel?: number, hasCuratorChipFilter: boolean, widenForSituation: boolean, curatorCacheKey?: string }} next
  * @param {{ padded: object, limit: number, hasCuratorChipFilter: boolean, widenForSituation: boolean, curatorCacheKey?: string } | null} last
  */
 export function shouldSkipMapViewportRefetch(next, last) {
   if (!last?.padded) return false;
-  if (next.limit !== last.limit) return false;
   if (next.hasCuratorChipFilter !== last.hasCuratorChipFilter) return false;
   if (next.widenForSituation !== last.widenForSituation) return false;
   if ((next.curatorCacheKey || "") !== (last.curatorCacheKey || "")) return false;
@@ -75,5 +74,14 @@ export function shouldSkipMapViewportRefetch(next, last) {
       lng: last.padded.ne.lng - lngSpan * margin,
     },
   };
-  return boundsFullyInside(next.boundsRaw, inner);
+  if (!boundsFullyInside(next.boundsRaw, inner)) return false;
+
+  if (next.limit <= last.limit) return true;
+
+  /** 부트 limit 40 → idle limit 120 — bbox 안이면 재요청 생략 (level 5 상세 마커 유지) */
+  const level =
+    typeof next.mapLevel === "number" && Number.isFinite(next.mapLevel)
+      ? next.mapLevel
+      : 6;
+  return level >= HOME_MAP_DENSITY_LAYER_MIN_LEVEL - 1 && level < 6;
 }

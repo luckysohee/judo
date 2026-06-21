@@ -35,6 +35,7 @@ describe("getHomeMapViewportPlaceLimit", () => {
         {
           boundsRaw: { sw: { lat: 37.52, lng: 127.02 }, ne: { lat: 37.58, lng: 127.08 } },
           limit: 120,
+          mapLevel: 5,
           hasCuratorChipFilter: false,
           widenForSituation: false,
         },
@@ -46,11 +47,33 @@ describe("getHomeMapViewportPlaceLimit", () => {
         {
           boundsRaw: { sw: { lat: 37.4, lng: 126.9 }, ne: { lat: 37.45, lng: 126.95 } },
           limit: 120,
+          mapLevel: 5,
           hasCuratorChipFilter: false,
           widenForSituation: false,
         },
         last,
       ),
     ).toBe(false);
+  });
+
+  it("skips boot→idle refetch when bbox inside but idle asks higher limit at level 5", () => {
+    const last = {
+      padded: { sw: { lat: 37.5, lng: 127.0 }, ne: { lat: 37.6, lng: 127.1 } },
+      limit: 40,
+      hasCuratorChipFilter: false,
+      widenForSituation: false,
+    };
+    expect(
+      shouldSkipMapViewportRefetch(
+        {
+          boundsRaw: { sw: { lat: 37.52, lng: 127.02 }, ne: { lat: 37.58, lng: 127.08 } },
+          limit: 120,
+          mapLevel: 5,
+          hasCuratorChipFilter: false,
+          widenForSituation: false,
+        },
+        last,
+      ),
+    ).toBe(true);
   });
 });

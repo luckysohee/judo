@@ -1,5 +1,4 @@
 import { fetchMapPlacesInBounds } from "../api/placesInBounds";
-import { fetchMapPlaceDensityInBounds } from "../api/placesDensityInBounds";
 import { getAiApiBaseUrl } from "./apiBaseUrl";
 import { loadKakaoMapsSdk } from "./loadKakaoMapsSdk";
 import { formatBoundsPlaceRowsForMap } from "./formatBoundsPlaceRowsForMap";
@@ -74,20 +73,18 @@ function startViewportPrefetch() {
   return viewportPrefetchPromise;
 }
 
-/** 앱 마운트 직후 — Kakao SDK + 성수 기본 bbox places·밀도 병렬 선요청 */
+/** 앱 마운트 직후 — Kakao SDK + 성수 bbox places-in-bounds 선요청 (밀도는 level≥6에서 Home이 요청) */
 export function warmupHomeMapBoot() {
   loadKakaoMapsSdk().catch(() => {});
   void import("../pages/Home/Home");
   void import("../components/Map/MapView");
   void import("./createMarker");
   startViewportPrefetch();
-  const params = buildInitialViewportPrefetchParams();
-  if (params?.fetchBounds) {
-    void fetchMapPlaceDensityInBounds(
-      { ...params.fetchBounds, level: 7 },
-      getAiApiBaseUrl(),
-    ).catch(() => {});
-  }
+}
+
+/** boot prefetch cacheKey — Home `loadDbPlacesForViewport`와 일치할 때만 await */
+export function getHomeViewportPrefetchCacheKey() {
+  return buildInitialViewportPrefetchParams()?.cacheKey ?? null;
 }
 
 /** @returns {Promise<{ cacheKey: string, plainRows: object[], joinRows: object[] } | null> | null} */
