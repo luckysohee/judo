@@ -157,17 +157,8 @@ export function buildCuratorPinSvg({
       ? `${halo}${liveRing}${pinBody}${savedDot}${overlapBadge}${liveBadge}${courseRouteBadge}${mapShortCaptionBadge}${checkinMarkerDecorationsSvg}`
       : `<g transform="translate(${pinShift},0)">${halo}${liveRing}${pinBody}${savedDot}${overlapBadge}${liveBadge}${courseRouteBadge}${mapShortCaptionBadge}${checkinMarkerDecorationsSvg}</g>`;
 
-  /**
-   * 카카오맵(모바일)은 동일 data:image/svg+xml URL 마커를 1개로 합쳐 그린다.
-   * plain 핀은 색·라벨이 모두 같아 URL이 동일 → 장소별 metadata로 URL을 고유화한다.
-   */
-  const instanceSalt = escapeSvgText(
-    String(place?.id ?? place?.name ?? `${tier.fill}`).slice(0, 96)
-  );
-
   const svg = `
     ${openMarkerSvgDoc(totalW, totalH)}
-      <metadata>${instanceSalt}</metadata>
       ${markerGroundShadowSvg(totalW / 2, pinH, pinW / 2, shadowOpacity + 0.05)}
       ${pinGraphics}
       ${venueLabel.svg}

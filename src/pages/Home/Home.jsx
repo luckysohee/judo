@@ -97,6 +97,7 @@ import {
 import { buildCuratorSearchHighlights } from "../../utils/searchCuratorHighlights";
 import { getSearchLoadingMessage } from "../../utils/searchLoadingMessage";
 import { fetchSearchIntentAssist } from "../../utils/searchAIAssistant";
+import { getApiAuthHeaders } from "../../utils/apiAuthHeaders";
 import { buildExpansionSuggestions, pickAreaLabelFromQuery } from "../../utils/searchExpansionSuggestions";
 import { insertSearchLog, insertPlaceClickLog } from "../../utils/searchAnalytics";
 import {
@@ -757,7 +758,7 @@ export default function Home() {
         : "/api/blog-reviews";
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ query: q }),
         signal: controller.signal,
       });

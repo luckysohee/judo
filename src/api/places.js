@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { kakaoNumericPlaceId, resolvePlaceWgs84 } from "../utils/placeCoords";
+import { searchKakaoKeywordViaProxy } from "../utils/kakaoAPIProxy.js";
 
 /** Kakao 지도 level(숫자 클수록 멀리 봄) → bbox places 상한 */
 export function getLimitByZoom(level) {
@@ -186,8 +187,9 @@ export async function searchPlacesForCourse(query, options = {}) {
   return [...withCoords, ...withoutCoords].slice(0, limit);
 }
 
+
 /**
- * 카카오 로컬 키워드 검색 (REST). `VITE_KAKAO_REST_API_KEY` 없으면 `[]`.
+ * 카카오 로컬 키워드 검색 (서버 프록시). 키는 브라우저에 노출되지 않음.
  * @param {string} query
  * @param {number} [size]
  * @returns {Promise<object[]>}
@@ -196,22 +198,14 @@ export async function fetchKakaoKeywordDocumentsForCourseEditor(
   query,
   size = 12
 ) {
-  const key = import.meta.env.VITE_KAKAO_REST_API_KEY;
   const raw = String(query ?? "").trim();
-  if (!key || raw.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) return [];
-  const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
-  url.searchParams.set("query", raw.slice(0, 100));
-  url.searchParams.set(
-    "size",
-    String(Math.min(15, Math.max(1, Math.floor(size))))
-  );
+  if (raw.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) return [];
   try {
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `KakaoAK ${key}` },
+    const { documents } = await searchKakaoKeywordViaProxy({
+      query: raw.slice(0, 100),
+      size: Math.min(15, Math.max(1, Math.floor(size))),
     });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return Array.isArray(json.documents) ? json.documents : [];
+    return documents;
   } catch (e) {
     console.warn("[코스 카카오 검색]", e);
     return [];

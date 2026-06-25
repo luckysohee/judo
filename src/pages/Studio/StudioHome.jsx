@@ -63,6 +63,10 @@ import {
   getCuratorArchiveStats,
   normalizeCuratorArchiveStats,
 } from "../../api/courseCompletionStats";
+import {
+  searchKakaoAddressViaProxy,
+  searchKakaoKeywordViaProxy,
+} from "../../utils/kakaoAPIProxy.js";
 
 /**
  * 스튜디오 상단 탭 표기 고정.
@@ -658,38 +662,17 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
   // 주소 검색 함수
   const searchAddress = async (query) => {
     console.log("🔍 검색 시작:", query);
-    
-    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
-    console.log("🔑 API 키 길이:", apiKey?.length || 0);
-
-    if (!apiKey) {
-      console.error("❌ 카카오 REST API 키가 없습니다.");
-      alert("카카오 API 키가 설정되지 않았습니다.");
-      return;
-    }
 
     try {
       console.log("📍 주소 검색 시도...");
-      // 주소 검색
-      const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}&size=1`, {
-        headers: {
-          "Authorization": `KakaoAK ${apiKey}`
-        }
+      const { documents: addressDocs } = await searchKakaoAddressViaProxy({
+        query,
+        size: 1,
       });
-      
-      console.log("📋 주소 검색 응답 상태:", addressResponse.status);
-      
-      if (!addressResponse.ok) {
-        console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
-        throw new Error(`주소 검색 실패: ${addressResponse.status}`);
-      }
+      console.log("📋 주소 검색 결과:", addressDocs);
 
-      const addressData = await addressResponse.json();
-      console.log("📋 주소 검색 결과:", addressData);
-
-      if (addressData.documents && addressData.documents.length > 0) {
-        const firstResult = addressData.documents[0];
+      if (addressDocs.length > 0) {
+        const firstResult = addressDocs[0];
         const lat = parseFloat(firstResult.y);
         const lng = parseFloat(firstResult.x);
         
@@ -707,24 +690,14 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
       } else {
         // 키워드 검색 (장소명으로 검색)
         console.log("🔍 키워드 검색 시도...");
-        const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=1`, {
-          headers: {
-            "Authorization": `KakaoAK ${apiKey}`
-          }
+        const { documents: keywordDocs } = await searchKakaoKeywordViaProxy({
+          query,
+          size: 1,
         });
-        
-        console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
-        
-        if (!keywordResponse.ok) {
-          console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
-          throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
-        }
+        console.log("📋 키워드 검색 결과:", keywordDocs);
 
-        const keywordData = await keywordResponse.json();
-        console.log("📋 키워드 검색 결과:", keywordData);
-
-        if (keywordData.documents && keywordData.documents.length > 0) {
-          const firstResult = keywordData.documents[0];
+        if (keywordDocs.length > 0) {
+          const firstResult = keywordDocs[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
@@ -812,20 +785,11 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
       return;
     }
 
-    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    if (!apiKey) return;
-
     try {
-      // 키워드 검색으로 연관 장소 찾기
-      const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=5`, {
-        headers: {
-          "Authorization": `KakaoAK ${apiKey}`
-        }
-      });
+      const { documents } = await searchKakaoKeywordViaProxy({ query, size: 5 });
 
-      if (response.ok) {
-        const data = await response.json();
-        const suggestions = data.documents.map(doc => ({
+      if (documents.length > 0) {
+        const suggestions = documents.map(doc => ({
           place_name: doc.place_name,
           address_name: doc.address_name || doc.road_address_name,
           lat: parseFloat(doc.y),
@@ -1822,30 +1786,10 @@ export default function StudioHome() {
     setIsSearchingSuggestions(true);
     
     try {
-      const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-      
-      if (!apiKey) {
-        console.error("❌ 카카오 REST API 키가 없습니다.");
-        setSearchSuggestions([]);
-        setShowSuggestions(false);
-        return;
-      }
-      
-      // 카카오 장소 검색 API (자동완성용)
-      const response = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=5`, {
-        headers: {
-          "Authorization": `KakaoAK ${apiKey}`
-        }
-      });
+      const { documents } = await searchKakaoKeywordViaProxy({ query, size: 5 });
 
-      if (!response.ok) {
-        throw new Error(`검색 실패: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.documents && data.documents.length > 0) {
-        const suggestions = data.documents.map(doc => ({
+      if (documents.length > 0) {
+        const suggestions = documents.map(doc => ({
           place_name: doc.place_name,
           address_name: doc.address_name || doc.road_address_name,
           category_name: doc.category_name,
@@ -4152,15 +4096,6 @@ export default function StudioHome() {
     }
     
     console.log("🔍 StudioHome 검색 시작:", formData.name_address);
-    
-    const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-    console.log("🔑 API 키 확인:", apiKey ? "있음" : "없음");
-
-    if (!apiKey) {
-      console.error("❌ 카카오 REST API 키가 없습니다.");
-      alert("카카오 API 키가 설정되지 않았습니다.");
-      return;
-    }
 
     const preferredKakaoId =
       formData.kakao_place_id &&
@@ -4174,24 +4109,14 @@ export default function StudioHome() {
 
       if (!skipAddressSearch) {
         console.log("📍 주소 검색 시도...");
-        const addressResponse = await fetch(`https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(formData.name_address)}&size=1`, {
-          headers: {
-            "Authorization": `KakaoAK ${apiKey}`
-          }
+        const { documents: addressDocs } = await searchKakaoAddressViaProxy({
+          query: formData.name_address,
+          size: 1,
         });
-        
-        console.log("📋 주소 검색 응답 상태:", addressResponse.status);
-        
-        if (!addressResponse.ok) {
-          console.error("❌ 주소 검색 실패:", addressResponse.status, addressResponse.statusText);
-          throw new Error(`주소 검색 실패: ${addressResponse.status}`);
-        }
+        console.log("📋 주소 검색 결과:", addressDocs);
 
-        const addressData = await addressResponse.json();
-        console.log("📋 주소 검색 결과:", addressData);
-
-        if (addressData.documents && addressData.documents.length > 0) {
-          const firstResult = addressData.documents[0];
+        if (addressDocs.length > 0) {
+          const firstResult = addressDocs[0];
           const lat = parseFloat(firstResult.y);
           const lng = parseFloat(firstResult.x);
           
@@ -4225,23 +4150,12 @@ export default function StudioHome() {
 
       // 키워드 검색 — size=1 이면 순위 1건만 와서 자동완성에서 고른 가게와 달라질 수 있음
       console.log("🔍 키워드 검색 시도...");
-      const keywordResponse = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(formData.name_address)}&size=15`, {
-        headers: {
-          "Authorization": `KakaoAK ${apiKey}`
-        }
+      const { documents: docs } = await searchKakaoKeywordViaProxy({
+        query: formData.name_address,
+        size: 15,
       });
-      
-      console.log("📋 키워드 검색 응답 상태:", keywordResponse.status);
-      
-      if (!keywordResponse.ok) {
-        console.error("❌ 키워드 검색 실패:", keywordResponse.status, keywordResponse.statusText);
-        throw new Error(`키워드 검색 실패: ${keywordResponse.status}`);
-      }
+      console.log("📋 키워드 검색 결과:", docs);
 
-      const keywordData = await keywordResponse.json();
-      console.log("📋 키워드 검색 결과:", keywordData);
-
-      const docs = keywordData.documents || [];
       let chosen =
         preferredKakaoId != null
           ? docs.find((d) => String(d.id) === preferredKakaoId)

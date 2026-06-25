@@ -4,7 +4,12 @@ const fs = require('fs');
 const axios = require('axios');
 
 // 카카오 REST API 키
-const KAKAO_REST_API_KEY = 'c11926540ef6a01a9447ef114af07c5d';
+const KAKAO_REST_API_KEY =
+  process.env.KAKAO_REST_API_KEY || process.env.VITE_KAKAO_REST_API_KEY || "";
+if (!KAKAO_REST_API_KEY) {
+  console.error("KAKAO_REST_API_KEY 환경변수가 필요합니다.");
+  process.exit(1);
+}
 const CURATOR_ID = '43b3eb72-a835-4b5b-b305-da4708b53b5c';
 
 // 카카오 API로 장소 검색 (상호명으로)

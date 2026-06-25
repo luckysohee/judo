@@ -3,8 +3,13 @@
 const fs = require('fs');
 const axios = require('axios');
 
-// 카카오 REST API 키
-const KAKAO_REST_API_KEY = 'c11926540ef6a01a9447ef114af07c5d';
+// 카카오 REST API 키 — .env / 환경변수 (저장소에 키 넣지 말 것)
+const KAKAO_REST_API_KEY =
+  process.env.KAKAO_REST_API_KEY || process.env.VITE_KAKAO_REST_API_KEY || "";
+if (!KAKAO_REST_API_KEY) {
+  console.error("KAKAO_REST_API_KEY 환경변수가 필요합니다.");
+  process.exit(1);
+}
 
 // 카카오 API로 장소 검색 (display_name으로)
 async function searchPlaceByDisplayName(displayName, lat, lng) {

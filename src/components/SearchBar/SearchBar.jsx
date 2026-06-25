@@ -12,6 +12,7 @@ import {
   isMealFocusedKakaoQuery,
 } from "../../utils/filterKakaoKeywordResultsForMealIntent";
 import { searchKakaoKeywordViaProxy } from "../../utils/kakaoAPIProxy";
+import { getApiAuthHeaders } from "../../utils/apiAuthHeaders";
 import { HOME_UI_DOCK_RADIUS_PX } from "../../utils/homeHotStripLayout";
 
 /** 왼쪽 검색 방식 버튼 순환: 자동 → 빠른(카카오) → AI 고정 */
@@ -545,7 +546,7 @@ export default function SearchBar({
     try {
       const response = await fetch('/api/nearby-with-blog', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getApiAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           places: uniqueResults.slice(0, 30),
           userQuery: '주변 술집',
