@@ -17,6 +17,8 @@
  * 서버: POST /api/search-intent-assist — kakaoKeywordHint, broadKakaoKeyword(넓힌 키워드), fallbackSearchIdeas 등
  */
 
+import { getApiAuthHeaders } from "./apiAuthHeaders.js";
+
 const AI_API_BASE =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_AI_API_BASE_URL
     ? String(import.meta.env.VITE_AI_API_BASE_URL).replace(/\/$/, "")
@@ -34,7 +36,7 @@ export async function fetchSearchIntentAssist(query) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ query: q }),
     });
 

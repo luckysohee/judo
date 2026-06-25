@@ -1,3 +1,5 @@
+import { searchKakaoKeywordViaProxy } from "./kakaoAPIProxy.js";
+
 const kakaoCoordsCache = new Map();
 const KAKAO_COORDS_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -11,9 +13,8 @@ export async function fetchKakaoCoordsByPlaceId({
   address,
   bypassCache = false,
 }) {
-  const key = import.meta.env.VITE_KAKAO_REST_API_KEY;
   const idStr = kakaoPlaceId != null ? String(kakaoPlaceId).trim() : "";
-  if (!key || !idStr || !/^\d+$/.test(idStr)) return null;
+  if (!idStr || !/^\d+$/.test(idStr)) return null;
 
   if (!bypassCache) {
     const hit = kakaoCoordsCache.get(idStr);
@@ -33,16 +34,10 @@ export async function fetchKakaoCoordsByPlaceId({
 
   for (const query of uniq) {
     try {
-      const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
-      url.searchParams.set("query", query);
-      url.searchParams.set("size", "15");
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `KakaoAK ${key}` },
+      const { documents: docs } = await searchKakaoKeywordViaProxy({
+        query,
+        size: 15,
       });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const docs = Array.isArray(data.documents) ? data.documents : [];
       const hit = docs.find((d) => String(d.id) === idStr);
       if (!hit) continue;
       const lat = parseFloat(hit.y);

@@ -1689,8 +1689,6 @@ const MapView = forwardRef(({
     );
 
     const nextMarkers = [];
-    let markerErrorCount = 0;
-    let firstMarkerError = null;
     for (const p of validPlaces) {
       const coords = resolvePlaceCoords(p);
       if (
@@ -1817,9 +1815,7 @@ const MapView = forwardRef(({
           }, 200);
         },
         });
-      } catch (e) {
-        markerErrorCount += 1;
-        if (!firstMarkerError) firstMarkerError = e;
+      } catch {
         continue;
       }
 
@@ -1837,34 +1833,6 @@ const MapView = forwardRef(({
 
     markersRef.current = nextMarkers;
     if (clustererRef.current) clustererRef.current.addMarkers(clusterMarkers);
-
-    if (import.meta.env.DEV) {
-      const onMap = nextMarkers.filter((m) => {
-        try {
-          return typeof m?.getMap === "function" && m.getMap() != null;
-        } catch {
-          return false;
-        }
-      }).length;
-      const visibleNow = getVisiblePlaceCountInBounds(
-        mapRef.current,
-        validPlaces
-      );
-      console.log("[MapView] markers", {
-        placesIn: places.length,
-        geoOk: validPlaces.length,
-        created: nextMarkers.length,
-        onMap,
-        inCluster: useCluster ? clusterMarkers.length : 0,
-        visibleInBounds: visibleNow,
-        markerErrors: markerErrorCount,
-        useCluster,
-        rawLevel,
-      });
-      if (firstMarkerError) {
-        console.error("[MapView] 첫 마커 생성 오류:", firstMarkerError);
-      }
-    }
 
     // [수정 포인트] 데이터(places)가 실제로 바뀌었을 때만 지도의 전체 범위를 다시 잡습니다.
     // selectedPlace가 변해서(카드 열기/닫기) 이 Effect가 돌 때는 지도를 움직이지 않습니다.

@@ -150,7 +150,6 @@ console.log(
 }
 
 import express from "express";
-import cors from "cors";
 import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import OpenAI from "openai";
@@ -171,14 +170,16 @@ import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
+import { createCorsMiddleware, setupApiSecurity } from "./apiSecurity.js";
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 
 const kakaoPlaceDetailsCache = createTtlCache(800, 6 * 60 * 60 * 1000);
 
 const app = express();
-app.use(cors());
+app.use(createCorsMiddleware());
 app.use(express.json({ charset: 'utf-8' }));
 app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
+setupApiSecurity(app);
 
 const port = process.env.PORT || 4000;
 

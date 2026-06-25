@@ -1,3 +1,5 @@
+import { getApiAuthHeaders } from "./apiAuthHeaders.js";
+
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(
   /\/$/,
   ""
@@ -21,7 +23,7 @@ export async function fetchCourseComposeAssist(payload) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     });
     if (!res.ok) return null;
