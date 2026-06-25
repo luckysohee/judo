@@ -9382,6 +9382,15 @@ const handleClearSearch = () => {
               (Boolean(String(query || "").trim()) &&
                 kakaoTypingPreviewPlaces.length > 0)
             }
+            lockHomeDefaultViewport={
+              !isCourseMode &&
+              !homeRailCourseDrive &&
+              !preserveMapViewportSituationChip &&
+              !isAiSearching &&
+              aiRecommendedIds.length === 0 &&
+              !String(query || "").trim()
+            }
+            mapViewportLevel={mapZoomLevel}
             skipKoreaBBoxForCuratorPins={
               !isCourseMode &&
               !showSavedOnly &&

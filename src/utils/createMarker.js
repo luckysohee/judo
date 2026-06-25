@@ -1,4 +1,5 @@
 import { buildCuratorPinSvg } from "./curatorPinMarker.js";
+import { resolvePlaceWgs84 } from "./placeCoords.js";
 import {
   buildCourseVenueNameLabelForMarker,
   buildCourseVenueNameLabelSvg,
@@ -164,6 +165,18 @@ function escapeSvgText(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function uniqueMarkerImageFromSvg(svgString, width, height, offsetX, offsetY) {
+  if (!window.kakao?.maps?.MarkerImage) return null;
+  const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+  return new window.kakao.maps.MarkerImage(
+    encoded,
+    new window.kakao.maps.Size(width, height),
+    {
+      offset: new window.kakao.maps.Point(offsetX, offsetY),
+    },
+  );
 }
 
 function checkinMarkerDecorations(size, checkinMeta) {
@@ -539,16 +552,14 @@ function createMarkerImage(
       ${closeMarkerSvgDoc()}
     `;
     try {
-      if (window.kakao?.maps?.MarkerImage) {
-        const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
-        return new window.kakao.maps.MarkerImage(
-          encoded,
-          new window.kakao.maps.Size(totalW, totalH),
-          {
-            offset: new window.kakao.maps.Point(Math.round(cx), Math.round(cy)),
-          }
-        );
-      }
+      return uniqueMarkerImageFromSvg(
+        svgString,
+        totalW,
+        totalH,
+        Math.round(cx),
+        Math.round(cy),
+        place,
+      );
     } catch (e) {
       console.error("쩜오차 마커 이미지 생성 오류:", e);
     }
@@ -593,16 +604,14 @@ function createMarkerImage(
         ${countBadge}
       ${closeMarkerSvgDoc()}`;
       try {
-        if (window.kakao?.maps?.MarkerImage) {
-          const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(hotOnlySvg)}`;
-          return new window.kakao.maps.MarkerImage(
-            encoded,
-            new window.kakao.maps.Size(w, h),
-            {
-              offset: new window.kakao.maps.Point(Math.round(cx), anchorY),
-            }
-          );
-        }
+        return uniqueMarkerImageFromSvg(
+          hotOnlySvg,
+          w,
+          h,
+          Math.round(cx),
+          anchorY,
+          place,
+        );
       } catch (e) {
         console.error("핫 전용 마커 이미지 오류:", e);
       }
@@ -700,21 +709,18 @@ function createMarkerImage(
     
     // 카카오 마커 이미지 생성 — 앵커는 핀 끝(좌표). 맨 아래(상호 라벨 끝)로 두면 전부 북쪽으로 밀려 2시 방향처럼 보임
     try {
-      if (window.kakao?.maps?.MarkerImage) {
-        const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
-        return new window.kakao.maps.MarkerImage(
-          encoded,
-          new window.kakao.maps.Size(totalWidth, totalHeight),
-          {
-            offset: new window.kakao.maps.Point(totalWidth / 2, pinTipY),
-          }
-        );
-      }
+      return uniqueMarkerImageFromSvg(
+        svgString,
+        totalWidth,
+        totalHeight,
+        totalWidth / 2,
+        pinTipY,
+        place,
+      );
     } catch (error) {
       console.error('마커 이미지 생성 오류:', error);
     }
     
-    // fallback: 기본 마커 사용
     return null;
   }
 
@@ -752,7 +758,7 @@ function createMarkerImage(
   }
 
   const capForFolder = String(mapShortCaption || "").trim().slice(0, 8);
-  const svg = createMarkerSvg(
+  const svgRaw = createMarkerSvg(
     place,
     isSelected,
     savedColor,
@@ -761,7 +767,6 @@ function createMarkerImage(
     meta,
     capForFolder
   );
-  const encoded = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   const size = isSelected ? 48 : 38;
   const capBarH = !place?.isCoursePin && capForFolder ? 15 : 0;
   const venueLabel = buildCourseVenueNameLabelForMarker(
@@ -774,12 +779,13 @@ function createMarkerImage(
   const svgH = size + capBarH + venueLabel.height;
   const pinAnchorY = size + capBarH;
 
-  return new window.kakao.maps.MarkerImage(
-    encoded,
-    new window.kakao.maps.Size(svgW, svgH),
-    {
-      offset: new window.kakao.maps.Point(Math.round(svgW / 2), pinAnchorY),
-    }
+  return uniqueMarkerImageFromSvg(
+    svgRaw,
+    svgW,
+    svgH,
+    Math.round(svgW / 2),
+    pinAnchorY,
+    place,
   );
 }
 
@@ -807,22 +813,37 @@ export default function createMarker({
   mapShortCaption = "",
   onClick,
 }) {
+  if (!window.kakao?.maps?.Marker || !window.kakao?.maps?.LatLng) {
+    return null;
+  }
+
+  const wgs = resolvePlaceWgs84(place);
+  const lat = wgs?.lat ?? Number(place?.lat);
+  const lng = wgs?.lng ?? Number(place?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
   const meta = {
     checkinCount: Number(checkinMeta?.checkinCount) || 0,
     showHotFlame: Boolean(checkinMeta?.showHotFlame),
   };
+
+  const markerPlace = { ...place, lat, lng };
+  const markerImage = createMarkerImage(
+    markerPlace,
+    isSelected,
+    savedColor,
+    isLive,
+    userFolders,
+    meta,
+    mapShortCaption,
+  );
+
   const marker = new window.kakao.maps.Marker({
     map,
-    position: new window.kakao.maps.LatLng(place.lat, place.lng),
-    image: createMarkerImage(
-      place,
-      isSelected,
-      savedColor,
-      isLive,
-      userFolders,
-      meta,
-      mapShortCaption
-    ),
+    position: new window.kakao.maps.LatLng(lat, lng),
+    ...(markerImage ? { image: markerImage } : {}),
     zIndex: isSelected
       ? 22
       : meta.showHotFlame || meta.checkinCount > 0
