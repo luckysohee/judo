@@ -504,6 +504,13 @@ const MapView = forwardRef(({
    */
   preserveViewportOnPlacesChange = false,
   /**
+   * 홈 기본 화면(검색·코스·상황칩 없음) — 뷰포트 DB 120개 마커가 들어와도 auto-fit으로
+   * 줌아웃하지 않고 첫 진입 성수 레벨5를 고정한다.
+   */
+  lockHomeDefaultViewport = false,
+  /** Kakao 지도 level — 줌 변경 시 클러스터↔상세 마커 전환 */
+  mapViewportLevel = null,
+  /**
    * 코스 보행 경로 `{ polylinePath, legLabels?: {legLabel,labelPosition}[], legLabel?, key }`
    */
   courseOverlay = null,
@@ -1602,6 +1609,12 @@ const MapView = forwardRef(({
     } catch {
       rawLevel = 8;
     }
+    if (
+      typeof mapViewportLevel === "number" &&
+      Number.isFinite(mapViewportLevel)
+    ) {
+      rawLevel = mapViewportLevel;
+    }
 
     const { width: mapW, height: mapH } = getMapPixelSize(mapContainerRef.current);
     const visibleInBounds = getVisiblePlaceCountInBounds(
@@ -1675,8 +1688,19 @@ const MapView = forwardRef(({
         courseOverlay.polylinePath.length >= 2
     );
 
-    const nextMarkers = validPlaces.map((p) => {
-      const { lat, lng } = resolvePlaceCoords(p);
+    const nextMarkers = [];
+    let markerErrorCount = 0;
+    let firstMarkerError = null;
+    for (const p of validPlaces) {
+      const coords = resolvePlaceCoords(p);
+      if (
+        !coords ||
+        !Number.isFinite(coords.lat) ||
+        !Number.isFinite(coords.lng)
+      ) {
+        continue;
+      }
+      const { lat, lng } = coords;
 
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
       const shouldCluster =
@@ -1698,7 +1722,9 @@ const MapView = forwardRef(({
         checkinMeta
       );
 
-      const marker = createMarker({
+      let marker = null;
+      try {
+        marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
         place: { ...p, lat, lng }, // lat/lng 필드 추가
         isSelected:
@@ -1790,7 +1816,14 @@ const MapView = forwardRef(({
             ignoreMapClickRef.current = false;
           }, 200);
         },
-      });
+        });
+      } catch (e) {
+        markerErrorCount += 1;
+        if (!firstMarkerError) firstMarkerError = e;
+        continue;
+      }
+
+      if (!marker) continue;
 
       if (isLive) {
         liveMarkers.push(marker);
@@ -1799,11 +1832,39 @@ const MapView = forwardRef(({
       }
 
       bounds.extend(new window.kakao.maps.LatLng(lat, lng));
-      return marker;
-    });
+      nextMarkers.push(marker);
+    }
 
     markersRef.current = nextMarkers;
     if (clustererRef.current) clustererRef.current.addMarkers(clusterMarkers);
+
+    if (import.meta.env.DEV) {
+      const onMap = nextMarkers.filter((m) => {
+        try {
+          return typeof m?.getMap === "function" && m.getMap() != null;
+        } catch {
+          return false;
+        }
+      }).length;
+      const visibleNow = getVisiblePlaceCountInBounds(
+        mapRef.current,
+        validPlaces
+      );
+      console.log("[MapView] markers", {
+        placesIn: places.length,
+        geoOk: validPlaces.length,
+        created: nextMarkers.length,
+        onMap,
+        inCluster: useCluster ? clusterMarkers.length : 0,
+        visibleInBounds: visibleNow,
+        markerErrors: markerErrorCount,
+        useCluster,
+        rawLevel,
+      });
+      if (firstMarkerError) {
+        console.error("[MapView] 첫 마커 생성 오류:", firstMarkerError);
+      }
+    }
 
     // [수정 포인트] 데이터(places)가 실제로 바뀌었을 때만 지도의 전체 범위를 다시 잡습니다.
     // selectedPlace가 변해서(카드 열기/닫기) 이 Effect가 돌 때는 지도를 움직이지 않습니다.
@@ -1817,6 +1878,7 @@ const MapView = forwardRef(({
     const skipViewportAdjust =
       Boolean(selectedPlace) ||
       preserveViewportOnPlacesChange ||
+      (lockHomeDefaultViewport && !userInteractedRef.current) ||
       (validPlaces.length > 0 &&
         validPlaces.every((p) => p.isKakaoTypingPreview));
 
@@ -1899,6 +1961,7 @@ const MapView = forwardRef(({
     hotRankTopPlaceIds,
     canShowLiveFlame,
     preserveViewportOnPlacesChange,
+    lockHomeDefaultViewport,
     placesFitBoundsPadding,
     skipKoreaBBoxForCuratorPins,
     courseSecondPickMode,
@@ -1906,6 +1969,7 @@ const MapView = forwardRef(({
     lockAutoMove,
     situationFolderFilter,
     mapDensityLayerActive,
+    mapViewportLevel,
   ]);
 
   /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */

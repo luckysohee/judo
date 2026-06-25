@@ -56,10 +56,10 @@ describe("getHomeMapViewportPlaceLimit", () => {
     ).toBe(false);
   });
 
-  it("skips boot→idle refetch when bbox inside but idle asks higher limit at level 5", () => {
+  it("skips refetch at level 5 when bbox inside and limit unchanged", () => {
     const last = {
       padded: { sw: { lat: 37.5, lng: 127.0 }, ne: { lat: 37.6, lng: 127.1 } },
-      limit: 40,
+      limit: 120,
       hasCuratorChipFilter: false,
       widenForSituation: false,
     };

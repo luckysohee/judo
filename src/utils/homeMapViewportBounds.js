@@ -7,11 +7,15 @@ import {
 /** MapView `DEFAULT_MAP_CENTER` 와 동일 */
 export const SEONGSU_MAP_CENTER = { lat: 37.54465, lng: 127.05595 };
 
-/** MapView 초기 level(5) 성수 뷰 — 지도 idle 전 places-in-bounds 선요청용 */
+/**
+ * MapView 초기 level(5) 성수 뷰 — 지도 idle 전 places-in-bounds 선요청용.
+ * Kakao level 5 한 화면 ≈ 위도 0.018·경도 0.022(±절반). 줌 아웃(레벨↑)할수록 화면이
+ * 2배씩 넓어지므로 `2^(level-5)` 로 bbox를 키운다(레벨 5 = 1배 = 실제 화면 크기).
+ */
 export function defaultHomeMapViewportBounds(mapLevel = 5) {
   const lat = SEONGSU_MAP_CENTER.lat;
   const lng = SEONGSU_MAP_CENTER.lng;
-  const scale = Math.pow(2, Math.max(0, 8 - mapLevel));
+  const scale = Math.pow(2, Math.max(0, (mapLevel ?? 5) - 5));
   const latHalf = 0.009 * scale;
   const lngHalf = 0.011 * scale;
   return {

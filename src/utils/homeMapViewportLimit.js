@@ -4,8 +4,8 @@ export const HOME_MAP_VIEWPORT_LIMIT_CAP = 200;
 /** 성수 첫 화면(level 5)·줌 아웃 */
 export const HOME_MAP_VIEWPORT_LIMIT_DEFAULT = 120;
 
-/** 앱 첫 진입(boot) — SVG 마커 페인트 CPU 비용 때문에 적게 시작 */
-export const HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT = 40;
+/** 앱 첫 진입(boot) — 성수 L5 상세 마커 밀도 */
+export const HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT = 120;
 
 /** 줌 인(level ≤ 4) */
 export const HOME_MAP_VIEWPORT_LIMIT_ZOOMED_IN = 200;
