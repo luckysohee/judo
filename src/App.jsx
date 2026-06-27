@@ -104,6 +104,7 @@ function App() {
       />
       <Route path="/studio/new-place" element={<Lazy><NewPlace /></Lazy>} />
       <Route path="/studio/place/:id/edit" element={<Lazy><EditPlace /></Lazy>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </ToastProvider>
   );

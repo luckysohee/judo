@@ -3,8 +3,20 @@ import { supabase } from "../lib/supabase";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLACE_ID_BATCH = 120;
-const PLACE_SELECT =
-  "id,name,lat,lng,region,address,image_url,comment,is_public,kakao_place_id,category,created_at";
+/** 프로덕션 `places` 스키마와 일치 — 없는 컬럼(region·image_url·comment·is_public)은 PostgREST 42703 유발 */
+const PLACE_SELECT = [
+  "id",
+  "name",
+  "category",
+  "lat",
+  "lng",
+  "tags",
+  "address",
+  "kakao_place_id",
+  "atmosphere",
+  "alcohol_type",
+  "created_at",
+].join(",");
 
 function normalizeEmbedPlace(placesField) {
   if (!placesField) return null;
@@ -53,7 +65,7 @@ function mergeCuratorPlaceRow(cp, placeRow) {
   const reason = curatorPlaceReason(cp);
   return {
     ...placeRow,
-    comment: reason ?? placeRow.comment ?? null,
+    comment: reason ?? null,
   };
 }
 
