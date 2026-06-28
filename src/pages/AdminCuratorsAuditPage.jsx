@@ -358,7 +358,8 @@ export default function AdminCuratorsAuditPage() {
           .in("id", idList);
         const map = {};
         (names || []).forEach((p) => {
-          map[p.id] = p.display_name || p.username || p.id.slice(0, 8);
+          const handle = String(p.username || "").trim();
+          map[p.id] = handle ? `@${handle}` : p.id.slice(0, 8);
         });
         setNameByUserId(map);
       } else {
