@@ -228,3 +228,45 @@ describe("resolveCourseAreaPool - 강남이 '강남구' 전역으로 새지 않�
     expect(ids).not.toContain("cheongdam-far");
   });
 });
+
+// 이태원 센터 (37.5319, 127.0008) — 같은 용산구지만 삼각지·신용산(용산동)은 이태원 아님
+const itaewonPlaces = [
+  {
+    id: "itaewon-core",
+    name: "이태원숯불구이",
+    address: "서울특별시 용산구 이태원동 44-13",
+    lat: 37.5345,
+    lng: 126.9945,
+  },
+  {
+    id: "hannam-core",
+    name: "한남댁",
+    address: "서울 용산구 한남대로21길 32",
+    lat: 37.5345,
+    lng: 127.0045,
+  },
+  {
+    id: "yongsandong-samgakji",
+    name: "해물점 용산 직영점",
+    address: "서울특별시 용산구 용산동3가 1-67", // 삼각지/신용산 — 같은 용산구지만 제외
+    lat: 37.5345,
+    lng: 126.9725,
+  },
+];
+
+describe("resolveCourseAreaPool - 이태원에 삼각지·용산(용산동) 오염 제거", () => {
+  const { areaPlaces } = resolveCourseAreaPool(itaewonPlaces, {
+    area: "이태원",
+    raw: "이태원 데이트 코스",
+  });
+  const ids = areaPlaces.map((p) => p.id);
+
+  it("이태원·한남 코어는 포함", () => {
+    expect(ids).toContain("itaewon-core");
+    expect(ids).toContain("hannam-core");
+  });
+
+  it("삼각지·신용산(용산동)은 같은 용산구라도 제외", () => {
+    expect(ids).not.toContain("yongsandong-samgakji");
+  });
+});
