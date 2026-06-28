@@ -144,3 +144,87 @@ describe("resolveCourseAreaPool - 종로에 용산구(숙대입구·남영) 오�
     expect(ids).not.toContain("chungjeongno-bar");
   });
 });
+
+// 압구정 센터 (37.527, 127.028) — 강 건너 성수/잠원 오염 제거
+const apgujeongPlaces = [
+  {
+    id: "apgujeong-core",
+    name: "압구정 로데오집",
+    address: "서울특별시 강남구 신사동 663", // 압구정·신사 권역
+    lat: 37.5271,
+    lng: 127.0285,
+  },
+  {
+    id: "seongsu-river",
+    name: "성수아구찜",
+    address: "서울특별시 성동구 성수동1가 656-318", // 강 건너 성수 — 제외
+    lat: 37.5447,
+    lng: 127.0558,
+  },
+  {
+    id: "jamwon-river",
+    name: "포항집",
+    address: "서울특별시 서초구 잠원동 8-7", // 강 건너 잠원 — 제외
+    lat: 37.5145,
+    lng: 127.018,
+  },
+];
+
+describe("resolveCourseAreaPool - 압구정에 강 건너(성수·잠원) 오염 제거", () => {
+  const { areaPlaces } = resolveCourseAreaPool(apgujeongPlaces, {
+    area: "압구정",
+    raw: "압구정 데이트 코스",
+  });
+  const ids = areaPlaces.map((p) => p.id);
+
+  it("압구정·신사 코어는 포함", () => {
+    expect(ids).toContain("apgujeong-core");
+  });
+
+  it("강 건너 성수(성동구)·잠원(서초구)은 제외", () => {
+    expect(ids).not.toContain("seongsu-river");
+    expect(ids).not.toContain("jamwon-river");
+  });
+});
+
+// 강남 센터 (37.4979, 127.0276) — '강남구' 전역 통과 방지(도산·청담 먼 곳 제외)
+const gangnamPlaces = [
+  {
+    id: "gangnam-core",
+    name: "역삼 포차",
+    address: "서울특별시 강남구 역삼동 825", // 강남역 코어
+    lat: 37.4995,
+    lng: 127.0301,
+  },
+  {
+    id: "dosan-far",
+    name: "다고바",
+    address: "서울 강남구 도산대로99길 26", // 같은 강남구지만 압구정 권역(3.8km) — 제외
+    lat: 37.5246,
+    lng: 127.0407,
+  },
+  {
+    id: "cheongdam-far",
+    name: "새벽집 청담본점",
+    address: "서울 강남구 청담동 129-10", // 청담 — 제외
+    lat: 37.5258,
+    lng: 127.0466,
+  },
+];
+
+describe("resolveCourseAreaPool - 강남이 '강남구' 전역으로 새지 않음", () => {
+  const { areaPlaces } = resolveCourseAreaPool(gangnamPlaces, {
+    area: "강남",
+    raw: "강남 데이트 코스",
+  });
+  const ids = areaPlaces.map((p) => p.id);
+
+  it("강남역 코어(역삼)는 포함", () => {
+    expect(ids).toContain("gangnam-core");
+  });
+
+  it("도산대로·청담(같은 강남구지만 먼 압구정 권역)은 제외", () => {
+    expect(ids).not.toContain("dosan-far");
+    expect(ids).not.toContain("cheongdam-far");
+  });
+});

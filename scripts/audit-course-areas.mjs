@@ -110,7 +110,14 @@ for (const area of areas) {
       gu: guOf(p.address),
     }));
 
-  // 홈 구(區): 코어 1km 안 생존 장소의 구 = 이 동네의 정상 구로 간주
+  // 홈 구(區): 코어 1km 안 생존 장소의 구 = 이 동네의 정상 구.
+  // 센터가 구 경계에 걸린 동네(강남↔서초 등)는 힌트로 보강.
+  const HOME_GU_HINT = {
+    강남: ["강남구", "서초구"],
+    서초: ["서초구", "강남구"],
+    압구정: ["강남구"],
+    잠실: ["송파구"],
+  };
   const homeGu = new Map();
   for (const s of survivors) {
     if (s.d <= 1.0 && s.gu !== "구미상") {
@@ -118,6 +125,7 @@ for (const area of areas) {
     }
   }
   const homeSet = new Set(homeGu.keys());
+  for (const g of HOME_GU_HINT[area] || []) homeSet.add(g);
 
   // 의심 = 다른 구(타지역) 이거나, 같은 구라도 FLAG_KM 초과(먼 외곽)
   const flagged = survivors
