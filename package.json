@@ -10,6 +10,7 @@
     "build": "vite build",
     "test": "vitest run",
     "verify:course-staging": "node --env-file=server/.env scripts/verify-course-staging.mjs",
+    "audit:areas": "node --env-file=.env node_modules/.bin/vite-node scripts/audit-course-areas.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
