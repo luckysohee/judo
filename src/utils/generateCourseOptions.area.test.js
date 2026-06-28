@@ -92,6 +92,27 @@ const jongnoPlaces = [
     lat: 37.5417,
     lng: 126.9716,
   },
+  {
+    id: "mugyo-bar",
+    name: "다동황소막창",
+    address: "서울 중구 남대문로 60-5", // 무교동·다동 — 시청/청계천 옆, 종로 코어로 유지
+    lat: 37.5673,
+    lng: 126.9786,
+  },
+  {
+    id: "namdaemun-market",
+    name: "서령 본점",
+    address: "서울 중구 남대문로5가 120", // 남대문시장 권역 — 제외
+    lat: 37.5589,
+    lng: 126.9745,
+  },
+  {
+    id: "chungjeongno-bar",
+    name: "옐로우보울",
+    address: "서울특별시 서대문구 충정로3가 476", // 충정로/서대문 — 제외
+    lat: 37.5631,
+    lng: 126.9636,
+  },
 ];
 
 describe("resolveCourseAreaPool - 종로에 용산구(숙대입구·남영) 오염 제거", () => {
@@ -112,5 +133,14 @@ describe("resolveCourseAreaPool - 종로에 용산구(숙대입구·남영) 오�
   it("용산구 숙대입구·남영 술집은 제외", () => {
     expect(ids).not.toContain("sookdae-bar");
     expect(ids).not.toContain("namyeong-far");
+  });
+
+  it("무교동·다동(남대문로 북쪽)은 유지", () => {
+    expect(ids).toContain("mugyo-bar");
+  });
+
+  it("남대문시장·충정로(서남) 권역은 제외", () => {
+    expect(ids).not.toContain("namdaemun-market");
+    expect(ids).not.toContain("chungjeongno-bar");
   });
 });
