@@ -261,12 +261,316 @@ function insightForVisibleBucketCtr(rows) {
   return lines.join(" ");
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function rowTimestampMs(row) {
+  const raw = row?.timestamp || row?.created_at || null;
+  if (!raw) return 0;
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * 최근 7일 검색어 요약 — 전주(7~14일 전) 대비 증감 포함.
+ * @param {Array} rows 최근 14일 search_logs (user_query·has_results·timestamp·parsed_region)
+ * @param {number} nowMs 기준 시각
+ */
+function computeWeeklySummary(rows, nowMs) {
+  const thisStart = nowMs - WEEK_MS;
+  const prevStart = nowMs - 2 * WEEK_MS;
+
+  let thisTotal = 0;
+  let prevTotal = 0;
+  let thisZero = 0;
+  const thisCounts = new Map();
+  const prevCounts = new Map();
+  const zeroCounts = new Map();
+  const regionCounts = new Map();
+
+  const bump = (map, key) => {
+    if (!key) return;
+    map.set(key, (map.get(key) || 0) + 1);
+  };
+
+  for (const row of rows || []) {
+    const t = rowTimestampMs(row);
+    if (!t || t < prevStart) continue;
+    const q = String(row.user_query || "").trim();
+    const isThis = t >= thisStart;
+    const isPrev = t >= prevStart && t < thisStart;
+
+    if (isThis) {
+      thisTotal += 1;
+      bump(thisCounts, q);
+      if (row.has_results === false) {
+        thisZero += 1;
+        bump(zeroCounts, q);
+      }
+      const region = String(row.parsed_region || "").trim();
+      if (region) bump(regionCounts, region);
+    } else if (isPrev) {
+      prevTotal += 1;
+      bump(prevCounts, q);
+    }
+  }
+
+  const topQueries = [...thisCounts.entries()]
+    .map(([query, count]) => {
+      const prev = prevCounts.get(query) || 0;
+      return { query, count, prev, delta: count - prev, isNew: prev === 0 };
+    })
+    .sort((a, b) => b.count - a.count || b.delta - a.delta)
+    .slice(0, 12);
+
+  const topZero = [...zeroCounts.entries()]
+    .map(([query, count]) => ({ query, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const topRegions = [...regionCounts.entries()]
+    .map(([region, count]) => ({ region, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  const totalDeltaPct =
+    prevTotal > 0
+      ? Math.round((1000 * (thisTotal - prevTotal)) / prevTotal) / 10
+      : null;
+  const zeroRatePct =
+    thisTotal > 0 ? Math.round((1000 * thisZero) / thisTotal) / 10 : 0;
+
+  return {
+    thisTotal,
+    prevTotal,
+    totalDeltaPct,
+    thisZero,
+    zeroRatePct,
+    uniqueQueries: thisCounts.size,
+    topQueries,
+    topZero,
+    topRegions,
+  };
+}
+
+function DeltaBadge({ delta, isNew }) {
+  if (isNew) {
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: "#7CFFB2",
+          background: "rgba(46, 204, 113, 0.16)",
+          border: "1px solid rgba(46, 204, 113, 0.4)",
+          borderRadius: 999,
+          padding: "1px 7px",
+        }}
+      >
+        NEW
+      </span>
+    );
+  }
+  if (!delta) {
+    return <span style={{ fontSize: 12, opacity: 0.4 }}>―</span>;
+  }
+  const up = delta > 0;
+  return (
+    <span
+      style={{
+        fontSize: 12,
+        fontWeight: 700,
+        color: up ? "#7CFFB2" : "#FF8A8A",
+      }}
+    >
+      {up ? "▲" : "▼"}
+      {Math.abs(delta)}
+    </span>
+  );
+}
+
+function WeeklySummaryCard({ summary }) {
+  const {
+    thisTotal,
+    totalDeltaPct,
+    thisZero,
+    zeroRatePct,
+    uniqueQueries,
+    topQueries,
+    topZero,
+    topRegions,
+  } = summary;
+
+  const s = {
+    card: {
+      marginBottom: 24,
+      padding: "16px 18px",
+      borderRadius: 14,
+      border: "1px solid #2a2f38",
+      background: "linear-gradient(180deg, rgba(124,180,255,0.06), rgba(255,255,255,0.02))",
+    },
+    head: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 10,
+      marginBottom: 14,
+      flexWrap: "wrap",
+    },
+    title: { fontSize: 16, fontWeight: 800, margin: 0 },
+    sub: { fontSize: 12, opacity: 0.55 },
+    statRow: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      marginBottom: 16,
+    },
+    stat: {
+      flex: "1 1 120px",
+      minWidth: 110,
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid #262b33",
+    },
+    statLabel: { fontSize: 11, opacity: 0.55, marginBottom: 4 },
+    statValue: { fontSize: 20, fontWeight: 800, lineHeight: 1.1 },
+    statHint: { fontSize: 11, marginTop: 3 },
+    cols: { display: "flex", gap: 16, flexWrap: "wrap" },
+    col: { flex: "1 1 240px", minWidth: 220 },
+    colTitle: { fontSize: 13, fontWeight: 700, marginBottom: 8, opacity: 0.9 },
+    li: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      padding: "6px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.05)",
+      fontSize: 13,
+    },
+    rank: { opacity: 0.4, fontVariantNumeric: "tabular-nums", marginRight: 6 },
+    q: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+    cnt: { fontVariantNumeric: "tabular-nums", opacity: 0.8, fontWeight: 700 },
+    empty: { fontSize: 12, opacity: 0.45, padding: "8px 0" },
+  };
+
+  return (
+    <div style={s.card}>
+      <div style={s.head}>
+        <h2 style={s.title}>📊 주간 요약 (최근 7일)</h2>
+        <span style={s.sub}>전주(7~14일 전) 대비 · 페이지 열 때 자동 집계</span>
+      </div>
+
+      <div style={s.statRow}>
+        <div style={s.stat}>
+          <div style={s.statLabel}>총 검색</div>
+          <div style={s.statValue}>{thisTotal.toLocaleString()}</div>
+          <div
+            style={{
+              ...s.statHint,
+              color:
+                totalDeltaPct == null
+                  ? "rgba(255,255,255,0.4)"
+                  : totalDeltaPct >= 0
+                  ? "#7CFFB2"
+                  : "#FF8A8A",
+            }}
+          >
+            {totalDeltaPct == null
+              ? "전주 데이터 없음"
+              : `전주 대비 ${totalDeltaPct >= 0 ? "▲" : "▼"} ${Math.abs(totalDeltaPct)}%`}
+          </div>
+        </div>
+        <div style={s.stat}>
+          <div style={s.statLabel}>고유 검색어</div>
+          <div style={s.statValue}>{uniqueQueries.toLocaleString()}</div>
+          <div style={{ ...s.statHint, opacity: 0.5 }}>서로 다른 질의 수</div>
+        </div>
+        <div style={s.stat}>
+          <div style={s.statLabel}>무결과 검색</div>
+          <div style={s.statValue}>{thisZero.toLocaleString()}</div>
+          <div
+            style={{
+              ...s.statHint,
+              color: zeroRatePct >= 20 ? "#FFC857" : "rgba(255,255,255,0.5)",
+            }}
+          >
+            전체의 {zeroRatePct}%
+          </div>
+        </div>
+      </div>
+
+      {thisTotal === 0 ? (
+        <p style={s.empty}>최근 7일 검색 로그가 없습니다.</p>
+      ) : (
+        <div style={s.cols}>
+          <div style={s.col}>
+            <div style={s.colTitle}>인기 검색어 Top {topQueries.length}</div>
+            {topQueries.length === 0 ? (
+              <p style={s.empty}>데이터 없음</p>
+            ) : (
+              topQueries.map((it, i) => (
+                <div key={it.query || i} style={s.li}>
+                  <span style={s.rank}>{i + 1}</span>
+                  <span style={s.q} title={it.query}>
+                    {it.query || "(빈 검색어)"}
+                  </span>
+                  <DeltaBadge delta={it.delta} isNew={it.isNew} />
+                  <span style={s.cnt}>{it.count}</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={s.col}>
+            <div style={s.colTitle}>무결과 검색어 Top {topZero.length}</div>
+            {topZero.length === 0 ? (
+              <p style={s.empty}>무결과 검색이 없습니다 🎉</p>
+            ) : (
+              topZero.map((it, i) => (
+                <div key={it.query || i} style={s.li}>
+                  <span style={s.rank}>{i + 1}</span>
+                  <span style={s.q} title={it.query}>
+                    {it.query || "(빈 검색어)"}
+                  </span>
+                  <span style={{ ...s.cnt, color: "#FFC857" }}>{it.count}</span>
+                </div>
+              ))
+            )}
+            {topRegions.length > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <div style={s.colTitle}>인기 지역</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {topRegions.map((r) => (
+                    <span
+                      key={r.region}
+                      style={{
+                        fontSize: 12,
+                        padding: "3px 9px",
+                        borderRadius: 999,
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid #2a2f38",
+                      }}
+                    >
+                      {r.region} <strong>{r.count}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SearchInsightsPage() {
   const navigate = useNavigate();
   const { loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [zeroRows, setZeroRows] = useState([]);
+  const [weeklyRows, setWeeklyRows] = useState([]);
   const [recentRows, setRecentRows] = useState([]);
   const [clickPathRows, setClickPathRows] = useState([]);
   const [clickPathLoadError, setClickPathLoadError] = useState("");
@@ -287,6 +591,17 @@ export default function SearchInsightsPage() {
 
         if (ze) throw ze;
         setZeroRows(Array.isArray(z) ? z : []);
+
+        const since14d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: wk, error: wke } = await supabase
+          .from("search_logs")
+          .select("user_query, has_results, parsed_region, timestamp, created_at")
+          .gte("timestamp", since14d)
+          .order("timestamp", { ascending: false })
+          .limit(12000);
+
+        if (wke) throw wke;
+        setWeeklyRows(Array.isArray(wk) ? wk : []);
 
         const { data: r, error: re } = await supabase
           .from("search_logs")
@@ -343,6 +658,7 @@ export default function SearchInsightsPage() {
         console.error("SearchInsightsPage:", e);
         setErrorMessage(e?.message || "데이터를 불러오지 못했습니다.");
         setZeroRows([]);
+        setWeeklyRows([]);
         setRecentRows([]);
         setClickPathRows([]);
         setClickPathLoadError("");
@@ -353,6 +669,11 @@ export default function SearchInsightsPage() {
       }
     })();
   }, [authLoading]);
+
+  const weeklySummary = useMemo(
+    () => computeWeeklySummary(weeklyRows, Date.now()),
+    [weeklyRows]
+  );
 
   const zeroAggregates = useMemo(() => {
     const m = new Map();
@@ -434,7 +755,11 @@ export default function SearchInsightsPage() {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        height: "100dvh",
+        maxHeight: "100dvh",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+        overscrollBehaviorY: "contain",
         background: "#0f1114",
         color: "#e8eaed",
         padding: "20px 18px 48px",
@@ -469,6 +794,8 @@ export default function SearchInsightsPage() {
         <p style={{ color: "#e74c3c" }}>{errorMessage}</p>
       ) : (
         <>
+          <WeeklySummaryCard summary={weeklySummary} />
+
           <div
             style={{
               marginBottom: 20,

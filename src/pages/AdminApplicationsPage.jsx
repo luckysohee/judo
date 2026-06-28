@@ -1133,7 +1133,11 @@ function pickColor(seed = "") {
 
 const styles = {
   page: {
-    minHeight: "100vh",
+    height: "100dvh",
+    maxHeight: "100dvh",
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorY: "contain",
     backgroundColor: "#111111",
     color: "#ffffff",
     fontFamily:

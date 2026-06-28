@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { pickTodayTastePlaces, tasteProfileHasSignals } from "../../utils/userTasteProfile";
+import { tasteProfileHasSignals } from "../../utils/userTasteProfile";
+import { pickPersonalTastePlaces } from "../../utils/personalPlaceRecommend";
+import { searchSignalsHaveEnough } from "../../utils/userSearchTasteSignals";
 import {
   hideTodayTasteSuggestForDay,
   isTodayTasteSuggestHiddenForDay,
@@ -56,6 +58,12 @@ export default function HomeTodayTasteSuggest({
   profile,
   places = [],
   onPickPlace,
+  /** 본인 검색 이력 신호 (usePersonalTasteSignals) */
+  searchSignals = null,
+  /** 픽한 큐레이터 장소 id 집합 */
+  pickedPlaceIds = null,
+  /** place_id → { handle, name } (추천 이유 문구) */
+  pickedPlaceInfo = null,
   /** 취향 팝업에서 고른 장소 미리보기가 열려 있는지 */
   tastePreviewOpen = false,
   /** 재진입 칩 — 부모(지도 범례 스택)에 렌더 */
@@ -67,13 +75,21 @@ export default function HomeTodayTasteSuggest({
   const [userDismissedModal, setUserDismissedModal] = useState(false);
   const [reopenAfterPreview, setReopenAfterPreview] = useState(false);
 
-  const hasProfile = tasteProfileHasSignals(profile);
-  const picks = useMemo(() => {
-    if (!hasProfile) return [];
-    return pickTodayTastePlaces(places, profile, { limit: 3 });
-  }, [hasProfile, places, profile]);
+  const hasAnySignal =
+    tasteProfileHasSignals(profile) ||
+    searchSignalsHaveEnough(searchSignals) ||
+    (pickedPlaceIds && pickedPlaceIds.size > 0);
 
-  const canOffer = eligible && hasProfile && picks.length > 0;
+  const picks = useMemo(() => {
+    if (!hasAnySignal) return [];
+    return pickPersonalTastePlaces(
+      places,
+      { profile, searchSignals, pickedPlaceIds, pickedPlaceInfo },
+      { limit: 3 }
+    );
+  }, [hasAnySignal, places, profile, searchSignals, pickedPlaceIds, pickedPlaceInfo]);
+
+  const canOffer = eligible && hasAnySignal && picks.length > 0;
 
   const closePopup = useCallback(
     (opts = {}) => {
@@ -223,7 +239,7 @@ export default function HomeTodayTasteSuggest({
                       lineHeight: 1.45,
                     }}
                   >
-                    설문에 담은 취향으로 골랐어요.
+                    취향·검색·픽한 큐레이터로 골랐어요.
                   </p>
                 </div>
                 <button
@@ -259,6 +275,15 @@ export default function HomeTodayTasteSuggest({
                   const name = String(
                     place?.name || place?.place_name || "장소"
                   ).trim();
+                  const reason = String(place?._recommendReason || "").trim();
+                  const subRaw = String(
+                    place?.address_name ||
+                      place?.address ||
+                      place?.category_name ||
+                      ""
+                  ).trim();
+                  // 주소가 상호명과 동일하면(주소 미보유 폴백) 중복 노출 방지
+                  const sub = subRaw && subRaw !== name ? subRaw : "";
                   return (
                     <button
                       key={String(place?.id ?? name)}
@@ -284,19 +309,36 @@ export default function HomeTodayTasteSuggest({
                       >
                         {name}
                       </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#6b7280",
-                          marginTop: 3,
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        {place?.address_name ||
-                          place?.address ||
-                          place?.category_name ||
-                          "내 취향에 맞는 곳"}
-                      </div>
+                      {sub ? (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#6b7280",
+                            marginTop: 4,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          {sub}
+                        </div>
+                      ) : null}
+                      {reason ? (
+                        <div
+                          style={{
+                            display: "inline-block",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "#7a4d00",
+                            background: "rgba(251, 191, 36, 0.18)",
+                            border: "1px solid rgba(251, 191, 36, 0.4)",
+                            borderRadius: 999,
+                            padding: "2px 8px",
+                            marginTop: 6,
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          {reason}
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })}

@@ -33,21 +33,81 @@ function dayEndMs(isoDate) {
   return Number.isNaN(t) ? null : t;
 }
 
+const STATUS_LABELS_KO = {
+  active: "활동중",
+  warning: "경고",
+  suspended: "활동중지",
+  inactive: "휴면",
+};
+
+function stripSearchToken(tok) {
+  const t = String(tok ?? "").trim().toLowerCase();
+  return t.startsWith("@") ? t.slice(1) : t;
+}
+
 function tokensMatch(haystack, raw) {
   const q = raw.trim().toLowerCase();
   if (!q) return true;
-  const tokens = q.split(/\s+/).filter(Boolean);
+  const tokens = q.split(/\s+/).filter(Boolean).map(stripSearchToken);
   return tokens.every((tok) => haystack.includes(tok));
+}
+
+function buildUserRef(curatorRow, profileRow, userId) {
+  const uid = String(userId || curatorRow?.user_id || profileRow?.id || "").trim();
+  // 프로필 표기와 동일: 핸들 = slug → username, 별명 = name → display_name
+  const handle = String(
+    curatorRow?.slug || curatorRow?.username || profileRow?.username || ""
+  ).trim();
+  const displayName = String(
+    curatorRow?.name ||
+      curatorRow?.display_name ||
+      profileRow?.display_name ||
+      ""
+  ).trim();
+  const status = String(curatorRow?.status || "").trim();
+  const grade = String(curatorRow?.grade || "").trim();
+  const handleLabel = handle ? `@${handle}` : uid ? uid.slice(0, 8) : "—";
+  const statusKo = STATUS_LABELS_KO[status] || status;
+  const gradeKo = GRADE_LABELS_KO[grade] || grade;
+  const searchBlob = [
+    handle,
+    handle ? `@${handle}` : "",
+    displayName,
+    uid,
+    status,
+    statusKo,
+    grade,
+    gradeKo,
+  ]
+    .map((x) => String(x ?? "").toLowerCase())
+    .join(" ");
+
+  return {
+    handle,
+    handleLabel,
+    displayName,
+    status,
+    grade,
+    userId: uid,
+    searchBlob,
+  };
 }
 
 function curatorMatches(c, query) {
   const blob = [
     c.username,
+    c.slug,
+    c.display_name,
+    c.name,
     c.user_id,
     c.grade,
+    GRADE_LABELS_KO[c.grade],
     c.status,
+    STATUS_LABELS_KO[c.status],
     String(c.total_places ?? ""),
     String(c.total_likes ?? ""),
+    c.username ? `@${c.username}` : "",
+    c.slug ? `@${c.slug}` : "",
   ]
     .map((x) => String(x ?? "").toLowerCase())
     .join(" ");
@@ -286,6 +346,8 @@ function auditRowMatches(r, textQuery, actionFilter, dateFrom, dateTo) {
     r.actionLabel,
     r.actorLabel,
     r.targetLabel,
+    r.actorSearchBlob,
+    r.targetSearchBlob,
     r.metaStr,
   ]
     .map((x) => String(x ?? "").toLowerCase())
@@ -301,7 +363,7 @@ export default function AdminCuratorsAuditPage() {
   const [error, setError] = useState("");
   const [curators, setCurators] = useState([]);
   const [auditRows, setAuditRows] = useState([]);
-  const [nameByUserId, setNameByUserId] = useState({});
+  const [userById, setUserById] = useState({});
 
   const [curatorQuery, setCuratorQuery] = useState("");
   const [auditQuery, setAuditQuery] = useState("");
@@ -319,12 +381,18 @@ export default function AdminCuratorsAuditPage() {
       const { data: curData, error: ce } = await supabase
         .from("curators")
         .select(
-          "user_id, username, grade, status, total_places, total_likes, created_at, last_activity_at"
+          "user_id, username, slug, display_name, name, grade, status, total_places, total_likes, created_at, last_activity_at"
         )
         .order("created_at", { ascending: false });
 
       if (ce) throw ce;
-      setCurators(Array.isArray(curData) ? curData : []);
+      const curatorList = Array.isArray(curData) ? curData : [];
+      setCurators(curatorList);
+      const curatorByUserId = Object.fromEntries(
+        curatorList
+          .filter((c) => c.user_id)
+          .map((c) => [c.user_id, c])
+      );
 
       const { data: logData, error: le } = await supabase
         .from("admin_audit_log")
@@ -351,25 +419,32 @@ export default function AdminCuratorsAuditPage() {
         if (r.target_user_id) ids.add(r.target_user_id);
       });
       const idList = [...ids];
+      const profileById = {};
       if (idList.length > 0) {
-        const { data: names } = await supabase
+        const { data: profiles } = await supabase
           .from("profiles")
           .select("id, username, display_name")
           .in("id", idList);
-        const map = {};
-        (names || []).forEach((p) => {
-          const handle = String(p.username || "").trim();
-          map[p.id] = handle ? `@${handle}` : p.id.slice(0, 8);
+        (profiles || []).forEach((p) => {
+          profileById[p.id] = p;
         });
-        setNameByUserId(map);
-      } else {
-        setNameByUserId({});
       }
+
+      const directory = {};
+      for (const uid of idList) {
+        directory[uid] = buildUserRef(
+          curatorByUserId[uid],
+          profileById[uid],
+          uid
+        );
+      }
+      setUserById(directory);
     } catch (e) {
       console.error(e);
       setError(e?.message || "불러오기 실패");
       setCurators([]);
       setAuditRows([]);
+      setUserById({});
     } finally {
       setLoading(false);
     }
@@ -389,19 +464,27 @@ export default function AdminCuratorsAuditPage() {
   }, [auditQuery, auditAction, auditDateFrom, auditDateTo]);
 
   const enrichedAudit = useMemo(() => {
-    return auditRows.map((r) => ({
-      ...r,
-      actionLabel: ADMIN_AUDIT_ACTION_LABEL_KO[r.action] || r.action,
-      actorLabel: nameByUserId[r.actor_id] || r.actor_id?.slice(0, 8) || "—",
-      targetLabel: r.target_user_id
-        ? nameByUserId[r.target_user_id] || r.target_user_id.slice(0, 8)
-        : "—",
-      metaStr:
-        r.meta && typeof r.meta === "object" && Object.keys(r.meta).length > 0
-          ? JSON.stringify(r.meta)
-          : "",
-    }));
-  }, [auditRows, nameByUserId]);
+    return auditRows.map((r) => {
+      const actor =
+        userById[r.actor_id] || buildUserRef(null, null, r.actor_id);
+      const target = r.target_user_id
+        ? userById[r.target_user_id] ||
+          buildUserRef(null, null, r.target_user_id)
+        : null;
+      return {
+        ...r,
+        actionLabel: ADMIN_AUDIT_ACTION_LABEL_KO[r.action] || r.action,
+        actorLabel: actor.handleLabel,
+        targetLabel: target?.handleLabel || "—",
+        actorSearchBlob: actor.searchBlob,
+        targetSearchBlob: target?.searchBlob || "",
+        metaStr:
+          r.meta && typeof r.meta === "object" && Object.keys(r.meta).length > 0
+            ? JSON.stringify(r.meta)
+            : "",
+      };
+    });
+  }, [auditRows, userById]);
 
   const filteredCurators = useMemo(() => {
     return curators.filter((c) => curatorMatches(c, curatorQuery));
@@ -504,12 +587,14 @@ export default function AdminCuratorsAuditPage() {
         ) : tab === "curators" ? (
           <>
             <div style={styles.filterBlock}>
-              <label style={styles.filterLabel}>핸들 · user id · 등급 · 상태 검색</label>
+              <label style={styles.filterLabel}>
+                핸들 · 별명 · user id · 등급 · 상태 검색
+              </label>
               <input
                 type="search"
                 value={curatorQuery}
                 onChange={(e) => setCuratorQuery(e.target.value)}
-                placeholder="예: @닉네임, bronze, active"
+                placeholder="예: @humblefetish, 허름페티쉬, active, 브론즈"
                 style={styles.input}
                 autoComplete="off"
               />
@@ -535,8 +620,19 @@ export default function AdminCuratorsAuditPage() {
                 {curatorSlice.map((c) => (
                   <div key={c.user_id} style={styles.row}>
                     <div style={styles.rowTitle}>
-                      @{c.username || c.user_id?.slice(0, 8)}
+                      @{c.slug || c.username || c.user_id?.slice(0, 8)}
                     </div>
+                    {c.name || c.display_name ? (
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "rgba(255,255,255,0.7)",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        {c.name || c.display_name}
+                      </div>
+                    ) : null}
                     <div style={styles.rowMeta}>
                       등급 {GRADE_LABELS_KO[c.grade] || c.grade} · 상태 {c.status}{" "}
                       · 장소 {c.total_places ?? 0}
@@ -578,12 +674,14 @@ export default function AdminCuratorsAuditPage() {
         ) : (
           <>
             <div style={styles.filterBlock}>
-              <label style={styles.filterLabel}>키워드 (액션·관리자·대상·meta JSON)</label>
+              <label style={styles.filterLabel}>
+                핸들 · 별명 · user id · 상태(대상) · 액션 · meta JSON
+              </label>
               <input
                 type="search"
                 value={auditQuery}
                 onChange={(e) => setAuditQuery(e.target.value)}
-                placeholder="공백으로 AND 검색"
+                placeholder="예: @humblefetish, 허름페티쉬, active, 승급"
                 style={styles.input}
                 autoComplete="off"
               />

@@ -2,7 +2,12 @@ import { COURSE_PATTERNS } from "./coursePatterns.js";
 import { COURSE_PROFILE_ORDER, COURSE_PROFILES } from "./courseProfiles.js";
 import { haversineMeters, resolvePlaceWgs84 } from "./placeCoords.js";
 import { courseWalkCrossesHanRiver } from "./courseRiverCrossing.js";
-import { REGION_KEYWORDS, normalizeRegionClusterKey, filterPlacesByRegionProximity } from "./searchParser.js";
+import {
+  REGION_KEYWORDS,
+  normalizeRegionClusterKey,
+  filterPlacesByRegionProximity,
+  getRegionCenterCoords,
+} from "./searchParser.js";
 import { getSeasonalMenuMismatchPenalty } from "./placeSeasonality.js";
 import { getMinutesUntilClose, isPlaceOpenNow } from "./timeUtils.js";
 
@@ -89,6 +94,59 @@ const EULJIRO_EXCLUDED_GU_MARKERS = [
   "구로구",
   "용산구",
 ];
+
+/**
+ * 코스 지역 풀에서 좌표만 가깝거나 같은 구라서 섞이는 타 동네 제거.
+ * 해당 지역 동의어가 주소·상호에 있으면(경계 장소) 통과.
+ * (예: 「을지로」 검색에 종로구 광화문·중구 약수동이 끼는 문제)
+ */
+const COURSE_AREA_HARD_EXCLUDE = {
+  을지로: [
+    /광화문/,
+    /세종로/,
+    /신문로/,
+    /안국|삼청동|인사동|익선동|경복궁|청운동/,
+    /약수/,
+    /신당/,
+    /다산/,
+    /청구/,
+    /장충/,
+    /동대문구|왕십리|성동구|용산구/,
+  ],
+};
+
+/**
+ * 동네 코스의 "코어" 반경(km) — 센터에서 이보다 멀고, 해당 지역 동의어가
+ * 주소·상호에 없으면 제외. 주소 토큰이 제각각(예: 약수동↔다산로)이어도
+ * 거리로 확실히 끊는다.
+ */
+const COURSE_AREA_CORE_RADIUS_KM = {
+  을지로: 1.2,
+};
+
+function placeHardExcludedFromArea(place, areaKey) {
+  if (!areaKey) return false;
+  const blob = placeAreaHaystack(place);
+  const ownSyns = REGION_KEYWORDS[areaKey] || [];
+  const hasOwn = ownSyns.some((s) => blob.includes(String(s).toLowerCase()));
+  // 해당 지역 동의어(예: 을지로N가·동대문)가 박힌 경계 장소는 항상 통과
+  if (hasOwn) return false;
+
+  const patterns = COURSE_AREA_HARD_EXCLUDE[areaKey];
+  if (patterns?.length && patterns.some((re) => re.test(blob))) return true;
+
+  const coreKm = COURSE_AREA_CORE_RADIUS_KM[areaKey];
+  if (coreKm != null) {
+    const center = getRegionCenterCoords(areaKey);
+    const w = resolvePlaceWgs84(place);
+    if (center && w) {
+      const distKm =
+        haversineMeters(center.lat, center.lng, w.lat, w.lng) / 1000;
+      if (distKm > coreKm) return true;
+    }
+  }
+  return false;
+}
 
 function placeMatchesArea(place, areaKey) {
   if (!areaKey) return true;
@@ -731,10 +789,6 @@ const COURSE_AREA_FALLBACK_PHRASES = {
     "경의선숲길",
   ],
   을지로: [
-    "서울특별시 중구",
-    "서울 중구",
-    "서울특별시 종로구",
-    "서울 종로구",
     "을지로동",
     "을지로1가",
     "을지로2가",
@@ -796,6 +850,7 @@ export function resolveCourseAreaPool(places, parsedQuery) {
   const seen = new Set();
   const areaPlaces = [];
   for (const p of [...byKeyword, ...byFallback, ...byProx]) {
+    if (placeHardExcludedFromArea(p, area)) continue;
     const id = placeId(p);
     const k =
       id != null

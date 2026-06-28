@@ -31,6 +31,9 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
     ["id", "name", "lat", "lng", "kakao_place_id"],
     ["id", "name", "lat", "lng"],
   ];
+  // bbox 후보를 넉넉히(최대 1000) 가져와 큐레이터 우선 정렬 후 limit 만큼 자른다.
+  // (limit 만 바로 자르면 큐레이터 술집이 임의로 잘려 코스에 안 들어옴 → 을지로 버그 원인)
+  const candidateCap = Math.max(limit, Math.min(1000, limit * 6));
   let placesRes = null;
   for (const cols of placesSelectVariants) {
     placesRes = await sb
@@ -40,7 +43,7 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
       .lte("lat", north)
       .gte("lng", west)
       .lte("lng", east)
-      .limit(limit);
+      .limit(candidateCap);
     if (!placesRes.error) break;
     if (!/column .* does not exist/i.test(String(placesRes.error.message || ""))) {
       break;
@@ -49,10 +52,12 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
   const { data: placesRaw, error: pErr } = placesRes;
   if (pErr) return { places: [], joinRows: [], error: pErr };
 
-  const places = Array.isArray(placesRaw) ? placesRaw : [];
-  if (places.length === 0) return { places: [], joinRows: [], error: null };
+  const allPlaces = Array.isArray(placesRaw) ? placesRaw : [];
+  if (allPlaces.length === 0) return { places: [], joinRows: [], error: null };
 
-  const placeIds = [...new Set(places.map((p) => String(p?.id || "")).filter(Boolean))];
+  const candidateIds = [
+    ...new Set(allPlaces.map((p) => String(p?.id || "")).filter(Boolean)),
+  ];
 
   let cps = [];
   let cpErr = null;
@@ -81,21 +86,46 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
   ].join(",");
 
   const cpSelectVariants = [cpColumnsPreferred, cpColumnsCompat, "id,place_id,curator_id,is_archived,one_line_reason,tags,moods"];
-  let cpRes = null;
-  for (const cols of cpSelectVariants) {
-    cpRes = await sb
-      .from("curator_places")
-      .select(cols)
-      .in("place_id", placeIds)
-      .eq("is_archived", false);
-    if (!cpRes.error) break;
-    if (!/column .* does not exist/i.test(String(cpRes.error.message || ""))) {
+  // place_id 청크(200)로 나눠 조회 — bbox 후보가 1000까지 늘었으므로
+  for (let i = 0; i < candidateIds.length; i += 200) {
+    const idChunk = candidateIds.slice(i, i + 200);
+    let cpRes = null;
+    for (const cols of cpSelectVariants) {
+      cpRes = await sb
+        .from("curator_places")
+        .select(cols)
+        .in("place_id", idChunk)
+        .eq("is_archived", false);
+      if (!cpRes.error) break;
+      if (!/column .* does not exist/i.test(String(cpRes.error.message || ""))) {
+        break;
+      }
+    }
+    if (cpRes.error) {
+      cpErr = cpRes.error;
       break;
     }
+    cps = cps.concat(Array.isArray(cpRes.data) ? cpRes.data : []);
   }
-  cps = Array.isArray(cpRes.data) ? cpRes.data : [];
-  cpErr = cpRes.error || null;
-  if (cpErr) return { places, joinRows: [], error: cpErr };
+  if (cpErr) return { places: allPlaces.slice(0, limit), joinRows: [], error: cpErr };
+
+  // 큐레이터 수 기준 우선 정렬 후 limit 만큼 자른다(RPC 정상 동작과 동일한 우선순위).
+  const curatorCountByPlace = new Map();
+  for (const cp of cps) {
+    const pid = String(cp?.place_id || "");
+    if (!pid) continue;
+    curatorCountByPlace.set(pid, (curatorCountByPlace.get(pid) || 0) + 1);
+  }
+  const orderedPlaces = [...allPlaces].sort((a, b) => {
+    const ca = curatorCountByPlace.get(String(a?.id || "")) || 0;
+    const cb = curatorCountByPlace.get(String(b?.id || "")) || 0;
+    if ((cb > 0 ? 1 : 0) !== (ca > 0 ? 1 : 0)) return (cb > 0 ? 1 : 0) - (ca > 0 ? 1 : 0);
+    return cb - ca;
+  });
+  const places = orderedPlaces.slice(0, limit);
+  const keptPlaceIds = new Set(places.map((p) => String(p?.id || "")));
+  // 잘려나간 장소의 큐레이터 행은 제외(joinRows 는 노출되는 places 와 일치해야 함)
+  cps = cps.filter((cp) => keptPlaceIds.has(String(cp?.place_id || "")));
 
   const curatorIds = [
     ...new Set(cps.map((r) => String(r?.curator_id || "").trim()).filter(Boolean)),

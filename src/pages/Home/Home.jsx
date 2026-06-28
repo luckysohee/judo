@@ -127,6 +127,7 @@ import HomeTodayTasteSuggest, {
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
 import TasteOnboardingGate from "../../components/Onboarding/TasteOnboardingGate";
 import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
+import { usePersonalTasteSignals } from "../../hooks/usePersonalTasteSignals";
 import {
   tasteProfileHasSignals,
   tasteProfileToSecondFindDefaults,
@@ -405,6 +406,16 @@ export default function Home() {
     needsOnboarding: tasteNeedsOnboarding,
     saveOnboarding: saveTasteOnboarding,
   } = useUserTastePreferences({
+    userId: user?.id,
+    authLoading,
+  });
+
+  const {
+    searchSignals: personalSearchSignals,
+    pickedPlaceIds: personalPickedPlaceIds,
+    pickedPlaceInfo: personalPickedPlaceInfo,
+    hasPersonalSignals,
+  } = usePersonalTasteSignals({
     userId: user?.id,
     authLoading,
   });
@@ -5508,7 +5519,7 @@ export default function Home() {
 
   const showTodayTasteSuggest = useMemo(() => {
     if (!user?.id || tastePrefsLoading) return false;
-    if (!tasteProfileHasSignals(tasteProfile)) return false;
+    if (!tasteProfileHasSignals(tasteProfile) && !hasPersonalSignals) return false;
     if (tasteNeedsOnboarding) return false;
     if (String(query || "").trim() || selectedPlace || homeSearchMode.isOpen) {
       return false;
@@ -5529,6 +5540,7 @@ export default function Home() {
     user?.id,
     tastePrefsLoading,
     tasteProfile,
+    hasPersonalSignals,
     tasteNeedsOnboarding,
     query,
     selectedPlace,
@@ -9448,6 +9460,9 @@ const handleClearSearch = () => {
             eligible={showTodayTasteSuggest}
             profile={tasteProfile}
             places={displayedPlaces}
+            searchSignals={personalSearchSignals}
+            pickedPlaceIds={personalPickedPlaceIds}
+            pickedPlaceInfo={personalPickedPlaceInfo}
             tastePreviewOpen={
               Boolean(selectedPlace?.tasteTodayPickSession)
             }
