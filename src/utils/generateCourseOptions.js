@@ -113,6 +113,19 @@ const COURSE_AREA_HARD_EXCLUDE = {
     /장충/,
     /동대문구|왕십리|성동구|용산구/,
   ],
+  // 종로 bbox(3.2km)에 용산구 남영·숙대입구·청파·서계 권역이 대거 끼던 문제.
+  종로: [
+    /용산구/,
+    /남영/,
+    /숙대|숙명/,
+    /청파/,
+    /서계동/,
+    /갈월/,
+    /후암/,
+    /신흥로/,
+    /한강대로/,
+    /신당|다산|약수/,
+  ],
 };
 
 /**
@@ -122,6 +135,7 @@ const COURSE_AREA_HARD_EXCLUDE = {
  */
 const COURSE_AREA_CORE_RADIUS_KM = {
   을지로: 1.2,
+  종로: 2.2, // 종로는 동서로 긴 권역(광화문~종로5가) — 코어 넓게, 용산구는 하드 제외로 별도 차단
 };
 
 function placeHardExcludedFromArea(place, areaKey) {

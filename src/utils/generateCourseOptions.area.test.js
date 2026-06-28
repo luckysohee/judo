@@ -61,3 +61,56 @@ describe("resolveCourseAreaPool - 을지로 인접지 오염 제거", () => {
     expect(ids).toContain("dongdaemun-synonym");
   });
 });
+
+// 종로 센터 (37.57, 126.979) 기준 — 용산구 숙대입구/남영 권역 오염 제거
+const jongnoPlaces = [
+  {
+    id: "jongno-core",
+    name: "서린낙지",
+    address: "서울특별시 종로구 종로1가 24",
+    lat: 37.5701,
+    lng: 126.9803,
+  },
+  {
+    id: "jongno5ga",
+    name: "효제루",
+    address: "서울특별시 종로구 효제동 301-2", // 종로구지만 센터에서 2km+ → 동의어(종로)로 유지
+    lat: 37.5722,
+    lng: 127.0,
+  },
+  {
+    id: "sookdae-bar",
+    name: "상록수연탄구이 숙대본점",
+    address: "서울 용산구 청파동2가 99-2", // 숙대입구 — 제외 대상
+    lat: 37.5455,
+    lng: 126.9695,
+  },
+  {
+    id: "namyeong-far",
+    name: "남영돈",
+    address: "서울특별시 용산구 남영동 52-2",
+    lat: 37.5417,
+    lng: 126.9716,
+  },
+];
+
+describe("resolveCourseAreaPool - 종로에 용산구(숙대입구·남영) 오염 제거", () => {
+  const { areaPlaces } = resolveCourseAreaPool(jongnoPlaces, {
+    area: "종로",
+    raw: "종로 데이트 코스",
+  });
+  const ids = areaPlaces.map((p) => p.id);
+
+  it("종로 도심 코어는 포함", () => {
+    expect(ids).toContain("jongno-core");
+  });
+
+  it("종로구 주소는 거리와 무관하게 유지", () => {
+    expect(ids).toContain("jongno5ga");
+  });
+
+  it("용산구 숙대입구·남영 술집은 제외", () => {
+    expect(ids).not.toContain("sookdae-bar");
+    expect(ids).not.toContain("namyeong-far");
+  });
+});
