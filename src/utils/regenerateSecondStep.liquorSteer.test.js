@@ -69,6 +69,27 @@ describe("regenerateSecondStep 주종→음식 카테고리 우선", () => {
     expect(names.indexOf("성수 중식당")).toBeLessThan(
       names.indexOf("성수 모던한식")
     );
+    expect(results.every((c) => c.liquorSteerRequested)).toBe(true);
+    const chineseCourse = results.find(
+      (c) => c.steps[c.steps.length - 1].place.name === "성수 중식당"
+    );
+    expect(chineseCourse.liquorCategoryMatched).toBe(true);
+  });
+
+  it("주종 맞춤이 없으면 liquorSteerRequested는 true, liquorCategoryMatched는 false", () => {
+    const noMatch = steerPlace("bar", "성수 그냥바", "바", 37.5452, 127.0562);
+    const results = regenerateSecondStep({
+      selectedCourse: buildSelectedCourse(firstPlace),
+      parsedQuery: parsed,
+      places: [firstPlace, noMatch],
+      userSecondPreferences: {
+        liquorTypes: ["고량주"],
+        maxSecondDistanceM: 2000,
+      },
+    });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((c) => c.liquorSteerRequested)).toBe(true);
+    expect(results.some((c) => c.liquorCategoryMatched)).toBe(false);
   });
 
   it("막걸리·전통주 선택 시 모던 한식이 중식당보다 위로 온다", () => {

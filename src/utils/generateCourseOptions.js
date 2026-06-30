@@ -2076,6 +2076,10 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       courseMapCaption: cap,
       courseStepIndex: Number(lastStep?.step) || 2,
       courseMarkerPulse: true,
+      liquorSteerRequested: Boolean(courses[i]?.liquorSteerRequested),
+      liquorCategoryMatched: Boolean(
+        p.liquorCategoryMatched ?? courses[i]?.liquorCategoryMatched
+      ),
     });
   }
   return out;

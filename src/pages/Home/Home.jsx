@@ -4570,6 +4570,8 @@ export default function Home() {
         : null;
       if (resolved && place?.courseSecondCandidatePick) {
         resolved.courseSecondCandidatePick = true;
+        resolved.liquorSteerRequested = Boolean(place.liquorSteerRequested);
+        resolved.liquorCategoryMatched = Boolean(place.liquorCategoryMatched);
         const matched = findSecondCandidateCourseForPlace(
           resolved,
           lastSecondCandidatesRef.current
@@ -4752,10 +4754,20 @@ export default function Home() {
           setRecommendSheetPinnedCollapsed(true);
           setSelectedPlace(null);
           setAiSheetOpen(false);
+          const steerRequested = (results || []).some(
+            (c) => c?.liquorSteerRequested
+          );
+          const steerMatched = (results || []).some(
+            (c) => c?.liquorCategoryMatched
+          );
+          const baseMsg =
+            "주변 2차 후보가 깜빡여요. 지도에 맞춰 두었어요 — 마커를 눌러 골라 주세요.";
           showToast(
-            "주변 2차 후보가 깜빡여요. 지도에 맞춰 두었어요 — 마커를 눌러 골라 주세요.",
+            steerRequested && !steerMatched
+              ? `${baseMsg} 근처에 해당 주종 맞춤 장소가 부족해 대안을 추천했어요.`
+              : baseMsg,
             "info",
-            4200
+            steerRequested && !steerMatched ? 5200 : 4200
           );
         } else {
           showToast("2차 후보를 찾지 못했어요.", "error", 2800);

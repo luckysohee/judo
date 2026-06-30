@@ -188,6 +188,16 @@ export function regenerateSecondStep({
     Number.isFinite(Number(userSecondPreferences.maxSecondDistanceM));
   const prioritizeCurators = Boolean(userSecondPreferences?.prioritizeCurators);
 
+  // 주종→음식 카테고리 우선이 요청됐는지(고량주·막걸리·전통주) — UI 안내 문구용
+  const requestedLiquorSet = new Set(
+    (prefStringList(userSecondPreferences?.liquorTypes) || []).map((s) =>
+      s.toLowerCase()
+    )
+  );
+  const liquorSteerRequested = LIQUOR_CATEGORY_STEER.some((steer) =>
+    steer.liquors.some((l) => requestedLiquorSet.has(l.toLowerCase()))
+  );
+
   const candidates = areaPlaces
     .map((place) => {
       const w = resolvePlaceWgs84(place);
@@ -285,6 +295,7 @@ export function regenerateSecondStep({
         }
         extraBonus += hits * 14;
       }
+      let liquorCategoryMatched = false;
       const pl = prefStringList(userSecondPreferences?.liquorTypes);
       if (pl?.length) {
         const set = new Set(pl.map((s) => s.toLowerCase()));
@@ -299,6 +310,7 @@ export function regenerateSecondStep({
           const liquorPicked = steer.liquors.some((l) => set.has(l.toLowerCase()));
           if (liquorPicked && steer.match.test(catHay)) {
             extraBonus += 26;
+            liquorCategoryMatched = true;
           }
         }
       }
@@ -348,6 +360,7 @@ export function regenerateSecondStep({
         ...place,
         distanceFromAnchor: Math.round(distance),
         candidateScore: baseScore + distanceBonus + extraBonus + timingBonus,
+        liquorCategoryMatched,
       };
     })
     .filter(Boolean)
@@ -409,6 +422,8 @@ export function regenerateSecondStep({
         regenerated: true,
         regenerateVariant: variant,
         totalScore: second.candidateScore,
+        liquorSteerRequested,
+        liquorCategoryMatched: Boolean(second.liquorCategoryMatched),
         includeHalfStep: true,
         steps: [
           { ...selectedCourse.steps[0] },
@@ -431,6 +446,8 @@ export function regenerateSecondStep({
       regenerated: true,
       regenerateVariant: variant,
       totalScore: second.candidateScore,
+      liquorSteerRequested,
+      liquorCategoryMatched: Boolean(second.liquorCategoryMatched),
       steps: [
         { ...selectedCourse.steps[0] },
         {

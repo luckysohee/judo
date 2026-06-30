@@ -1639,6 +1639,22 @@ export default function PlacePreviewCard({
             </div>
           ) : null}
 
+          {place.courseSecondCandidatePick &&
+          place.liquorSteerRequested &&
+          !place.liquorCategoryMatched ? (
+            <div
+              style={{
+                fontSize: 11.5,
+                color: "rgba(255,255,255,0.55)",
+                marginTop: 6,
+                lineHeight: 1.4,
+              }}
+              aria-label="주종 대안 안내"
+            >
+              근처에 해당 주종 맞춤 장소가 부족해 대안으로 추천했어요.
+            </div>
+          ) : null}
+
           {place.courseSecondCandidatePick ? (
             <div style={styles.mapCourseActionRow}>
               <button
