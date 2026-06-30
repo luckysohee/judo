@@ -567,6 +567,8 @@ const MapView = forwardRef(({
   const markersRef = useRef([]);
   const densityOverlaysRef = useRef([]);
   const clustererRef = useRef(null);
+  /** 코스 2차 후보 깜빡임(opacity 토글) interval — 마커 재생성 시 함께 정리 */
+  const coursePulseIntervalsRef = useRef([]);
   /** stabilizeGridSize용 이전 grid */
   const prevClusterGridSizeRef = useRef(null);
   /** 실제 적용 중인 클러스터 옵션 스냅샷 — 동일하면 인스턴스 재생성 생략 */
@@ -1580,6 +1582,12 @@ const MapView = forwardRef(({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
+    // 마커를 새로 만들기 전에 기존 코스 펄스(깜빡임) interval을 정리한다.
+    // (지도 이동·줌으로 이 effect가 재실행돼 마커가 교체될 때, 옛 마커에 붙은
+    //  interval이 남아 새 마커가 깜빡이지 않던 버그 방지 — 펄스를 마커 수명에 묶음)
+    for (const id of coursePulseIntervalsRef.current) window.clearInterval(id);
+    coursePulseIntervalsRef.current = [];
+
     if (mapDensityLayerActive) {
       markersRef.current.forEach((m) => m.setMap(null));
       disposeClusterer(clustererRef.current);
@@ -1689,6 +1697,7 @@ const MapView = forwardRef(({
     );
 
     const nextMarkers = [];
+    const pulseMarkers = [];
     for (const p of validPlaces) {
       const coords = resolvePlaceCoords(p);
       if (
@@ -1829,10 +1838,28 @@ const MapView = forwardRef(({
 
       bounds.extend(new window.kakao.maps.LatLng(lat, lng));
       nextMarkers.push(marker);
+      // 코스 2차 후보 등 깜빡임 대상 — 인덱스가 아닌 마커 자체로 짝지어 정렬 어긋남 방지
+      if (p.courseMarkerPulse) pulseMarkers.push(marker);
     }
 
     markersRef.current = nextMarkers;
     if (clustererRef.current) clustererRef.current.addMarkers(clusterMarkers);
+
+    // 코스 1차·2차 후보 마커 깜빡임 — 방금 만든 마커에 직접 opacity 토글 interval 부착.
+    // 마커 수명과 펄스 수명이 같아져, 지도를 움직여 마커가 교체돼도 새 마커가 계속 깜빡인다.
+    for (const marker of pulseMarkers) {
+      if (typeof marker.setOpacity !== "function") continue;
+      let bright = true;
+      const id = window.setInterval(() => {
+        bright = !bright;
+        try {
+          marker.setOpacity(bright ? 1 : 0.4);
+        } catch {
+          /* ignore */
+        }
+      }, 520);
+      coursePulseIntervalsRef.current.push(id);
+    }
 
     // [수정 포인트] 데이터(places)가 실제로 바뀌었을 때만 지도의 전체 범위를 다시 잡습니다.
     // selectedPlace가 변해서(카드 열기/닫기) 이 Effect가 돌 때는 지도를 움직이지 않습니다.
@@ -1940,45 +1967,18 @@ const MapView = forwardRef(({
     mapViewportLevel,
   ]);
 
-  /** 코스 1차·2차 후보 마커(courseMarkerPulse) — opacity 토글로 후보 강조 */
+  /**
+   * 코스 2차 후보 깜빡임은 마커 생성 루프(위 effect) 안에서 직접 부착한다.
+   * 여기서는 언마운트 시 남은 펄스 interval만 정리한다.
+   */
   useEffect(() => {
-    if (!mapReady || !markersRef.current?.length) return;
-
-    const validPlaces = places.filter((p) =>
-      placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins)
-    );
-
-    const intervals = [];
-    markersRef.current.forEach((marker, idx) => {
-      const p = validPlaces[idx];
-      if (!p?.courseMarkerPulse) return;
-      let bright = true;
-      const id = window.setInterval(() => {
-        bright = !bright;
-        try {
-          if (typeof marker.setOpacity === "function") {
-            marker.setOpacity(bright ? 1 : 0.4);
-          }
-        } catch {
-          /* ignore */
-        }
-      }, 520);
-      intervals.push(id);
-    });
-
     return () => {
-      for (const id of intervals) window.clearInterval(id);
-      markersRef.current.forEach((marker, idx) => {
-        const p = validPlaces[idx];
-        if (!p?.courseMarkerPulse) return;
-        try {
-          if (typeof marker.setOpacity === "function") marker.setOpacity(1);
-        } catch {
-          /* ignore */
-        }
-      });
+      for (const id of coursePulseIntervalsRef.current) {
+        window.clearInterval(id);
+      }
+      coursePulseIntervalsRef.current = [];
     };
-  }, [places, mapReady, skipKoreaBBoxForCuratorPins]);
+  }, []);
 
   // 3. 선택된 장소로 부드럽게 이동 (검색 결과는 y/x만 있고 lat/lng 없는 경우 많음)
   useEffect(() => {
