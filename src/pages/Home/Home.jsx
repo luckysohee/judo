@@ -45,11 +45,6 @@ import {
 } from "../../utils/storage";
 
 import { curatorPlaceMatchesLoggedInCurator } from "../../utils/curatorPlacesIdentity";
-import { mapClickCoordToPreviewPlace } from "../../utils/mapClickCoordToPreviewPlace";
-import {
-  resolveMapClickVenue,
-  kakaoPlacesDocToMapClickPreview,
-} from "../../utils/resolveMapClickVenue";
 import parseNaturalQuery from "../../utils/parseNaturalQuery";
 import {
   parseSearchQuery,
@@ -4847,29 +4842,26 @@ export default function Home() {
   );
 
   /**
-   * 지도 빈 곳 탭: 근처 Places → 있으면 카카오 장소 카드, 없으면 Geocoder + “못 찾음” 카드
+   * 지도 빈 곳 탭: 추가 동작(마커 재조회·지오코딩·줌인·새 카드) 없이
+   * 펼쳐진 추천 시트만 접는다. 선택 카드·코스 시트 닫기는 onMapBackgroundClick·MapView가 처리.
    */
   const handleMapBlankPick = useCallback(
-    async ({ lat, lng }) => {
-      /** 2차 후보 고르는 중엔 빈 지도 탭으로 새 카드·지오코더 열지 않음 — 후보 마커 유지 */
+    () => {
       if (courseSecondPickMode) return;
-      const resolved = await resolveMapClickVenue(lat, lng);
-      if (resolved.kind === "place" && resolved.doc) {
-        const shape = kakaoPlacesDocToMapClickPreview(resolved.doc);
-        if (shape) {
-          setSelectedPlaceWithAnalytics(shape, "map_nearby_pick");
-        }
-        return;
+      if (selectedPlace) return; // 카드가 열려 있으면 MapView가 카드부터 닫음
+      if (aiSheetOpen) {
+        setAiSheetOpen(false);
       }
-      const geo = await mapClickCoordToPreviewPlace(resolved.lat, resolved.lng);
-      if (geo) {
-        setSelectedPlaceWithAnalytics(
-          { ...geo, mapClickNoVenue: true },
-          "map_empty_pick"
-        );
+      if (!recommendSheetUiCollapsed) {
+        setRecommendSheetUiCollapsed(true);
       }
     },
-    [setSelectedPlaceWithAnalytics, courseSecondPickMode]
+    [
+      courseSecondPickMode,
+      selectedPlace,
+      aiSheetOpen,
+      recommendSheetUiCollapsed,
+    ]
   );
 
   useEffect(() => {
