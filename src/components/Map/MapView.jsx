@@ -1430,8 +1430,17 @@ const MapView = forwardRef(({
                     Number.isFinite(lat) &&
                     Number.isFinite(lng)
                   ) {
+                    let level = null;
                     try {
-                      onMapBlankClickRef.current({ lat, lng });
+                      level =
+                        typeof map.getLevel === "function"
+                          ? map.getLevel()
+                          : null;
+                    } catch {
+                      level = null;
+                    }
+                    try {
+                      onMapBlankClickRef.current({ lat, lng, level });
                     } catch (e) {
                       console.error("onMapBlankClick:", e);
                     }

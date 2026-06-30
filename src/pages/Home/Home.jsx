@@ -45,6 +45,10 @@ import {
 } from "../../utils/storage";
 
 import { curatorPlaceMatchesLoggedInCurator } from "../../utils/curatorPlacesIdentity";
+import {
+  resolveMapClickVenue,
+  kakaoPlacesDocToMapClickPreview,
+} from "../../utils/resolveMapClickVenue";
 import parseNaturalQuery from "../../utils/parseNaturalQuery";
 import {
   parseSearchQuery,
@@ -362,6 +366,9 @@ function devLog(...args) {
 function devWarn(...args) {
   if (import.meta.env.DEV) _devConsoleWarn(...args);
 }
+
+/** 지도 빈 곳 탭으로 근처 장소 카드를 띄울 최대 줌 레벨(작을수록 가까움) */
+const MAP_BLANK_PICK_MAX_LEVEL = 4;
 
 export default function Home() {
   const navigate = useNavigate();
@@ -4842,25 +4849,51 @@ export default function Home() {
   );
 
   /**
-   * 지도 빈 곳 탭: 추가 동작(마커 재조회·지오코딩·줌인·새 카드) 없이
-   * 펼쳐진 추천 시트만 접는다. 선택 카드·코스 시트 닫기는 onMapBackgroundClick·MapView가 처리.
+   * 지도 빈 곳 탭.
+   * - 줌이 충분히 가까우면(레벨 ≤ 4) 탭한 자리의 실제 장소를 찾아 카드만 띄운다
+   *   (이미 가까워 추가 줌인 없음 → 갑작스러운 줌인·무분별한 모달 방지).
+   * - 줌이 멀거나 근처에 장소가 없으면 마커 재조회·지오코딩 없이 펼쳐진 시트만 접는다.
+   *   선택 카드·코스 시트 닫기는 onMapBackgroundClick·MapView가 처리.
    */
+  const collapseExpandedSheets = useCallback(() => {
+    if (aiSheetOpen) {
+      setAiSheetOpen(false);
+    }
+    if (!recommendSheetUiCollapsed) {
+      setRecommendSheetUiCollapsed(true);
+    }
+  }, [aiSheetOpen, recommendSheetUiCollapsed]);
+
   const handleMapBlankPick = useCallback(
-    () => {
+    async ({ lat, lng, level } = {}) => {
       if (courseSecondPickMode) return;
       if (selectedPlace) return; // 카드가 열려 있으면 MapView가 카드부터 닫음
-      if (aiSheetOpen) {
-        setAiSheetOpen(false);
+
+      const zoomedClose =
+        Number.isFinite(Number(level)) &&
+        Number(level) <= MAP_BLANK_PICK_MAX_LEVEL;
+
+      if (!zoomedClose) {
+        collapseExpandedSheets();
+        return;
       }
-      if (!recommendSheetUiCollapsed) {
-        setRecommendSheetUiCollapsed(true);
+
+      // 가까이 줌인된 상태: 탭 지점 근처의 실제 장소만 카드로 (없으면 시트만 접음)
+      const resolved = await resolveMapClickVenue(lat, lng);
+      if (resolved.kind === "place" && resolved.doc) {
+        const shape = kakaoPlacesDocToMapClickPreview(resolved.doc);
+        if (shape) {
+          setSelectedPlaceWithAnalytics(shape, "map_nearby_pick");
+          return;
+        }
       }
+      collapseExpandedSheets();
     },
     [
       courseSecondPickMode,
       selectedPlace,
-      aiSheetOpen,
-      recommendSheetUiCollapsed,
+      collapseExpandedSheets,
+      setSelectedPlaceWithAnalytics,
     ]
   );
 
