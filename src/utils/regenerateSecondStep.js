@@ -65,6 +65,46 @@ function placeLiquorTokens(place) {
   return [String(raw).trim()].filter(Boolean);
 }
 
+/**
+ * 주종(2차 찾기 체크) → 어울리는 음식 카테고리 우선 가산.
+ * 고량주는 중식(중국집), 막걸리·전통주는 모던 한식 위주로 후보를 끌어올린다.
+ */
+const LIQUOR_CATEGORY_STEER = [
+  {
+    liquors: ["고량주"],
+    // 중식·중국집 (바이주/고량주와 어울림)
+    match: /중식|중국|중화|차이니즈|마라|훠궈|딤섬|짬뽕|탕수육|양꼬치|향(?:신|차이)/,
+  },
+  {
+    liquors: ["막걸리", "전통주"],
+    // 모던 한식·전통 주점·전집 (막걸리/전통주와 어울림)
+    match:
+      /한식|한정식|모던\s*한식|전\s*집|부침|빈대떡|파전|전통\s*주점|주막|한상|국밥|보쌈|족발|두부|순대|막걸리|민속주점/,
+  },
+];
+
+/** category·category_name·tags·categories 합친 소문자 문자열 */
+function placeCategoryHaystack(place) {
+  const out = [];
+  const push = (s) => {
+    const t = String(s ?? "").trim().toLowerCase();
+    if (t) out.push(t);
+  };
+  push(place?.category);
+  push(place?.category_name);
+  if (Array.isArray(place?.tags)) {
+    for (const t of place.tags) push(t);
+  }
+  if (Array.isArray(place?.categories)) {
+    for (const t of place.categories) push(t);
+  }
+  const cn = place?.category_name;
+  if (typeof cn === "string") {
+    for (const part of cn.split(/[>,]/g)) push(part);
+  }
+  return out.join(" ");
+}
+
 /** tags·categories·category_name 에서 안주 힌트 매칭용 */
 function placeAnjuHaystack(place) {
   const out = [];
@@ -252,6 +292,15 @@ export function regenerateSecondStep({
           set.has(String(t).toLowerCase())
         ).length;
         extraBonus += hits * 12;
+
+        // 주종 → 음식 카테고리 우선: 고량주는 중식, 막걸리·전통주는 모던 한식을 끌어올림
+        const catHay = placeCategoryHaystack(place);
+        for (const steer of LIQUOR_CATEGORY_STEER) {
+          const liquorPicked = steer.liquors.some((l) => set.has(l.toLowerCase()));
+          if (liquorPicked && steer.match.test(catHay)) {
+            extraBonus += 26;
+          }
+        }
       }
 
       const pa = prefStringList(userSecondPreferences?.anjuHints);
