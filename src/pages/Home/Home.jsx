@@ -1104,6 +1104,19 @@ export default function Home() {
         aiScoreSignals.quiet_mood = 12;
       }
 
+      if (intentAxisFlags?.meeting) {
+        // 큐레이터 태그·후기 본문에 미팅 적합 신호(룸·조용·대화·넓은 좌석 등)
+        if (/룸|프라이빗|단체|조용|차분|대화|미팅|콘센트|넓은\s*좌석|넓은\s*테이블|회의/.test(moodTextBlob)) {
+          score += 12;
+          aiScoreSignals.meeting_mood = 12;
+        }
+        // 시끌·유흥 신호는 업무 미팅에 부적합
+        if (/시끌|노래방|클럽|헌팅|왁자|떠들|시끄러/.test(moodTextBlob)) {
+          score -= 14;
+          aiScoreSignals.meeting_loud_penalty = -14;
+        }
+      }
+
       if (
         blindDateSecondVenueContext &&
         !userAskedBudgetMeal &&
@@ -7484,6 +7497,11 @@ const handleClearSearch = () => {
         const hoesikSearchKeywordMap = /회식|단체|워크샵|팀\s*저녁|부서/.test(
           normalizedMapKw
         );
+        // 업무 미팅: 조용히 식사·대화하기 좋은 곳 위주(한정식·다이닝·조용한 카페)
+        const meetingIntentMap =
+          /미팅|업무미팅|비즈니스|회의|상담|거래처|클라이언트|바이어/.test(
+            normalizedMapKw
+          );
         const barKeywordMap = isPojangmachaMap
           ? "포장마차"
           : matchedBarKeywordMap ||
@@ -7500,6 +7518,15 @@ const handleClearSearch = () => {
           intentPhraseMap = "포장마차";
         } else {
           intentPhraseMap = matchedFoodKeywordMap || barKeywordMap || null;
+        }
+        if (
+          !intentPhraseMap &&
+          meetingIntentMap &&
+          !matchedFoodKeywordMap &&
+          !matchedBarKeywordMap
+        ) {
+          // 업종 토큰이 없으면 미팅 식사 키워드로 카카오 풀을 정갈하게
+          intentPhraseMap = "한정식";
         }
         if (!intentPhraseMap) {
           intentPhraseMap = inferCasualDrinkMapIntentPhrase(nextQuery);
@@ -7617,7 +7644,10 @@ const handleClearSearch = () => {
 
         let searchKeyword;
         if (locationName) {
-          if (moodPreserveMap && tailAfterLocationMap) {
+          if (meetingIntentMap && intentPhraseMap) {
+            // 미팅 질의: 「을지로 미팅 괜찮은 장소 추천」 같은 꼬리 대신 정갈한 업종 키워드
+            searchKeyword = `${locationName} ${intentPhraseMap}`;
+          } else if (moodPreserveMap && tailAfterLocationMap) {
             searchKeyword = `${locationName} ${tailAfterLocationMap}`.trim();
           } else {
             searchKeyword = intentPhraseMap
@@ -7791,7 +7821,7 @@ const handleClearSearch = () => {
           : moodPreserveMap
             ? (stripPartyAndChatterForKeywordSearch(nextQuery) || nextQuery).trim()
             : stripPartyAndChatterForKeywordSearch(mapQuery) || mapQuery;
-        const phrasesForUnified = situationChipUnifiedPhrases?.length
+        let phrasesForUnified = situationChipUnifiedPhrases?.length
           ? situationChipUnifiedPhrases
           : mergeIntentAssistIntoSearchPhrases(
               kwUnified,
@@ -7801,6 +7831,18 @@ const handleClearSearch = () => {
                 rawQuery: nextQuery,
               }
             );
+        if (meetingIntentMap && !situationChipUnifiedPhrases?.length) {
+          // 미팅 적합 업종(정갈한 식사·조용한 카페)을 통합 후보 풀에 보강
+          const loc = String(locationName || "").trim();
+          const meetingPhrases = ["한정식", "다이닝", "조용한 카페"].map((p) =>
+            loc ? `${loc} ${p}` : p
+          );
+          const merged = [...phrasesForUnified];
+          for (const mp of meetingPhrases) {
+            if (!merged.includes(mp)) merged.push(mp);
+          }
+          phrasesForUnified = merged.slice(0, UNIFIED_MAP_MERGE_MAX_PHRASES);
+        }
         /**
          * 상황 칩: 내 위치 버튼 직후 등 지도 팬이 한 프레임 늦게 반영될 수 있음 —
          * bounds/sort 기준을 잡기 전에 레이아웃 한 틱 양보.

@@ -20,6 +20,7 @@ export const INTENT = Object.freeze({
   DRINK: "drink",
   CAFE: "cafe",
   YAJANG: "yajang",
+  MEETING: "meeting",
 });
 
 /** `buildReasonFromSignals` 기본 문구 — 매핑 없을 때·빈 signals */
@@ -40,6 +41,10 @@ export function detectIntents(query = "") {
     drink: /술집|바|와인|이자카야|맥주|칵테일/.test(q),
     cafe: /카페|커피|디저트/.test(q),
     yajang: queryWantsYajangFocus(raw, parsed),
+    meeting:
+      /미팅|업무\s*미팅|업무미팅|비즈니스|회의|상담|거래처|클라이언트|바이어/.test(
+        q
+      ),
   };
 }
 
@@ -61,6 +66,18 @@ export function classifyCategory(place) {
     italian: /파스타|이탈리안|피자/.test(text),
     cheap: /백반|국밥|분식|해장국|기사식당/.test(text),
     outdoor,
+    // 미팅 적합: 한정식·다이닝 등 조용히 대화하며 식사 가능한 좌식/정식
+    koreanFine:
+      /한정식|코스요리|코스 요리|다이닝|오마카세|퓨전한식|한식주점|전통한식|정식/.test(
+        text
+      ),
+    // 앉아서 대화 가능한 일반 식당(저렴·노점 제외)
+    restaurant:
+      /레스토랑|양식|일식|중식|한식|이탈리안|프렌치|스테이크|다이닝|퓨전|코스|초밥|스시|샤브/.test(
+        text
+      ),
+    // 미팅엔 부적합한 시끌·유흥 업종
+    loud: /클럽|나이트|노래방|룸살롱|감성주점|헌팅|호프/.test(text),
   };
 }
 
@@ -122,6 +139,21 @@ function applyIntentRules(intent, cat, record) {
 
   if (intent.cafe && cat.cafe) {
     record(2, "intent_cafe_match");
+  }
+
+  if (intent.meeting) {
+    // 조용히 대화·식사하기 좋은 쪽을 우선
+    if (cat.cafe) record(3, "meeting_cafe");
+    if (cat.koreanFine) record(3, "meeting_dining");
+    if (cat.restaurant && !cat.cheap && !cat.koreanFine) {
+      record(2, "meeting_restaurant");
+    }
+    if (cat.italian) record(1.2, "meeting_italian");
+    if (cat.winebar) record(1, "meeting_winebar");
+    // 시끌·노점·저가 업종은 업무 미팅에 부적합
+    if (cat.loud) record(-6, "penalty_meeting_loud");
+    if (cat.outdoor) record(-3, "penalty_meeting_outdoor");
+    if (cat.cheap) record(-3, "penalty_meeting_cheap");
   }
 
   if (intent.date && intent.after && !yajangPrimary) {
@@ -317,6 +349,26 @@ function getIntentContextTail(signals, salt = 0) {
       "카페로 쉬기 좋아요",
       "잠깐 앉기 좋은 맥락이에요",
     ],
+    meeting_cafe: [
+      "조용히 미팅하기 좋아요",
+      "대화·자료 보기 편한 카페예요",
+    ],
+    meeting_dining: [
+      "업무 미팅 식사로 격식 갖추기 좋아요",
+      "차분하게 식사하며 얘기하기 좋아요",
+    ],
+    meeting_restaurant: [
+      "앉아서 대화하며 식사하기 좋아요",
+      "미팅 자리로 무난한 식당이에요",
+    ],
+    meeting_italian: [
+      "가볍게 식사 미팅하기 좋아요",
+      "대화하며 한 끼 하기 좋아요",
+    ],
+    meeting_winebar: [
+      "미팅 후 한 잔 이어가기 좋아요",
+      "차분하게 마무리하기 좋아요",
+    ],
     date_italian: [
       "식사 데이트로 이어가기 좋아요",
       "한 끼 무드로 이어가기 좋아요",
@@ -352,6 +404,11 @@ function getIntentContextTail(signals, salt = 0) {
     "quiet_bar",
     "drink_venue",
     "intent_cafe_match",
+    "meeting_dining",
+    "meeting_cafe",
+    "meeting_restaurant",
+    "meeting_italian",
+    "meeting_winebar",
     "date_italian",
     "date_cafe",
     "after_cafe",
@@ -486,6 +543,29 @@ export function buildReasonFromSignals(signals, place = null, opts = null) {
     ifTop("intent_cafe_match", [
       "카페 찾는 맥락에 맞는 카페예요",
       "잠깐 쉬었다 가기 좋은 카페예요",
+    ]) ||
+    ifTop("meeting_dining", [
+      "업무 미팅 식사로 격식 갖추기 좋은 곳이에요",
+      "차분하게 식사하며 얘기 나누기 좋은 곳이에요",
+      "미팅 자리로 정갈한 한 끼에 잘 맞아요",
+    ]) ||
+    ifTop("meeting_cafe", [
+      "조용히 미팅·대화하기 좋은 카페예요",
+      "자료 보며 얘기 나누기 편한 카페예요",
+      "업무 미팅에 무난한 차분한 카페예요",
+    ]) ||
+    ifTop("meeting_restaurant", [
+      "앉아서 대화하며 식사하기 좋은 식당이에요",
+      "미팅 자리로 무난한 식당이에요",
+      "한 끼 하며 얘기 이어가기 좋아요",
+    ]) ||
+    ifTop("meeting_italian", [
+      "가볍게 식사 미팅하기 좋은 이탈리안이에요",
+      "대화하며 한 끼 하기 좋은 곳이에요",
+    ]) ||
+    ifTop("meeting_winebar", [
+      "미팅 후 한 잔 이어가기 좋은 와인바예요",
+      "차분하게 마무리하기 좋은 자리예요",
     ]) ||
     ifTop("date_italian", [
       "데이트 식사 이어가기 좋은 이탈리안이에요",

@@ -458,7 +458,7 @@ export function isLikelyNaturalLanguageFromQueryOnly(query) {
   const q = String(query || "").trim();
   if (!q) return false;
   if (
-    /걸어서|걸어가기|걸어갈|걸어다니|도보\s|가까운\s*곳|분위기|데이트|연인|회식|혼술|늦게까지|가성비|조용한|조용하게|시끌|로맨틱|조용히|혼자|친구랑|가족이랑|노포|옛날감성|로컬|숨은맛집|전통/i.test(
+    /걸어서|걸어가기|걸어갈|걸어다니|도보\s|가까운\s*곳|분위기|데이트|연인|회식|혼술|미팅|업무미팅|비즈니스|회의|상담|늦게까지|가성비|조용한|조용하게|시끌|로맨틱|조용히|혼자|친구랑|가족이랑|노포|옛날감성|로컬|숨은맛집|전통/i.test(
       q
     )
   ) {
@@ -580,6 +580,10 @@ export const HOME_SEARCH_MOOD_INTENT_HINT_WORDS = [
   "혼술",
   "잔잔한",
   "프라이빗",
+  "미팅",
+  "업무미팅",
+  "비즈니스",
+  "회의",
 ];
 
 export function homeSearchQueryHasMoodIntentHint(query) {
@@ -806,6 +810,16 @@ function buildSituationKeywords() {
     생일: ["생일", "생일파티", "birthday", "축하"],
     기념일: ["기념일", "anniversary", "축하", "기념"],
     모임: ["모임", "친구", "지인", "손님", "만남"],
+    미팅: [
+      "미팅",
+      "업무미팅",
+      "비즈니스",
+      "회의",
+      "상담",
+      "거래처",
+      "클라이언트",
+      "바이어",
+    ],
   };
   const out = { ...LEGACY };
   for (const [k, v] of Object.entries(SEARCH_DICTIONARY.purposes)) {
