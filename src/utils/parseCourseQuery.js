@@ -72,6 +72,17 @@ const COURSE_LEADING_TOKEN_TO_AREA = {
   명륜: "혜화",
   문정: "문정",
   문정역: "문정",
+  /** 성수 인접 미세 권역 — 코스 장소 풀은 성수 클러스터 사용 */
+  서울숲: "성수",
+  뚝섬: "성수",
+  건대: "건대",
+  건대입구: "건대",
+};
+
+/** 코스 장소 풀(`COURSE_AREA_CORE`) — 성수 인접 미세 권역은 성수 클러스터로 합침 */
+const COURSE_AREA_POOL_ALIAS = {
+  서울숲: "성수",
+  뚝섬: "성수",
 };
 
 function regionKeyForExactSynonym(tokenLower) {
@@ -129,6 +140,9 @@ function resolveCourseArea(text, facets) {
         break;
       }
     }
+  }
+  if (area && COURSE_AREA_POOL_ALIAS[area]) {
+    area = COURSE_AREA_POOL_ALIAS[area];
   }
   return area;
 }

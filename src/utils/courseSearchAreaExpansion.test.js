@@ -3,6 +3,7 @@ import {
   buildCourseDiscoverySearchPlan,
   resolveCourseSearchAreaKey,
 } from "./courseSearchAreaExpansion.js";
+import { parseCourseQuery } from "./parseCourseQuery.js";
 import { getNearbyRegionKeys } from "./searchParser.js";
 
 describe("resolveCourseSearchAreaKey", () => {
@@ -14,6 +15,12 @@ describe("resolveCourseSearchAreaKey", () => {
 
   it("을지로입구·을지로3가도 을지로로 묶는다", () => {
     expect(resolveCourseSearchAreaKey("을지로입구")).toBe("을지로");
+  });
+
+  it("서울숲·뚝섬·건대를 각각 독립 클러스터로 인식한다", () => {
+    expect(resolveCourseSearchAreaKey("서울숲")).toBe("서울숲");
+    expect(resolveCourseSearchAreaKey("뚝섬역")).toBe("뚝섬");
+    expect(resolveCourseSearchAreaKey("건대입구")).toBe("건대");
   });
 
   it("지역이 없으면 null", () => {
@@ -40,8 +47,9 @@ describe("buildCourseDiscoverySearchPlan", () => {
     const plan = buildCourseDiscoverySearchPlan("성수동");
     expect(Array.isArray(plan.nearby)).toBe(true);
     expect(plan.nearby.every((n) => n.key !== "성수")).toBe(true);
-    // 성수 근처(약 4km 내)에는 압구정이 포함된다
-    expect(plan.nearby.map((n) => n.key)).toContain("압구정");
+    // 성수 바로 옆(뚝섬·서울숲·건대)이 압구정보다 가까움
+    const keys = plan.nearby.map((n) => n.key);
+    expect(keys.some((k) => /뚝섬|서울숲|건대/.test(k))).toBe(true);
   });
 
   it("지역이 없으면 원문 그대로, 근처 없음", () => {
@@ -57,5 +65,18 @@ describe("getNearbyRegionKeys", () => {
     const near = getNearbyRegionKeys("강남", { maxKm: 4, limit: 3 });
     expect(near).not.toContain("강남");
     expect(near.length).toBeLessThanOrEqual(3);
+  });
+
+  it("성수 검색 시 뚝섬·서울숲·건대가 근처 후보에 포함된다", () => {
+    const near = getNearbyRegionKeys("성수", { maxKm: 4, limit: 5 });
+    expect(near.some((k) => /뚝섬|서울숲|건대/.test(k))).toBe(true);
+  });
+});
+
+describe("parseCourseQuery 성수 인접 권역", () => {
+  it("코스 생성은 서울숲·뚝섬을 성수 풀로 합치고 건대는 독립", () => {
+    expect(parseCourseQuery("서울숲 데이트 코스").area).toBe("성수");
+    expect(parseCourseQuery("뚝섬 데이트 코스").area).toBe("성수");
+    expect(parseCourseQuery("건대 데이트 코스").area).toBe("건대");
   });
 });
