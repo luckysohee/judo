@@ -1877,11 +1877,14 @@ const MapView = forwardRef(({
       (validPlaces.length > 0 &&
         validPlaces.every((p) => p.isKakaoTypingPreview));
 
+    // 2차 픽 모드라도 사용자가 한 번 지도를 움직였으면(userInteractedRef) 자동 맞춤하지 않는다.
+    // (후보로의 초기 맞춤은 Home의 전용 effect[fitToPlaces]가 1회 처리 — 여기서 또 맞추면
+    //  지도를 움직여도 후보 위치로 되돌아가 '지도가 안 움직이는' 것처럼 보임)
     const shouldAutoFitFromPlaces =
       validPlaces.length > 0 &&
       !skipViewportAdjust &&
       !isLockedRef.current &&
-      (!userInteractedRef.current || courseSecondPickMode) &&
+      !userInteractedRef.current &&
       !selectedPlace &&
       lastAutoFitPlacesSigRef.current !== sig;
 
