@@ -1380,6 +1380,8 @@ export default function Home() {
   const homeSearchSkipCoursePreviewRef = useRef(false);
   /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
   const situationFolderFilterRef = useRef(null);
+  /** 코스 2차 찾기·코스 경로 표시 중이면 true — 지도 이동 DB '불러오기' 차단용(요청·캐시 절약 + 마커 안정) */
+  const courseMapActiveRef = useRef(false);
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
@@ -1694,6 +1696,8 @@ export default function Home() {
   const scheduleDbPlacesForBounds = useCallback(
     (boundsRaw, mapLevel) => {
       if (String(query || "").trim()) return;
+      // 코스 2차 찾기·코스 경로 표시 중에는 뷰포트 DB 로드 금지(마커·깜빡임 보호)
+      if (courseMapActiveRef.current) return;
 
       /** mount 부트 로드 진행 중 — idle bbox로 2번째 places-in-bounds 방지 */
       if (
@@ -2857,6 +2861,9 @@ export default function Home() {
   const [mapCourseFirstBusy, setMapCourseFirstBusy] = useState(false);
   /** 2차 후보 펄스 중: 펄스 마커 탭 시 미리보기에 「2차는 여기로」 */
   const [courseSecondPickMode, setCourseSecondPickMode] = useState(false);
+  // 코스 2차 찾기·코스 경로 표시 중 — 지도 이동 시 DB '불러오기' 차단(아래 onMapViewportChange)
+  courseMapActiveRef.current =
+    courseSecondPickMode || Boolean(courseMapOverlay);
   /** 칩·추천 시트 → 2차 찾기·확정 후에도 맞춤 추천 시트는 접힌 채(루트 보기) */
   const [recommendSheetPinnedCollapsed, setRecommendSheetPinnedCollapsed] =
     useState(false);
@@ -4307,7 +4314,10 @@ export default function Home() {
         lastMapLevelRef.current = level;
         setMapZoomLevel(level);
       }
-      if (bounds?.sw && bounds?.ne) {
+      // 코스 2차 찾기·코스 경로 표시 중에는 지도를 움직여도 DB '불러오기'를 하지 않는다.
+      // (불필요한 places-in-bounds 요청·캐시 낭비 방지 + 마커 재생성으로 2차 후보
+      //  깜빡임이 끊기는 것 방지 — 코스 마커는 그대로 유지)
+      if (bounds?.sw && bounds?.ne && !courseMapActiveRef.current) {
         if (
           typeof level === "number" &&
           Number.isFinite(level) &&
