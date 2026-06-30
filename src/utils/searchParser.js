@@ -167,6 +167,31 @@ export function getRegionCenterCoords(regionKey) {
 }
 
 /**
+ * 중심 좌표 기준 인접 지역 클러스터 키(가까운 순) — 코스 검색 「근처 지역」 묶음용.
+ * @param {string} regionKey
+ * @param {{ maxKm?: number, limit?: number }} [opts]
+ * @returns {string[]}
+ */
+export function getNearbyRegionKeys(regionKey, opts = {}) {
+  const maxKm = Number.isFinite(Number(opts.maxKm)) ? Number(opts.maxKm) : 4;
+  const limit = Number.isFinite(Number(opts.limit))
+    ? Math.max(0, Math.floor(Number(opts.limit)))
+    : 3;
+  const center = getRegionCenterCoords(regionKey);
+  if (!center) return [];
+  const selfKey = normalizeRegionClusterKey(String(regionKey || "").trim());
+  const scored = [];
+  for (const [key, c] of Object.entries(REGION_CENTER_COORDS)) {
+    if (key === selfKey) continue;
+    if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+    const d = haversineKm(center.lat, center.lng, c.lat, c.lng);
+    if (Number.isFinite(d) && d <= maxKm) scored.push({ key, d });
+  }
+  scored.sort((a, b) => a.d - b.d);
+  return scored.slice(0, limit).map((x) => x.key);
+}
+
+/**
  * 쿼리 지역과 주소·상호가 명백히 다른 동네일 때 제외.
  * (좌표만 가깝고 주소는 서초구인 POI — 이태원 검색 오염 방지)
  */

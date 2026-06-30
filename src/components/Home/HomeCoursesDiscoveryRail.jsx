@@ -5,6 +5,7 @@ import {
   fetchPublicCuratorCourses,
 } from "../../api/curatorCourses";
 import { searchPublicCuratorCourses } from "../../api/searchPublicCourses";
+import { buildCourseDiscoverySearchPlan } from "../../utils/courseSearchAreaExpansion";
 import { splitMyCuratorCourses } from "../../utils/courseImportUi";
 import { COURSE_SCRAP_SECTION_TITLE } from "../../utils/coursePickCopy";
 import {
@@ -22,6 +23,7 @@ import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 
 const COURSE_SEARCH_DEBOUNCE_MS = 320;
 const COURSE_SEARCH_PAGE_SIZE = 24;
+const COURSE_NEARBY_PAGE_SIZE = 6;
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(
   /\/$/,
   ""
@@ -202,6 +204,15 @@ const styles = {
     fontWeight: 600,
     color: T.textMuted,
     padding: "8px 4px",
+    lineHeight: 1.4,
+  },
+  nearbySectionTitle: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: T.textMuted,
+    padding: "10px 4px 4px",
+    marginTop: 6,
+    borderTop: `1px solid ${T.divider || "rgba(255,255,255,0.08)"}`,
     lineHeight: 1.4,
   },
   stateBox: {
@@ -569,6 +580,8 @@ export default function HomeCoursesDiscoveryRail({
   const [searchPhase, setSearchPhase] = useState("idle");
   const [searchResults, setSearchResults] = useState([]);
   const [searchHasMore, setSearchHasMore] = useState(false);
+  /** 검색 지역과 인접한 동네 코스 묶음 — [{ key, courses }] */
+  const [nearbyAreaSections, setNearbyAreaSections] = useState([]);
   const loadGenRef = useRef(0);
   const myLoadGenRef = useRef(0);
   const searchGenRef = useRef(0);
@@ -594,7 +607,10 @@ export default function HomeCoursesDiscoveryRail({
 
   const filteredPersonalCourses = useMemo(() => {
     if (!trimmedSearch) return personalTabCourses;
-    return filterCoursesForDiscoverySearch(personalTabCourses, trimmedSearch, {
+    // 성수동 → 성수 등 동네명을 클러스터 키로 정규화해 부분일치 누락 방지
+    const plan = buildCourseDiscoverySearchPlan(trimmedSearch);
+    const q = plan.primaryQuery || trimmedSearch;
+    return filterCoursesForDiscoverySearch(personalTabCourses, q, {
       nameByCurator,
     });
   }, [personalTabCourses, trimmedSearch, nameByCurator]);
@@ -758,6 +774,7 @@ export default function HomeCoursesDiscoveryRail({
       setSearchPhase("idle");
       setSearchResults([]);
       setSearchHasMore(false);
+      setNearbyAreaSections([]);
       return undefined;
     }
 
@@ -768,24 +785,72 @@ export default function HomeCoursesDiscoveryRail({
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
+          // 성수동→성수 등 동네명 정규화 + 인접 지역 묶음 계획
+          const plan = buildCourseDiscoverySearchPlan(trimmedSearch);
           const { courses, hasMore } = await searchPublicCuratorCourses(
-            trimmedSearch,
+            plan.primaryQuery || trimmedSearch,
             {
               limit: COURSE_SEARCH_PAGE_SIZE,
               apiBaseUrl: AI_API_BASE,
             }
           );
           if (searchGenRef.current !== gen) return;
-          setSearchResults(Array.isArray(courses) ? courses : []);
+          const primary = Array.isArray(courses) ? courses : [];
+          setSearchResults(primary);
           setSearchHasMore(Boolean(hasMore));
           setSearchPhase("ready");
-          void mergeSearchStats(courses, searchGenRef, gen);
-          void mergeCuratorNames(courses, searchGenRef, gen);
+          void mergeSearchStats(primary, searchGenRef, gen);
+          void mergeCuratorNames(primary, searchGenRef, gen);
+
+          if (plan.nearby.length === 0) {
+            setNearbyAreaSections([]);
+            return;
+          }
+
+          // 인접 지역 코스(검색 지역과 별개 섹션) — 이미 나온 코스는 제외
+          const seen = new Set(
+            primary
+              .map((c) => String(c?.id || "").trim().toLowerCase())
+              .filter(Boolean)
+          );
+          const sections = [];
+          for (const area of plan.nearby) {
+            try {
+              const r = await searchPublicCuratorCourses(area.query, {
+                limit: COURSE_NEARBY_PAGE_SIZE,
+                apiBaseUrl: AI_API_BASE,
+              });
+              if (searchGenRef.current !== gen) return;
+              const fresh = (Array.isArray(r.courses) ? r.courses : []).filter(
+                (c) => {
+                  const id = String(c?.id || "").trim().toLowerCase();
+                  if (!id || seen.has(id)) return false;
+                  seen.add(id);
+                  return true;
+                }
+              );
+              if (fresh.length > 0) {
+                sections.push({ key: area.key, courses: fresh });
+                void mergeSearchStats(fresh, searchGenRef, gen);
+                void mergeCuratorNames(fresh, searchGenRef, gen);
+              }
+            } catch (nearErr) {
+              if (searchGenRef.current !== gen) return;
+              console.warn(
+                "[HomeCoursesDiscoveryRail] nearby search",
+                area.key,
+                nearErr
+              );
+            }
+          }
+          if (searchGenRef.current !== gen) return;
+          setNearbyAreaSections(sections);
         } catch (e) {
           if (searchGenRef.current !== gen) return;
           console.warn("[HomeCoursesDiscoveryRail] search", e);
           setSearchResults([]);
           setSearchHasMore(false);
+          setNearbyAreaSections([]);
           setSearchPhase("error");
         }
       })();
@@ -982,25 +1047,50 @@ export default function HomeCoursesDiscoveryRail({
             <p style={styles.emptyCol}>
               검색에 실패했어요. API 서버와 DB 마이그레이션을 확인해 주세요.
             </p>
-          ) : searchResults.length === 0 ? (
-            <p style={styles.emptyCol}>검색 결과가 없어요.</p>
           ) : (
             <>
-              {searchResults.map((c) => (
-                <CompactCourseCard
-                  key={String(c.id || c.title)}
-                  course={c}
-                  statsByCourseId={statsByCourseId}
-                  nameByCurator={nameByCurator}
-                  active={false}
-                  onActivate={activateCourse}
-                />
-              ))}
-              {searchHasMore ? (
+              {searchResults.length === 0 ? (
                 <p style={styles.emptyCol}>
-                  더 많은 결과가 있어요. 검색어를 구체적으로 입력해 보세요.
+                  {nearbyAreaSections.length > 0
+                    ? "딱 맞는 코스는 없지만, 근처 지역 코스를 모아봤어요."
+                    : "검색 결과가 없어요."}
                 </p>
-              ) : null}
+              ) : (
+                <>
+                  {searchResults.map((c) => (
+                    <CompactCourseCard
+                      key={String(c.id || c.title)}
+                      course={c}
+                      statsByCourseId={statsByCourseId}
+                      nameByCurator={nameByCurator}
+                      active={false}
+                      onActivate={activateCourse}
+                    />
+                  ))}
+                  {searchHasMore ? (
+                    <p style={styles.emptyCol}>
+                      더 많은 결과가 있어요. 검색어를 구체적으로 입력해 보세요.
+                    </p>
+                  ) : null}
+                </>
+              )}
+              {nearbyAreaSections.map((section) => (
+                <div key={section.key} role="list">
+                  <p style={styles.nearbySectionTitle}>
+                    근처 · {section.key} 코스
+                  </p>
+                  {section.courses.map((c) => (
+                    <CompactCourseCard
+                      key={String(c.id || c.title)}
+                      course={c}
+                      statsByCourseId={statsByCourseId}
+                      nameByCurator={nameByCurator}
+                      active={false}
+                      onActivate={activateCourse}
+                    />
+                  ))}
+                </div>
+              ))}
             </>
           )}
         </div>
