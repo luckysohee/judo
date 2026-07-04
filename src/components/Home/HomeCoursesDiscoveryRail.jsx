@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   fetchMyCuratorCourses,
   fetchPublicCuratorCourses,
+  publishCuratorCourse,
+  updateCuratorCourse,
 } from "../../api/curatorCourses";
+import { useToast } from "../Toast/ToastProvider";
 import { searchPublicCuratorCourses } from "../../api/searchPublicCourses";
 import { buildCourseDiscoverySearchPlan } from "../../utils/courseSearchAreaExpansion";
 import { splitMyCuratorCourses } from "../../utils/courseImportUi";
@@ -20,6 +23,14 @@ import {
   partitionHomeCourseDiscovery,
 } from "../../utils/homeCourseDiscoveryLists";
 import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
+import {
+  commitHomeCourseDiscoveryMyCache,
+  commitHomeCourseDiscoveryTrendingCache,
+  prefetchHomeCourseDiscoveryMy,
+  prefetchHomeCourseDiscoveryTrending,
+  readHomeCourseDiscoveryMyCache,
+  readHomeCourseDiscoveryTrendingCache,
+} from "../../utils/homeCourseDiscoveryPrefetch";
 
 const COURSE_SEARCH_DEBOUNCE_MS = 320;
 const COURSE_SEARCH_PAGE_SIZE = 24;
@@ -353,15 +364,6 @@ const DISCOVERY_TABS = [
   { id: "imported", label: "가져온" },
 ];
 
-function ownCourseStatusLabel(course) {
-  if (!course || typeof course !== "object") return "";
-  if (String(course.status || "") === "published" && course.is_public) {
-    return "공개";
-  }
-  if (String(course.status || "") === "draft") return "임시저장";
-  return "비공개";
-}
-
 function CompactCourseCard({
   course,
   statsByCourseId,
@@ -370,6 +372,7 @@ function CompactCourseCard({
   onActivate,
   metaExtra = "",
   showEngagement = true,
+  rightSlot = null,
 }) {
   const id = String(course?.id || "").trim();
   const title = String(course?.title || "").trim() || "제목 없음";
@@ -382,17 +385,27 @@ function CompactCourseCard({
   const metaBits = [metaExtra, curatorName, area, placeTxt].filter(Boolean);
   const statRow = id ? statsByCourseId.get(id.toLowerCase()) : null;
   const metricLine = pickHomeCourseCompletionMetricLine(statRow);
+  const activate = () => {
+    if (!id) return;
+    onActivate(id);
+  };
 
+  // 우측 액션(공개 토글 등)이 있으면 button 중첩 방지를 위해 div role=button 사용
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={title}
       style={{
         ...styles.compactCard,
         ...(active ? styles.compactCardActive : null),
       }}
-      onClick={() => {
-        if (!id) return;
-        onActivate(id);
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
       }}
     >
       {cover ? (
@@ -409,7 +422,8 @@ function CompactCourseCard({
           </div>
         ) : null}
       </div>
-    </button>
+      {rightSlot}
+    </div>
   );
 }
 
@@ -564,18 +578,35 @@ export default function HomeCoursesDiscoveryRail({
   /** @type {'full'|'peek'} */
   layout = "full",
   user = null,
+  refreshKey = 0,
   onSelectCourse,
   onSearchFocus,
 }) {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const trendingCacheOnMount = readHomeCourseDiscoveryTrendingCache();
+  const myCacheOnMount = readHomeCourseDiscoveryMyCache(user?.id);
   /** @type {'trending'|'mine'|'imported'} */
   const [activeTab, setActiveTab] = useState("trending");
-  const [phase, setPhase] = useState(() => (visible ? "loading" : "idle"));
-  const [myPhase, setMyPhase] = useState("idle");
-  const [rows, setRows] = useState([]);
-  const [myRows, setMyRows] = useState([]);
-  const [statsByCourseId, setStatsByCourseId] = useState(() => new Map());
-  const [nameByCurator, setNameByCurator] = useState(() => new Map());
+  /** 공개/비공개 토글 진행 중 course id */
+  const [togglingCourseId, setTogglingCourseId] = useState("");
+  const [phase, setPhase] = useState(() => {
+    if (trendingCacheOnMount?.rows?.length) return "ready";
+    return visible ? "loading" : "idle";
+  });
+  const [myPhase, setMyPhase] = useState(() => {
+    if (!user?.id) return "idle";
+    if (myCacheOnMount?.rows) return "ready";
+    return "idle";
+  });
+  const [rows, setRows] = useState(() => trendingCacheOnMount?.rows ?? []);
+  const [myRows, setMyRows] = useState(() => myCacheOnMount?.rows ?? []);
+  const [statsByCourseId, setStatsByCourseId] = useState(
+    () => trendingCacheOnMount?.statsByCourseId ?? new Map()
+  );
+  const [nameByCurator, setNameByCurator] = useState(
+    () => trendingCacheOnMount?.nameByCurator ?? new Map()
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPhase, setSearchPhase] = useState("idle");
   const [searchResults, setSearchResults] = useState([]);
@@ -683,7 +714,17 @@ export default function HomeCoursesDiscoveryRail({
   const load = useCallback(async () => {
     const gen = loadGenRef.current + 1;
     loadGenRef.current = gen;
-    setPhase("loading");
+    const cached = readHomeCourseDiscoveryTrendingCache();
+    let hasDisplayedRows = false;
+    if (cached?.rows?.length) {
+      setRows(cached.rows);
+      setStatsByCourseId(cached.statsByCourseId);
+      setNameByCurator(cached.nameByCurator);
+      setPhase("ready");
+      hasDisplayedRows = true;
+    } else {
+      setPhase("loading");
+    }
     try {
       const list = await fetchPublicCuratorCourses({
         limit: HOME_COURSE_DISCOVERY_FETCH_LIMIT,
@@ -691,11 +732,15 @@ export default function HomeCoursesDiscoveryRail({
       if (loadGenRef.current !== gen) return;
       const courses = Array.isArray(list) ? list : [];
       setRows(courses);
+      setPhase("ready");
+      hasDisplayedRows = courses.length > 0;
 
       const courseIds = courses
         .map((c) => String(c.id || "").trim())
         .filter(Boolean);
-      const statMap = await getCourseEngagementStatsBatch(courseIds);
+      const statMap = courseIds.length
+        ? await getCourseEngagementStatsBatch(courseIds)
+        : new Map();
       if (loadGenRef.current !== gen) return;
       setStatsByCourseId(statMap);
 
@@ -704,31 +749,35 @@ export default function HomeCoursesDiscoveryRail({
           courses.map((c) => String(c.curator_id || "").trim()).filter(Boolean)
         ),
       ];
-      if (ids.length === 0) {
-        setNameByCurator(new Map());
-        setPhase("ready");
-        return;
-      }
-      const { data: profs, error } = await supabase
-        .from("profiles")
-        .select("id, display_name, username")
-        .in("id", ids);
-      if (loadGenRef.current !== gen) return;
-      const m = new Map();
-      if (!error && Array.isArray(profs)) {
-        for (const p of profs) {
-          if (p?.id) m.set(String(p.id), curatorLabelFromProfile(p));
+      let nameMap = new Map();
+      if (ids.length > 0) {
+        const { data: profs, error } = await supabase
+          .from("profiles")
+          .select("id, display_name, username")
+          .in("id", ids);
+        if (loadGenRef.current !== gen) return;
+        if (!error && Array.isArray(profs)) {
+          for (const p of profs) {
+            if (p?.id) nameMap.set(String(p.id), curatorLabelFromProfile(p));
+          }
         }
       }
-      setNameByCurator(m);
-      setPhase("ready");
+      setNameByCurator(nameMap);
+      commitHomeCourseDiscoveryTrendingCache({
+        rows: courses,
+        statsByCourseId: statMap,
+        nameByCurator: nameMap,
+        at: Date.now(),
+      });
     } catch (e) {
       if (loadGenRef.current !== gen) return;
       console.warn("[HomeCoursesDiscoveryRail]", e);
-      setRows([]);
-      setStatsByCourseId(new Map());
-      setNameByCurator(new Map());
-      setPhase("error");
+      if (!hasDisplayedRows) {
+        setRows([]);
+        setStatsByCourseId(new Map());
+        setNameByCurator(new Map());
+        setPhase("error");
+      }
     }
   }, []);
 
@@ -740,18 +789,30 @@ export default function HomeCoursesDiscoveryRail({
       setMyPhase("needs_login");
       return;
     }
-    setMyPhase("loading");
+    const uid = String(user.id).trim();
+    const cached = readHomeCourseDiscoveryMyCache(uid);
+    let hasDisplayedRows = false;
+    if (cached?.rows) {
+      setMyRows(cached.rows);
+      setMyPhase("ready");
+      hasDisplayedRows = cached.rows.length > 0;
+    } else {
+      setMyPhase("loading");
+    }
     try {
-      const list = await fetchMyCuratorCourses(user.id, { limit: 100 });
+      const list = await fetchMyCuratorCourses(uid, { limit: 100 });
       if (myLoadGenRef.current !== gen) return;
       const courses = Array.isArray(list) ? list : [];
       setMyRows(courses);
+      setMyPhase("ready");
+      hasDisplayedRows = true;
 
       const courseIds = courses
         .map((c) => String(c.id || "").trim())
         .filter(Boolean);
+      let statMap = new Map();
       if (courseIds.length > 0) {
-        const statMap = await getCourseEngagementStatsBatch(courseIds);
+        statMap = await getCourseEngagementStatsBatch(courseIds);
         if (myLoadGenRef.current !== gen) return;
         setStatsByCourseId((prev) => {
           const next = new Map(prev);
@@ -759,14 +820,75 @@ export default function HomeCoursesDiscoveryRail({
           return next;
         });
       }
-      setMyPhase("ready");
+      commitHomeCourseDiscoveryMyCache(uid, {
+        rows: courses,
+        statsByCourseId: statMap,
+        nameByCurator: new Map(),
+        at: Date.now(),
+      });
     } catch (e) {
       if (myLoadGenRef.current !== gen) return;
       console.warn("[HomeCoursesDiscoveryRail] my courses", e);
-      setMyRows([]);
-      setMyPhase("error");
+      if (!hasDisplayedRows) {
+        setMyRows([]);
+        setMyPhase("error");
+      }
     }
   }, [user?.id]);
+
+  /** 내 코스 공개/비공개 토글 — 공개는 장소 2곳 이상 필요(publishCuratorCourse) */
+  const handleTogglePublic = useCallback(
+    async (course) => {
+      const id = String(course?.id || "").trim();
+      if (!id) return;
+      const isPublicNow =
+        String(course?.status || "") === "published" && course?.is_public;
+      setTogglingCourseId(id);
+      try {
+        const updated = isPublicNow
+          ? await updateCuratorCourse(id, {
+              status: "private",
+              is_public: false,
+            })
+          : await publishCuratorCourse(id);
+        const nextStatus = String(updated?.status || (isPublicNow ? "private" : "published"));
+        const nextPublic = Boolean(updated?.is_public);
+        setMyRows((prev) => {
+          const next = prev.map((r) =>
+            String(r.id) === id
+              ? { ...r, status: nextStatus, is_public: nextPublic }
+              : r
+          );
+          if (user?.id) {
+            commitHomeCourseDiscoveryMyCache(user.id, {
+              rows: next,
+              statsByCourseId: new Map(),
+              nameByCurator: new Map(),
+              at: Date.now(),
+            });
+          }
+          return next;
+        });
+        showToast(
+          isPublicNow ? "비공개로 바꿨어요." : "공개했어요.",
+          "success",
+          2200
+        );
+      } catch (e) {
+        showToast(
+          e?.message ||
+            (isPublicNow
+              ? "비공개로 바꾸지 못했어요."
+              : "공개하지 못했어요. (장소 2곳 이상 필요)"),
+          "warning",
+          3200
+        );
+      } finally {
+        setTogglingCourseId("");
+      }
+    },
+    [showToast, user?.id]
+  );
 
   useEffect(() => {
     if (!visible || activeTab !== "trending" || !trimmedSearch) {
@@ -884,6 +1006,14 @@ export default function HomeCoursesDiscoveryRail({
     };
   }, [visible, activeTab, load, loadMyCourses]);
 
+  /** 부모에서 내 코스 변경(삭제 등) 신호 — 보이는 동안 목록 재조회 */
+  useEffect(() => {
+    if (!visible || !refreshKey) return;
+    if (activeTab === "mine" || activeTab === "imported") {
+      void loadMyCourses();
+    }
+  }, [refreshKey, visible, activeTab, loadMyCourses]);
+
   if (!visible) return null;
 
   if (layout === "peek") {
@@ -923,7 +1053,7 @@ export default function HomeCoursesDiscoveryRail({
         </div>
       );
     }
-    if (myPhase === "loading") {
+    if (myPhase === "loading" && personalTabCourses.length === 0) {
       return <div style={styles.stateBox}>불러오는 중…</div>;
     }
     if (myPhase === "error") {
@@ -963,22 +1093,64 @@ export default function HomeCoursesDiscoveryRail({
     }
     return (
       <div style={styles.singleList} role="list">
-        {filteredPersonalCourses.map((c) => (
-          <CompactCourseCard
-            key={String(c.id || c.title)}
-            course={c}
-            statsByCourseId={statsByCourseId}
-            nameByCurator={nameByCurator}
-            active={false}
-            onActivate={activateCourse}
-            showEngagement={activeTab === "mine"}
-            metaExtra={
-              activeTab === "imported"
-                ? COURSE_SCRAP_SECTION_TITLE
-                : ownCourseStatusLabel(c)
-            }
-          />
-        ))}
+        {filteredPersonalCourses.map((c) => {
+          const cid = String(c.id || "").trim();
+          const isMine = activeTab === "mine";
+          const isPublic =
+            String(c?.status || "") === "published" && c?.is_public;
+          const toggling = togglingCourseId === cid;
+          return (
+            <CompactCourseCard
+              key={cid || c.title}
+              course={c}
+              statsByCourseId={statsByCourseId}
+              nameByCurator={nameByCurator}
+              active={false}
+              onActivate={activateCourse}
+              showEngagement={isMine}
+              metaExtra={
+                activeTab === "imported" ? COURSE_SCRAP_SECTION_TITLE : ""
+              }
+              rightSlot={
+                isMine ? (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isPublic}
+                    aria-label={isPublic ? "공개 상태 — 탭하면 비공개" : "비공개 상태 — 탭하면 공개"}
+                    title={isPublic ? "공개됨 (탭하면 비공개)" : "비공개 (탭하면 공개)"}
+                    disabled={toggling}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleTogglePublic(c);
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      alignSelf: "center",
+                      minWidth: 58,
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      border: isPublic
+                        ? "1px solid rgba(52,199,89,0.5)"
+                        : T.chipBorder,
+                      background: isPublic
+                        ? "rgba(52,199,89,0.16)"
+                        : T.chipBg,
+                      color: isPublic ? "#34c759" : T.textSub,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: toggling ? "wait" : "pointer",
+                      opacity: toggling ? 0.6 : 1,
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    {toggling ? "…" : isPublic ? "공개" : "비공개"}
+                  </button>
+                ) : null
+              }
+            />
+          );
+        })}
       </div>
     );
   };
@@ -1015,7 +1187,7 @@ export default function HomeCoursesDiscoveryRail({
   );
 
   const renderTrendingContent = () => {
-    if (phase === "loading") {
+    if (phase === "loading" && rows.length === 0) {
       return <div style={styles.stateBox}>불러오는 중…</div>;
     }
     if (phase === "error") {

@@ -11,6 +11,7 @@ import {
 import { sanitizeSheetStoryLine } from "../../pages/Home/homeModule.js";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { pickAiSheetPlaceDisplayName } from "../../utils/aiSheetPlaceDisplayName";
+import PouringDrinkLoader from "./PouringDrinkLoader";
 
 const PULL_COLLAPSE_PX = 36;
 const PULL_DISMISS_FROM_COLLAPSED_PX = 72;
@@ -249,7 +250,11 @@ export default function HomeAiBottomSheetCluster({
                           }}
                         >
                           <div style={styles.aiPeekLeft}>
-                            <span style={styles.aiPeekBadge}>맞춤</span>
+                            {isAiSearching ? (
+                              <PouringDrinkLoader size={34} rotateMessages={false} />
+                            ) : (
+                              <span style={styles.aiPeekBadge}>맞춤</span>
+                            )}
 
                             <div
                               style={{
@@ -299,8 +304,17 @@ export default function HomeAiBottomSheetCluster({
                       typeof onDismissRecommendSheet === "function" ? (
                         <button
                           type="button"
-                          style={styles.courseSearchClearButton}
+                          data-recommend-sheet-dismiss
+                          style={{
+                            ...styles.aiRecommendSheetCloseButton,
+                            position: "relative",
+                            zIndex: 2,
+                          }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                          }}
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             onDismissRecommendSheet();
                           }}

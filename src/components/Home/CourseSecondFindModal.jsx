@@ -64,6 +64,16 @@ function MultiSelectChips({ keyPrefix, options, selected, onToggle }) {
   );
 }
 
+const SECOND_FIND_SORT_OPTIONS = [
+  { id: "default", label: "기본" },
+  { id: "closer", label: "더 가까운 곳 우선" },
+  {
+    id: "curator",
+    label: "큐레이터 추천 우선",
+    hint: "여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점",
+  },
+];
+
 export default function CourseSecondFindModal({
   open,
   onCancel,
@@ -77,10 +87,8 @@ export default function CourseSecondFindModal({
   onChangeAnju,
   maxDistanceM,
   onChangeMaxDistanceM,
-  preferCloser,
-  onChangePreferCloser,
-  prioritizeCurators,
-  onChangePrioritizeCurators,
+  sortPriority = "default",
+  onChangeSortPriority,
 }) {
   if (!open) return null;
   return (
@@ -192,59 +200,45 @@ export default function CourseSecondFindModal({
           })}
         </div>
 
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#3d2914",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={preferCloser}
-            onChange={(e) => onChangePreferCloser(e.target.checked)}
-          />
-          더 가까운 곳 우선
-        </label>
-
-        <label
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 8,
-            marginBottom: 16,
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#3d2914",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={prioritizeCurators}
-            onChange={(e) => onChangePrioritizeCurators(e.target.checked)}
-            style={{ marginTop: 2 }}
-          />
-          <span>
-            큐레이터 추천 우선
-            <span
-              style={{
-                display: "block",
-                marginTop: 4,
-                fontSize: 11,
-                fontWeight: 500,
-                color: "#777",
-              }}
-            >
-              여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점
-            </span>
-          </span>
-        </label>
+        <div style={SECTION_LABEL_STYLE}>정렬</div>
+        <div style={{ ...CHIP_ROW_STYLE, marginBottom: 16 }}>
+          {SECOND_FIND_SORT_OPTIONS.map(({ id, label, hint }) => {
+            const on = sortPriority === id;
+            return (
+              <button
+                key={`2fs-${id}`}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onChangeSortPriority?.(id)}
+                style={{
+                  ...chipStyle(on),
+                  ...(hint
+                    ? {
+                        flex: "1 1 100%",
+                        textAlign: "left",
+                        lineHeight: 1.35,
+                      }
+                    : {}),
+                }}
+              >
+                {label}
+                {hint ? (
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: 4,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: on ? "rgba(17,17,17,0.55)" : "#777",
+                    }}
+                  >
+                    {hint}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
 
         <div
           style={{

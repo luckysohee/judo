@@ -14,7 +14,7 @@ export default function HomeCuratorFilterRow({
   onProfileClick,
 }) {
   return (
-    <div style={wrapperStyle}>
+    <div style={wrapperStyle} data-judo-coach="curator-filter">
       <CuratorFilterBar
         curators={curators}
         selectedCurators={selectedCurators}

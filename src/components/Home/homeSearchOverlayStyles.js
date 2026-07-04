@@ -117,11 +117,37 @@ export const homeSearchOverlayStyles = {
     flexShrink: 0,
     display: "flex",
     gap: "8px",
-    padding: "10px 12px",
+    padding: "10px 12px 0",
     overflowX: "auto",
     WebkitOverflowScrolling: "touch",
     ...glassPanel,
+    borderBottom: "none",
+  },
+
+  chipHint: {
+    flexShrink: 0,
+    margin: 0,
+    padding: "6px 12px 10px",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    color: "rgba(255,255,255,0.42)",
+    ...glassPanel,
     borderBottom: glass.panelBorder,
+  },
+
+  primarySearchRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    width: "100%",
+    padding: "14px 16px",
+    border: "none",
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255, 193, 84, 0.1)",
+    cursor: "pointer",
+    textAlign: "left",
+    font: "inherit",
+    color: "rgba(255,255,255,0.94)",
   },
 
   chip: (active) => ({

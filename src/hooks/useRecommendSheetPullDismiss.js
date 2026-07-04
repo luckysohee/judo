@@ -26,6 +26,7 @@ function bindSheetDragNode(el, { isAiSearching, onDrag, onEnd }) {
 
   const onPointerDown = (e) => {
     if (isAiSearching || e.button !== 0) return;
+    if (isRecommendSheetDismissTarget(e.target)) return;
     state.startY = e.clientY;
     state.startX = e.clientX;
     state.active = true;
@@ -71,6 +72,7 @@ function bindSheetDragNode(el, { isAiSearching, onDrag, onEnd }) {
 
   const onTouchStart = (e) => {
     if (isAiSearching || e.touches.length !== 1) return;
+    if (isRecommendSheetDismissTarget(e.target)) return;
     state.startY = e.touches[0].clientY;
     state.startX = e.touches[0].clientX;
     state.active = true;
@@ -125,6 +127,13 @@ function bindSheetDragNode(el, { isAiSearching, onDrag, onEnd }) {
 function rubberBandDy(dy) {
   if (dy >= 0) return dy;
   return Math.max(-PULL_UP_RUBBER_MAX_PX, dy * 0.28);
+}
+
+function isRecommendSheetDismissTarget(target) {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("[data-recommend-sheet-dismiss]"))
+  );
 }
 
 /**

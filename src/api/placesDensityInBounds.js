@@ -1,11 +1,12 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
 
 /**
  * @param {{ south: number, west: number, north: number, east: number, level?: number }} bounds
  * @param {string} [apiBaseUrl]
  * @returns {Promise<{ clusters: { lat: number, lng: number, count: number }[], totalInBounds: number }>}
  */
-export async function fetchMapPlaceDensityInBounds(bounds, apiBaseUrl = "") {
+export async function fetchMapPlaceDensityInBounds(bounds, apiBaseUrl = "", timeoutMs = 6000) {
   const { south, west, north, east, level = 8 } = bounds || {};
   if (![south, west, north, east].every((n) => Number.isFinite(Number(n)))) {
     throw new Error("fetchMapPlaceDensityInBounds: south, west, north, east required");
@@ -20,7 +21,7 @@ export async function fetchMapPlaceDensityInBounds(bounds, apiBaseUrl = "") {
   const path = `/api/places-density-in-bounds?${qs.toString()}`;
   const base = normalizeApiBaseUrl(apiBaseUrl);
   const url = base ? `${base}${path}` : path;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, {}, timeoutMs);
   let data = null;
   try {
     data = await res.json();

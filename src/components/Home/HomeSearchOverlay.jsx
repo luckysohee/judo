@@ -10,7 +10,7 @@ import {
 /** @typedef {import('../../utils/homeSearchHistory').HomeSearchHistoryEntry} HomeSearchHistoryEntry */
 
 const CHIPS = [
-  { id: "recent", label: "최근검색" },
+  { id: "recent", label: "전체" },
   { id: "place", label: "장소" },
   { id: "sentence", label: "문장" },
 ];
@@ -86,7 +86,8 @@ export default function HomeSearchOverlay({
 
   if (!open || typeof document === "undefined") return null;
 
-  const showHistory = !showSuggestPanel && !String(query || "").trim();
+  const trimmedQuery = String(query || "").trim();
+  const showHistory = !showSuggestPanel && !trimmedQuery;
 
   const listContent = showSuggestPanel ? (
     suggestPanel
@@ -95,7 +96,7 @@ export default function HomeSearchOverlay({
       <div style={s.empty}>
         최근 검색이 없어요.
         <br />
-        예: 이태원 와인바, 조용한 포차
+        검색어를 입력하면 바로 검색돼요.
       </div>
     ) : (
       <>
@@ -205,7 +206,9 @@ export default function HomeSearchOverlay({
           <div style={s.headerRight}>{headerRight}</div>
         </header>
 
-        <div style={s.chipRow} role="tablist" aria-label="검색 기록 필터">
+        {!trimmedQuery ? (
+          <>
+        <div style={s.chipRow} role="tablist" aria-label="최근 검색 기록 분류">
           {CHIPS.map((chip) => (
             <button
               key={chip.id}
@@ -219,6 +222,11 @@ export default function HomeSearchOverlay({
             </button>
           ))}
         </div>
+        <p style={s.chipHint}>
+          최근 기록만 나눠 보여요. 검색어를 입력하면 탭 선택 없이 바로 검색돼요.
+        </p>
+          </>
+        ) : null}
 
         {!showSuggestPanel && !showHistory && suggestPanel ? (
           <div style={s.suggestSectionLabel}>제안</div>

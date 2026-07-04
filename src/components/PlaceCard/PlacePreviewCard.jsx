@@ -29,7 +29,7 @@ import {
   isAcceptableRasterImageFile,
   prepareImageFileForUpload,
 } from "../../utils/prepareImageFileForUpload";
-import { resolvePlaceWgs84 } from "../../utils/placeCoords";
+import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import {
@@ -92,7 +92,7 @@ export default function PlacePreviewCard({
     const trace = createPerfTrace("place:card", {
       placeId: String(place.id),
       name: place?.name || place?.place_name || "",
-      kakaoPlaceId: place?.kakao_place_id ?? place?.place_id ?? null,
+      kakaoPlaceId: kakaoNumericPlaceId(place),
     });
     placeOpenPerfRef.current = trace;
     return () => {
@@ -127,26 +127,7 @@ export default function PlacePreviewCard({
     [onClose]
   );
 
-  const extractedPlaceIdFromUrl = place?.place_url?.match(/\/place\/(\d+)/)?.[1] || null;
-  const idAsKakao =
-    place?.id != null &&
-    (typeof place.id === "number" ||
-      (typeof place.id === "string" && /^\d+$/.test(place.id.trim())))
-      ? String(place.id).trim()
-      : null;
-  const rawKakaoPlaceId =
-    place?.place_id ||
-    place?.kakao_place_id ||
-    place?.kakaoId ||
-    extractedPlaceIdFromUrl ||
-    idAsKakao ||
-    null;
-  const kakaoPlaceId =
-    typeof rawKakaoPlaceId === "string" && /^\d+$/.test(rawKakaoPlaceId)
-      ? rawKakaoPlaceId
-      : typeof rawKakaoPlaceId === "number"
-      ? String(rawKakaoPlaceId)
-      : null;
+  const kakaoPlaceId = kakaoNumericPlaceId(place);
 
   /** check_ins·한잔함 통계 키 — 카카오 ID 우선 */
   const checkinPlaceKey = useMemo(() => {
@@ -328,19 +309,24 @@ export default function PlacePreviewCard({
         });
     } else if (!kakaoPlaceId) {
       if (place?.mapClickNoVenue) return;
-      console.warn("⚠️ 카카오 place id 없음 - 상세조회 생략", {
-        id: place?.id,
-        place_id: place?.place_id,
-        kakao_place_id: place?.kakao_place_id,
-        kakaoId: place?.kakaoId,
-        place_url: place?.place_url,
-      });
+      // DB UUID 장소 — keyword·큐레이터 사진 폴백으로 보강하므로 경고 생략
+      if (internalPlaceIdForPhotos && kakaoKeywordQuery.trim()) return;
+      if (import.meta.env.DEV) {
+        console.warn("⚠️ 카카오 place id 없음 - 상세조회 생략", {
+          id: place?.id,
+          place_id: place?.place_id,
+          kakao_place_id: place?.kakao_place_id,
+          kakaoId: place?.kakaoId,
+          place_url: place?.place_url,
+        });
+      }
     }
   }, [
     kakaoPlaceId,
     place,
     kakaoDetails,
     kakaoKeywordQuery,
+    internalPlaceIdForPhotos,
     checkinWgs?.lat,
     checkinWgs?.lng,
   ]);

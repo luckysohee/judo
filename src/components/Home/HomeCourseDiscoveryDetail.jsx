@@ -277,6 +277,38 @@ const styles = {
     opacity: 0.45,
     cursor: "not-allowed",
   },
+  ownerRow: {
+    display: "flex",
+    gap: 8,
+    marginTop: 6,
+    paddingTop: 10,
+    borderTop: T.divider,
+  },
+  ownerEditBtn: {
+    flex: "1 1 0",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: T.btnGhostBorder,
+    background: T.btnGhostBg,
+    color: T.text,
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
+  ownerDeleteBtn: {
+    flex: "0 0 auto",
+    minWidth: 84,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(225,29,72,0.4)",
+    background: "rgba(225,29,72,0.1)",
+    color: "#fb7185",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
   stampGuide: {
     margin: "10px 0 0",
     padding: "8px 10px",
@@ -324,6 +356,10 @@ export default function HomeCourseDiscoveryDetail({
   onOpenCurator,
   /** `dbCurators` 등에서 즉시 핸들 복원 — profiles.username 비어 있어도 버튼 표시 */
   resolveCuratorHandle,
+  /** 내 코스 편집(스튜디오 잔코스 수정 시트) */
+  onEditCourse,
+  /** 내 코스 삭제 — courseId 전달, 부모가 닫기·새로고침 처리 */
+  onDeleteCourse,
 }) {
   const { showToast } = useToast();
   /** 코스미리보기 버튼에 표시할 큐레이터 핸들(@username) */
@@ -339,6 +375,7 @@ export default function HomeCourseDiscoveryDetail({
   const [likeBusy, setLikeBusy] = useState(false);
   const [importedByMe, setImportedByMe] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [ownerDeleteBusy, setOwnerDeleteBusy] = useState(false);
   const [localStampIds, setLocalStampIds] = useState(() => new Set());
   const [localGuideIndex, setLocalGuideIndex] = useState(0);
   const [localCompleted, setLocalCompleted] = useState(false);
@@ -605,6 +642,28 @@ export default function HomeCourseDiscoveryDetail({
     }
   }, [courseId, user?.id, showToast]);
 
+  const handleOwnerEdit = useCallback(() => {
+    if (!courseId) return;
+    onEditCourse?.(courseId);
+  }, [courseId, onEditCourse]);
+
+  const handleOwnerDelete = useCallback(async () => {
+    if (!courseId) return;
+    if (
+      !window.confirm("이 코스를 삭제할까요? 삭제하면 되돌릴 수 없어요.")
+    ) {
+      return;
+    }
+    setOwnerDeleteBusy(true);
+    try {
+      await onDeleteCourse?.(courseId);
+    } catch (e) {
+      showToast(e?.message || "코스를 삭제하지 못했어요.", "warning", 3200);
+    } finally {
+      setOwnerDeleteBusy(false);
+    }
+  }, [courseId, onDeleteCourse, showToast]);
+
   if (loading) {
     return (
       <div style={styles.root} aria-busy="true">
@@ -644,6 +703,11 @@ export default function HomeCourseDiscoveryDetail({
   const curatorId = String(course?.curator_id || "").trim();
   const canOpenCuratorProfile =
     Boolean(curatorId) && typeof onOpenCurator === "function";
+  const isImportedCourse = Boolean(
+    String(course?.imported_from_course_id || "").trim()
+  );
+  const isOwnerCourse =
+    Boolean(user?.id) && curatorId === String(user.id) && !isImportedCourse;
 
   const handleCuratorClick = () => {
     if (!canOpenCuratorProfile) return;
@@ -836,6 +900,32 @@ export default function HomeCourseDiscoveryDetail({
                 #{t}
               </span>
             ))}
+          </div>
+        ) : null}
+
+        {isOwnerCourse ? (
+          <div style={styles.ownerRow}>
+            <button
+              type="button"
+              style={styles.ownerEditBtn}
+              onClick={handleOwnerEdit}
+              title="스튜디오 잔코스 수정 시트로 이동"
+            >
+              ✏️ 수정
+            </button>
+            <button
+              type="button"
+              style={{
+                ...styles.ownerDeleteBtn,
+                ...(ownerDeleteBusy
+                  ? { opacity: 0.55, cursor: "wait" }
+                  : null),
+              }}
+              disabled={ownerDeleteBusy}
+              onClick={() => void handleOwnerDelete()}
+            >
+              {ownerDeleteBusy ? "삭제 중…" : "🗑 삭제"}
+            </button>
           </div>
         ) : null}
 

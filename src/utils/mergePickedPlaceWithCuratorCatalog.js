@@ -195,8 +195,13 @@ function mergeTwoPlacesSameKakaoId(a, b) {
       secondary.curatorCount || 0,
       curators.length
     ),
-    kakao_place_id: primary.kakao_place_id || secondary.kakao_place_id,
-    place_id: primary.place_id || secondary.place_id,
+    kakao_place_id:
+      kakaoNumericPlaceId(primary) || kakaoNumericPlaceId(secondary),
+    place_id:
+      kakaoNumericPlaceId(primary) ||
+      kakaoNumericPlaceId(secondary) ||
+      primary.place_id ||
+      secondary.place_id,
     place_url: primary.place_url || secondary.place_url,
     phone: primary.phone || secondary.phone,
     address:
@@ -399,9 +404,9 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
       picked.road_address_name || canonical.road_address_name || "",
     address_name: picked.address_name || canonical.address_name || "",
     place_url: picked.place_url || canonical.place_url,
-    place_id: canonical.place_id || picked.place_id,
-    kakao_place_id: canonical.kakao_place_id || picked.kakao_place_id,
-    kakaoId: canonical.kakaoId || picked.kakaoId,
+    place_id: mergedKakaoNumId || canonical.place_id || picked.place_id,
+    kakao_place_id: mergedKakaoNumId,
+    kakaoId: mergedKakaoNumId || canonical.kakaoId || picked.kakaoId,
     lat: wP?.lat ?? wC?.lat ?? picked.lat,
     lng: wP?.lng ?? wC?.lng ?? picked.lng,
     x: picked.x ?? canonical.x,

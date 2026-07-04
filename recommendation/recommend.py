@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from .fetch_latest_recommendation import fetch_latest_recommendation
-from .parse_query import CATEGORY_FALLBACK_ORDER, parse_query
+from .parse_query import (
+    CATEGORY_FALLBACK_ORDER,
+    MEETING_CATEGORY_FALLBACK_ORDER,
+    parse_query,
+)
 from .refine_with_user_query import refine_with_user_query
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -17,10 +21,17 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 
 
 def _category_try_order(parsed: dict[str, Any]) -> list[str]:
-    first = (parsed.get("category") or "와인바").strip() or "와인바"
+    meeting = bool(parsed.get("meeting"))
+    fallback = (
+        MEETING_CATEGORY_FALLBACK_ORDER
+        if meeting
+        else CATEGORY_FALLBACK_ORDER
+    )
+    default_first = "한정식" if meeting else "와인바"
+    first = (parsed.get("category") or default_first).strip() or default_first
     out: list[str] = []
     seen: set[str] = set()
-    for c in (first, *CATEGORY_FALLBACK_ORDER):
+    for c in (first, *fallback):
         if c in seen:
             continue
         seen.add(c)
@@ -579,6 +590,7 @@ def recommend(query: str) -> dict[str, Any]:
         "location": location,
         "category": matched_category,
         "requested_category": parsed.get("category"),
+        "meeting": bool(parsed.get("meeting")),
         "moods": moods,
         "mood_refinement_applied": mood_refinement_applied,
         "mood_refinement_skipped_reason": mood_refinement_skipped_reason,

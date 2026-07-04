@@ -118,6 +118,7 @@ import HomeCoursesDiscoveryPanel, {
   HomeCoursesEntryChip,
 } from "../../components/Home/HomeCoursesDiscovery";
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
+import PouringDrinkLoader from "../../components/Home/PouringDrinkLoader";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
 import HomeLoginPromptGate from "../../components/Home/HomeLoginPromptGate";
 import HomeTodayTasteSuggest, {
@@ -125,6 +126,8 @@ import HomeTodayTasteSuggest, {
 } from "../../components/Home/HomeTodayTasteSuggest";
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
 import TasteOnboardingGate from "../../components/Onboarding/TasteOnboardingGate";
+import HomeOnboardingCoach from "../../components/Home/HomeOnboardingCoach";
+import { useHomeOnboardingCoach } from "../../hooks/useHomeOnboardingCoach";
 import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
 import { usePersonalTasteSignals } from "../../hooks/usePersonalTasteSignals";
 import {
@@ -173,7 +176,10 @@ import {
   HOME_MAP_DENSITY_LAYER_MIN_LEVEL,
   shouldSkipMapViewportRefetch,
 } from "../../utils/homeMapViewportLimit";
-import { fetchCuratorCourseForHomePreview } from "../../api/curatorCourses";
+import {
+  fetchCuratorCourseForHomePreview,
+  deleteCuratorCourse,
+} from "../../api/curatorCourses";
 import {
   fetchMyCoursePlaceStamps,
   fetchCourseStampSteps,
@@ -192,6 +198,11 @@ import {
   enrichBrowseDetailWithStepThumbs,
   normalizeHomeCourseBrowseDetail,
 } from "../../utils/homeCourseBrowseDetail";
+import {
+  invalidateHomeCourseDiscoveryMyCache,
+  prefetchHomeCourseDiscoveryMy,
+  prefetchHomeCourseDiscoveryTrending,
+} from "../../utils/homeCourseDiscoveryPrefetch";
 import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
 import {
   enrichDrivingMapWithStepThumbs,
@@ -1400,6 +1411,8 @@ export default function Home() {
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
+  /** 뷰포트 DB 로드 실패(Supabase 오류·타임아웃) — 지도에 에러 배너 + 다시 시도 노출 */
+  const [mapViewportLoadFailed, setMapViewportLoadFailed] = useState(false);
   /** 줌 아웃용 그리드 숫자 클러스터 — 상세 마커보다 먼저 표시 */
   const [mapDensityClusters, setMapDensityClusters] = useState([]);
   const [mapZoomLevel, setMapZoomLevel] = useState(5);
@@ -1515,6 +1528,10 @@ export default function Home() {
         } catch (e) {
           console.error("❌ 뷰포트 추천 로드 실패:", e);
           bootViewportLoadStartedRef.current = false;
+          // 에러난 부분은 빼고 진행 — 기존 마커는 유지하고 사용자에겐 에러 배너로 안내
+          if (seq === mapViewportLoadSeqRef.current) {
+            setMapViewportLoadFailed(true);
+          }
           return;
         } finally {
           mapViewportFetchInFlightRef.current = Math.max(
@@ -1577,6 +1594,7 @@ export default function Home() {
         });
       }
       mapMarkersBootstrappedRef.current = true;
+      setMapViewportLoadFailed(false);
       lastFetchedViewportRef.current = {
         cacheKey,
         padded,
@@ -1758,6 +1776,28 @@ export default function Home() {
     [debouncedScheduleDbPlaces, loadDbPlacesForViewport]
   );
 
+  /** Supabase 응답이 7초 이상 지연되면(타임아웃 전이라도) 에러 배너 노출 — 무한 '불러오는 중…' 방지 */
+  useEffect(() => {
+    if (!mapViewportDbLoading) return undefined;
+    setMapViewportLoadFailed(false);
+    const t = setTimeout(() => {
+      setMapViewportLoadFailed(true);
+    }, 7000);
+    return () => clearTimeout(t);
+  }, [mapViewportDbLoading]);
+
+  /** 에러 배너의 '다시 시도' — 현재 보고 있는 영역으로 재요청 */
+  const retryMapViewportLoad = useCallback(() => {
+    setMapViewportLoadFailed(false);
+    const b = lastMapBoundsRef.current;
+    if (b?.sw && b?.ne) {
+      void loadDbPlacesForViewport({
+        boundsRaw: b,
+        mapLevel: lastMapLevelRef.current,
+      });
+    }
+  }, [loadDbPlacesForViewport]);
+
   /** 하단 검색바: `basic` 카카오·경량 / `ai` 기존 주도·의도·통합 검색 */
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [mutualSearchPanelOpen, setMutualSearchPanelOpen] = useState(false);
@@ -1927,6 +1967,10 @@ export default function Home() {
   }, [user?.id]);
 
   const [savingRecommendedDraft, setSavingRecommendedDraft] = useState(false);
+  /** 지도 코스 루트 「내 코스로 저장」 진행 중 */
+  const [savingCourseFromMap, setSavingCourseFromMap] = useState(false);
+  /** 저장 완료한 코스 key — 같은 코스면 저장 칩을 숨김(중복 저장 방지) */
+  const [savedCourseFromMapKey, setSavedCourseFromMapKey] = useState("");
 
   const handleSaveSelectedCourseAsDraft = useCallback(async () => {
     if (!user?.id) {
@@ -2092,6 +2136,17 @@ export default function Home() {
 
   /** 코스 칩으로 열 때 — 항상 「지금 뜨는 코스」 목록·펼침 시트 */
   const [homeCoursesSheetResetKey, setHomeCoursesSheetResetKey] = useState(0);
+  /** 내 코스 목록 강제 새로고침(삭제 등 변경 후) */
+  const [homeMyCoursesRefreshKey, setHomeMyCoursesRefreshKey] = useState(0);
+
+  /** 코스 칩 탭 전 공개 코스·내 코스 목록 미리 불러와 시트 즉시 표시 */
+  useEffect(() => {
+    void prefetchHomeCourseDiscoveryTrending();
+  }, []);
+  useEffect(() => {
+    if (user?.id) void prefetchHomeCourseDiscoveryMy(user.id);
+  }, [user?.id]);
+
   const openHomeCoursesListPanel = useCallback(() => {
     setHomeCourseBrowse(null);
     setHomeCourseBrowseLoading(false);
@@ -2413,6 +2468,37 @@ export default function Home() {
     homeFollowCourseId,
     dismissHomeRailCourseMap,
   ]);
+
+  /** 내 코스 미리보기 — 스튜디오 잔코스 수정 시트로 이동 */
+  const handleEditMyCourseFromPanel = useCallback(
+    (courseId) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      navigate(`/studio/courses/${encodeURIComponent(id)}/edit`);
+    },
+    [navigate]
+  );
+
+  /** 내 코스 미리보기 — 삭제 후 미리보기 닫고 목록 새로고침 */
+  const handleDeleteMyCourseFromPanel = useCallback(
+    async (courseId) => {
+      const id = String(courseId || "").trim();
+      if (!id) return;
+      const mapId = String(homeRailCourseDrive?.courseId || "").trim();
+      await deleteCuratorCourse(id);
+      if (user?.id) invalidateHomeCourseDiscoveryMyCache(user.id);
+      setHomeCourseBrowse(null);
+      setHomeCourseBrowseLoading(false);
+      setHomeCoursesPanelOpen(true);
+      setHomeCoursesSheetSnap("expanded");
+      setHomeMyCoursesRefreshKey((n) => n + 1);
+      if (mapId && mapId === id) {
+        void dismissHomeRailCourseMap({ keepCoursesPanelOpen: true });
+      }
+      showToast("코스를 삭제했어요.", "success", 2400);
+    },
+    [homeRailCourseDrive?.courseId, dismissHomeRailCourseMap, showToast, user?.id]
+  );
 
   useEffect(() => {
     const previewId = String(homeRailCourseDrive?.courseId || "").trim();
@@ -2897,10 +2983,9 @@ export default function Home() {
   const [courseSecondFindVibes, setCourseSecondFindVibes] = useState([]);
   const [courseSecondFindLiquors, setCourseSecondFindLiquors] = useState([]);
   const [courseSecondFindAnju, setCourseSecondFindAnju] = useState([]);
-  const [courseSecondFindPreferCloser, setCourseSecondFindPreferCloser] =
-    useState(false);
-  const [courseSecondFindPrioritizeCurators, setCourseSecondFindPrioritizeCurators] =
-    useState(false);
+  /** 2차 찾기 정렬 — closer | curator 중 하나만, default는 둘 다 미적용 */
+  const [courseSecondFindSortPriority, setCourseSecondFindSortPriority] =
+    useState("default");
   /** 2차 찾기: 1차 좌표 기준 최대 거리(m) — 후보 스코어·카카오 주변 검색 반경 */
   const [courseSecondFindMaxDistanceM, setCourseSecondFindMaxDistanceM] =
     useState(3000);
@@ -3202,11 +3287,107 @@ export default function Home() {
   );
   const canAddHalfStepNow = Boolean(
     isCourseMode &&
+      courseMapOverlay &&
       courseDrivingMap &&
       Array.isArray(courseDrivingMap.steps) &&
       courseDrivingMap.steps.length === 2 &&
       !courseIncludeHalfStep
   );
+
+  /**
+   * 지도에 1·2차(쩜오 포함) 루트가 떠 있어 「내 코스로 저장」 가능한 상태.
+   * 텍스트 코스 검색(merged 시트에 이미 저장 버튼 있음)이 아닌, 장소 모달→2차 찾기
+   * 지도 플로우(query 비어 있음)에서만 노출해 버튼 중복을 막는다.
+   */
+  /** 코스 식별자(key 없으면 장소 id 시그니처) — 저장 후 같은 코스 칩 숨김 비교용 */
+  const courseSaveIdentityOf = useCallback((c) => {
+    if (!c || typeof c !== "object") return "";
+    const k = String(c.key ?? "").trim();
+    if (k) return k;
+    const ids = (Array.isArray(c.steps) ? c.steps : [])
+      .map((s) =>
+        String(
+          s?.place?.id ??
+            s?.place?.place_id ??
+            s?.place?.kakao_place_id ??
+            ""
+        ).trim()
+      )
+      .filter(Boolean);
+    return ids.join("|");
+  }, []);
+
+  const canSaveCourseToMyCoursesNow = Boolean(
+    isCourseMode &&
+      courseMapOverlay &&
+      !courseSecondPickMode &&
+      !String(query || "").trim() &&
+      courseDrivingMap &&
+      Array.isArray(courseDrivingMap.steps) &&
+      courseDrivingMap.steps.filter((s) => s?.place).length >= 2 &&
+      courseSaveIdentityOf(courseDrivingMap) !== savedCourseFromMapKey
+  );
+
+  /** 지도에 뜬 코스 루트를 큐레이터 「내 코스」(코스 칩 → 내 코스 탭)로 저장 */
+  const handleSaveCourseToMyCoursesFromMap = useCallback(async () => {
+    if (!user?.id) {
+      showToast("로그인이 필요해요.", "error", 2600);
+      return;
+    }
+    const course = courseDrivingMap || selectedCourse;
+    const usableSteps = Array.isArray(course?.steps)
+      ? course.steps.filter((s) => s?.place)
+      : [];
+    if (usableSteps.length < 2) {
+      showToast("저장할 코스가 아직 완성되지 않았어요.", "error", 2600);
+      return;
+    }
+    setSavingCourseFromMap(true);
+    try {
+      const r = await saveHomeRecommendedCourseDraft({
+        curatorUserId: user.id,
+        course,
+        courseQueryParsed,
+        rawSearchQuery: query,
+      });
+      let msg = "내 코스에 저장했어요. 코스 칩 → 내 코스 탭에서 확인하세요.";
+      if (r.skippedSteps > 0) {
+        msg += ` 일부 장소 ${r.skippedSteps}곳은 좌표·식별 정보가 없어 제외했어요.`;
+      }
+      showToast(msg, "success", 3600);
+      // 같은 코스에 대해 저장 칩 숨김(중복 저장 방지)
+      setSavedCourseFromMapKey(courseSaveIdentityOf(course));
+    } catch (e) {
+      const code = e?.code;
+      if (code === "NOT_CURATOR") {
+        showToast(
+          e?.message || "큐레이터 계정에서만 내 코스로 저장할 수 있어요.",
+          "error",
+          3600
+        );
+      } else if (code === "INSUFFICIENT_DB_PLACES") {
+        showToast(
+          e?.message || "저장할 수 있는 장소가 부족해요.",
+          "error",
+          3600
+        );
+      } else if (code === "NOT_AUTHENTICATED") {
+        showToast(e?.message || "로그인이 필요해요.", "error", 2600);
+      } else {
+        showToast(e?.message || "저장하지 못했어요.", "error", 3200);
+      }
+    } finally {
+      setSavingCourseFromMap(false);
+    }
+  }, [
+    user?.id,
+    courseDrivingMap,
+    selectedCourse,
+    courseQueryParsed,
+    query,
+    showToast,
+    courseSaveIdentityOf,
+  ]);
 
   /** 코스 UI 하단 높이만큼 setBounds 패딩 — 경로·마커가 바텀시트에 덜 가리게 */
   const courseMapFitBottomPaddingPx = useMemo(() => {
@@ -4700,12 +4881,11 @@ export default function Home() {
     setCourseSecondFindVibes(tasteDefaults.vibes);
     setCourseSecondFindLiquors(tasteDefaults.liquorTypes);
     setCourseSecondFindAnju([]);
-    setCourseSecondFindPreferCloser(
+    const preferCloserDefault =
       courseQueryParsed?.walkable != null
         ? Boolean(courseQueryParsed.walkable)
-        : tasteDefaults.preferCloser
-    );
-    setCourseSecondFindPrioritizeCurators(false);
+        : tasteDefaults.preferCloser;
+    setCourseSecondFindSortPriority(preferCloserDefault ? "closer" : "default");
     setCourseSecondFindMaxDistanceM(3000);
     setCourseSecondFindModalOpen(true);
   }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable, tasteProfile]);
@@ -4809,8 +4989,8 @@ export default function Home() {
       vibes: [...courseSecondFindVibes],
       liquorTypes: [...courseSecondFindLiquors],
       anjuHints: [...courseSecondFindAnju],
-      preferCloser: courseSecondFindPreferCloser,
-      prioritizeCurators: courseSecondFindPrioritizeCurators,
+      preferCloser: courseSecondFindSortPriority === "closer",
+      prioritizeCurators: courseSecondFindSortPriority === "curator",
       maxSecondDistanceM: courseSecondFindMaxDistanceM,
     };
     void runMapCourseSecondFind(prefs);
@@ -4818,8 +4998,7 @@ export default function Home() {
     courseSecondFindVibes,
     courseSecondFindLiquors,
     courseSecondFindAnju,
-    courseSecondFindPreferCloser,
-    courseSecondFindPrioritizeCurators,
+    courseSecondFindSortPriority,
     courseSecondFindMaxDistanceM,
     runMapCourseSecondFind,
   ]);
@@ -5612,6 +5791,36 @@ export default function Home() {
     hideHomeMapChromeForRecommendSheet,
     hideHomeMapChromeForCourses,
   ]);
+
+  const homeOnboardingCoachEnabled = useMemo(() => {
+    if (tasteNeedsOnboarding || tastePrefsLoading) return false;
+    if (showLoginPrompt) return false;
+    if (homeSearchMode.isOpen) return false;
+    if (selectedPlace) return false;
+    if (mutualSearchPanelOpen) return false;
+    if (isAiSearching) return false;
+    if (hideHomeMapChromeForRecommendSheet) return false;
+    if (hideHomeMapChromeForCourses) return false;
+    if (courseSecondFindModalOpen) return false;
+    if (showFollowModal) return false;
+    return true;
+  }, [
+    tasteNeedsOnboarding,
+    tastePrefsLoading,
+    showLoginPrompt,
+    homeSearchMode.isOpen,
+    selectedPlace,
+    mutualSearchPanelOpen,
+    isAiSearching,
+    hideHomeMapChromeForRecommendSheet,
+    hideHomeMapChromeForCourses,
+    courseSecondFindModalOpen,
+    showFollowModal,
+  ]);
+
+  const homeOnboardingCoach = useHomeOnboardingCoach({
+    enabled: homeOnboardingCoachEnabled,
+  });
 
   const aiBottomSheetPlaces = useMemo(() => {
     const importPlaces = curatorImportPlacesOrPool;
@@ -8602,9 +8811,7 @@ const handleClearSearch = () => {
           isExternal: true,
           isLive: true,
           isKakaoPlace: true,
-          kakao_place_id:
-            place.kakao_place_id ??
-            (place.source === "kakao" ? place.id : null),
+          kakao_place_id: normalizeKakaoPlaceId(place),
           source: place.source || (place.isYajangCuratorFallback ? "curator_yajang_fallback" : "kakao"),
         }));
 
@@ -8774,6 +8981,20 @@ const handleClearSearch = () => {
       ) {
         try {
           importRec = await fetchCuratorImportRecommend(nextQuery);
+          const meetingImportBlock = new Set([
+            "와인바",
+            "이자카야",
+            "노포",
+            "야장",
+            "낮술",
+          ]);
+          if (
+            importRec?.ok &&
+            detectIntents(nextQuery).meeting &&
+            meetingImportBlock.has(String(importRec.category || ""))
+          ) {
+            importRec = null;
+          }
         } catch {
           /* /recommend 실패 시 extras.why 는 스코어·태그 템플릿 */
         }
@@ -9201,6 +9422,34 @@ const handleClearSearch = () => {
         onLoginRequest={() => signInWithProvider("google")}
       />
 
+      {isAiSearching ? (
+        <div
+          style={{
+            position: "fixed",
+            left: "50%",
+            top: "42%",
+            transform: "translate(-50%, -50%)",
+            zIndex: 4000,
+            pointerEvents: "none",
+            padding: "16px 20px 14px",
+            borderRadius: 18,
+            background: "rgba(14, 14, 14, 0.82)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
+            backdropFilter: "blur(14px) saturate(160%)",
+            WebkitBackdropFilter: "blur(14px) saturate(160%)",
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <PouringDrinkLoader
+            size={66}
+            label={searchLoadingLabel}
+            rotateMessages={!searchLoadingLabel}
+          />
+        </div>
+      ) : null}
+
       <TasteOnboardingGate
         open={Boolean(tasteNeedsOnboarding)}
         onComplete={async (answers) => {
@@ -9212,6 +9461,15 @@ const handleClearSearch = () => {
         onSkip={async () => {
           await saveTasteOnboarding({}, { skipped: true });
         }}
+      />
+
+      <HomeOnboardingCoach
+        open={homeOnboardingCoach.open}
+        step={homeOnboardingCoach.step}
+        stepIndex={homeOnboardingCoach.stepIndex}
+        stepCount={homeOnboardingCoach.stepCount}
+        onNext={homeOnboardingCoach.next}
+        onSkip={homeOnboardingCoach.skip}
       />
 
       <HomeFollowCuratorModal
@@ -9274,8 +9532,11 @@ const handleClearSearch = () => {
           onStampStateRefresh={bumpHomeCourseStampState}
           onSnapChange={setHomeCoursesSheetSnap}
           sheetResetKey={homeCoursesSheetResetKey}
+          myCoursesRefreshKey={homeMyCoursesRefreshKey}
           onOpenCurator={handleCourseBrowseCuratorOpen}
           resolveCuratorHandle={resolveCuratorHandleForUser}
+          onEditCourse={handleEditMyCourseFromPanel}
+          onDeleteCourse={handleDeleteMyCourseFromPanel}
         />
         <HotCheckinStrip
           rankingTop5={hotStripPlaceRows}
@@ -9337,7 +9598,10 @@ const handleClearSearch = () => {
           !hideHomeMapChromeForDockedCourseSheet &&
           !hideHomeMapChromeForRecommendSheet ? (
             <>
-              <div style={styles.drinksSituationStripWrapper}>
+              <div
+                style={styles.drinksSituationStripWrapper}
+                data-judo-coach="quick-chips"
+              >
                 <div
                   style={styles.drinksSituationStrip}
                   role="group"
@@ -9413,7 +9677,48 @@ const handleClearSearch = () => {
               </div>
             </>
           ) : null}
-          {mapViewportDbLoading && !mapDensityLayerActive && (
+          {mapViewportLoadFailed && !mapDensityLayerActive ? (
+            <div
+              role="alert"
+              style={{
+                position: "absolute",
+                top: 52,
+                left: 12,
+                right: 12,
+                zIndex: 21,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                background: "rgba(40,40,44,0.96)",
+                color: "#fff",
+                borderRadius: 12,
+                boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+                fontSize: 13,
+              }}
+            >
+              <span style={{ flex: 1, lineHeight: 1.35 }}>
+                일부 장소를 불러오지 못했어요. 네트워크가 불안정할 수 있어요.
+              </span>
+              <button
+                type="button"
+                onClick={retryMapViewportLoad}
+                style={{
+                  flexShrink: 0,
+                  padding: "6px 12px",
+                  background: "#fff",
+                  color: "#1f1f23",
+                  border: "none",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                다시 시도
+              </button>
+            </div>
+          ) : mapViewportDbLoading && !mapDensityLayerActive ? (
             <div
               role="status"
               style={{
@@ -9431,7 +9736,7 @@ const handleClearSearch = () => {
             >
               불러오는 중…
             </div>
-          )}
+          ) : null}
           <MapView
             ref={mapRef}
             showFloatingLocationButton={false}
@@ -9638,6 +9943,12 @@ const handleClearSearch = () => {
             }}
             halfStepDisabled={isLoadingCourse || isAiSearching}
             halfStepStyles={styles.courseAddHalfStepFloatingBtn}
+            showSaveCourse={canSaveCourseToMyCoursesNow}
+            onSaveCourse={() => {
+              void handleSaveCourseToMyCoursesFromMap();
+            }}
+            saveCourseBusy={savingCourseFromMap}
+            saveCourseStyles={styles.courseSaveToMyFloatingBtn}
           />
         ) : null}
 
@@ -9654,10 +9965,8 @@ const handleClearSearch = () => {
           onChangeAnju={setCourseSecondFindAnju}
           maxDistanceM={courseSecondFindMaxDistanceM}
           onChangeMaxDistanceM={setCourseSecondFindMaxDistanceM}
-          preferCloser={courseSecondFindPreferCloser}
-          onChangePreferCloser={setCourseSecondFindPreferCloser}
-          prioritizeCurators={courseSecondFindPrioritizeCurators}
-          onChangePrioritizeCurators={setCourseSecondFindPrioritizeCurators}
+          sortPriority={courseSecondFindSortPriority}
+          onChangeSortPriority={setCourseSecondFindSortPriority}
         />
 
         {!homeSearchMode.isOpen && !hideMapChromeForLoginPrompt ? (
@@ -9797,7 +10106,10 @@ const handleClearSearch = () => {
             myLocationButtonStyle={styles.legendMyLocationButton}
             myLocationSpinnerStyle={styles.legendMyLocationSpinner}
           />
-          <div style={styles.legendCoursesChipStack}>
+          <div
+            style={styles.legendCoursesChipStack}
+            data-judo-coach="course-chip"
+          >
             <HomeCoursesEntryChip
               visible={homeCoursesEntryVisible}
               open={homeCoursesEntryChipOpen}
@@ -9830,6 +10142,7 @@ const handleClearSearch = () => {
         !homeSearchMode.isOpen &&
         !hideMapChromeForLoginPrompt ? (
           <div
+            data-judo-coach="search-bar"
             style={{
               ...styles.bottomBarContainer,
               ...(recommendSheetDocked && recommendSheetUiCollapsed
@@ -10207,6 +10520,8 @@ const handleClearSearch = () => {
           showSuggestPanel={Boolean(String(query || "").trim())}
           suggestPanel={
             <KakaoPlaceSuggestPanel
+              query={query}
+              onSubmitQuery={(q) => void submitHomeSearch(q)}
               results={overlayKakaoSuggest.results}
               isLoading={overlayKakaoSuggest.isLoading}
               savedBadgeIndex={homeSearchSavedBadgeIndex.index}

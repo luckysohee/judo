@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from recommendation.parse_query import parse_query
 from recommendation.recommend import (
     _canonical_place_name_row,
     _category_try_order,
@@ -34,6 +35,40 @@ class TestCategoryTryOrder:
         order = _category_try_order(parsed)
         assert order[0] == "와인바"
         assert order.count("와인바") == 1
+
+    def test_meeting_uses_dining_fallback_not_wine_bar(self) -> None:
+        parsed: dict[str, Any] = {
+            "category": "한정식",
+            "location": "성수",
+            "meeting": True,
+        }
+        order = _category_try_order(parsed)
+        assert order == ["한정식", "다이닝", "카페"]
+        assert "와인바" not in order
+
+    def test_meeting_explicit_cafe_first(self) -> None:
+        parsed: dict[str, Any] = {
+            "category": "카페",
+            "location": "강남",
+            "meeting": True,
+        }
+        assert _category_try_order(parsed) == ["카페", "한정식", "다이닝"]
+
+
+class TestParseQueryMeeting:
+    def test_business_meeting_defaults_to_hansik(self) -> None:
+        got = parse_query("성수 업무 미팅 장소 추천")
+        assert got == {
+            "location": "성수",
+            "category": "한정식",
+            "moods": [],
+            "meeting": True,
+        }
+
+    def test_meeting_with_explicit_cafe(self) -> None:
+        got = parse_query("강남 비즈니스 회의 카페")
+        assert got["category"] == "카페"
+        assert got["meeting"] is True
 
 
 class TestReasonFromContentColumn:
@@ -210,6 +245,30 @@ class TestRecommend:
                     out = recommend("성수 와인바")
         assert out["ok"] is False
         assert "없어" in out["message"]
+
+    def test_meeting_query_never_fetches_wine_bar_import(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def fake_fetch(_supabase: Any, location: str, category: str) -> None:
+            calls.append((location, category))
+            return None
+
+        with patch.dict(
+            os.environ,
+            {"SUPABASE_URL": "http://test", "SUPABASE_KEY": "k"},
+            clear=False,
+        ):
+            with patch("recommendation.recommend.create_client", return_value=MagicMock()):
+                with patch(
+                    "recommendation.recommend.fetch_latest_recommendation",
+                    side_effect=fake_fetch,
+                ):
+                    out = recommend("성수 업무 미팅 장소 추천")
+        assert out["ok"] is False
+        assert calls
+        assert calls[0][1] == "한정식"
+        assert "와인바" not in {c[1] for c in calls}
+        assert {c[1] for c in calls} <= {"한정식", "다이닝", "카페"}
 
     def test_happy_path_enriches_places_without_openai(self) -> None:
         row: dict[str, Any] = {

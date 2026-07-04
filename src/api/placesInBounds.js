@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
 
 /**
  * 홈 지도 뷰포트 — 서버 `GET /api/places-in-bounds` (Supabase service role + `get_places_in_bounds` RPC).
@@ -6,8 +7,9 @@ import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
  *
  * @param {{ south: number, west: number, north: number, east: number, limit?: number }} bounds
  * @param {string} [apiBaseUrl] 프로덕션 등 `VITE_AI_API_BASE_URL` (끝 슬래시 없음). 비우면 상대 `/api/...` (Vite 프록시).
+ * @param {number} [timeoutMs] 응답 없을 때 무한 대기 방지(기본 8초)
  */
-export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
+export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "", timeoutMs = 8000) {
   const { south, west, north, east, limit = 80 } = bounds || {};
   if (![south, west, north, east].every((n) => Number.isFinite(Number(n)))) {
     throw new Error("fetchMapPlacesInBounds: south, west, north, east required");
@@ -23,7 +25,7 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "") {
   const path = `/api/places-in-bounds?${qs.toString()}`;
   const base = normalizeApiBaseUrl(apiBaseUrl);
   const url = base ? `${base}${path}` : path;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, {}, timeoutMs);
   let data = null;
   try {
     data = await res.json();

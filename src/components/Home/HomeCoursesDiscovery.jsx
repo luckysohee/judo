@@ -189,8 +189,11 @@ export default function HomeCoursesDiscoveryPanel({
   onSnapChange,
   /** 코스 칩으로 목록 열 때 스냅·높이 초기화 */
   sheetResetKey = 0,
+  myCoursesRefreshKey = 0,
   onOpenCurator,
   resolveCuratorHandle,
+  onEditCourse,
+  onDeleteCourse,
 }) {
   const {
     bottomPx: keyboardInsetPx,
@@ -447,6 +450,8 @@ export default function HomeCoursesDiscoveryPanel({
                 onSheetCollapse={setSnapCollapsed}
                 onOpenCurator={onOpenCurator}
                 resolveCuratorHandle={resolveCuratorHandle}
+                onEditCourse={onEditCourse}
+                onDeleteCourse={onDeleteCourse}
               />
             </div>
           ) : sheetListPeek && browseCourse && !browseLoading ? (
@@ -488,6 +493,7 @@ export default function HomeCoursesDiscoveryPanel({
               visible={railVisible}
               layout={sheetListExpanded ? "full" : "peek"}
               user={user}
+              refreshKey={myCoursesRefreshKey}
               onSearchFocus={setSnapExpanded}
               onSelectCourse={(id) => {
                 setSnapExpanded();

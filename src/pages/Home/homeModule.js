@@ -574,10 +574,13 @@ function mergeDbPlaceDetailForPreview(prev, detail, enrichedFromJoin) {
     e &&
     Array.isArray(e.curatorPlaces) &&
     e.curatorPlaces.length > 0;
+  const mergedKakaoId = normalizeKakaoPlaceId(detail) || normalizeKakaoPlaceId(prev);
 
   return {
     ...prev,
     ...detail,
+    kakao_place_id: mergedKakaoId,
+    kakaoId: mergedKakaoId || prev.kakaoId,
     curatorPlaces: useEnriched ? e.curatorPlaces : prev.curatorPlaces ?? [],
     curatorCount: useEnriched ? e.curatorCount : prev.curatorCount,
     curatorReasons: useEnriched ? e.curatorReasons : prev.curatorReasons,

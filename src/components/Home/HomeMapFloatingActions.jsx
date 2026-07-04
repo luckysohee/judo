@@ -12,9 +12,28 @@ export default function HomeMapFloatingActions({
   onAddHalfStep,
   halfStepDisabled,
   halfStepStyles,
+  showSaveCourse,
+  onSaveCourse,
+  saveCourseBusy,
+  saveCourseStyles,
 }) {
   return (
     <>
+      {showSaveCourse ? (
+        <button
+          type="button"
+          onClick={onSaveCourse}
+          disabled={saveCourseBusy}
+          style={{
+            ...saveCourseStyles,
+            ...(saveCourseBusy ? { opacity: 0.58, cursor: "wait" } : {}),
+          }}
+          title="지금 지도에 뜬 1·2차(쩜오 포함) 코스를 내 코스로 저장해요"
+        >
+          <span aria-hidden>📌</span>
+          {saveCourseBusy ? "저장 중…" : "내 코스로 저장"}
+        </button>
+      ) : null}
       {showSearchHere ? (
         <button
           type="button"

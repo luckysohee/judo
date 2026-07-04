@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # (별칭, 표준 지역명) — 동일 시작 위치면 긴 별칭이 우선되도록 길이 내림차순으로 순회
@@ -24,6 +25,13 @@ _LOCATION_CANON: list[tuple[str, str]] = [
 # DB `fetch_latest_recommendation` 시도 순서 — recommend 가 그대로 사용
 CATEGORY_FALLBACK_ORDER: tuple[str, ...] = ("와인바", "이자카야", "노포", "야장", "낮술")
 
+# 업무 미팅 — Home 지도 검색(한정식·다이닝·조용한 카페)과 동일 축. 와인바 import 폴백 금지.
+MEETING_CATEGORY_FALLBACK_ORDER: tuple[str, ...] = ("한정식", "다이닝", "카페")
+
+_MEETING_INTENT_RE = re.compile(
+    r"미팅|업무\s*미팅|업무미팅|비즈니스|회의|상담|거래처|클라이언트|바이어"
+)
+
 # 질문 문자열에서 업종 스팬을 찾을 때만 쓰는 추가 키워드(위 순서에 없는 것들)
 _QUERY_CATEGORY_EXTRA: frozenset[str] = frozenset(
     {
@@ -34,6 +42,9 @@ _QUERY_CATEGORY_EXTRA: frozenset[str] = frozenset(
         "포차",
         "고기집",
         "오마카세",
+        "한정식",
+        "다이닝",
+        "카페",
     }
 )
 _CATEGORIES: frozenset[str] = frozenset(CATEGORY_FALLBACK_ORDER) | _QUERY_CATEGORY_EXTRA
@@ -59,6 +70,10 @@ MOOD_KEYWORDS = frozenset(
 
 def _span_overlaps(a0: int, a1: int, b0: int, b1: int) -> bool:
     return not (a1 <= b0 or b1 <= a0)
+
+
+def _has_meeting_intent(q: str) -> bool:
+    return bool(_MEETING_INTENT_RE.search(q or ""))
 
 
 def _find_location_span(q: str) -> tuple[str, int, int] | None:
@@ -89,8 +104,14 @@ def _find_category_span(q: str) -> tuple[str, int, int] | None:
 
 def parse_query(query: str) -> dict[str, Any]:
     raw = (query or "").strip()
+    meeting = _has_meeting_intent(raw)
     if not raw:
-        return {"location": None, "category": "와인바", "moods": []}
+        return {
+            "location": None,
+            "category": "와인바",
+            "moods": [],
+            "meeting": False,
+        }
 
     loc_span = _find_location_span(raw)
     cat_span = _find_category_span(raw)
@@ -151,9 +172,14 @@ def parse_query(query: str) -> dict[str, Any]:
     moods = list(dict.fromkeys(moods))
 
     if category is None:
-        category = "와인바"
+        category = "한정식" if meeting else "와인바"
 
-    return {"location": location, "category": category, "moods": moods}
+    return {
+        "location": location,
+        "category": category,
+        "moods": moods,
+        "meeting": meeting,
+    }
 
 
 if __name__ == "__main__":
@@ -161,30 +187,54 @@ if __name__ == "__main__":
         "location": "성수",
         "category": "와인바",
         "moods": ["조용한"],
+        "meeting": False,
     }
     assert parse_query("을지로 2차 노포") == {
         "location": "을지로",
         "category": "노포",
         "moods": ["2차"],
+        "meeting": False,
     }
     assert parse_query("압구정 데이트 와인바") == {
         "location": "압구정",
         "category": "와인바",
         "moods": ["데이트"],
+        "meeting": False,
     }
     assert parse_query("을지로 야장") == {
         "location": "을지로",
         "category": "야장",
         "moods": [],
+        "meeting": False,
     }
     assert parse_query("성수 낮술") == {
         "location": "성수",
         "category": "낮술",
         "moods": [],
+        "meeting": False,
     }
     assert parse_query("성수조용한와인바") == {
         "location": "성수",
         "category": "와인바",
         "moods": ["조용한"],
+        "meeting": False,
+    }
+    assert parse_query("성수 업무 미팅 장소 추천") == {
+        "location": "성수",
+        "category": "한정식",
+        "moods": [],
+        "meeting": True,
+    }
+    assert parse_query("을지로 업무 미팅 괜찮은 장소") == {
+        "location": "을지로",
+        "category": "한정식",
+        "moods": [],
+        "meeting": True,
+    }
+    assert parse_query("강남 비즈니스 회의 카페") == {
+        "location": "강남",
+        "category": "카페",
+        "moods": [],
+        "meeting": True,
     }
     print("ok")

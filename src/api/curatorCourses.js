@@ -271,6 +271,8 @@ export async function fetchCuratorCourseForHomePreview(courseId) {
       curator_id,
       created_at,
       status,
+      is_public,
+      imported_from_course_id,
       curator_course_places (
         id,
         course_id,

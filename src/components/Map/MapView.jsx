@@ -1769,6 +1769,8 @@ const MapView = forwardRef(({
               ? parseFloat(rawLng.replace(/,/g, ""), 10)
               : Number(rawLng);
 
+          const numericKakaoId = normalizeKakaoPlaceId(cp);
+
           // API 결과를 PlacePreviewCard 형식으로 변환 (y/x만 있어도 lat·lng 채움)
           const formattedPlace = {
             id: cp.id || `api_${cp.name?.replace(/\s+/g, '_')}`,
@@ -1801,8 +1803,9 @@ const MapView = forwardRef(({
             link: cp.link || cp.place_url,
             place_url: cp.place_url || cp.link || '',
             phone: cp.phone || cp.telephone || '',
-            place_id: cp.place_id || cp.kakao_place_id || cp.kakaoId || cp.id,
-            kakao_place_id: cp.kakao_place_id || cp.place_id || cp.kakaoId || cp.id,
+            place_id: numericKakaoId || cp.place_id || null,
+            kakao_place_id: numericKakaoId,
+            kakaoId: numericKakaoId || cp.kakaoId || null,
             isKakaoPlace: Boolean(cp.isKakaoPlace || cp.source === 'kakao' || cp.place_url),
             category_name: cp.category_name || cp.category || '',
             road_address_name: cp.road_address_name || '',

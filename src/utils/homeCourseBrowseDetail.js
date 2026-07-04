@@ -58,6 +58,12 @@ export function normalizeHomeCourseBrowseDetail(row) {
       ? row.theme_tags.map((t) => String(t).trim()).filter(Boolean)
       : [],
     curator_id: String(row.curator_id || "").trim(),
+    status: String(row.status || "").trim(),
+    is_public: Boolean(row.is_public),
+    imported_from_course_id:
+      row.imported_from_course_id != null
+        ? String(row.imported_from_course_id).trim()
+        : "",
     place_count: places.length,
     places,
     thumb_steps,
