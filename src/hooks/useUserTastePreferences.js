@@ -55,6 +55,8 @@ export function useUserTastePreferences({ userId, authLoading = false }) {
     [userId]
   );
 
+  const savePreferences = saveOnboarding;
+
   const needsOnboarding =
     Boolean(userId) &&
     !loading &&
@@ -67,5 +69,6 @@ export function useUserTastePreferences({ userId, authLoading = false }) {
     needsOnboarding,
     reload,
     saveOnboarding,
+    savePreferences,
   };
 }

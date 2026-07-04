@@ -1,5 +1,6 @@
 import { resolvePlaceWgs84, kakaoNumericPlaceId } from "./placeCoords";
 import { collectReasonEvidence } from "./reasonEvidence.js";
+import { liftCuratorCatalogMeta } from "./curatorPlaceMetaLift.js";
 
 function extractedKakaoIdFromUrl(place) {
   return place?.place_url?.match(/\/place\/(\d+)/)?.[1] || null;
@@ -327,12 +328,14 @@ export function isCuratorSearchOverlapPlace(place) {
  */
 export function enrichSearchResultWithCuratorCatalog(place, catalogHit) {
   if (!place || !catalogHit) return place;
+  const liftedMeta = liftCuratorCatalogMeta(catalogHit);
   const count = Math.max(
     curatorCountFromPlace(catalogHit),
     curatorCountFromPlace(place),
   );
   return {
     ...place,
+    ...liftedMeta,
     curatorPlaces: catalogHit.curatorPlaces ?? place.curatorPlaces,
     curatorCount: count > 0 ? count : place.curatorCount,
     curatorReasons: catalogHit.curatorReasons ?? place.curatorReasons,
@@ -378,8 +381,11 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
   const mergedKakaoNumId =
     kakaoNumericPlaceId(canonical) || kakaoNumericPlaceId(picked);
 
+  const liftedMeta = liftCuratorCatalogMeta(canonical);
+
   const merged = {
     ...picked,
+    ...liftedMeta,
     id: canonical.id,
     name: canonical.name || picked.name || picked.place_name,
     category_name:
@@ -433,9 +439,18 @@ export function mergePickedPlaceWithCuratorCatalog(picked, catalog) {
       Array.isArray(canonical.vibes) && canonical.vibes.length
         ? canonical.vibes
         : picked.vibes,
-    food_types: canonical.food_types ?? picked.food_types,
-    alcohol_types: canonical.alcohol_types ?? picked.alcohol_types,
-    purposes: canonical.purposes ?? picked.purposes,
+    alcohol_types:
+      liftedMeta.alcohol_types?.length
+        ? liftedMeta.alcohol_types
+        : canonical.alcohol_types ?? picked.alcohol_types,
+    purposes:
+      liftedMeta.purposes?.length
+        ? liftedMeta.purposes
+        : canonical.purposes ?? picked.purposes,
+    food_types:
+      liftedMeta.food_types?.length
+        ? liftedMeta.food_types
+        : canonical.food_types ?? picked.food_types,
     distance: picked.distance,
     walkingTime: picked.walkingTime,
     matchedFacetLabels: picked.matchedFacetLabels,

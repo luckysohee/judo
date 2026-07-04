@@ -11,6 +11,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { useToast } from "../../components/Toast/ToastProvider";
+import UserTastePreferencesSection from "../../components/Onboarding/UserTastePreferencesSection";
 import { createClient } from '@supabase/supabase-js';
 import MapView from "../../components/Map/MapView";
 import StudioPlaceMapSearchPanel from "../../components/Studio/StudioPlaceMapSearchPanel";
@@ -6447,6 +6448,14 @@ export default function StudioHome() {
               )}
             </div>
           </div>
+
+          {user?.id ? (
+            <UserTastePreferencesSection
+              userId={user.id}
+              authLoading={authLoading}
+              variant="studio"
+            />
+          ) : null}
           
           {/* 통계 — 2×2 컴팩트 */}
           <div style={styles.archiveStatsGrid} role="region" aria-label="큐레이터 통계">

@@ -435,6 +435,43 @@ export const styles = {
     textShadow: "0 0 7px rgba(167, 139, 250, 0.65)",
   },
 
+  /** 알파 피드백 설문 재진입 칩 */
+  legendAlphaSurveyEntryButton: {
+    pointerEvents: "auto",
+    width: "100%",
+    minHeight: "32px",
+    padding: "4px 2px 3px",
+    gap: "2px",
+    borderRadius: "9px",
+    border: "1px solid rgba(251, 191, 36, 0.72)",
+    background:
+      "linear-gradient(158deg, rgba(245, 158, 11, 0.72) 0%, rgba(234, 88, 12, 0.58) 100%)",
+    backdropFilter: "blur(14px) saturate(180%)",
+    WebkitBackdropFilter: "blur(14px) saturate(180%)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.24), 0 0 10px rgba(245, 158, 11, 0.35), 0 3px 12px rgba(180, 83, 9, 0.2)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fffbeb",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
+  },
+
+  legendAlphaSurveyEntryLabel: {
+    fontSize: "7px",
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+    color: "#fffbeb",
+    textShadow: "0 0 6px rgba(251, 191, 36, 0.55)",
+  },
+
   bottomBarContainer: {
     position: "absolute",
     left: "50%",

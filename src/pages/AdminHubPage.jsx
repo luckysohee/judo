@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
+import { countAlphaSurveyResponses } from "../api/alphaSurvey";
 import { adminTopNavButtonStyle } from "../styles/adminTopNavButton";
 
 const styles = {
@@ -120,6 +121,7 @@ export default function AdminHubPage() {
     pendingApps: null,
     gradeQueue: null,
     curatorCount: null,
+    alphaSurveyCount: null,
     loading: true,
   });
 
@@ -146,7 +148,8 @@ export default function AdminHubPage() {
         }
       };
 
-      const [pendingApps, gradeQueue, curatorCount] = await Promise.all([
+      const [pendingApps, gradeQueue, curatorCount, alphaSurveyCount] =
+        await Promise.all([
         safeCount(
           supabase
             .from("curator_applications")
@@ -162,6 +165,7 @@ export default function AdminHubPage() {
         safeCount(
           supabase.from("curators").select("*", { count: "exact", head: true })
         ),
+        countAlphaSurveyResponses(),
       ]);
 
       if (!cancelled) {
@@ -169,6 +173,7 @@ export default function AdminHubPage() {
           pendingApps,
           gradeQueue,
           curatorCount,
+          alphaSurveyCount,
           loading: false,
         });
       }
@@ -274,6 +279,39 @@ export default function AdminHubPage() {
           <div style={styles.cardDesc}>
             무결과 검색어·최근 검색 로그 (search_logs)
           </div>
+        </button>
+
+        <button
+          type="button"
+          style={styles.card}
+          onClick={() => navigate("/admin/alpha-survey")}
+          onMouseOver={(e) => {
+            e.currentTarget.style.borderColor = "rgba(245, 158, 11, 0.35)";
+            e.currentTarget.style.backgroundColor = "#221a0f";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.borderColor = "#2a2a2a";
+            e.currentTarget.style.backgroundColor = "#171717";
+          }}
+        >
+          <div style={styles.cardMain}>
+            <div style={styles.cardTitle}>알파 피드백 설문</div>
+            <div style={styles.cardDesc}>
+              자동 임시저장 + 제출 완료 응답 (작성 중 포함)
+            </div>
+          </div>
+          <span
+            style={{
+              ...styles.badge,
+              ...(typeof stats.alphaSurveyCount === "number" &&
+              stats.alphaSurveyCount > 0
+                ? styles.badgeWarn
+                : styles.badgeMuted),
+            }}
+            title="제출 응답 수"
+          >
+            {formatBadge(stats.alphaSurveyCount)}
+          </span>
         </button>
 
         <button

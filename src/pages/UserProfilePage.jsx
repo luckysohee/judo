@@ -6,6 +6,7 @@ import { getPickCounts } from "../utils/userProfileFollows";
 import PickUserButton, {
   PickCountsRow,
 } from "../components/PickUserButton/PickUserButton";
+import UserTastePreferencesSection from "../components/Onboarding/UserTastePreferencesSection";
 
 export default function UserProfilePage() {
   const { userId: userIdParam } = useParams();
@@ -222,6 +223,15 @@ export default function UserProfilePage() {
         onPickCountsChange={onPickCountsChange}
         onRelationshipChange={onRelationshipChange}
       />
+
+      {isSelf ? (
+        <div style={{ marginTop: 24, maxWidth: 420 }}>
+          <UserTastePreferencesSection
+            userId={user?.id}
+            variant="studio"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

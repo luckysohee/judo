@@ -4,6 +4,7 @@ import {
   kakaoNumericPlaceId,
 } from "./placeCoords";
 import { isHiddenInternalPlaceTag } from "./placeUiTags";
+import { liftCuratorCatalogMeta } from "./curatorPlaceMetaLift.js";
 
 function curatorRowPublicKey(curatorPlace) {
   const nm = String(curatorPlace?.curators?.name ?? "").trim();
@@ -106,9 +107,17 @@ export function buildFormattedPlacesFromJoin(joinRows) {
         }
       }
     });
+
+    const liftedMeta = liftCuratorCatalogMeta({
+      ...place,
+      curatorReasons,
+      curatorPlaces: place.curatorPlaces,
+    });
+
     return {
       id: place.id,
       name: place.name,
+      ...liftedMeta,
       ...(wgs
         ? {
             lat: wgs.lat,

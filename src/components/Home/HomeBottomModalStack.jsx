@@ -29,6 +29,7 @@ export default function HomeBottomModalStack({
   showUserCard,
   onCloseUserCard,
   onPublicProfileSaved,
+  onTastePreferencesSaved,
 }) {
   return (
     <>
@@ -62,6 +63,7 @@ export default function HomeBottomModalStack({
         isVisible={showUserCard}
         onClose={onCloseUserCard}
         onPublicProfileSaved={onPublicProfileSaved}
+        onTastePreferencesSaved={onTastePreferencesSaved}
       />
     </>
   );

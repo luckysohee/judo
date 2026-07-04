@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { LegalTermsLink } from '../Legal/LegalDocumentLayout';
 
 const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
   const getFeatureInfo = (featureType) => {
@@ -224,6 +225,16 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
             💡 Google, Kakao 계정으로 간편하게 로그인 가능합니다
           </p>
         </div>
+
+        <p style={{ margin: '14px 0 0', textAlign: 'center' }}>
+          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginRight: 6 }}>
+            로그인 시
+          </span>
+          <LegalTermsLink />
+          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginLeft: 6 }}>
+            에 동의한 것으로 봅니다
+          </span>
+        </p>
       </motion.div>
     </div>
   );

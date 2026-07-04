@@ -1,70 +1,37 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  liquorOptionsForOnboarding,
-  TASTE_PARTY_SIZE_OPTIONS,
-  TASTE_REGION_OPTIONS,
-  TASTE_SITUATION_OPTIONS,
-  vibeOptionsForOnboarding,
+  buildTasteOnboardingQuestions,
 } from "../../utils/userTasteProfile";
 
 /**
  * 가입·첫 로그인 「당신의 취향은?」 — placeTaxonomy 표준값과 동일
  */
-export default function OnboardingQuestions({ onComplete, onSkip }) {
+export default function OnboardingQuestions({
+  onComplete,
+  onSkip,
+  onDismiss,
+  initialAnswers = null,
+  showSkip = true,
+  completeLabel,
+  modalTitle = "당신의 취향은?",
+  zIndex = 25000,
+}) {
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [answers, setAnswers] = useState({});
-
-  const questions = useMemo(
-    () => [
-      {
-        id: "liquor_types",
-        question: "어떤 술을 즐겨 마시나요?",
-        subtitle: "복수 선택 가능",
-        type: "multiple",
-        options: liquorOptionsForOnboarding(),
-      },
-      {
-        id: "vibes",
-        question: "어떤 분위기를 좋아하나요?",
-        subtitle: "복수 선택 가능",
-        type: "multiple",
-        options: vibeOptionsForOnboarding(),
-      },
-      {
-        id: "situation",
-        question: "보통 어떤 상황으로 나가시나요?",
-        type: "single",
-        options: TASTE_SITUATION_OPTIONS,
-      },
-      {
-        id: "party_size",
-        question: "보통 몇 명이서 가시나요?",
-        type: "single",
-        options: TASTE_PARTY_SIZE_OPTIONS,
-      },
-      {
-        id: "regions",
-        question: "자주 가는 동네는 어디인가요?",
-        subtitle: "복수 선택 가능",
-        type: "multiple",
-        options: TASTE_REGION_OPTIONS.map((value) => ({
-          value,
-          label: value === "기타" ? "📍 그 외" : `📍 ${value}`,
-        })),
-      },
-      {
-        id: "prefer_walkable",
-        question: "1·2차는 걸어서 갈 수 있는 곳이 좋나요?",
-        type: "single",
-        options: [
-          { value: "yes", label: "🚶 네, 가까운 곳 위주" },
-          { value: "no", label: "🚕 거리는 상관없어요" },
-        ],
-      },
-    ],
-    []
+  const [answers, setAnswers] = useState(() =>
+    initialAnswers && typeof initialAnswers === "object" ? { ...initialAnswers } : {}
   );
+
+  useEffect(() => {
+    setCurrentQuestion(0);
+    setAnswers(
+      initialAnswers && typeof initialAnswers === "object"
+        ? { ...initialAnswers }
+        : {}
+    );
+  }, [initialAnswers]);
+
+  const questions = useMemo(() => buildTasteOnboardingQuestions(), []);
 
   const handleAnswer = (questionId, value, isMultiple = false) => {
     setAnswers((prev) => {
@@ -115,7 +82,7 @@ export default function OnboardingQuestions({ onComplete, onSkip }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 25000,
+        zIndex,
         padding: 16,
       }}
     >
@@ -150,7 +117,7 @@ export default function OnboardingQuestions({ onComplete, onSkip }) {
               margin: 0,
             }}
           >
-            당신의 취향은?
+            {modalTitle}
           </h3>
           <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
             {currentQuestion + 1} / {questions.length}
@@ -311,26 +278,47 @@ export default function OnboardingQuestions({ onComplete, onSkip }) {
               marginLeft: "auto",
             }}
           >
-            {currentQuestion === questions.length - 1 ? "시작하기" : "다음"}
+            {currentQuestion === questions.length - 1
+              ? completeLabel || "시작하기"
+              : "다음"}
           </button>
         </div>
 
-        <div style={{ textAlign: "center", marginTop: 16 }}>
-          <button
-            type="button"
-            onClick={() => onSkip?.()}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.45)",
-              fontSize: 12,
-              cursor: "pointer",
-              textDecoration: "underline",
-            }}
-          >
-            나중에 할게요
-          </button>
-        </div>
+        {showSkip ? (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button
+              type="button"
+              onClick={() => onSkip?.()}
+              style={{
+                background: "none",
+                border: "none",
+                color: "rgba(255,255,255,0.45)",
+                fontSize: 12,
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              나중에 할게요
+            </button>
+          </div>
+        ) : onDismiss ? (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button
+              type="button"
+              onClick={() => onDismiss()}
+              style={{
+                background: "none",
+                border: "none",
+                color: "rgba(255,255,255,0.45)",
+                fontSize: 12,
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              취소
+            </button>
+          </div>
+        ) : null}
       </motion.div>
     </div>
   );

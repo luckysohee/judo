@@ -28,6 +28,7 @@ import {
   fetchStudioFollowersEnriched,
 } from "../../utils/studioFollowersFetch";
 import { unfollowUser } from "../../utils/userProfileFollows";
+import UserTastePreferencesSection from "../Onboarding/UserTastePreferencesSection";
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -357,6 +358,8 @@ const UserCard = ({
   onFolderSelect,
   /** 지도 프로필 저장 후 Home 등에서 profiles 다시 읽기 */
   onPublicProfileSaved = null,
+  /** 취향 설문 저장 후 Home 추천 시드 갱신 */
+  onTastePreferencesSaved = null,
   /** 관리자: RPC `usercard_saved_rows` — RLS로 타인 저장을 못 읽을 때 주입 */
   embeddedSavedRows = null,
   /** 관리자: RPC `following_curators` — 팔로우 탭 주입 */
@@ -388,6 +391,20 @@ const UserCard = ({
     return Boolean(sessionUser?.id && sessionUser.id === user.id);
   }, [
     embeddedSavedRows,
+    explicitIsOwnProfile,
+    user?.id,
+    sessionUser?.id,
+    authLoading,
+  ]);
+  const showTastePreferencesSection = useMemo(() => {
+    if (embeddedAdminReadOnly) return false;
+    if (explicitIsOwnProfile === false) return false;
+    if (explicitIsOwnProfile === true) return true;
+    if (!user?.id) return false;
+    if (authLoading) return false;
+    return Boolean(sessionUser?.id && sessionUser.id === user.id);
+  }, [
+    embeddedAdminReadOnly,
     explicitIsOwnProfile,
     user?.id,
     sessionUser?.id,
@@ -1879,6 +1896,17 @@ const UserCard = ({
                 </div>
               ) : null}
             </div>
+          ) : null}
+
+          {showTastePreferencesSection ? (
+            <UserTastePreferencesSection
+              userId={user?.id}
+              authLoading={authLoading}
+              variant="card"
+              onSaved={(message, kind) => {
+                if (kind === "success") onTastePreferencesSaved?.();
+              }}
+            />
           ) : null}
 
           {Array.isArray(adminRecommends) && adminRecommends.length > 0 ? (

@@ -127,12 +127,18 @@ import HomeTodayTasteSuggest, {
 import HomeFollowCuratorModal from "../../components/Home/HomeFollowCuratorModal";
 import TasteOnboardingGate from "../../components/Onboarding/TasteOnboardingGate";
 import HomeOnboardingCoach from "../../components/Home/HomeOnboardingCoach";
+import AlphaSurveySheet, {
+  AlphaSurveyEntryChip,
+} from "../../components/Home/AlphaSurveySheet";
+import { fetchAlphaSurveyResponse, isAlphaSurveySubmitted } from "../../api/alphaSurvey";
 import { useHomeOnboardingCoach } from "../../hooks/useHomeOnboardingCoach";
 import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
 import { usePersonalTasteSignals } from "../../hooks/usePersonalTasteSignals";
 import {
   tasteProfileHasSignals,
   tasteProfileToSecondFindDefaults,
+  scoreTasteProfileForSearch,
+  buildTasteMatchReasonLine,
 } from "../../utils/userTasteProfile";
 import { fetchUnifiedMapSearch } from "../../utils/fetchUnifiedMapSearch";
 import {
@@ -252,6 +258,7 @@ import {
   normalizeKakaoPlaceId,
 } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { collectReasonEvidence } from "../../utils/reasonEvidence.js";
+import { liftCuratorCatalogMeta } from "../../utils/curatorPlaceMetaLift.js";
 import { applyYajangCuratorFallbackIfEmpty } from "../../utils/curatorYajangFallback";
 import { useLoginRequired } from "../../hooks/useLoginRequired";
 import { useCourseSearch } from "../../hooks/useCourseSearch";
@@ -418,6 +425,7 @@ export default function Home() {
     loading: tastePrefsLoading,
     needsOnboarding: tasteNeedsOnboarding,
     saveOnboarding: saveTasteOnboarding,
+    reload: reloadTasteProfile,
   } = useUserTastePreferences({
     userId: user?.id,
     authLoading,
@@ -1029,6 +1037,9 @@ export default function Home() {
       /백반|기사식|기사식당|분식|해장국|해장|국밥|순대국|김밥|도시락|구내식당|뼈\s*해장|브런치|팬케이크|pancake|팬\s*케이크|한끼|밥플러스|메가\s*커피|메가커피|카페|커피숍|커피\s*전문|디저트|베이커리|토스트|샌드위치|포케|뷔페|패스트푸드|패밀리|버거|샐러드|피자|파스타|스테이크|우동|라멘|국수|돈까스|초밥|삼겹살|고깃집|한우|죽\s*전문|죽집|한식음식점|중국요리|일식음식점|양식음식점|중식|한식당|한끼식사|밥\s*집|밥집/i;
 
     const intentAxisFlags = detectIntents(keyword);
+    const tasteSearchCap = String(keyword || "").trim() ? 28 : 36;
+    const queryHasExplicitRegion = parsedFacets.regions.length > 0;
+    const queryHasExplicitAlcohol = (parsedFacets.alcohols?.length ?? 0) > 0;
 
     return places.map(place => {
       const catalogHit = findCuratorCatalogMatch(
@@ -1036,9 +1047,12 @@ export default function Home() {
         curatorPlaceCatalogForMerge || []
       );
 
+      const catalogMeta = catalogHit ? liftCuratorCatalogMeta(catalogHit) : null;
+
       const evidencePlace = catalogHit
         ? {
             ...place,
+            ...catalogMeta,
             curatorReasons:
               catalogHit.curatorReasons ?? place.curatorReasons,
             curatorPlaces:
@@ -1055,9 +1069,18 @@ export default function Home() {
                 ? catalogHit.vibes
                 : place.vibes,
             moods: catalogHit.moods ?? place.moods,
-            food_types: catalogHit.food_types ?? place.food_types,
-            alcohol_types: catalogHit.alcohol_types ?? place.alcohol_types,
-            purposes: catalogHit.purposes ?? place.purposes,
+            food_types:
+              catalogMeta?.food_types?.length
+                ? catalogMeta.food_types
+                : catalogHit.food_types ?? place.food_types,
+            alcohol_types:
+              catalogMeta?.alcohol_types?.length
+                ? catalogMeta.alcohol_types
+                : catalogHit.alcohol_types ?? place.alcohol_types,
+            purposes:
+              catalogMeta?.purposes?.length
+                ? catalogMeta.purposes
+                : catalogHit.purposes ?? place.purposes,
             blogInsight: place.blogInsight ?? catalogHit.blogInsight,
           }
         : place;
@@ -1169,6 +1192,41 @@ export default function Home() {
         aiScoreSignals.curator_catalog_overlap = 26;
       }
 
+      const oneLineReview = String(evidencePlace?.one_line_review ?? "").trim();
+      if (oneLineReview.length >= 20) {
+        score += 8;
+        aiScoreSignals.curator_one_line = 8;
+      }
+
+      let tasteBoost = 0;
+      let tasteMatched = null;
+      if (tasteProfileHasSignals(tasteProfile)) {
+        const tasteRes = scoreTasteProfileForSearch(tasteProfile, evidencePlace, {
+          queryHasExplicitRegion,
+          queryHasExplicitAlcohol,
+          cap: tasteSearchCap,
+        });
+        tasteBoost = tasteRes.boost;
+        tasteMatched = tasteRes.matched;
+        if (tasteBoost > 0) {
+          score += tasteBoost;
+          aiScoreSignals.taste_profile_boost = tasteBoost;
+          if (tasteMatched?.liquor) aiScoreSignals.taste_liquor = 8;
+          if (tasteMatched?.region) aiScoreSignals.taste_region = 10;
+          if (tasteMatched?.vibe) aiScoreSignals.taste_vibe = 6;
+        }
+      }
+
+      if (
+        tasteProfile?.prefer_walkable &&
+        userLocation &&
+        place.distance > 0 &&
+        place.distance <= 400
+      ) {
+        score += 6;
+        aiScoreSignals.taste_walkable = 6;
+      }
+
       if (wantsDayDrink) {
         let dayDrinkHit = placeSignalsDayDrinkCuratorMeta(place);
         if (!dayDrinkHit && catalogHit) {
@@ -1264,10 +1322,16 @@ export default function Home() {
       const hasPositiveScoreSignal = Object.values(aiScoreSignals).some(
         (v) => Number(v) > 0
       );
-      const whyRecommended =
+      let whyRecommended =
         hasPositiveScoreSignal && signalWhy !== INTENT_SIGNAL_REASON_FALLBACK
           ? signalWhy
           : facetWhyLine;
+      const tasteReason = buildTasteMatchReasonLine(tasteMatched);
+      if (tasteReason && tasteBoost >= 8) {
+        whyRecommended = whyRecommended
+          ? `${tasteReason} · ${whyRecommended}`.slice(0, 96)
+          : tasteReason;
+      }
 
       const withCatalog = enrichSearchResultWithCuratorCatalog(place, catalogHit);
 
@@ -1812,6 +1876,8 @@ export default function Home() {
   /** 직전 검색의 feedback RPC 컨텍스트(normalized_query, area, intent_tags) */
   const searchFeedbackContextRef = useRef(null);
   const [showFollowModal, setShowFollowModal] = useState(false); // 팔로우 모달 상태
+  const [alphaSurveyOpen, setAlphaSurveyOpen] = useState(false);
+  const [alphaSurveyFilled, setAlphaSurveyFilled] = useState(false);
   const [selectedCurator, setSelectedCurator] = useState(null); // 선택된 큐레이터 정보
   const [modalCuratorPlaces, setModalCuratorPlaces] = useState([]);
   const [modalCuratorPlacesLoading, setModalCuratorPlacesLoading] =
@@ -2196,6 +2262,23 @@ export default function Home() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [user?.id, refreshHomeGlobalFollowSession]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setAlphaSurveyFilled(false);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const row = await fetchAlphaSurveyResponse(user.id);
+      if (!cancelled) {
+        setAlphaSurveyFilled(isAlphaSurveySubmitted(row));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, alphaSurveyOpen]);
 
   const refreshHomeRailCourseStampState = useCallback(async (courseId) => {
     const cid = String(courseId || "").trim();
@@ -9472,6 +9555,13 @@ const handleClearSearch = () => {
         onSkip={homeOnboardingCoach.skip}
       />
 
+      <AlphaSurveySheet
+        open={alphaSurveyOpen}
+        onClose={() => setAlphaSurveyOpen(false)}
+        userId={user?.id}
+        onSaved={() => setAlphaSurveyFilled(true)}
+      />
+
       <HomeFollowCuratorModal
         open={showFollowModal}
         onClose={() => setShowFollowModal(false)}
@@ -10131,6 +10221,19 @@ const handleClearSearch = () => {
               buttonStyle={styles.legendCourseStampResumeButton}
               labelStyle={styles.legendCourseStampResumeLabel}
             />
+            <AlphaSurveyEntryChip
+              visible={Boolean(user?.id)}
+              filled={alphaSurveyFilled}
+              onOpen={() => {
+                if (!user?.id) {
+                  requireLogin("alpha_survey");
+                  return;
+                }
+                setAlphaSurveyOpen(true);
+              }}
+              buttonStyle={styles.legendAlphaSurveyEntryButton}
+              labelStyle={styles.legendAlphaSurveyEntryLabel}
+            />
           </div>
           </div>
         </div>
@@ -10568,6 +10671,7 @@ const handleClearSearch = () => {
         showUserCard={showUserCard}
         onCloseUserCard={() => setShowUserCard(false)}
         onPublicProfileSaved={refreshMapUserProfile}
+        onTastePreferencesSaved={reloadTasteProfile}
       />
 
     </div>
