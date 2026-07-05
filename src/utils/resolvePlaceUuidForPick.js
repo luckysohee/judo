@@ -1,6 +1,6 @@
 import { fetchPlaceUuidByKakaoPlaceId } from "../api/places";
 import { supabase } from "../lib/supabase";
-import { resolvePlaceWgs84 } from "./placeCoords";
+import { resolvePlaceWgs84, isLikelyKoreaWgs84 } from "./placeCoords";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -90,6 +90,44 @@ export async function ensurePlaceUuidForPick(
   }
   const byNameAddrOnly = await findExistingPlaceUuidByNameAddress(place);
   if (byNameAddrOnly) return byNameAddrOnly;
+
+  if (createIfMissing) {
+    const wgs = resolvePlaceWgs84(place);
+    const name = String(place.place_name || place.name || "").trim();
+    if (
+      name &&
+      wgs &&
+      isLikelyKoreaWgs84(wgs.lat, wgs.lng)
+    ) {
+      const rowPayload = {
+        name,
+        address: String(
+          place.road_address_name ||
+            place.address_name ||
+            place.address ||
+            ""
+        ).trim(),
+        category: String(place.category_name || place.category || "").trim(),
+        lat: wgs.lat,
+        lng: wgs.lng,
+      };
+      const { data: inserted, error: insertErr } = await supabase
+        .from("places")
+        .insert(rowPayload)
+        .select("id")
+        .single();
+      if (!insertErr && inserted?.id) return String(inserted.id);
+      const again = await findExistingPlaceUuidByNameAddress(place);
+      if (again) {
+        await supabase
+          .from("places")
+          .update({ lat: wgs.lat, lng: wgs.lng })
+          .eq("id", again);
+        return again;
+      }
+    }
+  }
+
   return null;
 }
 

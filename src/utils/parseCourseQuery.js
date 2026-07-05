@@ -6,6 +6,20 @@ import {
   regionKeyForLocationToken,
   REGION_KEYWORDS,
 } from "./searchParser.js";
+import { detectIntents } from "./intentAxisScoring.js";
+import {
+  parseRoundStopCount,
+  parseCourseStepCount,
+  courseStopTargetForDraft,
+  sanitizeCourseDraftForStopCount,
+} from "./courseStopTarget.js";
+
+export {
+  parseRoundStopCount,
+  parseCourseStepCount,
+  courseStopTargetForDraft,
+  sanitizeCourseDraftForStopCount,
+} from "./courseStopTarget.js";
 
 const WALKABLE_HINTS = [
   "걸어서",
@@ -72,6 +86,8 @@ const COURSE_LEADING_TOKEN_TO_AREA = {
   명륜: "혜화",
   문정: "문정",
   문정역: "문정",
+  문래: "문래",
+  문래역: "문래",
   /** 성수 인접 미세 권역 — 코스 장소 풀은 성수 클러스터 사용 */
   서울숲: "성수",
   뚝섬: "성수",
@@ -159,15 +175,22 @@ export function parseCourseQuery(query = "", options = {}) {
 
   const facets = text ? parseSearchQuery(text) : null;
   const area = resolveCourseArea(text, facets);
+  const intents = detectIntents(text);
 
-  let steps = 1;
-  if (text.includes("3차")) steps = 3;
-  else if (text.includes("2차")) steps = 2;
-  else if (/코스|루트|코스\s*짜|짜\s*줘/i.test(text)) steps = 2;
+  const forAiCourseDraft = options.forAiCourseDraft === true;
+  const steps = parseCourseStepCount(text);
+  const stopTarget = courseStopTargetForDraft({
+    raw: text,
+    steps,
+    forAiCourseDraft,
+  });
 
   const includeHalfStep = Boolean(options.includeHalfStep);
 
-  const walkable = WALKABLE_HINTS.some((w) => lower.includes(w.toLowerCase()));
+  const walkable =
+    WALKABLE_HINTS.some((w) => lower.includes(w.toLowerCase())) ||
+    steps >= 2 ||
+    /코스|루트|순례|투어|바투어/.test(text);
 
   const dateMode = text.includes("데이트")
     ? "date"
@@ -175,7 +198,9 @@ export function parseCourseQuery(query = "", options = {}) {
       ? "group"
       : text.includes("혼술")
         ? "solo"
-        : "casual";
+        : intents.meeting
+          ? "meeting"
+          : "casual";
 
   const rightNow =
     /지금|오늘|당장|바로/i.test(text);
@@ -186,6 +211,8 @@ export function parseCourseQuery(query = "", options = {}) {
     raw: text,
     area,
     steps,
+    stopTarget,
+    forAiCourseDraft,
     includeHalfStep,
     walkable,
     dateMode,
@@ -195,5 +222,6 @@ export function parseCourseQuery(query = "", options = {}) {
     mode: dateMode,
     theme: "drinking_course",
     facets,
+    intents,
   };
 }

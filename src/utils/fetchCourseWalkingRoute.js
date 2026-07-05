@@ -1,4 +1,5 @@
 import { courseRouteLabelPosition } from "./courseDriveWaypoints";
+import { fetchWithTimeout } from "./fetchWithTimeout.js";
 
 // 비우면 Vite `/api` → server 프록시 (kakaoAPIProxy와 동일 규칙)
 const API_BASE_URL = (
@@ -23,7 +24,7 @@ export async function fetchCourseWalkingRoute(slat, slng, dlat, dlng) {
     ? `${API_BASE_URL}/api/course-walking-route?${q}`
     : `/api/course-walking-route?${q}`;
   try {
-    const r = await fetch(path);
+    const r = await fetchWithTimeout(path, {}, 12000);
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data?.ok) {
       return { ok: false, error: data?.error || "http" };
@@ -142,6 +143,14 @@ export async function fetchChainedCourseWalkingRoutes(waypoints) {
     }
   }
   if (merged.length < 2) return null;
+  if (routedLegCount <= 0) {
+    return {
+      ok: false,
+      error: "no_routed_legs",
+      routedLegCount: 0,
+      totalLegs: routes.length,
+    };
+  }
   return {
     ok: true,
     path: merged,

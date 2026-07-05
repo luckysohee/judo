@@ -3,6 +3,7 @@ import createMarker, {
   isCourseBridgeMapPin,
   isEphemeralSearchMapMarker,
 } from "../../utils/createMarker";
+import { shouldUsePhotoCircleMarker } from "../../utils/mapPhotoCircleMarker";
 import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import {
   resolvePlaceWgs84,
@@ -1719,9 +1720,31 @@ const MapView = forwardRef(({
       const { lat, lng } = coords;
 
       const isLive = livePlaceIds instanceof Set ? livePlaceIds.has(String(p.id)) : false;
+      const isSelected =
+        isSameVenueOnMap(selectedPlace, p) || Boolean(p.courseMarkerSolid);
+      const placeForMarker =
+        isSelected && selectedPlace
+          ? {
+              ...p,
+              lat,
+              lng,
+              image: p.image || selectedPlace.image,
+              image_url: p.image_url || selectedPlace.image_url,
+              courseStepThumbUrl:
+                p.courseStepThumbUrl ||
+                selectedPlace.courseStepThumbUrl ||
+                selectedPlace.step_image_url,
+              thumbnail_url: p.thumbnail_url || selectedPlace.thumbnail_url,
+            }
+          : { ...p, lat, lng };
       const shouldCluster =
         useCluster &&
         !isLive &&
+        !isSelected &&
+        !shouldUsePhotoCircleMarker(placeForMarker, {
+          isSelected,
+          mapZoomLevel: rawLevel,
+        }) &&
         !p.isKakaoTypingPreview &&
         !p.isCoursePin &&
         !isEphemeralSearchMapMarker(p);
@@ -1742,14 +1765,14 @@ const MapView = forwardRef(({
       try {
         marker = createMarker({
         map: shouldCluster ? null : mapRef.current,
-        place: { ...p, lat, lng }, // lat/lng 필드 추가
-        isSelected:
-          isSameVenueOnMap(selectedPlace, p) || Boolean(p.courseMarkerSolid),
+        place: placeForMarker,
+        isSelected,
         isLive,
         savedColor: savedColorMap?.[p.id] || null,
         userFolders: userFolders?.[p.id] || null, // 사용자 폴더 정보 전달
         checkinMeta,
         mapShortCaption,
+        mapZoomLevel: rawLevel,
         onClick:
           courseRouteOnMap && p.isCoursePin && !isCourseBridgeMapPin(p)
             ? undefined

@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { getAuthOAuthRedirectUrl } from "../utils/authRedirectUrl";
+import { oauthQueryParamsForDevFreshLogin } from "../lib/authDevFreshLogin.js";
 
 const AuthContext = createContext(null);
 
@@ -63,10 +64,12 @@ export function AuthProvider({ children }) {
         if (import.meta.env.DEV) {
           console.log("[auth] OAuth redirectTo:", redirectTo);
         }
+        const queryParams = oauthQueryParamsForDevFreshLogin(provider);
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
           options: {
             redirectTo,
+            ...(queryParams ? { queryParams } : {}),
           },
         });
 

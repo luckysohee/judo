@@ -13,7 +13,7 @@ COMMENT ON COLUMN public.user_taste_preferences.drink_capacity IS
 COMMENT ON COLUMN public.user_taste_preferences.budget_per_person IS
   '1인당 예산: under_30k | 30_50k | 50_80k | 80k_plus';
 COMMENT ON COLUMN public.user_taste_preferences.out_time IS
-  '외출 시간대: early | prime | late | flexible';
+  '1차 시작 시간: morning | daytime | early | prime | late | flexible';
 COMMENT ON COLUMN public.user_taste_preferences.anju_styles IS
   '안주 선호: meal | light | share_plate | dessert_after 등';
 

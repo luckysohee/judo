@@ -4,6 +4,7 @@ import {
   studioMapSearchClearBtn,
   studioMapSearchField,
   studioMapSearchInput,
+  studioMapSearchMapFill,
   studioMapSearchMapShell,
   studioMapSearchRow,
   studioMapSearchSubmitBtn,
@@ -23,14 +24,18 @@ export default function StudioPlaceMapSearchPanel({
   onBlur,
   placeholder = "가게 이름 또는 주소",
   searchLoading = false,
+  reflectLoadingOnSubmit = true,
   searchDisabled = false,
   isMobile = false,
+  /** true면 지도 pan/zoom·＋핀 탭 (코스 편집) */
+  interactiveMap = false,
   suggestionsDropdown = null,
   mapSlot,
   footerSlot = null,
 }) {
   const trimmed = String(query || "").trim();
-  const disabled = searchDisabled || searchLoading;
+  const disabled =
+    searchDisabled || (reflectLoadingOnSubmit && searchLoading);
 
   return (
     <div style={studioMapSearchBlock}>
@@ -72,13 +77,20 @@ export default function StudioPlaceMapSearchPanel({
           onClick={onSearch}
           disabled={disabled}
         >
-          {searchLoading ? "…" : "검색"}
+          {reflectLoadingOnSubmit && searchLoading ? "…" : "검색"}
         </button>
       </div>
 
       {suggestionsDropdown}
 
-      <div style={studioMapSearchMapShell(isMobile)}>{mapSlot}</div>
+      <div
+        style={{
+          ...studioMapSearchMapShell(isMobile),
+          touchAction: "pan-y",
+        }}
+      >
+        <div style={studioMapSearchMapFill}>{mapSlot}</div>
+      </div>
 
       {footerSlot}
     </div>

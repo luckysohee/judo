@@ -170,6 +170,7 @@ import { handlePlaceDetail } from "./placeDetail.js";
 import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
+import { handleCourseDraftAssist } from "./courseDraftAssist.js";
 import { createCorsMiddleware, setupApiSecurity } from "./apiSecurity.js";
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 
@@ -1173,6 +1174,9 @@ app.post("/api/search-intent-assist", async (req, res) => {
 /** 코스: 룰 엔진 후보 중 course.key만 LLM이 선택·summary (장소 발명 금지) */
 app.post("/api/course-compose-assist", (req, res) =>
   handleCourseComposeAssist(req, res, { openai, hasUsableOpenAiKey })
+);
+app.post("/api/course-draft-assist", (req, res) =>
+  handleCourseDraftAssist(req, res, { openai, hasUsableOpenAiKey })
 );
 
 // 네이버 **지역** 검색 API (openapi local.json) — 블로그 Python 크롤과 별개

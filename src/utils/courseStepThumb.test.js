@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  courseCoverInputFromPlaceRow,
+  pickCourseDisplayCoverUrl,
   pickStepUploadedThumb,
   previewStepFromCoursePlaceRow,
+  resolveCourseCoverFromFirstPlace,
   stepThumbKey,
 } from "./courseStepThumb";
+import { getKakaoPlaceBasicInfoViaProxy } from "./kakaoAPIProxy";
 
 describe("courseStepThumb", () => {
   it("pickStepUploadedThumb prefers step_image_url", () => {
@@ -45,6 +49,46 @@ describe("courseStepThumb", () => {
 
   it("stepThumbKey uses place_id", () => {
     expect(stepThumbKey({ place_id: "abc" }, 0)).toBe("abc");
+  });
+
+  it("courseCoverInputFromPlaceRow maps editor row", () => {
+    expect(
+      courseCoverInputFromPlaceRow({
+        place_id: "p1",
+        place_name: "바",
+        place_address: "서울",
+        place_lat: 37.5,
+        place_lng: 127,
+        kakao_place_id: "k123",
+      })
+    ).toMatchObject({
+      place_id: "p1",
+      name: "바",
+      kakao_place_id: "k123",
+    });
+  });
+
+  it("resolveCourseCoverFromFirstPlace uses kakao thumbnail", async () => {
+    getKakaoPlaceBasicInfoViaProxy.mockResolvedValueOnce({
+      thumbnail_url: "https://kakao.example/thumb.jpg",
+    });
+    await expect(
+      resolveCourseCoverFromFirstPlace({
+        place_name: "바",
+        kakao_place_id: "k123",
+      })
+    ).resolves.toBe("https://kakao.example/thumb.jpg");
+  });
+
+  it("pickCourseDisplayCoverUrl falls back to first step upload", () => {
+    expect(
+      pickCourseDisplayCoverUrl({
+        cover_image_url: "",
+        preview_steps: [
+          { step_image_url: "https://cdn.example/step.jpg" },
+        ],
+      })
+    ).toBe("https://cdn.example/step.jpg");
   });
 });
 

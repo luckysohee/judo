@@ -63,9 +63,17 @@ function curatorPlaceReason(cp) {
 
 function mergeCuratorPlaceRow(cp, placeRow) {
   const reason = curatorPlaceReason(cp);
+  const review =
+    cp.one_line_review != null ? String(cp.one_line_review).trim() : "";
+  const menu =
+    cp.menu_reason != null ? String(cp.menu_reason).trim() : "";
+  const notes = [reason, review, menu].filter(Boolean).join(" · ");
   return {
     ...placeRow,
-    comment: reason ?? null,
+    comment: notes || reason || null,
+    one_line_reason: reason,
+    one_line_review: review || null,
+    menu_reason: menu || null,
   };
 }
 
@@ -197,7 +205,9 @@ async function fetchCuratorPlacesAsPlaceRowsByUserId(curatorUserId) {
 
   const cpFilter = supabase
     .from("curator_places")
-    .select("place_id, one_line_reason, created_at, places(*)")
+    .select(
+      "place_id, one_line_reason, one_line_review, menu_reason, created_at, places(*)"
+    )
     .eq("curator_id", curatorUserId)
     .or("is_archived.is.null,is_archived.eq.false")
     .order("created_at", { ascending: false });
@@ -221,7 +231,7 @@ async function fetchCuratorPlacesAsPlaceRowsByUserId(curatorUserId) {
 
   const { data: cpRows, error: cpErr } = await supabase
     .from("curator_places")
-    .select("place_id, one_line_reason, created_at")
+    .select("place_id, one_line_reason, one_line_review, menu_reason, created_at")
     .eq("curator_id", curatorUserId)
     .or("is_archived.is.null,is_archived.eq.false")
     .order("created_at", { ascending: false });

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import useCourseStepMyHanjan from "../../hooks/useCourseStepMyHanjan";
 import {
   isResolvableCourseStepThumbUrl,
+  pickCourseDisplayCoverUrl,
   pickStepUploadedThumb,
 } from "../../utils/courseStepThumb";
 import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
@@ -244,8 +245,11 @@ export default function HomeCourseBrowseCollapsedPeek({
   stampStateVersion = 0,
 }) {
   const title = String(course?.title || "").trim() || "코스";
-  const cover = String(course?.cover_image_url || "").trim();
   const steps = useMemo(() => buildPeekSteps(course), [course]);
+  const cover =
+    pickCourseDisplayCoverUrl({ ...course, thumb_steps: steps }) ||
+    steps[0]?.imageUrl ||
+    "";
   const hanjanLookupSteps = useMemo(
     () =>
       steps.map((s) => ({

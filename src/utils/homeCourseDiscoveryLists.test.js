@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildHomeCourseDiscoveryPeekList,
+  buildHomeCourseDiscoveryUnifiedList,
   filterCoursesForDiscoverySearch,
   partitionHomeCourseDiscovery,
   pickEditorFeaturedCourses,
   pickWeeklyRankingCourses,
+  resolveHomeCourseDiscoveryBadge,
 } from "./homeCourseDiscoveryLists.js";
 
 const c = (id, extra = {}) => ({
@@ -15,7 +17,7 @@ const c = (id, extra = {}) => ({
 });
 
 describe("homeCourseDiscoveryLists", () => {
-  it("partitions 4 editor + 4 weekly without overlap", () => {
+  it("partitions 6 editor + 6 weekly without overlap", () => {
     const courses = [
       c("a", { cover_image_url: "x", description: "nice" }),
       c("b"),
@@ -25,22 +27,32 @@ describe("homeCourseDiscoveryLists", () => {
       c("f"),
       c("g"),
       c("h"),
+      c("i"),
+      c("j"),
+      c("k"),
+      c("l"),
+      c("m"),
     ];
     const stats = new Map([
-      ["e", { recent_completion_count_7d: 5, completion_count: 10 }],
+      ["g", { recent_completion_count_7d: 5, completion_count: 10 }],
+      ["h", { recent_completion_count_7d: 4, completion_count: 8 }],
+      ["i", { recent_completion_count_7d: 3, completion_count: 6 }],
+      ["j", { recent_completion_count_7d: 2, completion_count: 4 }],
+      ["k", { recent_completion_count_7d: 1, completion_count: 2 }],
+      ["l", { recent_completion_count_7d: 0, completion_count: 1 }],
       ["b", { recent_completion_count_7d: 2, completion_count: 1 }],
     ]);
     const { editorPicks, weeklyRanking } = partitionHomeCourseDiscovery(
       courses,
       stats
     );
-    expect(editorPicks).toHaveLength(4);
-    expect(weeklyRanking).toHaveLength(4);
+    expect(editorPicks).toHaveLength(6);
+    expect(weeklyRanking).toHaveLength(6);
     const editorIds = new Set(editorPicks.map((x) => x.id));
     for (const w of weeklyRanking) {
       expect(editorIds.has(w.id)).toBe(false);
     }
-    expect(weeklyRanking[0].id).toBe("e");
+    expect(weeklyRanking[0].id).toBe("g");
   });
 
   it("manual editor ids take priority", () => {
@@ -89,11 +101,71 @@ describe("homeCourseDiscoveryLists", () => {
   });
 
   it("buildHomeCourseDiscoveryPeekList merges editor then weekly without dupes", () => {
+    const stats = new Map([
+      ["a", { recent_completion_count_7d: 0 }],
+      ["b", { recent_completion_count_7d: 0 }],
+      ["c", { recent_completion_count_7d: 3 }],
+    ]);
     const peek = buildHomeCourseDiscoveryPeekList(
       [c("a"), c("b")],
       [c("b"), c("c")],
-      3
+      3,
+      stats
     );
-    expect(peek.map((x) => x.id)).toEqual(["a", "b", "c"]);
+    expect(peek.map((x) => x.course.id)).toEqual(["b", "c", "a"]);
+    expect(peek[0].badge).toEqual({ emoji: "🔥", text: "이번주 1위" });
+    expect(peek[1].badge).toEqual({ emoji: "🚀", text: "급상승" });
+    expect(peek[2].badge).toBeNull();
+  });
+
+  it("caps rising badges at three across unified list", () => {
+    const weekly = ["top", "w2", "w3", "w4", "w5"].map((id) => c(id));
+    const stats = new Map(
+      weekly.map((row, i) => [
+        row.id,
+        { recent_completion_count_7d: 5 - i, completion_count: 1 },
+      ])
+    );
+    const list = buildHomeCourseDiscoveryUnifiedList([], weekly, stats, {
+      limit: 5,
+    });
+    const rising = list.filter((row) => row.badge?.text === "급상승");
+    expect(rising).toHaveLength(3);
+    expect(list[0].badge?.text).toBe("이번주 1위");
+    expect(list[1].badge?.text).toBe("급상승");
+    expect(list[4].badge).toBeNull();
+  });
+
+  it("resolveHomeCourseDiscoveryBadge returns null for editor-only course", () => {
+    const badge = resolveHomeCourseDiscoveryBadge(c("a"), {
+      weeklyRankById: new Map(),
+      editorPickIds: new Set(["a"]),
+      statsByCourseId: new Map(),
+    });
+    expect(badge).toBeNull();
+  });
+
+  it("resolveHomeCourseDiscoveryBadge prioritizes weekly #1", () => {
+    const id = "abc";
+    const badge = resolveHomeCourseDiscoveryBadge(c(id), {
+      weeklyRankById: new Map([[id, 1]]),
+      statsByCourseId: new Map(),
+    });
+    expect(badge).toEqual({ emoji: "🔥", text: "이번주 1위" });
+  });
+
+  it("buildHomeCourseDiscoveryUnifiedList orders weekly before editor", () => {
+    const stats = new Map([
+      ["w", { recent_completion_count_7d: 5 }],
+      ["e", { recent_completion_count_7d: 0 }],
+    ]);
+    const list = buildHomeCourseDiscoveryUnifiedList(
+      [c("e")],
+      [c("w")],
+      stats,
+      { limit: 2 }
+    );
+    expect(list.map((x) => x.course.id)).toEqual(["w", "e"]);
+    expect(list[0].badge?.text).toBe("이번주 1위");
   });
 });

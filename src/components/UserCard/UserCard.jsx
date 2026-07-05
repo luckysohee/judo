@@ -29,6 +29,29 @@ import {
 } from "../../utils/studioFollowersFetch";
 import { unfollowUser } from "../../utils/userProfileFollows";
 import UserTastePreferencesSection from "../Onboarding/UserTastePreferencesSection";
+import {
+  studioCoursesBtnGhost,
+  studioCoursesBtnPrimary,
+  studioCoursesInput,
+} from "../../pages/Studio/studioCoursesSharedStyles";
+
+/** StudioHome / studioCourses 와 동일 톤 */
+const STUDIO_PROFILE = {
+  shell: "#111111",
+  card: "#1a1a1a",
+  cell: "#222222",
+  border: "rgba(255,255,255,0.1)",
+  borderSubtle: "rgba(255,255,255,0.07)",
+  textMuted: "rgba(255,255,255,0.55)",
+  textSoft: "rgba(255,255,255,0.65)",
+  textHint: "#bdbdbd",
+  accent: "#2ECC71",
+  accentBg: "rgba(46, 204, 113, 0.18)",
+  accentBorder: "rgba(46, 204, 113, 0.45)",
+  glassBar: "rgba(255,255,255,0.06)",
+  font:
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+};
 
 const PUBLIC_HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
@@ -54,44 +77,51 @@ style.textContent = `
 document.head.appendChild(style);
 
 /**
- * 유리 느낌은 블러 없이 (지도 선명 유지) — 블랙 베이스 + 상단 광택 + 얇은 테두리.
+ * 스튜디오와 동일 — #111 베이스, #1a1a1a 카드, 그린 액센트 탭.
  */
 const userCardGlass = {
   overlay: {
-    backgroundColor: "rgba(0, 0, 0, 0.38)",
+    backgroundColor: "rgba(0, 0, 0, 0.52)",
   },
   sheet: {
-    background:
-      "linear-gradient(175deg, rgba(74,76,92,0.94) 0%, rgba(38,40,52,0.95) 34%, rgba(16,17,24,0.96) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.2)",
-    boxShadow:
-      "0 -16px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.35)",
+    backgroundColor: STUDIO_PROFILE.shell,
+    color: "#ffffff",
+    fontFamily: STUDIO_PROFILE.font,
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderBottom: "none",
+    boxShadow: "0 -8px 32px rgba(0, 0, 0, 0.45)",
   },
   hairline: {
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "rgba(255,255,255,0.08)",
   },
   panel: {
-    background:
-      "linear-gradient(150deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.08) 54%, rgba(0,0,0,0.14) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.16)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.3)",
+    backgroundColor: STUDIO_PROFILE.card,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+    borderRadius: "12px",
+    boxShadow: "none",
+  },
+  insetCard: {
+    margin: "8px 10px 0",
+    padding: "12px 14px",
+    backgroundColor: STUDIO_PROFILE.card,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+    borderRadius: "12px",
+    boxSizing: "border-box",
   },
 };
 
 // 팔로우 큐레이터 컴팩트 스타일
 const curatorCardStyles = {
   card: {
-    background:
-      "linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.14)",
-    borderRadius: "8px",
-    padding: "6px 8px",
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    backgroundColor: STUDIO_PROFILE.card,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+    borderRadius: "12px",
+    padding: "8px 10px",
+    cursor: "pointer",
+    transition: "background-color 0.2s ease",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   info: {
     flex: 1,
@@ -115,7 +145,7 @@ const curatorCardStyles = {
   },
   meta: {
     fontSize: '10px',
-    color: '#999',
+    color: STUDIO_PROFILE.textMuted,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis'
@@ -131,6 +161,184 @@ const curatorCardStyles = {
     cursor: "pointer",
     flexShrink: 0,
   },
+};
+
+const generalProfileStyles = {
+  roleChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "5px 11px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.16)",
+    letterSpacing: "-0.01em",
+  },
+  closeBtn: {
+    ...studioCoursesBtnGhost,
+    width: 36,
+    height: 36,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    borderRadius: 8,
+    fontSize: 20,
+    lineHeight: 1,
+  },
+  memberBadge: {
+    display: "inline-block",
+    marginTop: 10,
+    padding: "3px 10px",
+    borderRadius: 999,
+    fontSize: 10,
+    fontWeight: 750,
+    color: "rgba(255,255,255,0.72)",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.1)",
+  },
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 8,
+    marginBottom: 4,
+  },
+  statCell: {
+    padding: "10px 8px",
+    borderRadius: 12,
+    textAlign: "center",
+    backgroundColor: STUDIO_PROFILE.cell,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+  },
+  statNum: {
+    fontSize: 18,
+    fontWeight: 850,
+    color: "#fff",
+    fontVariantNumeric: "tabular-nums",
+    lineHeight: 1.1,
+  },
+  statLbl: {
+    marginTop: 3,
+    fontSize: 10,
+    fontWeight: 650,
+    color: "rgba(255,255,255,0.48)",
+  },
+  bioBox: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.84)",
+    lineHeight: 1.45,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: "11px 12px",
+    borderRadius: 12,
+    backgroundColor: STUDIO_PROFILE.cell,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+    textAlign: "left",
+  },
+  fullProfileLink: {
+    ...studioCoursesBtnGhost,
+    width: "100%",
+    marginTop: 12,
+    padding: "11px 14px",
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 750,
+    color: STUDIO_PROFILE.accent,
+    border: `1px solid ${STUDIO_PROFILE.accentBorder}`,
+    backgroundColor: STUDIO_PROFILE.accentBg,
+  },
+  listTitle: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 13,
+    fontWeight: 800,
+    margin: "0 0 10px",
+    letterSpacing: "-0.01em",
+  },
+  emptyList: {
+    textAlign: "center",
+    padding: "20px 12px",
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+    borderRadius: 12,
+    border: "1px dashed rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.02)",
+  },
+  placeRow: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    backgroundColor: STUDIO_PROFILE.cell,
+    border: `1px solid ${STUDIO_PROFILE.border}`,
+  },
+  placeName: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#fff",
+    marginBottom: 3,
+  },
+  placeAddr: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.52)",
+    lineHeight: 1.35,
+  },
+};
+
+/** 프로필 시트 — StudioHome topBarWrap 스타일 탭 */
+const profileTabRail = {
+  display: "flex",
+  flexWrap: "nowrap",
+  alignItems: "stretch",
+  gap: 3,
+  margin: "0 10px 8px",
+  padding: "5px 4px",
+  width: "auto",
+  boxSizing: "border-box",
+  backgroundColor: STUDIO_PROFILE.glassBar,
+  borderRadius: "10px",
+  border: `1px solid ${STUDIO_PROFILE.border}`,
+  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.12)",
+};
+
+function profileTabBtn(active) {
+  return {
+    flex: "1 1 0",
+    minWidth: 0,
+    minHeight: 32,
+    padding: "5px 2px",
+    borderRadius: 7,
+    border: active
+      ? `1px solid ${STUDIO_PROFILE.accentBorder}`
+      : "1px solid rgba(255,255,255,0.14)",
+    background: active
+      ? STUDIO_PROFILE.accentBg
+      : "rgba(255,255,255,0.07)",
+    color: active ? "#ffffff" : "rgba(255,255,255,0.88)",
+    fontSize: "clamp(9px, 2.45vw, 11px)",
+    fontWeight: 700,
+    letterSpacing: "-0.03em",
+    lineHeight: 1.15,
+    cursor: "pointer",
+    transition:
+      "background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    textAlign: "center",
+    boxShadow: active ? "inset 0 1px 0 rgba(255,255,255,0.12)" : "none",
+  };
+}
+
+const profileTabSearchChip = {
+  backgroundColor: "rgba(255, 255, 255, 0.08)",
+  border: "1px solid rgba(255, 255, 255, 0.14)",
+  color: "rgba(255,255,255,0.88)",
+  borderRadius: 6,
+  padding: "2px 5px",
+  fontSize: 10,
+  cursor: "pointer",
+  lineHeight: 1,
+  flexShrink: 0,
 };
 
 // SaveModal 스타일 동일하게 적용
@@ -150,15 +358,14 @@ const modalStyles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: '5px 3px',
-    border: '2px solid',
-    borderRadius: '8px',
-    background:
-      "linear-gradient(160deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.03) 100%)",
+    padding: '8px 4px',
+    border: `1.5px solid ${STUDIO_PROFILE.border}`,
+    borderRadius: '10px',
+    backgroundColor: STUDIO_PROFILE.cell,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     minHeight: '36px',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+    boxShadow: 'none',
     position: 'relative',
     zIndex: 10
   },
@@ -166,10 +373,10 @@ const modalStyles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: '5px 3px',
-    border: '2px dashed rgba(255, 255, 255, 0.28)',
-    borderRadius: '8px',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    padding: '8px 4px',
+    border: '1.5px dashed rgba(255, 255, 255, 0.22)',
+    borderRadius: '10px',
+    backgroundColor: STUDIO_PROFILE.card,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     minHeight: '36px',
@@ -410,6 +617,7 @@ const UserCard = ({
     sessionUser?.id,
     authLoading,
   ]);
+  const [profileSubView, setProfileSubView] = useState(null);
   const [activeTab, setActiveTab] = useState('saved');
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [pickedPlaces, setPickedPlaces] = useState([]);
@@ -461,6 +669,7 @@ const UserCard = ({
       setSheetDragY(0);
       sheetExpandPxRef.current = 0;
       setSheetExpandPx(0);
+      setProfileSubView(null);
     }
   }, [isVisible]);
 
@@ -1623,28 +1832,26 @@ const UserCard = ({
             {/* 프로필 정보 */}
             <div
             style={{
-              padding: "10px 14px 8px",
+              ...userCardGlass.insetCard,
               paddingRight: "48px",
-              borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
+              marginBottom: "8px",
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{
-                width: '40px',
-                height: '40px',
+                width: '48px',
+                height: '48px',
                 borderRadius: '50%',
-                background:
-                  "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
+                flexShrink: 0,
+                overflow: 'hidden',
+                backgroundColor: STUDIO_PROFILE.cell,
+                border: `1px solid ${STUDIO_PROFILE.border}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '16px',
-                color: 'white',
-                overflow: 'hidden',
-                flexShrink: 0,
-                boxShadow:
-                  "0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.22)",
-                border: '1px solid rgba(255, 255, 255, 0.25)',
+                fontSize: '18px',
+                fontWeight: 800,
+                color: '#fff',
               }}>
                 {cardAvatarUrl ? (
                   <img
@@ -1653,18 +1860,18 @@ const UserCard = ({
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 ) : (
-                  <span>👤</span>
+                  <span>{(cardNick || cardHandle || "?").charAt(0).toUpperCase()}</span>
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff', marginBottom: '2px', letterSpacing: '-0.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardNick || cardHandle || "사용자"}
                 </div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.68)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '12px', color: STUDIO_PROFILE.textSoft, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {cardHandle ? `@${cardHandle}` : "핸들 미설정 · 아래에서 추가"}
                 </div>
                 {user.user_metadata?.bio && (
-                  <div style={{ fontSize: '11px', color: '#ccc', lineHeight: '1.25', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '11px', color: STUDIO_PROFILE.textMuted, lineHeight: '1.3', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user.user_metadata.bio}
                   </div>
                 )}
@@ -1675,15 +1882,14 @@ const UserCard = ({
           {!embeddedAdminReadOnly ? (
             <div
               style={{
-                padding: "8px 14px 10px",
-                borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
+                ...userCardGlass.insetCard,
+                marginBottom: "8px",
               }}
             >
               <div
                 style={{
                   fontSize: "10px",
-                  color: "rgba(255,255,255,0.45)",
+                  color: STUDIO_PROFILE.textMuted,
                   marginBottom: "6px",
                   lineHeight: 1.35,
                 }}
@@ -1710,15 +1916,8 @@ const UserCard = ({
                   setPfError("");
                 }}
                 style={{
+                  ...studioCoursesBtnGhost,
                   width: "100%",
-                  padding: "8px 10px",
-                  borderRadius: "10px",
-                  border: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  background: "rgba(255, 255, 255, 0.1)",
-                  color: "#fff",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
                 }}
               >
                 {profileFormOpen ? "접기" : "닉네임 · @핸들 설정"}
@@ -1779,14 +1978,9 @@ const UserCard = ({
                           disabled={pfAvatarUploading}
                           onClick={() => profileAvatarInputRef.current?.click()}
                           style={{
-                            padding: "8px 12px",
-                            borderRadius: "10px",
-                            border: "1px solid rgba(255,255,255,0.22)",
-                            background: "rgba(52, 152, 219, 0.25)",
-                            color: "#fff",
-                            fontSize: "12px",
-                            fontWeight: 600,
+                            ...studioCoursesBtnGhost,
                             cursor: pfAvatarUploading ? "wait" : "pointer",
+                            opacity: pfAvatarUploading ? 0.7 : 1,
                           }}
                         >
                           {pfAvatarUploading ? "올리는 중…" : "사진 올리기 · 바꾸기"}
@@ -1814,20 +2008,11 @@ const UserCard = ({
                       onChange={(e) => setPfDisplayName(e.target.value)}
                       placeholder="예: 을지로호프"
                       maxLength={40}
-                      style={{
-                        width: "100%",
-                        boxSizing: "border-box",
-                        padding: "8px 10px",
-                        borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        background: "rgba(0,0,0,0.35)",
-                        color: "#fff",
-                        fontSize: "13px",
-                      }}
+                      style={studioCoursesInput}
                     />
                   </div>
                   <div>
-                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
+                    <div style={{ fontSize: "11px", color: STUDIO_PROFILE.textSoft, marginBottom: "4px" }}>
                       핸들 (앱 전용 ID, @ 없이 영문·숫자·_ 최소 3자~20자)
                     </div>
                     <input
@@ -1850,16 +2035,7 @@ const UserCard = ({
                       }}
                       placeholder="예: judo_sips"
                       maxLength={20}
-                      style={{
-                        width: "100%",
-                        boxSizing: "border-box",
-                        padding: "8px 10px",
-                        borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        background: "rgba(0,0,0,0.35)",
-                        color: "#fff",
-                        fontSize: "13px",
-                      }}
+                      style={studioCoursesInput}
                     />
                     <div
                       style={{
@@ -1880,13 +2056,8 @@ const UserCard = ({
                     onClick={savePublicProfile}
                     disabled={pfSaving}
                     style={{
-                      padding: "10px",
-                      borderRadius: "10px",
-                      border: "none",
-                      background: "#2ECC71",
-                      color: "#111",
-                      fontWeight: 800,
-                      fontSize: "13px",
+                      ...studioCoursesBtnPrimary,
+                      width: "100%",
                       cursor: pfSaving ? "wait" : "pointer",
                       opacity: pfSaving ? 0.7 : 1,
                     }}
@@ -1898,17 +2069,70 @@ const UserCard = ({
             </div>
           ) : null}
 
-          {showTastePreferencesSection ? (
+          {showTastePreferencesSection && profileSubView !== "taste" ? (
             <UserTastePreferencesSection
               userId={user?.id}
               authLoading={authLoading}
               variant="card"
+              summaryOnly
+              onNavigateToDetail={() => setProfileSubView("taste")}
               onSaved={(message, kind) => {
                 if (kind === "success") onTastePreferencesSaved?.();
               }}
             />
           ) : null}
 
+          {profileSubView === "taste" && showTastePreferencesSection ? (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+                maxHeight: `calc(100dvh - ${PROFILE_MAP_TOP_RESERVE_PX}px - ${PROFILE_SHEET_CHROME_PX}px)`,
+              }}
+            >
+              <UserTastePreferencesSection
+                userId={user?.id}
+                authLoading={authLoading}
+                variant="card"
+                fullPage
+                onBack={() => setProfileSubView(null)}
+                onSaved={(message, kind) => {
+                  if (kind === "success") onTastePreferencesSaved?.();
+                }}
+              />
+            </div>
+          ) : null}
+
+          {/* 닫기 버튼 — 스와이프 영역 밖 (탭·검색 클릭과 분리) */}
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              position: "absolute",
+              top: "10px",
+              right: "10px",
+              width: "32px",
+              height: "32px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              ...studioCoursesBtnGhost,
+              borderRadius: "8px",
+              padding: 0,
+              fontSize: "18px",
+              lineHeight: 1,
+              zIndex: 10,
+            }}
+          >
+            ×
+          </button>
+
+          {profileSubView !== "taste" ? (
+          <>
           {Array.isArray(adminRecommends) && adminRecommends.length > 0 ? (
             <div
               style={{
@@ -1978,246 +2202,122 @@ const UserCard = ({
           ) : null}
 
           {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → picked / pick */}
-          <div
-            style={{
-              display: "flex",
-              borderBottom: `1px solid ${userCardGlass.hairline.borderColor}`,
-              backgroundColor: "rgba(0, 0, 0, 0.28)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
-            }}
-          >
+          <div style={profileTabRail}>
             <button
               type="button"
+              title="픽한 가게"
               onClick={() => handleTabChange("picked")}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                padding: "9px 4px",
-                background:
-                  activeTab === "picked"
-                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                    : "transparent",
-                color:
-                  activeTab === "picked"
-                    ? "white"
-                    : "rgba(255, 255, 255, 0.55)",
-                border: "none",
-                fontSize: "11px",
-                fontWeight: "600",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                boxShadow:
-                  activeTab === "picked"
-                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                    : "none",
-              }}
+              style={profileTabBtn(activeTab === "picked")}
             >
-              픽한 가게 ({pickedPlaces.length})
+              픽 {pickedPlaces.length}
             </button>
             <button
               type="button"
+              title="한잔함"
               onClick={() => handleTabChange("hanjan")}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                padding: "9px 4px",
-                background:
-                  activeTab === "hanjan"
-                    ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                    : "transparent",
-                color:
-                  activeTab === "hanjan"
-                    ? "white"
-                    : "rgba(255, 255, 255, 0.55)",
-                border: "none",
-                borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                fontSize: "11px",
-                fontWeight: "600",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                boxShadow:
-                  activeTab === "hanjan"
-                    ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                    : "none",
-              }}
+              style={profileTabBtn(activeTab === "hanjan")}
             >
-              한잔함 ({hanjanRows.length})
+              한잔 {hanjanRows.length}
             </button>
             {showSavedFoldersTab ? (
               <button
                 type="button"
+                title="저장 폴더"
                 onClick={() => handleTabChange("saved")}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  padding: "9px 4px",
-                  background:
-                    activeTab === "saved"
-                      ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                      : "transparent",
-                  color:
-                    activeTab === "saved"
-                      ? "white"
-                      : "rgba(255, 255, 255, 0.55)",
-                  border: "none",
-                  borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                  fontSize: "11px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow:
-                    activeTab === "saved"
-                      ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                      : "none",
-                }}
+                style={profileTabBtn(activeTab === "saved")}
               >
-                저장 폴더 ({getTotalPlacesCount()})
+                저장 {getTotalPlacesCount()}
               </button>
             ) : null}
             {hideFollowingTab ? null : (
               <>
                 <button
                   type="button"
+                  title="받은 픽"
                   onClick={() => handleTabChange("followers")}
                   style={{
-                    flex: 1,
-                    minWidth: 0,
-                    padding: "9px 4px",
-                    background:
-                      activeTab === "followers"
-                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                        : "transparent",
-                    color:
-                      activeTab === "followers"
-                        ? "white"
-                        : "rgba(255, 255, 255, 0.55)",
-                    border: "none",
-                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                    fontSize: "11px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    ...profileTabBtn(activeTab === "followers"),
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: "4px",
-                    boxShadow:
-                      activeTab === "followers"
-                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                        : "none",
+                    gap: 3,
                   }}
                 >
-                  picked ({followerPreviews.length})
-                  {activeTab === "followers" && !embeddedAdminReadOnly && (
-                    <div
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    받픽 {followerPreviews.length}
+                  </span>
+                  {activeTab === "followers" && !embeddedAdminReadOnly ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="검색"
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowSearch(!showSearch);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowSearch(!showSearch);
+                        }
+                      }}
                       style={{
+                        ...profileTabSearchChip,
                         backgroundColor: showSearch
-                          ? "rgba(255, 255, 255, 0.3)"
-                          : "rgba(255, 255, 255, 0.2)",
-                        border: "1px solid rgba(255, 255, 255, 0.3)",
-                        color: "white",
-                        borderRadius: "4px",
-                        padding: "2px 6px",
-                        fontSize: "12px",
-                        cursor: "pointer",
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                          ? "rgba(255, 255, 255, 0.14)"
+                          : profileTabSearchChip.backgroundColor,
                       }}
                     >
                       🔍
-                    </div>
-                  )}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
+                  title="내 픽"
                   onClick={() => handleTabChange("following")}
                   style={{
-                    flex: 1,
-                    minWidth: 0,
-                    padding: "9px 4px",
-                    background:
-                      activeTab === "following"
-                        ? "linear-gradient(180deg, rgba(52,152,219,0.52) 0%, rgba(52,152,219,0.3) 100%)"
-                        : "transparent",
-                    color:
-                      activeTab === "following"
-                        ? "white"
-                        : "rgba(255, 255, 255, 0.55)",
-                    border: "none",
-                    borderLeft: `1px solid ${userCardGlass.hairline.borderColor}`,
-                    fontSize: "11px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
+                    ...profileTabBtn(activeTab === "following"),
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: "4px",
-                    boxShadow:
-                      activeTab === "following"
-                        ? "inset 0 1px 0 rgba(255,255,255,0.2)"
-                        : "none",
+                    gap: 3,
                   }}
                 >
-                  pick ({followingCurators.length})
-                  {activeTab === "following" && !embeddedAdminReadOnly && (
-                    <div
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    내픽 {followingCurators.length}
+                  </span>
+                  {activeTab === "following" && !embeddedAdminReadOnly ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="검색"
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowSearch(!showSearch);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowSearch(!showSearch);
+                        }
+                      }}
                       style={{
+                        ...profileTabSearchChip,
                         backgroundColor: showSearch
-                          ? "rgba(255, 255, 255, 0.3)"
-                          : "rgba(255, 255, 255, 0.2)",
-                        border: "1px solid rgba(255, 255, 255, 0.3)",
-                        color: "white",
-                        borderRadius: "4px",
-                        padding: "2px 6px",
-                        fontSize: "12px",
-                        cursor: "pointer",
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15)",
+                          ? "rgba(255, 255, 255, 0.14)"
+                          : profileTabSearchChip.backgroundColor,
                       }}
                     >
                       🔍
-                    </div>
-                  )}
+                    </span>
+                  ) : null}
                 </button>
               </>
             )}
           </div>
-            </div>
-          </div>
-
-          {/* 닫기 버튼 — 스와이프 영역 밖 (탭·검색 클릭과 분리) */}
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              position: "absolute",
-              top: "6px",
-              right: "10px",
-              width: "32px",
-              height: "32px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(255, 255, 255, 0.1)",
-              border: "1px solid rgba(255, 255, 255, 0.2)",
-              borderRadius: "50%",
-              color: "rgba(255, 255, 255, 0.85)",
-              fontSize: "18px",
-              lineHeight: 1,
-              cursor: "pointer",
-              zIndex: 10,
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
-            }}
-          >
-            ×
-          </button>
 
           {/* 탭 내용 */}
           <div
@@ -2239,12 +2339,11 @@ const UserCard = ({
               overflowY: "auto",
               WebkitOverflowScrolling: "touch",
               flexShrink: 0,
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 40%)",
+              backgroundColor: STUDIO_PROFILE.shell,
             }}
           >
             {loading ? (
-              <div style={{ textAlign: 'center', padding: '14px', color: '#999', fontSize: '13px' }}>
+              <div style={{ textAlign: 'center', padding: '14px', color: STUDIO_PROFILE.textMuted, fontSize: '13px' }}>
                 로딩 중...
               </div>
             ) : activeTab === "picked" ? (
@@ -2690,18 +2789,7 @@ const UserCard = ({
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="picked 검색…"
-                      style={{
-                        width: "100%",
-                        padding: "6px 10px",
-                        backgroundColor: "rgba(255, 255, 255, 0.08)",
-                        border: "1px solid rgba(255, 255, 255, 0.22)",
-                        borderRadius: "10px",
-                        color: "white",
-                        fontSize: "12px",
-                        outline: "none",
-                        boxSizing: "border-box",
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
-                      }}
+                      style={studioCoursesInput}
                       autoFocus
                     />
                   </div>
@@ -2784,18 +2872,7 @@ const UserCard = ({
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="pick 검색…"
-                      style={{
-                        width: '100%',
-                        padding: '6px 10px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                        border: '1px solid rgba(255, 255, 255, 0.22)',
-                        borderRadius: '10px',
-                        color: 'white',
-                        fontSize: '12px',
-                        outline: 'none',
-                        boxSizing: 'border-box',
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
-                      }}
+                      style={studioCoursesInput}
                       autoFocus
                     />
                   </div>
@@ -2861,6 +2938,9 @@ const UserCard = ({
               </div>
             )}
           </div>
+          </>
+          ) : null}
+            </div>
           {/* 홈 인디케이터·여백: 반투명 틈 없이 시트로 완전 덮음 */}
           <div
             aria-hidden
@@ -2869,11 +2949,11 @@ const UserCard = ({
               minHeight: "14px",
               height: "max(14px, env(safe-area-inset-bottom, 0px))",
               flexShrink: 0,
-              backgroundColor: "#05060a",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+              backgroundColor: STUDIO_PROFILE.shell,
             }}
           />
         </div>
+      </div>
       </div>
 
       {/* 유저/큐레이터 프로필 모달 */}
@@ -2901,10 +2981,10 @@ const UserCard = ({
               maxWidth: "100%",
               maxHeight: "80vh",
               overflow: "hidden",
-              background:
-                "linear-gradient(180deg, rgba(22,22,24,0.98) 0%, rgba(8,8,10,0.98) 100%)",
-              border: "1px solid rgba(255,255,255,0.12)",
+              backgroundColor: STUDIO_PROFILE.shell,
+              border: `1px solid ${STUDIO_PROFILE.border}`,
               boxShadow: "0 18px 48px rgba(0,0,0,0.55)",
+              fontFamily: STUDIO_PROFILE.font,
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2913,14 +2993,24 @@ const UserCard = ({
                 selectedCurator?.isCurator === false ||
                 selectedCurator?.is_curator === false;
               const profileTitle = isGeneralUserProfile
-                ? "아는 사람 프로필"
-                : "큐레이터 프로필";
-              const subTitle = isGeneralUserProfile
-                ? (selectedCurator.display_name || selectedCurator.username || "아는 사람")
-                : (selectedCurator.display_name || "큐레이터");
-              const metricLine = isGeneralUserProfile
-                ? `picked ${selectedCurator.stats?.followerCount || 0}명`
-                : `picked ${selectedCurator.stats?.followerCount || 0}명 • 추천 ${selectedCurator.placeCount || 0}곳 • 저장 ${selectedCurator.stats?.saveCount || 0}개`;
+                ? "아는 사람"
+                : "큐레이터";
+              const nick =
+                selectedCurator.display_name ||
+                selectedCurator.displayName ||
+                selectedCurator.username ||
+                "사용자";
+              const handle = selectedCurator.username
+                ? `@${selectedCurator.username}`
+                : "";
+              const received =
+                selectedCurator.stats?.followerCount ??
+                selectedCurator.receivedPickCount ??
+                0;
+              const outgoing =
+                selectedCurator.stats?.followingCount ??
+                selectedCurator.outgoingPickCount ??
+                0;
               return (
                 <>
             {/* 프로필 헤더 */}
@@ -2929,111 +3019,110 @@ const UserCard = ({
               justifyContent: 'space-between',
               alignItems: 'center',
               padding: "14px 16px",
-              borderBottom: "1px solid rgba(255, 255, 255, 0.1)"
+              borderBottom: `1px solid ${STUDIO_PROFILE.border}`,
+              backgroundColor: STUDIO_PROFILE.card,
             }}>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: "rgba(255,255,255,0.9)",
-                  background: "rgba(255,255,255,0.08)",
-                  border: "1px solid rgba(255,255,255,0.18)",
-                }}
-              >
+              <span style={generalProfileStyles.roleChip}>
                 {profileTitle}
               </span>
               <button
                 type="button"
                 onClick={() => setSelectedCurator(null)}
-                style={{
-                  width: "34px",
-                  height: "34px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(255, 255, 255, 0.08)",
-                  border: "1px solid rgba(255, 255, 255, 0.18)",
-                  borderRadius: "50%",
-                  color: "rgba(255, 255, 255, 0.9)",
-                  fontSize: "18px",
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
-                }}
+                aria-label="닫기"
+                style={generalProfileStyles.closeBtn}
               >
                 ×
               </button>
             </div>
 
             {/* 프로필 정보 */}
-            <div style={{ padding: "16px" }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
-                <CuratorFollowAvatar curator={selectedCurator} sizePx={60} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
-                    @{selectedCurator.username}
-                  </div>
-                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.72)', marginBottom: '4px' }}>
-                    {subTitle}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.54)' }}>
-                    {metricLine}
-                  </div>
+            <div style={{ padding: "18px 16px 16px" }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 16 }}>
+                <CuratorFollowAvatar curator={selectedCurator} sizePx={72} />
+                <div style={{ fontSize: '20px', fontWeight: 850, color: '#fff', marginTop: 14, letterSpacing: '-0.02em' }}>
+                  {nick}
                 </div>
+                {handle ? (
+                  <div style={{ fontSize: '13px', color: STUDIO_PROFILE.textSoft, fontWeight: 650, marginTop: 4 }}>
+                    {handle}
+                  </div>
+                ) : null}
+                {isGeneralUserProfile ? (
+                  <span style={generalProfileStyles.memberBadge}>잔 멤버</span>
+                ) : null}
               </div>
 
-              {selectedCurator.bio && (
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "rgba(255,255,255,0.84)",
-                    lineHeight: "1.45",
-                    marginBottom: "14px",
-                    padding: "11px 12px",
-                    borderRadius: "12px",
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                  }}
-                >
+              <div style={generalProfileStyles.statsGrid}>
+                <div style={generalProfileStyles.statCell}>
+                  <div style={generalProfileStyles.statNum}>{received}</div>
+                  <div style={generalProfileStyles.statLbl}>받은 픽</div>
+                </div>
+                <div style={generalProfileStyles.statCell}>
+                  <div style={generalProfileStyles.statNum}>{outgoing}</div>
+                  <div style={generalProfileStyles.statLbl}>내 픽</div>
+                </div>
+                {!isGeneralUserProfile ? (
+                  <>
+                    <div style={generalProfileStyles.statCell}>
+                      <div style={generalProfileStyles.statNum}>{selectedCurator.placeCount || 0}</div>
+                      <div style={generalProfileStyles.statLbl}>추천</div>
+                    </div>
+                    <div style={generalProfileStyles.statCell}>
+                      <div style={generalProfileStyles.statNum}>{selectedCurator.stats?.saveCount || 0}</div>
+                      <div style={generalProfileStyles.statLbl}>저장</div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              {selectedCurator.bio && selectedCurator.bio !== "사용자" ? (
+                <div style={generalProfileStyles.bioBox}>
                   {selectedCurator.bio}
                 </div>
-              )}
+              ) : null}
+
+              {isGeneralUserProfile && selectedCurator.user_id ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCurator(null);
+                    navigate(`/u/${selectedCurator.user_id}`);
+                  }}
+                  style={generalProfileStyles.fullProfileLink}
+                >
+                  프로필 전체 보기 →
+                </button>
+              ) : null}
 
               {/* 저장된 장소 목록 */}
-              <div>
-                <h4 style={{ color: 'rgba(255,255,255,0.92)', fontSize: '13px', marginBottom: '10px' }}>
-                  {isGeneralUserProfile ? "픽한 장소" : "저장한 장소"} ({selectedCurator.savedPlaces?.length || 0})
+              <div style={{ marginTop: 16 }}>
+                <h4 style={generalProfileStyles.listTitle}>
+                  {isGeneralUserProfile ? "픽한 가게" : "저장한 장소"}
+                  {" "}({selectedCurator.savedPlaces?.length || 0})
                 </h4>
                 <div style={{ 
-                  maxHeight: '280px',
+                  maxHeight: '240px',
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px'
                 }}>
                   {selectedCurator.savedPlaces?.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '16px', color: 'rgba(255,255,255,0.52)' }}>
-                      저장한 장소가 없습니다
+                    <div style={generalProfileStyles.emptyList}>
+                      {isGeneralUserProfile
+                        ? "아직 공개 픽이 없어요"
+                        : "저장한 장소가 없습니다"}
                     </div>
                   ) : (
                     selectedCurator.savedPlaces.map((saved) => (
                       <div
                         key={saved.id}
-                        style={{
-                          padding: "10px 11px",
-                          borderRadius: "12px",
-                          background: "rgba(255,255,255,0.06)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                        }}
+                        style={generalProfileStyles.placeRow}
                       >
-                        <div style={{ fontSize: '13px', fontWeight: '700', color: '#fff', marginBottom: '4px' }}>
+                        <div style={generalProfileStyles.placeName}>
                           {saved.places?.name || '정보 없음'}
                         </div>
-                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.58)' }}>
+                        <div style={generalProfileStyles.placeAddr}>
                           {saved.places?.address || '주소 정보 없음'}
                         </div>
                       </div>

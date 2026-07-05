@@ -24,6 +24,7 @@ import {
 } from "../../api/completedCourseLogs";
 import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
 import { fetchCuratorCourseById } from "../../api/curatorCourses";
+import { resolveCourseCoverForCourse } from "../../utils/courseStepThumb";
 import { mapPlaceRowForCourse } from "../../api/places";
 import CourseMapPreview from "../../components/Course/CourseMapPreview";
 import { useAuth } from "../../context/AuthContext";
@@ -141,7 +142,12 @@ export default function CourseDetailPage() {
         setPhase("forbidden");
         return;
       }
-      setCourse(row);
+      const autoCover = await resolveCourseCoverForCourse(row);
+      setCourse(
+        autoCover && !String(row.cover_image_url || "").trim()
+          ? { ...row, cover_image_url: autoCover }
+          : row
+      );
       const cid = String(row.curator_id ?? "").trim();
       if (cid) {
         const [profRes, curRes] = await Promise.all([

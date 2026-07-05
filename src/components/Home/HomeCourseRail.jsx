@@ -12,6 +12,10 @@ import {
   HOME_COURSE_RAIL_PICK_STAMP,
   HOME_COURSE_RAIL_STAMP_ON_MAP,
 } from "../../utils/homeCourseStampCopy";
+import {
+  enrichCoursesWithAutoCover,
+  pickCourseDisplayCoverUrl,
+} from "../../utils/courseStepThumb";
 
 const RAIL_TITLE = "지금 뜨는 코스";
 const FETCH_LIMIT = 16;
@@ -700,7 +704,9 @@ export default function HomeCourseRail({
     try {
       const list = await fetchPublicCuratorCourses({ limit: FETCH_LIMIT });
       if (loadGenRef.current !== gen) return;
-      const courses = Array.isArray(list) ? list : [];
+      const courses = await enrichCoursesWithAutoCover(
+        Array.isArray(list) ? list : []
+      );
       setRows(courses);
 
       const courseIds = courses
@@ -966,7 +972,7 @@ export default function HomeCourseRail({
             {rows.map((c, cardIndex) => {
               const id = String(c.id || "").trim();
               const title = String(c.title || "").trim() || "제목 없음";
-              const cover = String(c.cover_image_url || "").trim();
+              const cover = pickCourseDisplayCoverUrl(c);
               const area = String(c.area || "").trim();
               const cid = String(c.curator_id || "").trim();
               const curatorName =

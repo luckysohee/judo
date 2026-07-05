@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const HISTORY_STATE_KEY = "judoHomeSearchMode";
+const DEFAULT_HISTORY_STATE_KEY = "judoHomeSearchMode";
 
 /**
  * 홈 검색 모드 — 포커스 시 전체 화면 오버레이, 뒤로가기·popstate로 복귀.
@@ -9,12 +9,14 @@ const HISTORY_STATE_KEY = "judoHomeSearchMode";
  *   shouldForceClose?: boolean,
  *   onOpen?: () => void,
  *   onClose?: () => void,
+ *   historyStateKey?: string,
  * }} [opts]
  */
 export function useHomeSearchMode({
   shouldForceClose = false,
   onOpen,
   onClose,
+  historyStateKey = DEFAULT_HISTORY_STATE_KEY,
 } = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const pushedHistoryRef = useRef(false);
@@ -26,10 +28,10 @@ export function useHomeSearchMode({
     setIsOpen(true);
     onOpen?.();
     if (typeof window !== "undefined" && !pushedHistoryRef.current) {
-      window.history.pushState({ [HISTORY_STATE_KEY]: 1 }, "");
+      window.history.pushState({ [historyStateKey]: 1 }, "");
       pushedHistoryRef.current = true;
     }
-  }, [onOpen]);
+  }, [historyStateKey, onOpen]);
 
   const close = useCallback(() => {
     if (!isOpenRef.current) return;
@@ -38,14 +40,14 @@ export function useHomeSearchMode({
     if (
       typeof window !== "undefined" &&
       pushedHistoryRef.current &&
-      window.history.state?.[HISTORY_STATE_KEY]
+      window.history.state?.[historyStateKey]
     ) {
       pushedHistoryRef.current = false;
       window.history.back();
       return;
     }
     pushedHistoryRef.current = false;
-  }, [onClose]);
+  }, [historyStateKey, onClose]);
 
   useEffect(() => {
     if (!shouldForceClose) return;

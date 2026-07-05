@@ -472,6 +472,43 @@ export const styles = {
     textShadow: "0 0 6px rgba(251, 191, 36, 0.55)",
   },
 
+  /** Drop · AI Credit (일반 유저) */
+  legendUserWalletEntryButton: {
+    pointerEvents: "auto",
+    width: "100%",
+    minHeight: "32px",
+    padding: "4px 2px 3px",
+    gap: "2px",
+    borderRadius: "9px",
+    border: "1px solid rgba(245, 166, 35, 0.55)",
+    background:
+      "linear-gradient(158deg, rgba(28,22,12,0.88) 0%, rgba(12,10,8,0.82) 100%)",
+    backdropFilter: "blur(14px) saturate(180%)",
+    WebkitBackdropFilter: "blur(14px) saturate(180%)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.12), 0 0 12px rgba(245, 166, 35, 0.28), 0 3px 12px rgba(0,0,0,0.25)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#FFE8A3",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
+  },
+
+  legendUserWalletEntryLabel: {
+    fontSize: "7px",
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "-0.03em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+    color: "rgba(255,232,163,0.88)",
+    textShadow: "0 0 6px rgba(245, 166, 35, 0.4)",
+  },
+
   bottomBarContainer: {
     position: "absolute",
     left: "50%",

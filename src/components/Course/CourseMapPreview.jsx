@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
+import { fetchChainedCourseWalkingRoutes } from "../../utils/fetchCourseWalkingRoute.js";
 import {
   buildCourseMapPreviewModel,
   COURSE_MAP_PREVIEW_DEFAULT_CENTER,
@@ -29,12 +30,36 @@ const HINT = {
   lineHeight: 1.45,
 };
 
+const MAP_ERROR_OVERLAY = {
+  position: "absolute",
+  inset: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "12px",
+  background: "rgba(0,0,0,0.72)",
+  color: "#ffb4a8",
+  fontSize: "12px",
+  lineHeight: 1.45,
+  textAlign: "center",
+  zIndex: 2,
+  pointerEvents: "none",
+};
+
+const MAP_FILL = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+};
+
 /**
  * 코스 편집용 지도: 코스 순번 마커·동선(폴리라인) + 선택 시 검색 결과 핀(탭으로 코스에 담기).
  * @param {{
  *   placeRows?: object[],
  *   compact?: boolean,
  *   embedded?: boolean,
+ *   interactive?: boolean,
  *   searchHits?: { id: string, name?: string, lat?: number|null, lng?: number|null }[],
  *   selectedSearchId?: string | null,
  *   onSearchHitPress?: (hit: object) => void,
@@ -44,6 +69,7 @@ export default function CourseMapPreview({
   placeRows = [],
   compact = false,
   embedded = false,
+  interactive = false,
   searchHits = [],
   selectedSearchId = null,
   onSearchHitPress,
@@ -52,9 +78,12 @@ export default function CourseMapPreview({
   const mapRef = useRef(null);
   const overlaysRef = useRef([]);
   const polylineRef = useRef(null);
+  const walkingFetchGenRef = useRef(0);
   const onSearchHitPressRef = useRef(onSearchHitPress);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
+  /** @type {{ lat: number, lng: number }[] | null} */
+  const [walkingPath, setWalkingPath] = useState(null);
 
   useEffect(() => {
     onSearchHitPressRef.current = onSearchHitPress;
@@ -63,17 +92,15 @@ export default function CourseMapPreview({
   const mapShellStyle = useMemo(
     () =>
       embedded
-        ? {
-            width: "100%",
-            height: "100%",
-            position: "relative",
-          }
+        ? MAP_FILL
         : {
             ...MAP_SHELL_DEFAULT,
             ...(compact ? MAP_SHELL_COMPACT : {}),
           },
     [compact, embedded]
   );
+
+  const mapInteractive = embedded ? interactive : false;
 
   const model = useMemo(
     () => buildCourseMapPreviewModel(placeRows),
@@ -105,6 +132,39 @@ export default function CourseMapPreview({
       .join("|");
   }, [searchHits, selectedSearchId]);
 
+  const waypoints = useMemo(
+    () => model.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+    [model.points]
+  );
+
+  useEffect(() => {
+    if (waypoints.length < 2) {
+      setWalkingPath(null);
+      return undefined;
+    }
+    const gen = ++walkingFetchGenRef.current;
+    setWalkingPath(null);
+    const wps = waypoints;
+
+    fetchChainedCourseWalkingRoutes(wps).then((route) => {
+      if (gen !== walkingFetchGenRef.current) return;
+      if (
+        route?.ok &&
+        Number(route.routedLegCount) > 0 &&
+        Array.isArray(route.path) &&
+        route.path.length >= 2
+      ) {
+        setWalkingPath(route.path);
+      } else {
+        setWalkingPath(null);
+      }
+    });
+
+    return () => {
+      walkingFetchGenRef.current += 1;
+    };
+  }, [pathSignature, waypoints]);
+
   useEffect(() => {
     let cancelled = false;
     setMapError("");
@@ -133,14 +193,18 @@ export default function CourseMapPreview({
             const map = new window.kakao.maps.Map(containerRef.current, {
               center,
               level: 5,
-              draggable: false,
-              scrollwheel: false,
-              disableDoubleClick: true,
-              disableDoubleClickZoom: true,
+              draggable: mapInteractive,
+              scrollwheel: mapInteractive && !embedded,
+              disableDoubleClick: !mapInteractive,
+              disableDoubleClickZoom: !mapInteractive,
             });
             try {
-              if (typeof map.setZoomable === "function") map.setZoomable(false);
-              if (typeof map.setDraggable === "function") map.setDraggable(false);
+              if (typeof map.setZoomable === "function") {
+                map.setZoomable(mapInteractive);
+              }
+              if (typeof map.setDraggable === "function") {
+                map.setDraggable(mapInteractive);
+              }
             } catch {
               /* ignore */
             }
@@ -190,7 +254,7 @@ export default function CourseMapPreview({
       }
       setMapReady(false);
     };
-  }, []);
+  }, [mapInteractive]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.kakao?.maps) return;
@@ -215,7 +279,11 @@ export default function CourseMapPreview({
 
     const pts = model.points;
     const LatLng = window.kakao.maps.LatLng;
-    const coursePath = pts.map((p) => new LatLng(p.lat, p.lng));
+    const routePoints =
+      Array.isArray(walkingPath) && walkingPath.length >= 2
+        ? walkingPath
+        : pts;
+    const coursePath = routePoints.map((p) => new LatLng(p.lat, p.lng));
 
     pts.forEach((p) => {
       const el = document.createElement("div");
@@ -251,7 +319,7 @@ export default function CourseMapPreview({
       polylineRef.current = new window.kakao.maps.Polyline({
         path: coursePath,
         strokeWeight: 4,
-        strokeColor: "#5DADE2",
+        strokeColor: walkingPath?.length >= 2 ? "#ea580c" : "#5DADE2",
         strokeOpacity: 0.92,
         strokeStyle: "solid",
       });
@@ -349,13 +417,17 @@ export default function CourseMapPreview({
     mapReady,
     model.points,
     pathSignature,
+    walkingPath,
     searchPinsSignature,
+    searchHits,
+    selectedSearchId,
+    onSearchHitPress,
   ]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !containerRef.current) return;
     const map = mapRef.current;
-    const el = containerRef.current;
+    const el = containerRef.current.parentElement || containerRef.current;
     const ro = new ResizeObserver(() => {
       try {
         map.relayout();
@@ -365,15 +437,39 @@ export default function CourseMapPreview({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [mapReady]);
+  }, [mapReady, embedded]);
+
+  useEffect(() => {
+    if (!embedded || !mapReady || !mapRef.current || !containerRef.current) {
+      return undefined;
+    }
+    const map = mapRef.current;
+    const root = containerRef.current.parentElement || containerRef.current;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        requestAnimationFrame(() => {
+          try {
+            map.relayout();
+          } catch {
+            /* ignore */
+          }
+        });
+      },
+      { threshold: 0.08 }
+    );
+    io.observe(root);
+    return () => io.disconnect();
+  }, [embedded, mapReady]);
 
   if (embedded) {
     return (
-      <div
-        ref={containerRef}
-        style={mapShellStyle}
-        aria-label="코스 동선 미리보기 지도"
-      />
+      <div style={MAP_FILL} aria-label="코스 동선 미리보기 지도">
+        <div ref={containerRef} style={MAP_FILL} />
+        {mapError ? (
+          <div style={MAP_ERROR_OVERLAY}>{mapError}</div>
+        ) : null}
+      </div>
     );
   }
 

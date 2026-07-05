@@ -52,6 +52,8 @@ export function nearestVerticalSnapSheetSnap(h, heights) {
  *   minimizedPx: number,
  *   initialSnap?: VerticalSnapSheetSnap,
  *   resetKey?: unknown,
+ *   maxPx?: number,
+ *   onDragRelease?: (heightPx: number) => boolean,
  * }} opts
  */
 export function useVerticalSnapSheet({
@@ -61,6 +63,8 @@ export function useVerticalSnapSheet({
   minimizedPx,
   initialSnap = "expanded",
   resetKey,
+  maxPx: maxPxOpt,
+  onDragRelease,
 }) {
   const heights = useMemo(
     () => ({ expandedPx, collapsedPx, minimizedPx }),
@@ -75,11 +79,25 @@ export function useVerticalSnapSheet({
   const heightRef = useRef(heightPx);
 
   const loPx = Math.min(expandedPx, collapsedPx, minimizedPx);
-  const hiPx = Math.max(expandedPx, collapsedPx, minimizedPx);
+  const hiPx = Math.max(
+    maxPxOpt ?? 0,
+    expandedPx,
+    collapsedPx,
+    minimizedPx
+  );
 
   const clampHeight = useCallback(
     (h) => Math.max(loPx, Math.min(hiPx, h)),
     [loPx, hiPx]
+  );
+
+  const setSheetHeight = useCallback(
+    (h) => {
+      const next = clampHeight(h);
+      heightRef.current = next;
+      setHeightPx(next);
+    },
+    [clampHeight]
   );
 
   const applySnap = useCallback(
@@ -143,11 +161,14 @@ export function useVerticalSnapSheet({
 
       const onUp = (ev) => {
         if (ev.pointerId !== e.pointerId) return;
-        const nextSnap = nearestVerticalSnapSheetSnap(
-          heightRef.current,
-          heights
-        );
-        applySnap(nextSnap);
+        const handled = onDragRelease?.(heightRef.current) === true;
+        if (!handled) {
+          const nextSnap = nearestVerticalSnapSheetSnap(
+            heightRef.current,
+            heights
+          );
+          applySnap(nextSnap);
+        }
         setIsDragging(false);
         if (typeof el.releasePointerCapture === "function") {
           try {
@@ -165,7 +186,7 @@ export function useVerticalSnapSheet({
       el.addEventListener("pointerup", onUp);
       el.addEventListener("pointercancel", onUp);
     },
-    [enabled, heights, clampHeight, applySnap]
+    [enabled, heights, clampHeight, applySnap, onDragRelease]
   );
 
   const toggleSnap = useCallback(() => {
@@ -197,5 +218,6 @@ export function useVerticalSnapSheet({
     setSnapExpanded,
     setSnapCollapsed,
     setSnapMinimized,
+    setSheetHeight,
   };
 }

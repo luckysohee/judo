@@ -61,6 +61,9 @@ export function homeHotStripCoursesWrapBottomCss(keyboardInsetPx = 0) {
 /** 「지금 뜨는 코스」 시트 — 펼침 시 뷰포트 비율 */
 export const HOME_COURSES_DISCOVERY_SHEET_EXPANDED_VH = 50;
 
+/** 내 코스 · Studio ver. 전체화면 — 상단 여백(px) */
+export const HOME_COURSES_DISCOVERY_SHEET_STUDIO_TOP_INSET_PX = 10;
+
 /** 「지금 뜨는 코스」 시트 — 중간(핸들·제목·가로 미리보기) 높이(px) */
 export const HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX = 152;
 
@@ -117,6 +120,28 @@ export function homeCoursesDiscoverySheetExpandedPx(
   );
   const minExpanded = HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX + 8;
   return Math.max(minExpanded, Math.min(normal, cap));
+}
+
+/**
+ * 내 코스 Studio ver. — 거의 전체 화면 높이(px)
+ * @param {number} [viewportH]
+ * @param {{ visibleH?: number, keyboardOpen?: boolean }} [opts]
+ */
+export function homeCoursesDiscoverySheetStudioFullscreenPx(
+  viewportH,
+  { visibleH, keyboardOpen = false } = {}
+) {
+  const h =
+    Number.isFinite(viewportH) && viewportH > 0
+      ? viewportH
+      : readLayoutViewportHeight();
+  const visible =
+    Number.isFinite(visibleH) && visibleH > 0 ? visibleH : readLayoutViewportHeight();
+  const base = keyboardOpen && visible < h - 8 ? visible : h;
+  return Math.max(
+    HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX + 40,
+    Math.round(base - HOME_COURSES_DISCOVERY_SHEET_STUDIO_TOP_INSET_PX)
+  );
 }
 
 /**
@@ -215,7 +240,7 @@ export function homeCourseRouteMapFitBottomPaddingPx() {
 
 /**
  * 코스 바텀시트 스냅별 높이(px) — 지도 fit padding·레이아웃 계산용
- * @param {'expanded'|'collapsed'|'minimized'|'closed'} snap
+ * @param {'expanded'|'collapsed'|'minimized'|'closed'|'fullscreen'} snap
  */
 export function homeCoursesDiscoverySheetHeightPxForSnap(
   snap,
@@ -227,6 +252,12 @@ export function homeCoursesDiscoverySheetHeightPxForSnap(
   } = {}
 ) {
   if (snap === "closed") return 0;
+  if (snap === "fullscreen") {
+    return homeCoursesDiscoverySheetStudioFullscreenPx(layoutHeightPx, {
+      visibleH: visibleHeightPx,
+      keyboardOpen,
+    });
+  }
   const expandedPx = homeCoursesDiscoverySheetExpandedPx(layoutHeightPx, {
     visibleH: visibleHeightPx,
     keyboardOpen,

@@ -2,6 +2,7 @@ import { mapPlaceRowForCourse } from "../api/places";
 import {
   pickStepUploadedThumb,
   previewStepFromCoursePlaceRow,
+  pickCourseDisplayCoverUrl,
   resolveCourseStepThumbMap,
   stepThumbKey,
 } from "./courseStepThumb";
@@ -52,7 +53,11 @@ export function normalizeHomeCourseBrowseDetail(row) {
     courseId,
     title: String(row.title || "").trim() || "제목 없음",
     description: String(row.description || "").trim(),
-    cover_image_url: String(row.cover_image_url || "").trim(),
+    cover_image_url: pickCourseDisplayCoverUrl({
+      cover_image_url: row.cover_image_url,
+      thumb_steps,
+      places,
+    }),
     area: String(row.area || "").trim(),
     theme_tags: Array.isArray(row.theme_tags)
       ? row.theme_tags.map((t) => String(t).trim()).filter(Boolean)
@@ -107,5 +112,12 @@ export async function enrichBrowseDetailWithStepThumbs(detail) {
     }
   );
 
-  return { ...detail, thumb_steps, places };
+  const firstKey = stepThumbKey(steps[0], 0);
+  const firstThumb =
+    thumbMap[firstKey] || pickStepUploadedThumb(steps[0]) || "";
+  const cover_image_url = pickCourseDisplayCoverUrl(detail, {
+    resolvedFirstThumbUrl: firstThumb,
+  });
+
+  return { ...detail, thumb_steps, places, cover_image_url };
 }

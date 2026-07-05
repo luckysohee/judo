@@ -130,8 +130,11 @@ import HomeOnboardingCoach from "../../components/Home/HomeOnboardingCoach";
 import AlphaSurveySheet, {
   AlphaSurveyEntryChip,
 } from "../../components/Home/AlphaSurveySheet";
+import DropEarnToastHost from "../../components/Drops/DropEarnToastHost.jsx";
+import { USER_DROP_WALLET_UI_ENABLED } from "../../constants/dropEconomy.js";
 import { fetchAlphaSurveyResponse, isAlphaSurveySubmitted } from "../../api/alphaSurvey";
 import { useHomeOnboardingCoach } from "../../hooks/useHomeOnboardingCoach";
+import { isHomeOnboardingCompleted } from "../../utils/homeOnboardingCoach";
 import { useUserTastePreferences } from "../../hooks/useUserTastePreferences";
 import { usePersonalTasteSignals } from "../../hooks/usePersonalTasteSignals";
 import {
@@ -2177,8 +2180,11 @@ export default function Home() {
     useState(false);
   /** 「지금 뜨는 코스」 도킹 패널 — 핫 스트립 탭과 분리 */
   const [homeCoursesPanelOpen, setHomeCoursesPanelOpen] = useState(false);
+  const [homeCourseDiscoverySearchOpen, setHomeCourseDiscoverySearchOpen] =
+    useState(false);
   /** 코스 시트 드래그 스냅 — 접힘·최소일 때 지도 「코스」 칩 숨김 */
   const [homeCoursesSheetSnap, setHomeCoursesSheetSnap] = useState("closed");
+  const [homeStudioFullscreen, setHomeStudioFullscreen] = useState(false);
   /** 패널 안 코스 상세(지도 전) */
   const [homeCourseBrowse, setHomeCourseBrowse] = useState(null);
   const [homeCourseBrowseLoading, setHomeCourseBrowseLoading] = useState(false);
@@ -2198,6 +2204,7 @@ export default function Home() {
     setHomeCourseBrowseLoading(false);
     setHomeCourseStampBackedToRail(false);
     setHomeCoursesSheetSnap("closed");
+    setHomeStudioFullscreen(false);
   }, []);
 
   /** 코스 칩으로 열 때 — 항상 「지금 뜨는 코스」 목록·펼침 시트 */
@@ -3684,9 +3691,14 @@ export default function Home() {
     selectedPlace,
   ]);
   const hideHomeMapChromeForCourses = homeCoursesSheetOpen;
+  /** 내 코스 Studio ver. 전체화면 — JUDO·큐레이터 칩·체크인 토스트 등 지도 크롬 가림 */
+  const hideHomeMapChromeForStudioFullscreen =
+    homeStudioFullscreen || homeCoursesSheetSnap === "fullscreen";
   /** 코스 시트 중간·최소 — 핫 스트립 등 홈 하단 시트 겹침 제거 */
   const hideHomeMapChromeForDockedCourseSheet =
-    homeCoursesSheetOpen && homeCoursesSheetSnap !== "expanded";
+    homeCoursesSheetOpen &&
+    homeCoursesSheetSnap !== "expanded" &&
+    homeCoursesSheetSnap !== "fullscreen";
   const homeCoursesEntryChipOpen =
     homeCoursesPanelOpen &&
     homeCoursesSheetOpen &&
@@ -3694,7 +3706,9 @@ export default function Home() {
   const homeCoursesEntryVisible =
     homeCoursesSheetChromeOk &&
     (!homeCoursesSheetOpen || homeCoursesStampSheetActive) &&
-    (!homeCoursesSheetOpen || homeCoursesSheetSnap === "expanded");
+    (!homeCoursesSheetOpen ||
+      homeCoursesSheetSnap === "expanded" ||
+      homeCoursesSheetSnap === "fullscreen");
 
   const showHomeCourseStampResume = useMemo(() => {
     if (!homeCourseFollowMinimized) return false;
@@ -3724,6 +3738,12 @@ export default function Home() {
       dismissHomeCoursesDiscovery();
     }
   }, [homeCoursesSheetOpen, dismissHomeCoursesDiscovery]);
+
+  useEffect(() => {
+    if (!homeCoursesSheetOpen && homeCourseDiscoverySearchOpen) {
+      setHomeCourseDiscoverySearchOpen(false);
+    }
+  }, [homeCoursesSheetOpen, homeCourseDiscoverySearchOpen]);
 
   /** 일반 검색 마커 setBounds — 헤더·하단 검색바에 가리지 않게 */
   const mapSearchPlacesFitPadding = useMemo(() => {
@@ -4062,13 +4082,7 @@ export default function Home() {
     };
 
     if (!skipDismissed()) {
-      applyFilteredOverlay(
-        base.polylinePath,
-        buildStraightCourseLegLabels(waypoints, stepLabels),
-        "straight",
-        "",
-        null
-      );
+      setCourseMapOverlay(null);
     }
 
     const fallbackStraight = () => {
@@ -4085,7 +4099,13 @@ export default function Home() {
     const applyWalkingRouteToOverlay = (route) => {
       if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
       if (skipDismissed()) return;
-      if (route?.ok && Array.isArray(route.path) && route.path.length >= 2) {
+      const routedLegs = Number(route?.routedLegCount) || 0;
+      if (
+        route?.ok &&
+        routedLegs > 0 &&
+        Array.isArray(route.path) &&
+        route.path.length >= 2
+      ) {
         const dm = Number(route.distanceMeters) || 0;
         const ds = Number(route.durationSeconds) || 0;
         const walkMin = walkingRouteDisplayMinutes(dm, ds);
@@ -4115,14 +4135,20 @@ export default function Home() {
       const runWalkingFetch = () => {
         if (cancelled) return;
         const cached = homeCourseWalkingRouteCacheRef.current;
-        if (cached?.key === myKey && cached.route) {
+        if (
+          cached?.key === myKey &&
+          cached.route &&
+          Number(cached.route.routedLegCount) > 0
+        ) {
           applyWalkingRouteToOverlay(cached.route);
           return;
         }
         fetchChainedCourseWalkingRoutes(waypoints).then((route) => {
           if (cancelled || reqId !== courseWalkingOverlayReqIdRef.current) return;
           if (skipDismissed()) return;
-          homeCourseWalkingRouteCacheRef.current = { key: myKey, route };
+          if (route?.ok && Number(route.routedLegCount) > 0) {
+            homeCourseWalkingRouteCacheRef.current = { key: myKey, route };
+          }
           applyWalkingRouteToOverlay(route);
         });
       };
@@ -4133,7 +4159,7 @@ export default function Home() {
         !followId;
       let walkTimer = null;
       if (browsePreviewOnly) {
-        walkTimer = window.setTimeout(runWalkingFetch, 800);
+        walkTimer = window.setTimeout(runWalkingFetch, 400);
       } else {
         runWalkingFetch();
       }
@@ -4142,6 +4168,10 @@ export default function Home() {
         cancelled = true;
         if (walkTimer != null) window.clearTimeout(walkTimer);
       };
+    }
+
+    if (!skipDismissed()) {
+      fallbackStraight();
     }
 
     return () => {
@@ -5839,42 +5869,6 @@ export default function Home() {
     courseMapOverlay,
   ]);
 
-  const showTodayTasteSuggest = useMemo(() => {
-    if (!user?.id || tastePrefsLoading) return false;
-    if (!tasteProfileHasSignals(tasteProfile) && !hasPersonalSignals) return false;
-    if (tasteNeedsOnboarding) return false;
-    if (String(query || "").trim() || selectedPlace || homeSearchMode.isOpen) {
-      return false;
-    }
-    if (
-      isAiSearching ||
-      courseSecondPickMode ||
-      courseMapOverlay ||
-      mutualSearchPanelOpen
-    ) {
-      return false;
-    }
-    if (hideHomeMapChromeForRecommendSheet || hideHomeMapChromeForCourses) {
-      return false;
-    }
-    return true;
-  }, [
-    user?.id,
-    tastePrefsLoading,
-    tasteProfile,
-    hasPersonalSignals,
-    tasteNeedsOnboarding,
-    query,
-    selectedPlace,
-    homeSearchMode.isOpen,
-    isAiSearching,
-    courseSecondPickMode,
-    courseMapOverlay,
-    mutualSearchPanelOpen,
-    hideHomeMapChromeForRecommendSheet,
-    hideHomeMapChromeForCourses,
-  ]);
-
   const homeOnboardingCoachEnabled = useMemo(() => {
     if (tasteNeedsOnboarding || tastePrefsLoading) return false;
     if (showLoginPrompt) return false;
@@ -5904,6 +5898,45 @@ export default function Home() {
   const homeOnboardingCoach = useHomeOnboardingCoach({
     enabled: homeOnboardingCoachEnabled,
   });
+
+  const showTodayTasteSuggest = useMemo(() => {
+    if (!user?.id || tastePrefsLoading) return false;
+    if (!tasteProfileHasSignals(tasteProfile) && !hasPersonalSignals) return false;
+    if (tasteNeedsOnboarding) return false;
+    /** 사용법 코치(1회) 전·중에는 「오늘」 시트 자동 노출 금지 */
+    if (!isHomeOnboardingCompleted() || homeOnboardingCoach.open) return false;
+    if (String(query || "").trim() || selectedPlace || homeSearchMode.isOpen) {
+      return false;
+    }
+    if (
+      isAiSearching ||
+      courseSecondPickMode ||
+      courseMapOverlay ||
+      mutualSearchPanelOpen
+    ) {
+      return false;
+    }
+    if (hideHomeMapChromeForRecommendSheet || hideHomeMapChromeForCourses) {
+      return false;
+    }
+    return true;
+  }, [
+    user?.id,
+    tastePrefsLoading,
+    tasteProfile,
+    hasPersonalSignals,
+    tasteNeedsOnboarding,
+    homeOnboardingCoach.open,
+    query,
+    selectedPlace,
+    homeSearchMode.isOpen,
+    isAiSearching,
+    courseSecondPickMode,
+    courseMapOverlay,
+    mutualSearchPanelOpen,
+    hideHomeMapChromeForRecommendSheet,
+    hideHomeMapChromeForCourses,
+  ]);
 
   const aiBottomSheetPlaces = useMemo(() => {
     const importPlaces = curatorImportPlacesOrPool;
@@ -9562,6 +9595,8 @@ const handleClearSearch = () => {
         onSaved={() => setAlphaSurveyFilled(true)}
       />
 
+      {USER_DROP_WALLET_UI_ENABLED ? <DropEarnToastHost /> : null}
+
       <HomeFollowCuratorModal
         open={showFollowModal}
         onClose={() => setShowFollowModal(false)}
@@ -9583,7 +9618,9 @@ const handleClearSearch = () => {
       <div style={styles.page}>
       <main style={styles.mainContainer}>
         {/* 타인 체크인 — 좌측 피드(잠시 후 사라짐, 최대 3줄). 팝업 토스트 없음 */}
-        {!homeSearchMode.isOpen && !hideHomeMapChromeForRecommendSheet ? (
+        {!homeSearchMode.isOpen &&
+        !hideHomeMapChromeForRecommendSheet &&
+        !hideHomeMapChromeForStudioFullscreen ? (
         <div style={{ 
           position: 'absolute', 
           top: '62px', // 실시간 체크인 토스트 — 헤더에 더 붙이기
@@ -9621,8 +9658,10 @@ const handleClearSearch = () => {
           }
           onStampStateRefresh={bumpHomeCourseStampState}
           onSnapChange={setHomeCoursesSheetSnap}
+          onStudioFullscreenChange={setHomeStudioFullscreen}
           sheetResetKey={homeCoursesSheetResetKey}
           myCoursesRefreshKey={homeMyCoursesRefreshKey}
+          onCourseSearchModeChange={setHomeCourseDiscoverySearchOpen}
           onOpenCurator={handleCourseBrowseCuratorOpen}
           resolveCuratorHandle={resolveCuratorHandleForUser}
           onEditCourse={handleEditMyCourseFromPanel}
@@ -10014,7 +10053,9 @@ const handleClearSearch = () => {
           />
         </div>
 
-        {!homeSearchMode.isOpen && !hideMapChromeForLoginPrompt ? (
+        {!homeSearchMode.isOpen &&
+        !homeCourseDiscoverySearchOpen &&
+        !hideMapChromeForLoginPrompt ? (
           <HomeMapFloatingActions
             showSearchHere={showMapSearchHereButton}
             onSearchHere={() => {
@@ -10059,7 +10100,10 @@ const handleClearSearch = () => {
           onChangeSortPriority={setCourseSecondFindSortPriority}
         />
 
-        {!homeSearchMode.isOpen && !hideMapChromeForLoginPrompt ? (
+        {!homeSearchMode.isOpen &&
+        !homeCourseDiscoverySearchOpen &&
+        !hideMapChromeForLoginPrompt &&
+        !hideHomeMapChromeForStudioFullscreen ? (
         <div style={styles.headerOverlay}>
           <div style={styles.headerTopRow}>
             <button

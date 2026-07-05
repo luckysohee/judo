@@ -1,4 +1,4 @@
-import { resolvePlaceWgs84, kakaoNumericPlaceId } from "./placeCoords";
+import { resolvePlaceWgs84, kakaoNumericPlaceId } from "./placeCoords.js";
 import { collectReasonEvidence } from "./reasonEvidence.js";
 import { liftCuratorCatalogMeta } from "./curatorPlaceMetaLift.js";
 

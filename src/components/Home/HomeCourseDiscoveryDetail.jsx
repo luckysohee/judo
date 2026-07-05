@@ -25,6 +25,7 @@ import {
   COURSE_SCRAPED_LABEL,
 } from "../../utils/coursePickCopy";
 import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
+import { pickCourseDisplayCoverUrl } from "../../utils/courseStepThumb";
 
 const PAGE_TITLE_APP = "주도";
 
@@ -674,7 +675,6 @@ export default function HomeCourseDiscoveryDetail({
 
   if (!course) return null;
 
-  const cover = String(course.cover_image_url || "").trim();
   const places = Array.isArray(course.places) ? course.places : [];
   const baseThumbSteps = Array.isArray(course.thumb_steps)
     ? course.thumb_steps
@@ -692,6 +692,7 @@ export default function HomeCourseDiscoveryDetail({
     place_id: String(s.place_id || places[i]?.place_id || "").trim(),
     memo: places[i]?.memo || s.memo,
   }));
+  const cover = pickCourseDisplayCoverUrl({ ...course, thumb_steps: thumbSteps });
   const metaRest = [
     course.area,
     thumbSteps.length > 0

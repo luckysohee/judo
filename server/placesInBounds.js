@@ -79,13 +79,16 @@ async function fetchPlacesInBoundsFallback(sb, { south, west, north, east, limit
     "curator_id",
     "is_archived",
     "one_line_reason",
-    "one_line_review",
     "tags",
     "moods",
     "alcohol_types",
   ].join(",");
 
-  const cpSelectVariants = [cpColumnsPreferred, cpColumnsCompat, "id,place_id,curator_id,is_archived,one_line_reason,tags,moods"];
+  const cpSelectVariants = [
+    cpColumnsPreferred,
+    cpColumnsCompat,
+    "id,place_id,curator_id,is_archived,one_line_reason,tags,moods",
+  ];
   // place_id 청크(200)로 나눠 조회 — bbox 후보가 1000까지 늘었으므로
   for (let i = 0; i < candidateIds.length; i += 200) {
     const idChunk = candidateIds.slice(i, i + 200);
@@ -187,8 +190,13 @@ async function loadPlacesInBoundsPayload(sb, { south, west, north, east, limit }
   }
 
   if (error) {
-    console.error("get_places_in_bounds", error);
     const msg = error.message || String(error);
+    const schemaDrift = /column .* does not exist/i.test(msg);
+    if (schemaDrift) {
+      console.warn("get_places_in_bounds schema drift — using fallback:", msg);
+    } else {
+      console.error("get_places_in_bounds", error);
+    }
     const timedOut =
       error?.name === "AbortError" ||
       error?.name === "TimeoutError" ||
@@ -208,7 +216,9 @@ async function loadPlacesInBoundsPayload(sb, { south, west, north, east, limit }
       return {
         error: timedOut
           ? "places query timed out — check Supabase/Railway env"
-          : msg,
+          : schemaDrift
+            ? "DB migration needed: curator_places.one_line_review (see supabase/migrations/20260628120000_*.sql)"
+            : msg,
         timedOut,
       };
     }

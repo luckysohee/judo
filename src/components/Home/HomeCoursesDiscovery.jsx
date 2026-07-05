@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import HomeCourseBrowseCollapsedPeek from "./HomeCourseBrowseCollapsedPeek";
 import HomeCoursesDiscoveryRail from "./HomeCoursesDiscoveryRail";
 import HomeCourseDiscoveryDetail from "./HomeCourseDiscoveryDetail";
@@ -11,8 +11,10 @@ import {
   HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_BROWSE_PX,
   HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX,
   HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX,
+  HOME_COURSES_DISCOVERY_SHEET_STUDIO_TOP_INSET_PX,
   homeCoursesDiscoverySheetExpandedPx,
   homeCoursesDiscoverySheetMaxHeightCss,
+  homeCoursesDiscoverySheetStudioFullscreenPx,
   homeHotStripCoursesWrapBottomCss,
 } from "../../utils/homeHotStripLayout";
 import { HOME_COURSE_STAMP_RESUME_CHIP } from "../../utils/homeCourseStampCopy";
@@ -50,6 +52,39 @@ const dragHandleStyles = {
     border: "1px solid rgba(167,139,250,0.45)",
     background: "rgba(124,58,237,0.22)",
     color: "rgba(237,233,254,0.96)",
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
+  studioFullscreenBar: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    margin: "0 2px 6px",
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid rgba(129,140,248,0.35)",
+    background:
+      "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,23,42,0.55) 100%)",
+  },
+  studioFullscreenLabel: {
+    margin: 0,
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    color: "rgba(224,231,255,0.95)",
+  },
+  studioFullscreenExitBtn: {
+    flexShrink: 0,
+    margin: 0,
+    padding: "5px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.88)",
     fontSize: 10,
     fontWeight: 800,
     cursor: "pointer",
@@ -185,16 +220,25 @@ export default function HomeCoursesDiscoveryPanel({
   replayBusy = false,
   onReplayStamps,
   onStampStateRefresh,
-  /** @param {'expanded'|'collapsed'|'minimized'|'closed'} snap */
+  /** @param {'expanded'|'collapsed'|'minimized'|'closed'|'fullscreen'} snap */
   onSnapChange,
+  /** 내 코스 Studio ver. 전체화면 — Home 지도 크롬(체크인 토스트 등) 동기화 */
+  onStudioFullscreenChange,
   /** 코스 칩으로 목록 열 때 스냅·높이 초기화 */
   sheetResetKey = 0,
   myCoursesRefreshKey = 0,
+  onCourseSearchModeChange,
   onOpenCurator,
   resolveCuratorHandle,
   onEditCourse,
   onDeleteCourse,
 }) {
+  const [studioFullscreen, setStudioFullscreen] = useState(false);
+  /** @type {'trending'|'mine'|'imported'} */
+  const [discoveryActiveTab, setDiscoveryActiveTab] = useState("trending");
+  const studioFullscreenRef = useRef(false);
+  studioFullscreenRef.current = studioFullscreen;
+
   const {
     bottomPx: keyboardInsetPx,
     visibleHeightPx,
@@ -213,6 +257,22 @@ export default function HomeCoursesDiscoveryPanel({
     : HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX;
   const minimizedPx = HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX;
 
+  const studioFullscreenPx = homeCoursesDiscoverySheetStudioFullscreenPx(
+    layoutHeightPx,
+    { visibleH: visibleHeightPx, keyboardOpen }
+  );
+
+  useEffect(() => {
+    if (!isCurator && discoveryActiveTab === "mine") {
+      setDiscoveryActiveTab("trending");
+    }
+  }, [isCurator, discoveryActiveTab]);
+
+  const mineStudioDragEnabled =
+    discoveryActiveTab === "mine" && !browseModeEarly;
+
+  const sheetDragReleaseRef = useRef(null);
+
   const {
     snap,
     heightPx,
@@ -223,6 +283,7 @@ export default function HomeCoursesDiscoveryPanel({
     setSnapExpanded,
     setSnapCollapsed,
     setSnapMinimized,
+    setSheetHeight,
   } = useVerticalSnapSheet({
     enabled: open,
     expandedPx,
@@ -230,12 +291,68 @@ export default function HomeCoursesDiscoveryPanel({
     minimizedPx,
     initialSnap: "expanded",
     resetKey: open ? sheetResetKey : 0,
+    maxPx: mineStudioDragEnabled ? studioFullscreenPx : undefined,
+    onDragRelease: (h) => sheetDragReleaseRef.current?.(h) === true,
   });
+
+  sheetDragReleaseRef.current = (h) => {
+    if (!mineStudioDragEnabled) return false;
+    const threshold = (expandedPx + studioFullscreenPx) / 2;
+    if (studioFullscreenRef.current) {
+      if (h < threshold) {
+        setStudioFullscreen(false);
+        return false;
+      }
+      setSheetHeight(studioFullscreenPx);
+      return true;
+    }
+    if (h >= threshold) {
+      setSnapExpanded();
+      setStudioFullscreen(true);
+      setSheetHeight(studioFullscreenPx);
+      return true;
+    }
+    return false;
+  };
+
+  const browseMode = browseModeEarly;
 
   const sheetListExpanded = snap === "expanded";
   const sheetListPeek = snap === "collapsed";
 
-  const browseMode = browseModeEarly;
+  useEffect(() => {
+    if (!open) setStudioFullscreen(false);
+  }, [open]);
+
+  useEffect(() => {
+    onStudioFullscreenChange?.(studioFullscreen);
+  }, [studioFullscreen, onStudioFullscreenChange]);
+
+  useEffect(() => {
+    if (discoveryActiveTab !== "mine" && studioFullscreen) {
+      setStudioFullscreen(false);
+      setSheetHeight(expandedPx);
+    }
+  }, [discoveryActiveTab, studioFullscreen, expandedPx, setSheetHeight]);
+
+  useEffect(() => {
+    if (!studioFullscreen) return;
+    if (snap !== "expanded" || browseMode) {
+      setStudioFullscreen(false);
+    }
+  }, [studioFullscreen, snap, browseMode]);
+
+  const enterStudioFullscreen = useCallback(() => {
+    setSnapExpanded();
+    setStudioFullscreen(true);
+    setSheetHeight(studioFullscreenPx);
+  }, [setSnapExpanded, setSheetHeight, studioFullscreenPx]);
+
+  const exitStudioFullscreen = useCallback(() => {
+    setStudioFullscreen(false);
+    setSheetHeight(expandedPx);
+  }, [setSheetHeight, expandedPx]);
+
   const followingThisPreview = Boolean(
     followCourseId &&
       browseCourse?.courseId &&
@@ -262,6 +379,8 @@ export default function HomeCoursesDiscoveryPanel({
     onClose?.();
   }, [open, snap, isDragging, onClose, browseMode]);
 
+  const studioFullscreenDragThreshold = (expandedPx + studioFullscreenPx) / 2;
+
   useEffect(() => {
     if (!onSnapChange) return;
     if (!open) {
@@ -269,6 +388,17 @@ export default function HomeCoursesDiscoveryPanel({
       return;
     }
     if (snap === "minimized" && !isDragging && !browseMode) return;
+    const dragEnteringFullscreen =
+      isDragging &&
+      mineStudioDragEnabled &&
+      heightPx >= studioFullscreenDragThreshold;
+    if (
+      (studioFullscreen && snap === "expanded") ||
+      dragEnteringFullscreen
+    ) {
+      onSnapChange("fullscreen");
+      return;
+    }
     const heights = { expandedPx, collapsedPx, minimizedPx };
     const reported = isDragging
       ? nearestVerticalSnapSheetSnap(heightPx, heights)
@@ -284,6 +414,10 @@ export default function HomeCoursesDiscoveryPanel({
     minimizedPx,
     onSnapChange,
     browseMode,
+    studioFullscreen,
+    mineStudioDragEnabled,
+    studioFullscreenDragThreshold,
+    studioFullscreenPx,
   ]);
 
   if (!open) return null;
@@ -297,27 +431,40 @@ export default function HomeCoursesDiscoveryPanel({
   );
   const sheetTransition =
     isDragging || keyboardOpen ? "none" : SHEET_HEIGHT_TRANSITION;
+  const effectiveHeightStyle =
+    studioFullscreen && !isDragging
+      ? `${studioFullscreenPx}px`
+      : sheetHeightStyle;
+  const effectiveMaxHeight =
+    studioFullscreen && !isDragging
+      ? `${studioFullscreenPx}px`
+      : mineStudioDragEnabled
+        ? `${studioFullscreenPx}px`
+        : sheetMaxHeightCss;
+  const effectiveBottom = studioFullscreen
+    ? "calc(6px + env(safe-area-inset-bottom, 0px))"
+    : sheetBottomCss;
 
   return (
     <div
       id="home-courses-discovery-panel"
       role="dialog"
-      aria-label={panelTitle}
+      aria-label={studioFullscreen ? "내 코스 Studio" : panelTitle}
       style={{
         position: "absolute",
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: "min(720px, calc(100% - 32px))",
-        bottom: sheetBottomCss,
-        height: sheetHeightStyle,
-        maxHeight: sheetMaxHeightCss,
-        zIndex: 120,
+        left: studioFullscreen ? 0 : "50%",
+        transform: studioFullscreen ? "none" : "translateX(-50%)",
+        width: studioFullscreen ? "100%" : "min(720px, calc(100% - 32px))",
+        bottom: effectiveBottom,
+        height: effectiveHeightStyle,
+        maxHeight: effectiveMaxHeight,
+        zIndex: studioFullscreen ? 130 : 120,
         pointerEvents: "auto",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
         boxSizing: "border-box",
-        transition: `${sheetTransition}, bottom 0.22s ease-out`,
+        transition: `${sheetTransition}, bottom 0.22s ease-out, width 0.22s ease-out`,
       }}
     >
       <div
@@ -327,10 +474,16 @@ export default function HomeCoursesDiscoveryPanel({
           display: "flex",
           flexDirection: "column",
           padding: snap === "minimized" ? "0 8px 4px" : "0 8px 8px",
-          borderRadius: 14,
-          background: "rgba(14, 14, 14, 0.94)",
-          boxShadow:
-            "0 -4px 32px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08)",
+          paddingTop: studioFullscreen
+            ? `calc(${HOME_COURSES_DISCOVERY_SHEET_STUDIO_TOP_INSET_PX}px + env(safe-area-inset-top, 0px))`
+            : undefined,
+          borderRadius: studioFullscreen ? "16px 16px 0 0" : 14,
+          background: studioFullscreen
+            ? "rgba(10, 10, 12, 0.98)"
+            : "rgba(14, 14, 14, 0.94)",
+          boxShadow: studioFullscreen
+            ? "0 -8px 40px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08)"
+            : "0 -4px 32px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08)",
           border: "1px solid rgba(255,255,255,0.1)",
           backdropFilter: "blur(22px) saturate(180%)",
           WebkitBackdropFilter: "blur(22px) saturate(180%)",
@@ -420,6 +573,22 @@ export default function HomeCoursesDiscoveryPanel({
             </>
           ) : null}
         </div>
+        {studioFullscreen && !browseMode ? (
+          <div style={dragHandleStyles.studioFullscreenBar}>
+            <p style={dragHandleStyles.studioFullscreenLabel}>✦ Studio ver.</p>
+            <button
+              type="button"
+              data-sheet-no-drag
+              style={dragHandleStyles.studioFullscreenExitBtn}
+              onClick={exitStudioFullscreen}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label="일반 코스 보기로 접기"
+              title="접기"
+            >
+              ↓ 접기
+            </button>
+          </div>
+        ) : null}
         {browseMode ? (
           sheetListExpanded ? (
             <div
@@ -491,10 +660,15 @@ export default function HomeCoursesDiscoveryPanel({
           >
             <HomeCoursesDiscoveryRail
               visible={railVisible}
-              layout={sheetListExpanded ? "full" : "peek"}
+              layout={sheetListExpanded || studioFullscreen ? "full" : "peek"}
               user={user}
+              isCurator={isCurator}
               refreshKey={myCoursesRefreshKey}
+              studioFullscreen={studioFullscreen}
+              onEnterStudioFullscreen={enterStudioFullscreen}
+              onActiveTabChange={setDiscoveryActiveTab}
               onSearchFocus={setSnapExpanded}
+              onSearchModeChange={onCourseSearchModeChange}
               onSelectCourse={(id) => {
                 setSnapExpanded();
                 onSelectCourse?.(id);

@@ -1,7 +1,10 @@
 /** 홈 「지금 뜨는 코스」 — 에디터픽·주간 랭킹 섹션당 노출 수 */
-export const HOME_COURSE_DISCOVERY_SECTION_SIZE = 4;
+export const HOME_COURSE_DISCOVERY_SECTION_SIZE = 6;
 
-/** 목록 풀 조회 상한 — 에디터픽/랭킹 4+4 전용 (검색은 `/api/courses/search`) */
+/** 통합 목록에 붙일 🚀 급상승 배지 상한 */
+export const HOME_COURSE_DISCOVERY_RISING_BADGE_LIMIT = 3;
+
+/** 목록 풀 조회 상한 — 통합 추천 목록용 (검색은 `/api/courses/search`) */
 export const HOME_COURSE_DISCOVERY_FETCH_LIMIT = 48;
 
 /**
@@ -153,8 +156,8 @@ function courseIdsSet(list) {
 }
 
 /**
- * MVP — 에디터픽 칸이 4개 미만일 때 품질·최신순으로 남은 공개 코스 채움.
- * (코스 총량이 4 미만이면 그만큼만)
+ * MVP — 에디터픽 칸이 섹션 상한 미만일 때 품질·최신순으로 남은 공개 코스 채움.
+ * (코스 총량이 상한 미만이면 그만큼만)
  */
 export function mvpBackfillEditorPicks(courses, editorPicks, limit = HOME_COURSE_DISCOVERY_SECTION_SIZE) {
   const out = Array.isArray(editorPicks) ? [...editorPicks] : [];
@@ -183,7 +186,7 @@ export function mvpBackfillEditorPicks(courses, editorPicks, limit = HOME_COURSE
 }
 
 /**
- * MVP — 주간 랭킹 칸이 비거나 4개 미만일 때 활동·최신순으로 채움.
+ * MVP — 주간 랭킹 칸이 비거나 섹션 상한 미만일 때 활동·최신순으로 채움.
  * 에디터픽과 같은 코스가 양쪽에 있어도 됨(데모·초기 코스 적을 때).
  */
 export function mvpBackfillWeeklyRanking(
@@ -244,32 +247,122 @@ export function partitionHomeCourseDiscovery(courses, statsByCourseId, opts = {}
 }
 
 /**
- * 중간(접힘) 시트 가로 미리보기 — 에디터픽 우선, 랭킹으로 채움.
+ * @param {object} course
+ * @param {{
+ *   weeklyRankById?: Map<string, number>,
+ *   statsByCourseId?: Map<string, object>,
+ *   risingBudget?: { remaining: number },
+ * }} ctx
+ * @returns {{ emoji: string, text: string } | null}
+ */
+export function resolveHomeCourseDiscoveryBadge(course, ctx = {}) {
+  const id = String(course?.id || "").trim().toLowerCase();
+  if (!id) return null;
+
+  const weeklyRank = ctx.weeklyRankById?.get(id) ?? null;
+  const stats = ctx.statsByCourseId?.get(id);
+  const recent7 = Math.max(
+    0,
+    Math.floor(Number(stats?.recent_completion_count_7d) || 0)
+  );
+
+  if (weeklyRank === 1) {
+    return { emoji: "🔥", text: "이번주 1위" };
+  }
+
+  const wantsRising =
+    (weeklyRank != null && weeklyRank >= 2) || recent7 >= 1;
+  if (!wantsRising) return null;
+
+  const budget = ctx.risingBudget;
+  if (budget && budget.remaining <= 0) return null;
+  if (budget) budget.remaining -= 1;
+  return { emoji: "🚀", text: "급상승" };
+}
+
+/**
+ * 에디터픽·주간 랭킹을 하나의 목록으로 — 주간 순 → 에디터 순, 코스당 배지 1개.
+ * @param {object[]} editorPicks
+ * @param {object[]} weeklyRanking
+ * @param {Map<string, object>} [statsByCourseId]
+ * @param {{ limit?: number }} [opts]
+ * @returns {{ course: object, badge: { emoji: string, text: string } | null }[]}
+ */
+export function buildHomeCourseDiscoveryUnifiedList(
+  editorPicks,
+  weeklyRanking,
+  statsByCourseId,
+  opts = {}
+) {
+  const editors = Array.isArray(editorPicks) ? editorPicks : [];
+  const weekly = Array.isArray(weeklyRanking) ? weeklyRanking : [];
+
+  const weeklyRankById = new Map();
+  for (let i = 0; i < weekly.length; i += 1) {
+    const id = String(weekly[i]?.id || "")
+      .trim()
+      .toLowerCase();
+    if (id) weeklyRankById.set(id, i + 1);
+  }
+
+  const seen = new Set();
+  const merged = [];
+  const pushUnique = (list) => {
+    for (const course of list) {
+      const id = String(course?.id || "")
+        .trim()
+        .toLowerCase();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(course);
+    }
+  };
+
+  pushUnique(weekly);
+  pushUnique(editors);
+
+  const defaultLimit = HOME_COURSE_DISCOVERY_SECTION_SIZE * 2;
+  const limit =
+    typeof opts.limit === "number" && opts.limit > 0
+      ? Math.floor(opts.limit)
+      : defaultLimit;
+
+  const ctx = {
+    weeklyRankById,
+    statsByCourseId,
+    risingBudget: { remaining: HOME_COURSE_DISCOVERY_RISING_BADGE_LIMIT },
+  };
+
+  return merged.slice(0, limit).map((course) => ({
+    course,
+    badge: resolveHomeCourseDiscoveryBadge(course, ctx),
+  }));
+}
+
+/**
+ * 중간(접힘) 시트 가로 미리보기 — 통합 목록 상위 N.
  * @param {object[]} editorPicks
  * @param {object[]} weeklyRanking
  * @param {number} [maxItems]
+ * @param {Map<string, object>} [statsByCourseId]
+ * @returns {{ course: object, badge: { emoji: string, text: string } | null }[]}
  */
 export function buildHomeCourseDiscoveryPeekList(
   editorPicks,
   weeklyRanking,
-  maxItems = 6
+  maxItems = HOME_COURSE_DISCOVERY_SECTION_SIZE,
+  statsByCourseId = null
 ) {
-  const max = Math.max(1, Math.floor(Number(maxItems) || 6));
-  const out = [];
-  const seen = new Set();
-  const addFrom = (list) => {
-    for (const c of Array.isArray(list) ? list : []) {
-      const id = String(c?.id || "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(c);
-      if (out.length >= max) return true;
-    }
-    return false;
-  };
-  if (addFrom(editorPicks)) return out;
-  addFrom(weeklyRanking);
-  return out;
+  const max = Math.max(
+    1,
+    Math.floor(Number(maxItems) || HOME_COURSE_DISCOVERY_SECTION_SIZE)
+  );
+  return buildHomeCourseDiscoveryUnifiedList(
+    editorPicks,
+    weeklyRanking,
+    statsByCourseId,
+    { limit: max }
+  );
 }
 
 /**

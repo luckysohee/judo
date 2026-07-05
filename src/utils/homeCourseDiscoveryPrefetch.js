@@ -3,43 +3,12 @@ import {
   fetchPublicCuratorCourses,
 } from "../api/curatorCourses";
 import { getCourseEngagementStatsBatch } from "../api/courseCompletionStats";
-import { supabase } from "../lib/supabase";
+import { fetchCuratorMapsForCourses } from "./curatorCourseDiscoveryLabels";
 import { HOME_COURSE_DISCOVERY_FETCH_LIMIT } from "./homeCourseDiscoveryLists";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** @typedef {{ rows: object[], statsByCourseId: Map<string, object>, nameByCurator: Map<string, string>, at: number }} DiscoveryBundle */
-
-function curatorLabelFromProfile(p) {
-  if (!p || typeof p !== "object") return "큐레이터";
-  const dn = String(p.display_name || "").trim();
-  if (dn) return dn;
-  const un = String(p.username || "").trim();
-  if (un) return un.startsWith("@") ? un : `@${un}`;
-  return "큐레이터";
-}
-
-async function curatorNameMapForCourses(courses) {
-  const ids = [
-    ...new Set(
-      (Array.isArray(courses) ? courses : [])
-        .map((c) => String(c.curator_id || "").trim())
-        .filter(Boolean)
-    ),
-  ];
-  if (!ids.length) return new Map();
-  const { data: profs, error } = await supabase
-    .from("profiles")
-    .select("id, display_name, username")
-    .in("id", ids);
-  const m = new Map();
-  if (!error && Array.isArray(profs)) {
-    for (const p of profs) {
-      if (p?.id) m.set(String(p.id), curatorLabelFromProfile(p));
-    }
-  }
-  return m;
-}
+/** @typedef {{ rows: object[], statsByCourseId: Map<string, object>, nameByCurator: Map<string, string>, nicknameByCurator: Map<string, string>, at: number }} DiscoveryBundle */
 
 /**
  * @param {object[]} courses
@@ -53,11 +22,13 @@ async function buildTrendingBundle(courses) {
   const statsByCourseId = courseIds.length
     ? await getCourseEngagementStatsBatch(courseIds)
     : new Map();
-  const nameByCurator = await curatorNameMapForCourses(rows);
+  const { nameByCurator, nicknameByCurator } =
+    await fetchCuratorMapsForCourses(rows);
   return {
     rows,
     statsByCourseId,
     nameByCurator,
+    nicknameByCurator,
     at: Date.now(),
   };
 }
@@ -145,6 +116,7 @@ export function prefetchHomeCourseDiscoveryMy(userId) {
         rows: Array.isArray(list) ? list : [],
         statsByCourseId: new Map(),
         nameByCurator: new Map(),
+        nicknameByCurator: new Map(),
         at: Date.now(),
       };
       writeMyCache(id, bundle);

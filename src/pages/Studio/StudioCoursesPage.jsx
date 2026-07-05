@@ -18,7 +18,6 @@ import {
 import {
   getCuratorArchiveStats,
   getCourseEngagementStatsBatch,
-  buildCuratorArchiveVibes,
   pickStudioCourseEngagementLines,
 } from "../../api/courseCompletionStats";
 import {
@@ -32,12 +31,14 @@ import {
   studioCoursesBtnDanger,
   studioCoursesEmpty,
   studioCoursesMeta,
-  studioCoursesArchiveBand,
-  studioCoursesArchiveWhisper,
   studioCoursesFeaturedCard,
   studioCoursesFeaturedBadge,
   studioCoursesSocialLine,
+  studioMapSearchField,
+  studioMapSearchInput,
+  studioMapSearchClearBtn,
 } from "./studioCoursesSharedStyles";
+import StudioCourseSuggestionPanel from "../../components/Studio/StudioCourseSuggestionPanel";
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -58,6 +59,19 @@ function isCoursePublicListed(course) {
   return (
     String(course.status || "").trim() === "published" &&
     course.is_public === true
+  );
+}
+
+function courseMatchesSearch(course, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  const title = String(course?.title || "").toLowerCase();
+  const area = String(course?.area || "").toLowerCase();
+  const tags = Array.isArray(course?.theme_tags)
+    ? course.theme_tags.join(" ").toLowerCase()
+    : "";
+  return (
+    title.includes(needle) || area.includes(needle) || tags.includes(needle)
   );
 }
 
@@ -394,6 +408,7 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
   const [togglingCourseId, setTogglingCourseId] = useState(null);
   const [removingImportId, setRemovingImportId] = useState(null);
   const [deletingOwnCourseId, setDeletingOwnCourseId] = useState(null);
+  const [courseSearchQuery, setCourseSearchQuery] = useState("");
 
   const load = useCallback(async () => {
     if (!user?.id) {
@@ -523,17 +538,36 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
     }
   }, []);
 
-  const vibe = useMemo(
-    () => buildCuratorArchiveVibes(archiveStats),
-    [archiveStats]
-  );
-
   const { ownCourses, importedCourses } = useMemo(
     () => splitMyCuratorCourses(rows),
     [rows]
   );
 
+  const courseSearchTrimmed = courseSearchQuery.trim();
+
+  const ownCourseCounts = useMemo(() => {
+    let publicN = 0;
+    let privateN = 0;
+    for (const course of ownCourses) {
+      if (isCoursePublicListed(course)) publicN += 1;
+      else privateN += 1;
+    }
+    return { publicN, privateN, total: ownCourses.length };
+  }, [ownCourses]);
+
+  const searchedOwnCourses = useMemo(() => {
+    if (!courseSearchTrimmed) return ownCourses;
+    return ownCourses.filter((course) =>
+      courseMatchesSearch(course, courseSearchTrimmed)
+    );
+  }, [courseSearchTrimmed, ownCourses]);
+
+  const courseSearchPlaceholder = `공개 ${ownCourseCounts.publicN} · 비공개 ${ownCourseCounts.privateN}`;
+
   const { featuredCourse, listCourses } = useMemo(() => {
+    if (courseSearchTrimmed) {
+      return { featuredCourse: null, listCourses: searchedOwnCourses };
+    }
     const topId = archiveStats?.top_course?.course_id?.toLowerCase() ?? "";
     if (!topId) {
       return { featuredCourse: null, listCourses: ownCourses };
@@ -548,26 +582,26 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
       (r) => String(r.id || "").trim().toLowerCase() !== topId
     );
     return { featuredCourse: featured, listCourses: rest };
-  }, [ownCourses, archiveStats]);
+  }, [archiveStats, courseSearchTrimmed, ownCourses, searchedOwnCourses]);
 
   const newCourseButton = (
     <button
       type="button"
       aria-label="새 잔 코스"
-      title="새 잔 코스"
       style={{
         ...studioCoursesBtnPrimary,
-        flexShrink: 0,
-        width: "36px",
-        height: "36px",
+        width: "100%",
+        minHeight: "44px",
         padding: 0,
-        fontSize: "22px",
+        marginBottom: "12px",
+        fontSize: "26px",
         fontWeight: 400,
         lineHeight: 1,
-        borderRadius: "10px",
+        borderRadius: "12px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        boxSizing: "border-box",
       }}
       onClick={() => navigate("/studio/courses/new")}
     >
@@ -575,29 +609,48 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
     </button>
   );
 
-  const archiveBand = (
-    <div
-      style={{
-        ...studioCoursesArchiveBand,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: vibe.whisper ? "space-between" : "flex-end",
-        gap: "12px",
-      }}
-    >
-      {vibe.whisper ? (
-        <p
+  const courseSearchBar = (
+    <div style={{ marginBottom: "12px" }}>
+      <div style={studioMapSearchField}>
+        <span
+          aria-hidden
           style={{
-            ...studioCoursesArchiveWhisper,
-            margin: 0,
-            flex: "1 1 auto",
-            minWidth: 0,
+            position: "absolute",
+            left: "13px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            fontSize: "15px",
+            lineHeight: 1,
+            color: "rgba(255,255,255,0.42)",
+            pointerEvents: "none",
+            userSelect: "none",
           }}
         >
-          {vibe.whisper}
-        </p>
-      ) : null}
-      {newCourseButton}
+          🔍
+        </span>
+        <input
+          type="search"
+          value={courseSearchQuery}
+          onChange={(e) => setCourseSearchQuery(e.target.value)}
+          placeholder={courseSearchPlaceholder}
+          aria-label="내 코스 검색"
+          enterKeyHint="search"
+          style={{
+            ...studioMapSearchInput,
+            paddingLeft: "40px",
+          }}
+        />
+        {courseSearchTrimmed ? (
+          <button
+            type="button"
+            aria-label="검색어 지우기"
+            onClick={() => setCourseSearchQuery("")}
+            style={studioMapSearchClearBtn}
+          >
+            ✕
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 
@@ -607,7 +660,9 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
 
   const listBody = (
     <>
-      {archiveBand}
+      {newCourseButton}
+      <StudioCourseSuggestionPanel />
+      {courseSearchBar}
 
       {err ? (
         <div
@@ -645,31 +700,45 @@ export function StudioCoursesPanel({ embedded = false, active = true }) {
               >
                 내가 만든 코스
               </p>
-              {featuredCourse ? (
-                <CourseCardBody
-                  c={featuredCourse}
-                  statsByCourseId={statsByCourseId}
-                  featured
-                  userId={user?.id}
-                  toggleBusy={togglingCourseId === String(featuredCourse.id)}
-                  deleteBusy={deletingOwnCourseId === String(featuredCourse.id)}
-                  onTogglePublicListed={handleToggleCoursePublicListed}
-                  onDelete={handleDeleteOwnCourse}
-                />
-              ) : null}
-              {listCourses.map((c) => (
-                <CourseCardBody
-                  key={c.id}
-                  c={c}
-                  statsByCourseId={statsByCourseId}
-                  featured={false}
-                  userId={user?.id}
-                  toggleBusy={togglingCourseId === String(c.id)}
-                  deleteBusy={deletingOwnCourseId === String(c.id)}
-                  onTogglePublicListed={handleToggleCoursePublicListed}
-                  onDelete={handleDeleteOwnCourse}
-                />
-              ))}
+              {courseSearchTrimmed && searchedOwnCourses.length === 0 ? (
+                <div
+                  style={{
+                    ...studioCoursesEmpty,
+                    marginBottom: "12px",
+                    padding: "14px 12px",
+                  }}
+                >
+                  검색 결과가 없어요.
+                </div>
+              ) : (
+                <>
+                  {featuredCourse ? (
+                    <CourseCardBody
+                      c={featuredCourse}
+                      statsByCourseId={statsByCourseId}
+                      featured
+                      userId={user?.id}
+                      toggleBusy={togglingCourseId === String(featuredCourse.id)}
+                      deleteBusy={deletingOwnCourseId === String(featuredCourse.id)}
+                      onTogglePublicListed={handleToggleCoursePublicListed}
+                      onDelete={handleDeleteOwnCourse}
+                    />
+                  ) : null}
+                  {listCourses.map((c) => (
+                    <CourseCardBody
+                      key={c.id}
+                      c={c}
+                      statsByCourseId={statsByCourseId}
+                      featured={false}
+                      userId={user?.id}
+                      toggleBusy={togglingCourseId === String(c.id)}
+                      deleteBusy={deletingOwnCourseId === String(c.id)}
+                      onTogglePublicListed={handleToggleCoursePublicListed}
+                      onDelete={handleDeleteOwnCourse}
+                    />
+                  ))}
+                </>
+              )}
             </>
           ) : (
             <div

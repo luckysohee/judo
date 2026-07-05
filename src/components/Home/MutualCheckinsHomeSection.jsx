@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchMutualCheckins } from "../../utils/userActivity";
+import { resolveCheckinRowDisplayName } from "../../utils/checkinDisplayName";
 import { HOME_HOT_STRIP_CONTENT_SLOT_PX } from "../../utils/homeHotStripLayout";
 import PickUserButton from "../PickUserButton/PickUserButton";
 
@@ -48,9 +49,7 @@ function pickRepresentativeRow(rows) {
 }
 
 function displayNick(row, profilesById) {
-  const p = profilesById[row.user_id];
-  const raw = String(p?.display_name || p?.username || "").trim();
-  return raw || "아는 사람";
+  return resolveCheckinRowDisplayName(row, profilesById);
 }
 
 function maxCreatedMs(rows) {

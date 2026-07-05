@@ -1,7 +1,22 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  clearSupabaseAuthLocalStorage,
+  createAuthMemoryStorage,
+  isAuthDevFreshLoginEnabled,
+} from "./authDevFreshLogin.js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const authDevFreshLogin = isAuthDevFreshLoginEnabled();
+
+if (authDevFreshLogin) {
+  clearSupabaseAuthLocalStorage(supabaseUrl);
+  if (import.meta.env.DEV) {
+    console.info(
+      "[auth] DEV fresh login: 세션 저장 안 함 · OAuth 계정 선택 강제"
+    );
+  }
+}
 
 console.log("SUPABASE URL:", supabaseUrl);
 console.log("SUPABASE KEY EXISTS:", !!supabaseAnonKey);
@@ -33,6 +48,12 @@ const mockClient = {
 export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
+        persistSession: !authDevFreshLogin,
+        autoRefreshToken: !authDevFreshLogin,
+        detectSessionInUrl: true,
+        ...(authDevFreshLogin
+          ? { storage: createAuthMemoryStorage() }
+          : {}),
         lockAcquireTimeout: 20000,
         lock: async (_name, _acquireTimeout, fn) => fn(),
       },

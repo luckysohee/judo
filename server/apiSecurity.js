@@ -14,6 +14,7 @@ export const API_AUTH_REQUIRED_PREFIXES = [
   "/api/ai-search",
   "/api/search-intent-assist",
   "/api/course-compose-assist",
+  "/api/course-draft-assist",
   "/api/blog-reviews",
   "/api/nearby-with-blog",
 ];
@@ -152,23 +153,24 @@ export function setupApiSecurity(app) {
   const globalMax = Number(process.env.API_RATE_LIMIT_MAX) || 120;
   const expensiveMax = Number(process.env.API_RATE_LIMIT_EXPENSIVE_MAX) || 24;
 
-  app.use(
-    createLimiter({
-      windowMs,
-      max: globalMax,
-      message: "Too many requests — try again shortly",
-    })
-  );
+  const globalLimiter = createLimiter({
+    windowMs,
+    max: globalMax,
+    message: "Too many requests — try again shortly",
+  });
+  app.use(globalLimiter);
+
+  const expensiveLimiter = createLimiter({
+    windowMs,
+    max: expensiveMax,
+    message: "Too many API requests for this endpoint — slow down",
+  });
 
   app.use((req, res, next) => {
     if (!pathMatchesPrefix(req.path, API_EXPENSIVE_PREFIXES)) {
       return next();
     }
-    return createLimiter({
-      windowMs,
-      max: expensiveMax,
-      message: "Too many API requests for this endpoint — slow down",
-    })(req, res, next);
+    return expensiveLimiter(req, res, next);
   });
 
   app.use((req, res, next) => {

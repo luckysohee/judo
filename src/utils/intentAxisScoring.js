@@ -36,10 +36,10 @@ export function detectIntents(query = "") {
   const parsed = raw.trim() ? parseSearchQuery(raw) : null;
   return {
     date: /데이트|소개팅|맞선|첫\s*만남|첫만남/.test(q),
-    after: /끝나고|2\s*차|이\s*차|이후|한잔|마시러/.test(q),
+    after: /끝나고|(?:2|3)\s*차|이\s*차|삼\s*차|이후|한잔|마시러/.test(q),
     quiet: /조용|차분|대화|얘기|담소/.test(q),
     drink: /술집|바|와인|이자카야|맥주|칵테일/.test(q),
-    cafe: /카페|커피|디저트/.test(q),
+    cafe: /카페(?!인)|커피|디저트/.test(q),
     yajang: queryWantsYajangFocus(raw, parsed),
     meeting:
       /미팅|업무\s*미팅|업무미팅|비즈니스|회의|상담|거래처|클라이언트|바이어/.test(
@@ -62,7 +62,8 @@ export function classifyCategory(place) {
     winebar: /와인/.test(text),
     bar: /바|펍|칵테일/.test(text),
     izakaya: /이자카야|야키토리/.test(text),
-    cafe: /카페|커피|디저트/.test(text),
+    /** `카페인`(화장품 등) 오탐 방지 — `카페`만 */
+    cafe: /카페(?!인)|커피|디저트/.test(text),
     italian: /파스타|이탈리안|피자/.test(text),
     cheap: /백반|국밥|분식|해장국|기사식당/.test(text),
     outdoor,
@@ -150,6 +151,7 @@ function applyIntentRules(intent, cat, record) {
     }
     if (cat.italian) record(1.2, "meeting_italian");
     if (cat.winebar) record(1, "meeting_winebar");
+    if (cat.izakaya) record(-5, "penalty_meeting_izakaya");
     // 시끌·노점·저가 업종은 업무 미팅에 부적합
     if (cat.loud) record(-6, "penalty_meeting_loud");
     if (cat.outdoor) record(-3, "penalty_meeting_outdoor");

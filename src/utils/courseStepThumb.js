@@ -1,6 +1,7 @@
 import { getKakaoPlaceBasicInfoViaProxy } from "./kakaoAPIProxy";
 import { fetchGooglePlacePhotoThumb } from "./googlePlacePhotoThumb";
 import { mapPlaceRowForCourse } from "../api/places";
+import { supabase } from "../lib/supabase";
 
 export function isResolvableCourseStepThumbUrl(url) {
   const u = String(url || "").trim();
@@ -90,6 +91,166 @@ export function stepThumbKey(step, index = 0) {
   const order = Number(step?.order);
   if (Number.isFinite(order) && order > 0) return `order-${order}`;
   return `idx-${index}`;
+}
+
+/** 코스 에디터 place row → 카카오 썸네일 조회 입력 */
+export function courseCoverInputFromPlaceRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const placeId = String(row.place_id || row.id || "").trim();
+  const name = String(row.place_name || row.name || "").trim();
+  const address = String(row.place_address || row.address || "").trim();
+  const lat = parseRowCoord(row.place_lat ?? row.lat);
+  const lng = parseRowCoord(row.place_lng ?? row.lng);
+  const kakaoId = String(row.kakao_place_id || "").trim();
+  if (!placeId && !kakaoId && !name) return null;
+  return {
+    place_id: placeId || null,
+    name,
+    address,
+    lat,
+    lng,
+    kakao_place_id: kakaoId || null,
+  };
+}
+
+function parseRowCoord(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 커버 미설정 시 1차 장소 카카오 지도 사진 URL (Google 폴백 없음).
+ * @param {object} row
+ * @param {{ skipGoogleFallback?: boolean }} [opts]
+ * @returns {Promise<string|null>}
+ */
+export async function resolveCourseCoverFromFirstPlace(row, opts = {}) {
+  const input = courseCoverInputFromPlaceRow(row);
+  if (!input) return null;
+  return resolveCourseStepThumbUrl(input, {
+    skipGoogleFallback: true,
+    ...opts,
+  });
+}
+
+/** 코스 객체에서 1차 장소 스텝(목록·상세·조인 등 형태 통합) */
+export function firstCoursePlaceStepFromCourse(course) {
+  if (!course || typeof course !== "object") return null;
+  if (Array.isArray(course.preview_steps) && course.preview_steps.length > 0) {
+    return course.preview_steps[0];
+  }
+  if (Array.isArray(course.thumb_steps) && course.thumb_steps.length > 0) {
+    return course.thumb_steps[0];
+  }
+  if (
+    Array.isArray(course.curator_course_places) &&
+    course.curator_course_places.length > 0
+  ) {
+    const sorted = [...course.curator_course_places]
+      .filter((s) => s && typeof s === "object")
+      .sort((a, b) => Number(a.order_index) - Number(b.order_index));
+    if (sorted.length === 0) return null;
+    return previewStepFromCoursePlaceRow(sorted[0], 0);
+  }
+  if (Array.isArray(course.places) && course.places.length > 0) {
+    const p = course.places[0];
+    return {
+      place_id: p.place_id,
+      name: p.name,
+      address: p.address,
+      lat: p.lat,
+      lng: p.lng,
+      kakao_place_id: p.kakao_place_id,
+      step_image_url: p.image_url,
+      image_url: p.image_url,
+    };
+  }
+  return null;
+}
+
+/**
+ * 표시용 커버 URL — 명시 커버 → (옵션) 해석된 1차 썸네일 → 1차 업로드 사진.
+ * @param {object|null|undefined} course
+ * @param {{ resolvedFirstThumbUrl?: string|null }} [opts]
+ */
+export function pickCourseDisplayCoverUrl(course, opts = {}) {
+  const explicit = String(course?.cover_image_url || "").trim();
+  if (explicit) return explicit;
+  const resolved = String(opts.resolvedFirstThumbUrl || "").trim();
+  if (resolved) return resolved;
+  const first = firstCoursePlaceStepFromCourse(course);
+  if (!first) return "";
+  return pickStepUploadedThumb(first) || "";
+}
+
+/** 검색·카운트-only 목록 등 preview_steps 없는 코스에 1차 장소 스텝 부착 */
+export async function hydrateCoursesWithFirstPreviewStep(courses) {
+  if (!Array.isArray(courses) || courses.length === 0) return courses;
+
+  const needIds = [];
+  for (const course of courses) {
+    if (String(course?.cover_image_url || "").trim()) continue;
+    if (firstCoursePlaceStepFromCourse(course)) continue;
+    const id = String(course?.id || "").trim();
+    if (id) needIds.push(id);
+  }
+  if (needIds.length === 0) return courses;
+
+  const uniqueIds = [...new Set(needIds)];
+  const { data, error } = await supabase
+    .from("curator_course_places")
+    .select(
+      `course_id, order_index, place_id, image_url,
+       places ( name, lat, lng, kakao_place_id, address, category )`
+    )
+    .in("course_id", uniqueIds)
+    .order("order_index", { ascending: true });
+
+  if (error || !Array.isArray(data) || data.length === 0) return courses;
+
+  const firstByCourse = new Map();
+  for (const row of data) {
+    const cid = String(row.course_id || "").trim().toLowerCase();
+    if (!cid || firstByCourse.has(cid)) continue;
+    const step = previewStepFromCoursePlaceRow(row, 0);
+    if (step) firstByCourse.set(cid, step);
+  }
+
+  return courses.map((course) => {
+    const cid = String(course?.id || "").trim().toLowerCase();
+    const step = firstByCourse.get(cid);
+    if (!step) return course;
+    const existing = Array.isArray(course.preview_steps)
+      ? course.preview_steps
+      : [];
+    if (existing.length > 0) return course;
+    return { ...course, preview_steps: [step] };
+  });
+}
+
+/** 커버 없을 때 1차 장소 카카오 사진 URL 해석 */
+export async function resolveCourseCoverForCourse(course) {
+  const explicit = String(course?.cover_image_url || "").trim();
+  if (explicit) return explicit;
+  const first = firstCoursePlaceStepFromCourse(course);
+  if (!first) return null;
+  const uploaded = pickStepUploadedThumb(first);
+  if (uploaded) return uploaded;
+  return resolveCourseCoverFromFirstPlace(first);
+}
+
+/** 목록 행 — 커ver 없는 코스에 1차 장소 카카오 사진 보강 */
+export async function enrichCoursesWithAutoCover(courses) {
+  if (!Array.isArray(courses) || courses.length === 0) return courses;
+  const hydrated = await hydrateCoursesWithFirstPreviewStep(courses);
+  return Promise.all(
+    hydrated.map(async (course) => {
+      if (String(course?.cover_image_url || "").trim()) return course;
+      const url = await resolveCourseCoverForCourse(course);
+      return url ? { ...course, cover_image_url: url } : course;
+    })
+  );
 }
 
 /** `curator_course_places` 행 → 홈 코스 카드·썸네일용 스텝 */

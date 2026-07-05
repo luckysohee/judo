@@ -1,6 +1,6 @@
 import { supabase } from "./client";
 import { mapPlaceRowForCourse } from "./places.js";
-import { previewStepFromCoursePlaceRow } from "../utils/courseStepThumb.js";
+import { previewStepFromCoursePlaceRow, pickCourseDisplayCoverUrl } from "../utils/courseStepThumb.js";
 import { isImportedCuratorCourse } from "../utils/courseImportUi.js";
 
 const UUID_RE =
@@ -66,7 +66,11 @@ function normalizePublicCuratorCoursesRow(row) {
     .sort((a, b) => Number(a.order_index) - Number(b.order_index));
   const place_count = steps.length;
   const preview_steps = steps.slice(0, 3).map((s, i) => previewStepFromCoursePlaceRow(s, i)).filter(Boolean);
-  return { ...rest, place_count, preview_steps };
+  const cover_image_url = pickCourseDisplayCoverUrl({
+    ...rest,
+    preview_steps,
+  });
+  return { ...rest, cover_image_url, place_count, preview_steps };
 }
 
 /**
@@ -431,12 +435,37 @@ export async function fetchMyCuratorCourses(curatorId, opts = {}) {
 
   const { data, error } = await supabase
     .from("curator_courses")
-    .select("*, curator_course_places(count)")
+    .select(
+      `*,
+      curator_course_places (
+        order_index,
+        place_id,
+        image_url,
+        places (
+          name,
+          lat,
+          lng,
+          kakao_place_id,
+          address,
+          category
+        )
+      )`
+    )
     .eq("curator_id", cid)
     .order("created_at", { ascending: false })
+    .order("order_index", {
+      ascending: true,
+      foreignTable: "curator_course_places",
+    })
     .limit(limit);
   throwIfSupabaseError(error, "[내 코스 목록 조회 실패]");
-  return (data || []).map(normalizePlaceCountRow);
+  return (data || []).map((row) => {
+    const nested = row.curator_course_places;
+    if (Array.isArray(nested) && nested.length > 0 && "count" in (nested[0] || {})) {
+      return normalizePlaceCountRow(row);
+    }
+    return normalizePublicCuratorCoursesRow(row);
+  });
 }
 
 /**

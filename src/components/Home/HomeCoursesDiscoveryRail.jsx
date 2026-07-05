@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  deleteCuratorCourse,
   fetchMyCuratorCourses,
   fetchPublicCuratorCourses,
   publishCuratorCourse,
@@ -10,6 +11,7 @@ import { useToast } from "../Toast/ToastProvider";
 import { searchPublicCuratorCourses } from "../../api/searchPublicCourses";
 import { buildCourseDiscoverySearchPlan } from "../../utils/courseSearchAreaExpansion";
 import { splitMyCuratorCourses } from "../../utils/courseImportUi";
+import { removeImportedCuratorCourse } from "../../api/courseImports";
 import { COURSE_SCRAP_SECTION_TITLE } from "../../utils/coursePickCopy";
 import {
   getCourseEngagementStatsBatch,
@@ -18,7 +20,9 @@ import {
 import { supabase } from "../../lib/supabase";
 import {
   HOME_COURSE_DISCOVERY_FETCH_LIMIT,
+  HOME_COURSE_DISCOVERY_SECTION_SIZE,
   buildHomeCourseDiscoveryPeekList,
+  buildHomeCourseDiscoveryUnifiedList,
   filterCoursesForDiscoverySearch,
   partitionHomeCourseDiscovery,
 } from "../../utils/homeCourseDiscoveryLists";
@@ -31,23 +35,41 @@ import {
   readHomeCourseDiscoveryMyCache,
   readHomeCourseDiscoveryTrendingCache,
 } from "../../utils/homeCourseDiscoveryPrefetch";
+import { enrichCoursesWithAutoCover, pickCourseDisplayCoverUrl } from "../../utils/courseStepThumb";
+import { useHomeSearchMode } from "../../hooks/useHomeSearchMode";
+import HomeCourseSearchOverlay from "./HomeCourseSearchOverlay";
+import StudioCourseSuggestionPanel from "../Studio/StudioCourseSuggestionPanel";
 
 const COURSE_SEARCH_DEBOUNCE_MS = 320;
 const COURSE_SEARCH_PAGE_SIZE = 24;
 const COURSE_NEARBY_PAGE_SIZE = 6;
+
+function isCoursePublicListed(course) {
+  if (!course || typeof course !== "object") return false;
+  return (
+    String(course.status || "").trim() === "published" &&
+    course.is_public === true
+  );
+}
+
+function courseMatchesSearch(course, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  const title = String(course?.title || "").toLowerCase();
+  const area = String(course?.area || "").toLowerCase();
+  const tags = Array.isArray(course?.theme_tags)
+    ? course.theme_tags.join(" ").toLowerCase()
+    : "";
+  return (
+    title.includes(needle) || area.includes(needle) || tags.includes(needle)
+  );
+}
 const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(
   /\/$/,
   ""
 );
 
-function curatorLabelFromProfile(p) {
-  if (!p || typeof p !== "object") return "큐레이터";
-  const dn = String(p.display_name || "").trim();
-  if (dn) return dn;
-  const un = String(p.username || "").trim();
-  if (un) return un.startsWith("@") ? un : `@${un}`;
-  return "큐레이터";
-}
+import { fetchCuratorMapsForUserIds } from "../../utils/curatorCourseDiscoveryLabels";
 
 const styles = {
   root: {
@@ -86,6 +108,20 @@ const styles = {
     fontWeight: 600,
     color: T.text,
     outline: "none",
+  },
+  searchInputWithIcon: {
+    paddingLeft: 34,
+  },
+  searchIconLead: {
+    position: "absolute",
+    left: 10,
+    top: "50%",
+    transform: "translateY(-50%)",
+    fontSize: 14,
+    lineHeight: 1,
+    pointerEvents: "none",
+    opacity: 0.55,
+    userSelect: "none",
   },
   searchClear: {
     position: "absolute",
@@ -145,6 +181,13 @@ const styles = {
     flexDirection: "column",
     gap: 6,
     WebkitOverflowScrolling: "touch",
+  },
+  overlaySearchResults: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "8px 10px 16px",
+    boxSizing: "border-box",
   },
   compactCard: {
     display: "flex",
@@ -209,6 +252,12 @@ const styles = {
     fontSize: 10,
     fontWeight: 700,
     color: T.textSub,
+  },
+  cardBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: T.textSub,
+    lineHeight: 1.3,
   },
   emptyCol: {
     fontSize: 10,
@@ -310,6 +359,16 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  peekBadge: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: 700,
+    color: T.textSub,
+    lineHeight: 1.25,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   peekHint: {
     flexShrink: 0,
     margin: 0,
@@ -356,6 +415,103 @@ const styles = {
     gap: 6,
     WebkitOverflowScrolling: "touch",
   },
+  sectionTitleOwn: {
+    margin: "4px 2px 2px",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    color: T.textSub,
+  },
+  sectionTitleScrap: {
+    margin: "12px 2px 2px",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    color: "rgba(165,180,252,0.85)",
+  },
+  sectionEmpty: {
+    margin: "0 0 8px",
+    padding: "12px 10px",
+    borderRadius: 10,
+    border: T.chipBorder,
+    background: T.chipBg,
+    fontSize: 12,
+    lineHeight: 1.45,
+    color: T.textSub,
+  },
+  mineActionRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    marginBottom: 8,
+  },
+  newCourseBtn: {
+    flex: "1 1 0",
+    minWidth: 0,
+    minHeight: 44,
+    padding: 0,
+    borderRadius: 12,
+    border: "1px solid rgba(46, 204, 113, 0.55)",
+    background: "linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)",
+    color: "#fff",
+    fontSize: 26,
+    fontWeight: 400,
+    lineHeight: 1,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    boxShadow: "0 2px 10px rgba(39, 174, 96, 0.28)",
+    WebkitTapHighlightColor: "transparent",
+  },
+  studioVerBtn: {
+    flex: "1 1 0",
+    minWidth: 0,
+    minHeight: 44,
+    padding: "0 10px",
+    borderRadius: 12,
+    border: "1px solid rgba(129,140,248,0.38)",
+    background:
+      "linear-gradient(145deg, rgba(99,102,241,0.16) 0%, rgba(15,23,42,0.45) 100%)",
+    color: "rgba(224,231,255,0.95)",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    lineHeight: 1.2,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    boxSizing: "border-box",
+    WebkitTapHighlightColor: "transparent",
+  },
+  studioVerBtnHint: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: "rgba(165,180,252,0.72)",
+  },
+  cardActionRow: {
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  cardMiniBtn: {
+    flexShrink: 0,
+    minWidth: 0,
+    padding: "5px 7px",
+    borderRadius: 8,
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: 1.2,
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
 };
 
 const DISCOVERY_TABS = [
@@ -368,21 +524,26 @@ function CompactCourseCard({
   course,
   statsByCourseId,
   nameByCurator,
+  nicknameByCurator,
   active,
   onActivate,
   metaExtra = "",
   showEngagement = true,
+  badge = null,
   rightSlot = null,
 }) {
   const id = String(course?.id || "").trim();
   const title = String(course?.title || "").trim() || "제목 없음";
-  const cover = String(course?.cover_image_url || "").trim();
+  const cover = pickCourseDisplayCoverUrl(course);
   const area = String(course?.area || "").trim();
   const cid = String(course?.curator_id || "").trim();
-  const curatorName = nameByCurator.get(cid) || "큐레이터";
+  const curatorLabel = nameByCurator.get(cid) || "큐레이터";
+  const curatorNickname = nicknameByCurator?.get(cid) || "";
   const n = Number(course?.place_count);
   const placeTxt = Number.isFinite(n) && n > 0 ? `${Math.floor(n)}곳` : "";
-  const metaBits = [metaExtra, curatorName, area, placeTxt].filter(Boolean);
+  const metaBits = badge
+    ? [metaExtra, curatorLabel, area, placeTxt].filter(Boolean)
+    : [metaExtra, area, placeTxt].filter(Boolean);
   const statRow = id ? statsByCourseId.get(id.toLowerCase()) : null;
   const metricLine = pickHomeCourseCompletionMetricLine(statRow);
   const activate = () => {
@@ -415,8 +576,15 @@ function CompactCourseCard({
       )}
       <div style={styles.cardBody}>
         <h4 style={styles.cardTitle}>{title}</h4>
+        {badge ? (
+          <div style={styles.cardBadge}>
+            {badge.emoji} {badge.text}
+          </div>
+        ) : curatorNickname ? (
+          <div style={styles.cardBadge}>{curatorNickname}</div>
+        ) : null}
         <div style={styles.cardMeta}>{metaBits.join(" · ")}</div>
-        {showEngagement && metricLine ? (
+        {showEngagement && !badge && metricLine ? (
           <div style={styles.cardMetric}>
             {metricLine.emoji} {metricLine.text}
           </div>
@@ -427,16 +595,22 @@ function CompactCourseCard({
   );
 }
 
-function PeekCourseCard({ course, nameByCurator, onActivate }) {
+function PeekCourseCard({
+  course,
+  badge = null,
+  nameByCurator,
+  nicknameByCurator,
+  onActivate,
+}) {
   const id = String(course?.id || "").trim();
   const title = String(course?.title || "").trim() || "제목 없음";
-  const cover = String(course?.cover_image_url || "").trim();
+  const cover = pickCourseDisplayCoverUrl(course);
   const area = String(course?.area || "").trim();
   const cid = String(course?.curator_id || "").trim();
-  const curatorName = nameByCurator.get(cid) || "큐레이터";
+  const curatorNickname = nicknameByCurator?.get(cid) || "";
   const n = Number(course?.place_count);
   const placeTxt = Number.isFinite(n) && n > 0 ? `${Math.floor(n)}곳` : "";
-  const metaBits = [placeTxt, area || curatorName].filter(Boolean);
+  const metaBits = [placeTxt, area].filter(Boolean);
 
   return (
     <button
@@ -454,6 +628,13 @@ function PeekCourseCard({ course, nameByCurator, onActivate }) {
       )}
       <div style={{ flex: "1 1 auto", minWidth: 0 }}>
         <h4 style={styles.peekTitle}>{title}</h4>
+        {badge ? (
+          <div style={styles.peekBadge}>
+            {badge.emoji} {badge.text}
+          </div>
+        ) : curatorNickname ? (
+          <div style={styles.peekBadge}>{curatorNickname}</div>
+        ) : null}
         {metaBits.length > 0 ? (
           <div style={styles.peekMeta}>{metaBits.join(" · ")}</div>
         ) : null}
@@ -466,6 +647,7 @@ function DiscoveryPeekStrip({
   phase,
   peekCourses,
   nameByCurator,
+  nicknameByCurator,
   onActivate,
   onRetry,
   emptyHint = "공개 코스가 없어요.",
@@ -499,19 +681,25 @@ function DiscoveryPeekStrip({
       role="list"
       aria-label="코스 빠른 미리보기"
     >
-      {peekCourses.map((c) => (
-        <PeekCourseCard
-          key={String(c.id || c.title)}
-          course={c}
-          nameByCurator={nameByCurator}
-          onActivate={onActivate}
-        />
-      ))}
+      {peekCourses.map((entry) => {
+        const course = entry?.course ?? entry;
+        const badge = entry?.badge ?? null;
+        return (
+          <PeekCourseCard
+            key={String(course.id || course.title)}
+            course={course}
+            badge={badge}
+            nameByCurator={nameByCurator}
+            nicknameByCurator={nicknameByCurator}
+            onActivate={onActivate}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function DiscoveryTabBar({ activeTab, onChange, disabled }) {
+function DiscoveryTabBar({ tabs, activeTab, onChange, disabled }) {
   return (
     <div
       style={styles.tabRow}
@@ -519,7 +707,7 @@ function DiscoveryTabBar({ activeTab, onChange, disabled }) {
       aria-label="코스 목록 종류"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {DISCOVERY_TABS.map((tab) => {
+      {tabs.map((tab) => {
         const active = activeTab === tab.id;
         return (
           <button
@@ -539,48 +727,22 @@ function DiscoveryTabBar({ activeTab, onChange, disabled }) {
   );
 }
 
-function DiscoveryColumn({
-  title,
-  courses,
-  emptyHint,
-  statsByCourseId,
-  nameByCurator,
-  onActivate,
-}) {
-  return (
-    <section style={styles.column} aria-label={title}>
-      <h3 style={styles.columnTitle}>{title}</h3>
-      <div style={styles.columnScroll}>
-        {courses.length === 0 ? (
-          <p style={styles.emptyCol}>{emptyHint}</p>
-        ) : (
-          courses.map((c) => (
-            <CompactCourseCard
-              key={String(c.id || c.title)}
-              course={c}
-              statsByCourseId={statsByCourseId}
-              nameByCurator={nameByCurator}
-              active={false}
-              onActivate={onActivate}
-            />
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 /**
- * 홈 「지금 뜨는 코스」 패널 — 에디터픽/주간 랭킹 4+4, 상단 검색.
+ * 홈 「지금 뜨는 코스」 패널 — 통합 추천 목록 + 배지, 상단 검색.
  */
 export default function HomeCoursesDiscoveryRail({
   visible = true,
   /** @type {'full'|'peek'} */
   layout = "full",
   user = null,
+  isCurator = false,
   refreshKey = 0,
+  studioFullscreen = false,
+  onEnterStudioFullscreen,
+  onActiveTabChange,
   onSelectCourse,
   onSearchFocus,
+  onSearchModeChange,
 }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -588,8 +750,31 @@ export default function HomeCoursesDiscoveryRail({
   const myCacheOnMount = readHomeCourseDiscoveryMyCache(user?.id);
   /** @type {'trending'|'mine'|'imported'} */
   const [activeTab, setActiveTab] = useState("trending");
+  const handleDiscoveryTabChange = useCallback(
+    (tab) => {
+      setActiveTab(tab);
+      onActiveTabChange?.(tab);
+    },
+    [onActiveTabChange]
+  );
+
+  const discoveryTabs = useMemo(
+    () =>
+      DISCOVERY_TABS.filter((tab) => tab.id !== "mine" || isCurator),
+    [isCurator]
+  );
+
+  useEffect(() => {
+    if (!isCurator && activeTab === "mine") {
+      handleDiscoveryTabChange("trending");
+    }
+  }, [isCurator, activeTab, handleDiscoveryTabChange]);
   /** 공개/비공개 토글 진행 중 course id */
   const [togglingCourseId, setTogglingCourseId] = useState("");
+  /** 스크랩 코스 삭제 진행 중 course id */
+  const [removingImportId, setRemovingImportId] = useState("");
+  /** 내 코스 삭제 진행 중 course id */
+  const [deletingOwnCourseId, setDeletingOwnCourseId] = useState("");
   const [phase, setPhase] = useState(() => {
     if (trendingCacheOnMount?.rows?.length) return "ready";
     return visible ? "loading" : "idle";
@@ -607,6 +792,9 @@ export default function HomeCoursesDiscoveryRail({
   const [nameByCurator, setNameByCurator] = useState(
     () => trendingCacheOnMount?.nameByCurator ?? new Map()
   );
+  const [nicknameByCurator, setNicknameByCurator] = useState(
+    () => trendingCacheOnMount?.nicknameByCurator ?? new Map()
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPhase, setSearchPhase] = useState("idle");
   const [searchResults, setSearchResults] = useState([]);
@@ -617,34 +805,68 @@ export default function HomeCoursesDiscoveryRail({
   const myLoadGenRef = useRef(0);
   const searchGenRef = useRef(0);
   const searchInputRef = useRef(null);
+  const courseSearchMode = useHomeSearchMode({
+    historyStateKey: "judoCourseDiscoverySearchMode",
+  });
+  const {
+    isOpen: courseSearchOpen,
+    open: openCourseSearchMode,
+    close: closeCourseSearchMode,
+  } = courseSearchMode;
 
   const trimmedSearch = String(searchQuery || "").trim();
+  const showInlineSearchResults =
+    Boolean(trimmedSearch) && !courseSearchOpen;
 
   const { editorPicks, weeklyRanking } = useMemo(
     () => partitionHomeCourseDiscovery(rows, statsByCourseId),
     [rows, statsByCourseId]
   );
 
+  const trendingUnified = useMemo(() => {
+    const totalPublic = rows.length;
+    const limit =
+      totalPublic <= 10
+        ? totalPublic
+        : HOME_COURSE_DISCOVERY_SECTION_SIZE * 2;
+    return buildHomeCourseDiscoveryUnifiedList(
+      editorPicks,
+      weeklyRanking,
+      statsByCourseId,
+      { limit }
+    );
+  }, [editorPicks, rows.length, statsByCourseId, weeklyRanking]);
+
   const { ownCourses, importedCourses } = useMemo(
     () => splitMyCuratorCourses(myRows),
     [myRows]
   );
 
-  const personalTabCourses = useMemo(() => {
-    if (activeTab === "mine") return ownCourses;
-    if (activeTab === "imported") return importedCourses;
-    return [];
-  }, [activeTab, ownCourses, importedCourses]);
+  const ownCourseCounts = useMemo(() => {
+    let publicN = 0;
+    let privateN = 0;
+    for (const course of ownCourses) {
+      if (isCoursePublicListed(course)) publicN += 1;
+      else privateN += 1;
+    }
+    return { publicN, privateN, total: ownCourses.length };
+  }, [ownCourses]);
 
-  const filteredPersonalCourses = useMemo(() => {
-    if (!trimmedSearch) return personalTabCourses;
-    // 성수동 → 성수 등 동네명을 클러스터 키로 정규화해 부분일치 누락 방지
+  const searchedOwnCourses = useMemo(() => {
+    if (!trimmedSearch) return ownCourses;
+    return ownCourses.filter((course) =>
+      courseMatchesSearch(course, trimmedSearch)
+    );
+  }, [ownCourses, trimmedSearch]);
+
+  const searchedImportedCourses = useMemo(() => {
+    if (!trimmedSearch) return importedCourses;
     const plan = buildCourseDiscoverySearchPlan(trimmedSearch);
     const q = plan.primaryQuery || trimmedSearch;
-    return filterCoursesForDiscoverySearch(personalTabCourses, q, {
+    return filterCoursesForDiscoverySearch(importedCourses, q, {
       nameByCurator,
     });
-  }, [personalTabCourses, trimmedSearch, nameByCurator]);
+  }, [importedCourses, trimmedSearch, nameByCurator]);
 
   const mergeCuratorNames = useCallback(async (courses, genRef, gen) => {
     const ids = [
@@ -655,17 +877,16 @@ export default function HomeCoursesDiscoveryRail({
       ),
     ];
     if (ids.length === 0) return;
-    const { data: profs, error } = await supabase
-      .from("profiles")
-      .select("id, display_name, username")
-      .in("id", ids);
+    const maps = await fetchCuratorMapsForUserIds(ids);
     if (genRef.current !== gen) return;
-    if (error || !Array.isArray(profs)) return;
     setNameByCurator((prev) => {
       const next = new Map(prev);
-      for (const p of profs) {
-        if (p?.id) next.set(String(p.id), curatorLabelFromProfile(p));
-      }
+      for (const [k, v] of maps.nameByCurator.entries()) next.set(k, v);
+      return next;
+    });
+    setNicknameByCurator((prev) => {
+      const next = new Map(prev);
+      for (const [k, v] of maps.nicknameByCurator.entries()) next.set(k, v);
       return next;
     });
   }, []);
@@ -687,10 +908,30 @@ export default function HomeCoursesDiscoveryRail({
   }, []);
 
   const peekCourses = useMemo(() => {
-    if (activeTab === "mine") return ownCourses.slice(0, 6);
-    if (activeTab === "imported") return importedCourses.slice(0, 6);
-    return buildHomeCourseDiscoveryPeekList(editorPicks, weeklyRanking, 6);
-  }, [activeTab, ownCourses, importedCourses, editorPicks, weeklyRanking]);
+    if (activeTab === "mine") {
+      return ownCourses
+        .slice(0, HOME_COURSE_DISCOVERY_SECTION_SIZE)
+        .map((course) => ({ course, badge: null }));
+    }
+    if (activeTab === "imported") {
+      return importedCourses
+        .slice(0, HOME_COURSE_DISCOVERY_SECTION_SIZE)
+        .map((course) => ({ course, badge: null }));
+    }
+    return buildHomeCourseDiscoveryPeekList(
+      editorPicks,
+      weeklyRanking,
+      HOME_COURSE_DISCOVERY_SECTION_SIZE,
+      statsByCourseId
+    );
+  }, [
+    activeTab,
+    ownCourses,
+    importedCourses,
+    editorPicks,
+    weeklyRanking,
+    statsByCourseId,
+  ]);
 
   const peekPhase =
     activeTab === "trending"
@@ -711,6 +952,19 @@ export default function HomeCoursesDiscoveryRail({
     [onSelectCourse, navigate]
   );
 
+  const activateCourseFromSearch = useCallback(
+    (id) => {
+      closeCourseSearchMode();
+      activateCourse(id);
+    },
+    [activateCourse, closeCourseSearchMode]
+  );
+
+  const openCourseSearch = useCallback(() => {
+    onSearchFocus?.();
+    openCourseSearchMode();
+  }, [openCourseSearchMode, onSearchFocus]);
+
   const load = useCallback(async () => {
     const gen = loadGenRef.current + 1;
     loadGenRef.current = gen;
@@ -720,6 +974,7 @@ export default function HomeCoursesDiscoveryRail({
       setRows(cached.rows);
       setStatsByCourseId(cached.statsByCourseId);
       setNameByCurator(cached.nameByCurator);
+      setNicknameByCurator(cached.nicknameByCurator ?? new Map());
       setPhase("ready");
       hasDisplayedRows = true;
     } else {
@@ -730,7 +985,9 @@ export default function HomeCoursesDiscoveryRail({
         limit: HOME_COURSE_DISCOVERY_FETCH_LIMIT,
       });
       if (loadGenRef.current !== gen) return;
-      const courses = Array.isArray(list) ? list : [];
+      const courses = await enrichCoursesWithAutoCover(
+        Array.isArray(list) ? list : []
+      );
       setRows(courses);
       setPhase("ready");
       hasDisplayedRows = courses.length > 0;
@@ -749,24 +1006,16 @@ export default function HomeCoursesDiscoveryRail({
           courses.map((c) => String(c.curator_id || "").trim()).filter(Boolean)
         ),
       ];
-      let nameMap = new Map();
-      if (ids.length > 0) {
-        const { data: profs, error } = await supabase
-          .from("profiles")
-          .select("id, display_name, username")
-          .in("id", ids);
-        if (loadGenRef.current !== gen) return;
-        if (!error && Array.isArray(profs)) {
-          for (const p of profs) {
-            if (p?.id) nameMap.set(String(p.id), curatorLabelFromProfile(p));
-          }
-        }
-      }
+      const { nameByCurator: nameMap, nicknameByCurator: nicknameMap } =
+        await fetchCuratorMapsForUserIds(ids);
+      if (loadGenRef.current !== gen) return;
       setNameByCurator(nameMap);
+      setNicknameByCurator(nicknameMap);
       commitHomeCourseDiscoveryTrendingCache({
         rows: courses,
         statsByCourseId: statMap,
         nameByCurator: nameMap,
+        nicknameByCurator: nicknameMap,
         at: Date.now(),
       });
     } catch (e) {
@@ -776,6 +1025,7 @@ export default function HomeCoursesDiscoveryRail({
         setRows([]);
         setStatsByCourseId(new Map());
         setNameByCurator(new Map());
+        setNicknameByCurator(new Map());
         setPhase("error");
       }
     }
@@ -802,7 +1052,9 @@ export default function HomeCoursesDiscoveryRail({
     try {
       const list = await fetchMyCuratorCourses(uid, { limit: 100 });
       if (myLoadGenRef.current !== gen) return;
-      const courses = Array.isArray(list) ? list : [];
+      const courses = await enrichCoursesWithAutoCover(
+        Array.isArray(list) ? list : []
+      );
       setMyRows(courses);
       setMyPhase("ready");
       hasDisplayedRows = true;
@@ -890,6 +1142,84 @@ export default function HomeCoursesDiscoveryRail({
     [showToast, user?.id]
   );
 
+  const handleRemoveImportedCourse = useCallback(
+    async (course) => {
+      const id = String(course?.id ?? "").trim();
+      if (!id) return;
+      if (
+        !window.confirm(
+          "스크랩한 코스를 삭제할까요? 원본 코스는 그대로 남습니다."
+        )
+      ) {
+        return;
+      }
+      setRemovingImportId(id);
+      try {
+        await removeImportedCuratorCourse(id);
+        setMyRows((prev) => {
+          const next = prev.filter((r) => String(r.id) !== id);
+          if (user?.id) {
+            commitHomeCourseDiscoveryMyCache(user.id, {
+              rows: next,
+              statsByCourseId: new Map(),
+              nameByCurator: new Map(),
+              at: Date.now(),
+            });
+          }
+          return next;
+        });
+        showToast("스크랩한 코스를 삭제했어요.", "success", 2200);
+      } catch (e) {
+        showToast(e?.message || "삭제하지 못했어요.", "warning", 3200);
+      } finally {
+        setRemovingImportId("");
+      }
+    },
+    [showToast, user?.id]
+  );
+
+  const handleDeleteOwnCourse = useCallback(
+    async (course) => {
+      const id = String(course?.id ?? "").trim();
+      if (!id) return;
+      const title = String(course?.title || "").trim() || "제목 없음";
+      if (
+        !window.confirm(
+          `「${title}」 코스를 삭제할까요?\n삭제 후 복구할 수 없습니다.`
+        )
+      ) {
+        return;
+      }
+      setDeletingOwnCourseId(id);
+      try {
+        await deleteCuratorCourse(id);
+        setMyRows((prev) => {
+          const next = prev.filter((r) => String(r.id) !== id);
+          if (user?.id) {
+            commitHomeCourseDiscoveryMyCache(user.id, {
+              rows: next,
+              statsByCourseId: new Map(),
+              nameByCurator: new Map(),
+              at: Date.now(),
+            });
+          }
+          return next;
+        });
+        setStatsByCourseId((prev) => {
+          const next = new Map(prev);
+          next.delete(id.toLowerCase());
+          return next;
+        });
+        showToast("코스를 삭제했어요.", "success", 2200);
+      } catch (e) {
+        showToast(e?.message || "삭제하지 못했어요.", "warning", 3200);
+      } finally {
+        setDeletingOwnCourseId("");
+      }
+    },
+    [showToast, user?.id]
+  );
+
   useEffect(() => {
     if (!visible || activeTab !== "trending" || !trimmedSearch) {
       searchGenRef.current += 1;
@@ -917,7 +1247,10 @@ export default function HomeCoursesDiscoveryRail({
             }
           );
           if (searchGenRef.current !== gen) return;
-          const primary = Array.isArray(courses) ? courses : [];
+          const primary = await enrichCoursesWithAutoCover(
+            Array.isArray(courses) ? courses : []
+          );
+          if (searchGenRef.current !== gen) return;
           setSearchResults(primary);
           setSearchHasMore(Boolean(hasMore));
           setSearchPhase("ready");
@@ -952,9 +1285,11 @@ export default function HomeCoursesDiscoveryRail({
                 }
               );
               if (fresh.length > 0) {
-                sections.push({ key: area.key, courses: fresh });
-                void mergeSearchStats(fresh, searchGenRef, gen);
-                void mergeCuratorNames(fresh, searchGenRef, gen);
+                const enrichedFresh = await enrichCoursesWithAutoCover(fresh);
+                if (searchGenRef.current !== gen) return;
+                sections.push({ key: area.key, courses: enrichedFresh });
+                void mergeSearchStats(enrichedFresh, searchGenRef, gen);
+                void mergeCuratorNames(enrichedFresh, searchGenRef, gen);
               }
             } catch (nearErr) {
               if (searchGenRef.current !== gen) return;
@@ -1034,6 +1369,7 @@ export default function HomeCoursesDiscoveryRail({
           phase={peekPhase}
           peekCourses={peekCourses}
           nameByCurator={nameByCurator}
+          nicknameByCurator={nicknameByCurator}
           onActivate={activateCourse}
           emptyHint={peekEmptyHint}
           onRetry={() =>
@@ -1044,16 +1380,249 @@ export default function HomeCoursesDiscoveryRail({
     );
   }
 
+  const renderOwnCourseCard = (c, onActivate) => {
+    const cid = String(c.id || "").trim();
+    const isPublic = isCoursePublicListed(c);
+    const toggling = togglingCourseId === cid;
+    const deleting = deletingOwnCourseId === cid;
+    const placeN = Math.max(0, Math.floor(Number(c.place_count) || 0));
+    const canTurnPublic = placeN >= 2;
+    return (
+      <CompactCourseCard
+        key={cid || c.title}
+        course={c}
+        statsByCourseId={statsByCourseId}
+        nameByCurator={nameByCurator}
+        nicknameByCurator={nicknameByCurator}
+        active={false}
+        onActivate={onActivate}
+        showEngagement
+        rightSlot={
+          isCurator ? (
+            <div style={styles.cardActionRow}>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isPublic}
+                aria-label={
+                  isPublic
+                    ? "공개 상태 — 탭하면 비공개"
+                    : "비공개 상태 — 탭하면 공개"
+                }
+                title={
+                  !isPublic && !canTurnPublic
+                    ? "공개하려면 장소를 2곳 이상 추가하세요."
+                    : isPublic
+                      ? "공개됨 (탭하면 비공개)"
+                      : "비공개 (탭하면 공개)"
+                }
+                disabled={toggling || (!isPublic && !canTurnPublic)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleTogglePublic(c);
+                }}
+                style={{
+                  ...styles.cardMiniBtn,
+                  border: isPublic
+                    ? "1px solid rgba(52,199,89,0.5)"
+                    : T.chipBorder,
+                  background: isPublic ? "rgba(52,199,89,0.16)" : T.chipBg,
+                  color: isPublic ? "#34c759" : T.textSub,
+                  opacity:
+                    toggling || (!isPublic && !canTurnPublic) ? 0.55 : 1,
+                  cursor: toggling ? "wait" : "pointer",
+                }}
+              >
+                {toggling ? "…" : isPublic ? "공개" : "비공개"}
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.cardMiniBtn,
+                  border: `1px solid ${T.chipBorder}`,
+                  background: T.chipActiveBg,
+                  color: T.text,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(
+                    `/studio/courses/${encodeURIComponent(cid)}/edit`
+                  );
+                }}
+              >
+                수정
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                style={{
+                  ...styles.cardMiniBtn,
+                  border: "1px solid rgba(231,76,60,0.45)",
+                  background: "rgba(231,76,60,0.12)",
+                  color: "#ffb4a8",
+                  opacity: deleting ? 0.6 : 1,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleDeleteOwnCourse(c);
+                }}
+              >
+                {deleting ? "…" : "삭제"}
+              </button>
+            </div>
+          ) : null
+        }
+      />
+    );
+  };
+
+  const renderImportedCourseCard = (c, onActivate) => {
+    const cid = String(c.id || "").trim();
+    const removing = removingImportId === cid;
+    return (
+      <CompactCourseCard
+        key={cid || c.title}
+        course={c}
+        statsByCourseId={statsByCourseId}
+        nameByCurator={nameByCurator}
+        nicknameByCurator={nicknameByCurator}
+        active={false}
+        onActivate={onActivate}
+        showEngagement={false}
+        metaExtra={COURSE_SCRAP_SECTION_TITLE}
+        rightSlot={
+          <button
+            type="button"
+            aria-label="스크랩 삭제"
+            title="스크랩한 코스를 삭제합니다. 원본 코스는 그대로입니다."
+            disabled={removing}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleRemoveImportedCourse(c);
+            }}
+            style={{
+              flexShrink: 0,
+              alignSelf: "center",
+              minWidth: 44,
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(231,76,60,0.45)",
+              background: "rgba(231,76,60,0.12)",
+              color: "#ffb4a8",
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: removing ? "wait" : "pointer",
+              opacity: removing ? 0.6 : 1,
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            {removing ? "…" : "삭제"}
+          </button>
+        }
+      />
+    );
+  };
+
+  const renderMineTabCourses = (onActivate, forOverlay = false) => {
+    const listOwn = trimmedSearch ? searchedOwnCourses : ownCourses;
+    const listStyle = forOverlay ? styles.overlaySearchResults : styles.singleList;
+
+    return (
+      <div style={listStyle} role="list" aria-label="내 코스">
+        {isCurator ? (
+          <>
+            <div style={styles.mineActionRow}>
+              {!studioFullscreen &&
+              typeof onEnterStudioFullscreen === "function" ? (
+                <button
+                  type="button"
+                  style={styles.studioVerBtn}
+                  aria-label="Studio ver. 전체화면으로 보기"
+                  title="전체화면"
+                  onClick={() => {
+                    setActiveTab("mine");
+                    onEnterStudioFullscreen();
+                  }}
+                >
+                  <span>✦ Studio ver.</span>
+                  <span style={styles.studioVerBtnHint}>전체화면</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                style={{
+                  ...styles.newCourseBtn,
+                  ...(studioFullscreen ? { flex: "1 1 100%" } : null),
+                }}
+                aria-label="새 잔 코스"
+                onClick={() => navigate("/studio/courses/new")}
+              >
+                +
+              </button>
+            </div>
+            <StudioCourseSuggestionPanel
+              onDraftSaved={() => void loadMyCourses()}
+            />
+          </>
+        ) : null}
+        <p style={styles.sectionTitleOwn}>내가 만든 코스</p>
+        {ownCourses.length === 0 ? (
+          <div style={styles.sectionEmpty}>
+            {isCurator
+              ? "아직 만든 잔 코스가 없어요. + 로 새 코스를 만들어 보세요."
+              : "직접 만든 코스는 큐레이터만 만들 수 있어요. 가져온 탭에서 스크랩한 코스를 볼 수 있어요."}
+          </div>
+        ) : listOwn.length === 0 && trimmedSearch ? (
+          <div style={styles.sectionEmpty}>검색 결과가 없어요.</div>
+        ) : (
+          listOwn.map((c) => renderOwnCourseCard(c, onActivate))
+        )}
+      </div>
+    );
+  };
+
+  const renderImportedTabCourses = (onActivate, forOverlay = false) => {
+    const listImported = trimmedSearch
+      ? searchedImportedCourses
+      : importedCourses;
+    const listStyle = forOverlay ? styles.overlaySearchResults : styles.singleList;
+
+    return (
+      <div style={listStyle} role="list" aria-label="가져온 코스">
+        <p style={styles.sectionTitleScrap}>{COURSE_SCRAP_SECTION_TITLE}</p>
+        {importedCourses.length === 0 ? (
+          <div style={styles.sectionEmpty}>
+            가져온 코스가 없어요. 공개 코스에서 스크랩해 보세요.
+          </div>
+        ) : listImported.length === 0 && trimmedSearch ? (
+          <div style={styles.sectionEmpty}>검색 결과가 없어요.</div>
+        ) : (
+          listImported.map((c) => renderImportedCourseCard(c, onActivate))
+        )}
+      </div>
+    );
+  };
+
   const renderPersonalList = () => {
+    const tabLabel =
+      activeTab === "imported" ? "가져온 코스" : "내 코스";
+    const listEmpty =
+      activeTab === "imported"
+        ? importedCourses.length === 0
+        : ownCourses.length === 0;
+    const loadingEmpty =
+      activeTab === "imported"
+        ? importedCourses.length === 0
+        : ownCourses.length === 0;
+
     if (myPhase === "needs_login") {
       return (
         <div style={styles.stateBox}>
-          로그인하면{" "}
-          {activeTab === "imported" ? "가져온 코스" : "내 코스"}를 볼 수 있어요.
+          로그인하면 {tabLabel}를 볼 수 있어요.
         </div>
       );
     }
-    if (myPhase === "loading" && personalTabCourses.length === 0) {
+    if (myPhase === "loading" && loadingEmpty) {
       return <div style={styles.stateBox}>불러오는 중…</div>;
     }
     if (myPhase === "error") {
@@ -1070,12 +1639,10 @@ export default function HomeCoursesDiscoveryRail({
         </div>
       );
     }
-    if (personalTabCourses.length === 0) {
+    if (listEmpty && activeTab === "imported") {
       return (
         <div style={styles.stateBox}>
-          {activeTab === "imported"
-            ? "가져온 코스가 없어요. 공개 코스에서 스크랩해 보세요."
-            : "아직 만든 코스가 없어요. 스튜디오에서 만들어 보세요."}
+          가져온 코스가 없어요. 공개 코스에서 스크랩해 보세요.
           <button
             type="button"
             style={styles.retryBtn}
@@ -1086,89 +1653,139 @@ export default function HomeCoursesDiscoveryRail({
         </div>
       );
     }
-    if (filteredPersonalCourses.length === 0) {
+    if (activeTab === "imported") {
+      return renderImportedTabCourses(activateCourse);
+    }
+    return renderMineTabCourses(activateCourse);
+  };
+
+  const courseSearchTabLabel =
+    activeTab === "mine"
+      ? "내 코스"
+      : activeTab === "imported"
+        ? "가져온 코스"
+        : "지금 뜨는 코스";
+
+  const renderTrendingSearchResults = (onActivate, forOverlay = false) => (
+    <div
+      style={
+        forOverlay ? styles.overlaySearchResults : styles.searchResults
+      }
+      role="list"
+      aria-label="코스 검색 결과"
+    >
+      {searchPhase === "loading" ? (
+        <p style={styles.emptyCol}>검색 중…</p>
+      ) : searchPhase === "error" ? (
+        <p style={styles.emptyCol}>
+          검색에 실패했어요. API 서버와 DB 마이그레이션을 확인해 주세요.
+        </p>
+      ) : (
+        <>
+          {searchResults.length === 0 ? (
+            <p style={styles.emptyCol}>
+              {nearbyAreaSections.length > 0
+                ? "딱 맞는 코스는 없지만, 근처 지역 코스를 모아봤어요."
+                : "검색 결과가 없어요."}
+            </p>
+          ) : (
+            <>
+              {searchResults.map((c) => (
+                <CompactCourseCard
+                  key={String(c.id || c.title)}
+                  course={c}
+                  statsByCourseId={statsByCourseId}
+                  nameByCurator={nameByCurator}
+                  nicknameByCurator={nicknameByCurator}
+                  active={false}
+                  onActivate={onActivate}
+                />
+              ))}
+              {searchHasMore ? (
+                <p style={styles.emptyCol}>
+                  더 많은 결과가 있어요. 검색어를 구체적으로 입력해 보세요.
+                </p>
+              ) : null}
+            </>
+          )}
+          {nearbyAreaSections.map((section) => (
+            <div key={section.key} role="list">
+              <p style={styles.nearbySectionTitle}>
+                근처 · {section.key} 코스
+              </p>
+              {section.courses.map((c) => (
+                <CompactCourseCard
+                  key={String(c.id || c.title)}
+                  course={c}
+                  statsByCourseId={statsByCourseId}
+                  nameByCurator={nameByCurator}
+                  nicknameByCurator={nicknameByCurator}
+                  active={false}
+                  onActivate={onActivate}
+                />
+              ))}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+
+  const renderPersonalSearchResults = (onActivate, forOverlay = false) => {
+    const tabLabel =
+      activeTab === "imported" ? "가져온 코스" : "내 코스";
+    if (myPhase === "needs_login") {
       return (
-        <div style={styles.stateBox}>검색 결과가 없어요.</div>
+        <div style={styles.stateBox}>
+          로그인하면 {tabLabel}를 볼 수 있어요.
+        </div>
       );
     }
-    return (
-      <div style={styles.singleList} role="list">
-        {filteredPersonalCourses.map((c) => {
-          const cid = String(c.id || "").trim();
-          const isMine = activeTab === "mine";
-          const isPublic =
-            String(c?.status || "") === "published" && c?.is_public;
-          const toggling = togglingCourseId === cid;
-          return (
-            <CompactCourseCard
-              key={cid || c.title}
-              course={c}
-              statsByCourseId={statsByCourseId}
-              nameByCurator={nameByCurator}
-              active={false}
-              onActivate={activateCourse}
-              showEngagement={isMine}
-              metaExtra={
-                activeTab === "imported" ? COURSE_SCRAP_SECTION_TITLE : ""
-              }
-              rightSlot={
-                isMine ? (
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isPublic}
-                    aria-label={isPublic ? "공개 상태 — 탭하면 비공개" : "비공개 상태 — 탭하면 공개"}
-                    title={isPublic ? "공개됨 (탭하면 비공개)" : "비공개 (탭하면 공개)"}
-                    disabled={toggling}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleTogglePublic(c);
-                    }}
-                    style={{
-                      flexShrink: 0,
-                      alignSelf: "center",
-                      minWidth: 58,
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: isPublic
-                        ? "1px solid rgba(52,199,89,0.5)"
-                        : T.chipBorder,
-                      background: isPublic
-                        ? "rgba(52,199,89,0.16)"
-                        : T.chipBg,
-                      color: isPublic ? "#34c759" : T.textSub,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: toggling ? "wait" : "pointer",
-                      opacity: toggling ? 0.6 : 1,
-                      WebkitTapHighlightColor: "transparent",
-                    }}
-                  >
-                    {toggling ? "…" : isPublic ? "공개" : "비공개"}
-                  </button>
-                ) : null
-              }
-            />
-          );
-        })}
-      </div>
-    );
+    if (activeTab === "imported") {
+      return renderImportedTabCourses(onActivate, forOverlay);
+    }
+    return renderMineTabCourses(onActivate, forOverlay);
   };
+
+  const overlaySearchResults =
+    activeTab === "trending"
+      ? trimmedSearch
+        ? renderTrendingSearchResults(activateCourseFromSearch, true)
+        : null
+      : trimmedSearch
+        ? renderPersonalSearchResults(activateCourseFromSearch, true)
+        : null;
 
   const searchBar = (
     <div style={styles.searchWrap}>
+      {activeTab === "mine" ? (
+        <span style={styles.searchIconLead} aria-hidden>
+          🔍
+        </span>
+      ) : null}
       <input
         ref={searchInputRef}
         type="search"
         enterKeyHint="search"
         inputMode="search"
         value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        onFocus={() => onSearchFocus?.()}
-        placeholder="제목·지역·태그·큐레이터 검색"
+        readOnly
+        onFocus={openCourseSearch}
+        onClick={openCourseSearch}
+        placeholder={
+          activeTab === "mine"
+            ? `공개 ${ownCourseCounts.publicN} · 비공개 ${ownCourseCounts.privateN}`
+            : activeTab === "imported"
+              ? "스크랩한 코스 검색"
+              : "제목·지역·태그·큐레이터 검색"
+        }
         autoComplete="off"
         aria-label="코스 검색"
-        style={styles.searchInput}
+        style={{
+          ...styles.searchInput,
+          ...(activeTab === "mine" ? styles.searchInputWithIcon : null),
+          cursor: "text",
+        }}
       />
       {searchQuery ? (
         <button
@@ -1177,7 +1794,7 @@ export default function HomeCoursesDiscoveryRail({
           aria-label="검색어 지우기"
           onClick={() => {
             setSearchQuery("");
-            searchInputRef.current?.focus();
+            openCourseSearch();
           }}
         >
           ×
@@ -1210,92 +1827,45 @@ export default function HomeCoursesDiscoveryRail({
         </div>
       );
     }
-    if (trimmedSearch) {
-      return (
-        <div style={styles.searchResults} role="list" aria-label="코스 검색 결과">
-          {searchPhase === "loading" ? (
-            <p style={styles.emptyCol}>검색 중…</p>
-          ) : searchPhase === "error" ? (
-            <p style={styles.emptyCol}>
-              검색에 실패했어요. API 서버와 DB 마이그레이션을 확인해 주세요.
-            </p>
-          ) : (
-            <>
-              {searchResults.length === 0 ? (
-                <p style={styles.emptyCol}>
-                  {nearbyAreaSections.length > 0
-                    ? "딱 맞는 코스는 없지만, 근처 지역 코스를 모아봤어요."
-                    : "검색 결과가 없어요."}
-                </p>
-              ) : (
-                <>
-                  {searchResults.map((c) => (
-                    <CompactCourseCard
-                      key={String(c.id || c.title)}
-                      course={c}
-                      statsByCourseId={statsByCourseId}
-                      nameByCurator={nameByCurator}
-                      active={false}
-                      onActivate={activateCourse}
-                    />
-                  ))}
-                  {searchHasMore ? (
-                    <p style={styles.emptyCol}>
-                      더 많은 결과가 있어요. 검색어를 구체적으로 입력해 보세요.
-                    </p>
-                  ) : null}
-                </>
-              )}
-              {nearbyAreaSections.map((section) => (
-                <div key={section.key} role="list">
-                  <p style={styles.nearbySectionTitle}>
-                    근처 · {section.key} 코스
-                  </p>
-                  {section.courses.map((c) => (
-                    <CompactCourseCard
-                      key={String(c.id || c.title)}
-                      course={c}
-                      statsByCourseId={statsByCourseId}
-                      nameByCurator={nameByCurator}
-                      active={false}
-                      onActivate={activateCourse}
-                    />
-                  ))}
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      );
+    if (showInlineSearchResults) {
+      return renderTrendingSearchResults(activateCourse);
     }
     return (
-      <div style={styles.columns}>
-        <DiscoveryColumn
-          title="에디터픽"
-          courses={editorPicks}
-          emptyHint="공개 코스가 더 생기면 여기도 채워져요."
-          statsByCourseId={statsByCourseId}
-          nameByCurator={nameByCurator}
-          onActivate={activateCourse}
-        />
-        <DiscoveryColumn
-          title="이번 주 랭킹"
-          courses={weeklyRanking}
-          emptyHint="공개 코스가 더 생기면 여기도 채워져요."
-          statsByCourseId={statsByCourseId}
-          nameByCurator={nameByCurator}
-          onActivate={activateCourse}
-        />
+      <div style={styles.singleList}>
+        {trendingUnified.map(({ course, badge }) => (
+          <CompactCourseCard
+            key={String(course.id || course.title)}
+            course={course}
+            badge={badge}
+            statsByCourseId={statsByCourseId}
+            nameByCurator={nameByCurator}
+            nicknameByCurator={nicknameByCurator}
+            active={false}
+            onActivate={activateCourse}
+          />
+        ))}
       </div>
     );
   };
 
+  useEffect(() => {
+    onSearchModeChange?.(courseSearchOpen);
+  }, [courseSearchOpen, onSearchModeChange]);
+
+  useEffect(() => {
+    if (!visible || layout !== "full") {
+      if (courseSearchOpen) closeCourseSearchMode();
+    }
+  }, [visible, layout, courseSearchOpen, closeCourseSearchMode]);
+
   return (
+    <>
     <div style={styles.root} aria-label="지금 뜨는 코스">
       <div style={styles.sheetChrome}>
         <DiscoveryTabBar
+          tabs={discoveryTabs}
           activeTab={activeTab}
-          onChange={setActiveTab}
+          onChange={handleDiscoveryTabChange}
           disabled={phase === "loading" && activeTab === "trending"}
         />
         {searchBar}
@@ -1304,5 +1874,22 @@ export default function HomeCoursesDiscoveryRail({
         {activeTab !== "trending" ? renderPersonalList() : renderTrendingContent()}
       </div>
     </div>
+    <HomeCourseSearchOverlay
+      open={courseSearchOpen}
+      query={searchQuery}
+      onQueryChange={setSearchQuery}
+      onClose={closeCourseSearchMode}
+      tabLabel={courseSearchTabLabel}
+      showLeadingSearchIcon={activeTab === "mine"}
+      placeholder={
+        activeTab === "mine"
+          ? `공개 ${ownCourseCounts.publicN} · 비공개 ${ownCourseCounts.privateN}`
+          : undefined
+      }
+      inputRef={searchInputRef}
+    >
+      {overlaySearchResults}
+    </HomeCourseSearchOverlay>
+    </>
   );
 }

@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRealtimeCheckins, consumeNewPeerCheckinRows } from '../../hooks/useRealtimeCheckins';
 import { useAuth } from '../../context/AuthContext';
 import { useToastSettings } from '../../hooks/useToastSettings';
+import { supabase } from '../../lib/supabase';
+import { resolveCheckinRowDisplayName } from '../../utils/checkinDisplayName';
 
 /** false — 실제 check_ins만 표시 (테스트용 데모 토스트 끔) */
 const SHOW_CHECKIN_TOAST_DEMO = false;
@@ -49,6 +51,7 @@ const CheckInToast = () => {
   const { toastEnabled } = useToastSettings();
   const [displayCheckins, setDisplayCheckins] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
+  const [profilesById, setProfilesById] = useState({});
   const hideTimersRef = useRef(new Set());
 
   const scheduleHide = useCallback((groupId) => {
@@ -136,10 +139,39 @@ const CheckInToast = () => {
     });
   };
 
-  /** Supabase check_ins 행 → 토스트용 (user_nickname / place_name) */
-  const enrichCheckinRow = (c) => {
-    const nick =
-      (c.user_nickname || c.user || "").trim() || "사용자";
+  useEffect(() => {
+    const ids = [
+      ...new Set(
+        (Array.isArray(recentCheckins) ? recentCheckins : [])
+          .map((r) => String(r?.user_id || "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (ids.length === 0) {
+      setProfilesById({});
+      return undefined;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, username, display_name")
+        .in("id", ids);
+      if (cancelled || error || !Array.isArray(data)) return;
+      const next = {};
+      for (const p of data) {
+        if (p?.id) next[String(p.id)] = p;
+      }
+      setProfilesById(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recentCheckins]);
+
+  /** Supabase check_ins 행 → 토스트용 (핸들 우선) */
+  const enrichCheckinRow = useCallback((c) => {
+    const nick = resolveCheckinRowDisplayName(c, profilesById);
     const placeLabel = (c.place_name || c.place || "").trim();
     const disp = getUserDisplay(nick);
     return {
@@ -148,7 +180,7 @@ const CheckInToast = () => {
       place: placeLabel,
       emoji: c.emoji || disp.emoji,
     };
-  };
+  }, [profilesById]);
 
   // 체크인 그룹화 함수 (같은 시간대에 체크인한 사용자 묶기)
   const groupCheckins = (checkins) => {
@@ -353,7 +385,57 @@ const CheckInToast = () => {
     });
 
     formattedCheckins.forEach((group) => scheduleHide(group.id));
-  }, [recentCheckins, userLocation, user, scheduleHide]);
+  }, [recentCheckins, userLocation, user, scheduleHide, enrichCheckinRow]);
+
+  useEffect(() => {
+    if (!Object.keys(profilesById).length) return;
+    setDisplayCheckins((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        const source = recentCheckins.find(
+          (r) => String(r?.id) === String(item.id)
+        );
+        if (!source) return item;
+        if (item.type === "single") {
+          const nick = resolveCheckinRowDisplayName(source, profilesById);
+          if (nick && nick !== item.user) {
+            changed = true;
+            return { ...item, user: nick };
+          }
+          return item;
+        }
+        if (item.type === "multiple" && Array.isArray(item.allUsers)) {
+          const updatedUsers = item.allUsers.map((u) => {
+            const src = recentCheckins.find(
+              (r) => String(r?.id) === String(u?.id)
+            );
+            if (!src) return u;
+            const n = resolveCheckinRowDisplayName(src, profilesById);
+            return n && n !== u.user ? { ...u, user: n } : u;
+          });
+          const headNick = resolveCheckinRowDisplayName(
+            recentCheckins.find(
+              (r) => String(r?.id) === String(item.allUsers[0]?.id)
+            ) || source,
+            profilesById
+          );
+          if (
+            headNick !== item.user ||
+            updatedUsers.some((u, i) => u.user !== item.allUsers[i]?.user)
+          ) {
+            changed = true;
+            return {
+              ...item,
+              user: headNick || item.user,
+              allUsers: updatedUsers,
+            };
+          }
+        }
+        return item;
+      });
+      return changed ? next : prev;
+    });
+  }, [profilesById, recentCheckins]);
 
   // 시간 포맷 함수
   const getTimeAgo = (timestamp) => {

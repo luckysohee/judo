@@ -15,6 +15,7 @@ export default function OnboardingQuestions({
   showSkip = true,
   completeLabel,
   modalTitle = "당신의 취향은?",
+  backLabel,
   zIndex = 25000,
 }) {
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -107,19 +108,43 @@ export default function OnboardingQuestions({
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: 8,
+            gap: 8,
           }}
         >
-          <h3
-            style={{
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 700,
-              margin: 0,
-            }}
-          >
-            {modalTitle}
-          </h3>
-          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            {onDismiss && backLabel ? (
+              <button
+                type="button"
+                onClick={() => onDismiss()}
+                style={{
+                  flexShrink: 0,
+                  padding: "4px 0",
+                  border: "none",
+                  background: "transparent",
+                  color: "#3498DB",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ← {backLabel}
+              </button>
+            ) : null}
+            <h3
+              style={{
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                margin: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {modalTitle}
+            </h3>
+          </div>
+          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, flexShrink: 0 }}>
             {currentQuestion + 1} / {questions.length}
           </span>
         </div>

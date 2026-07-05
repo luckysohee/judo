@@ -25,6 +25,10 @@ export const TASTE_REGION_OPTIONS = [
   "연남",
   "성수",
   "강남",
+  "압구정",
+  "청담",
+  "잠실",
+  "문정",
   "을지로",
   "종로",
   "이태원",
@@ -57,11 +61,13 @@ export const TASTE_BUDGET_OPTIONS = [
   { value: "80k_plus", label: "💎 8만 원 이상" },
 ];
 
-/** 주로 나가는 시간대 */
+/** 1차 시작 시간대 */
 export const TASTE_OUT_TIME_OPTIONS = [
-  { value: "early", label: "🌆 저녁 일찍 (6~8시)" },
-  { value: "prime", label: "🌃 본격 술자리 (8~11시)" },
-  { value: "late", label: "🦉 늦게 (11시~)" },
+  { value: "morning", label: "🌅 아침·브런치 (10~12시)" },
+  { value: "daytime", label: "☀️ 낮·점심 (12~17시)" },
+  { value: "early", label: "🌆 저녁 일찍 (18~20시)" },
+  { value: "prime", label: "🌃 본격 술자리 (20~23시)" },
+  { value: "late", label: "🦉 늦게 (23시~)" },
   { value: "flexible", label: "⏰ 상황마다 달라요" },
 ];
 
@@ -404,7 +410,7 @@ export function formatTasteProfileSummary(row) {
   }
   if (row.out_time) {
     parts.push({
-      label: "시간",
+      label: "1차",
       value: labelForTasteValue("out_time", row.out_time),
     });
   }
@@ -571,7 +577,8 @@ export function buildTasteOnboardingQuestions() {
     },
     {
       id: "out_time",
-      question: "주로 몇 시대에 나가시나요?",
+      question: "1차는 보통 몇 시쯤 시작하나요?",
+      subtitle: "첫 잔·첫 술집 기준",
       type: "single",
       options: TASTE_OUT_TIME_OPTIONS,
     },

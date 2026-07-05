@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
   createCuratorCourse,
@@ -16,6 +16,9 @@ import {
 import { supabase } from "../../lib/supabase";
 import { ensurePlaceUuidForPick } from "../../utils/resolvePlaceUuidForPick";
 import {
+  resolveCourseCoverFromFirstPlace,
+} from "../../utils/courseStepThumb";
+import {
   studioCoursesShell,
   studioCoursesScrollMain,
   studioCoursesInner,
@@ -29,7 +32,6 @@ import {
   studioCoursesBtnGhost,
   studioCoursesBtnDanger,
   studioCoursesRowActions,
-  studioCoursesMobileShell,
   studioCoursesStickyFooter,
   studioCoursesStickyBtn,
   studioCoursesCoverBox,
@@ -126,16 +128,56 @@ function newPlaceRowFromHit(hit) {
     place_category: String(h.category || "").trim(),
     place_lat: parseRowCoord(h.lat),
     place_lng: parseRowCoord(h.lng),
+    kakao_place_id: String(h.kakao_place_id || "").trim() || null,
     memo: "",
     stay_minutes: "",
   };
 }
 
+function getSearchHitDedupeKeys(hit) {
+  const keys = [];
+  const id = String(hit?.id ?? "").trim();
+  if (id) keys.push(id);
+  const kakaoId = String(
+    hit?.kakao_place_id ?? hit?._kakaoDoc?.id ?? ""
+  ).trim();
+  if (kakaoId) keys.push(kakaoId);
+  return keys;
+}
+
+function searchHitIsAlreadyInCourse(hit, coursePlaceKeySet) {
+  return getSearchHitDedupeKeys(hit).some((key) => coursePlaceKeySet.has(key));
+}
+
+async function enrichPlaceRowKakaoMeta(row) {
+  if (!row || typeof row !== "object") return row;
+  if (String(row.kakao_place_id || "").trim()) return row;
+  const pid = String(row.place_id || "").trim();
+  if (!UUID_RE.test(pid)) return row;
+  const { data, error } = await supabase
+    .from("places")
+    .select("kakao_place_id, name, place_name, address, lat, lng")
+    .eq("id", pid)
+    .maybeSingle();
+  if (error || !data) return row;
+  const meta = mapPlaceRowForCourse(data);
+  return {
+    ...row,
+    kakao_place_id: meta.kakao_place_id || row.kakao_place_id || null,
+    place_name: row.place_name || meta.name,
+    place_address: row.place_address || meta.address,
+    place_lat: row.place_lat ?? meta.lat,
+    place_lng: row.place_lng ?? meta.lng,
+  };
+}
+
 export default function StudioCourseEditor() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { courseId } = useParams();
   const isNew = !courseId;
   const { user, loading: authLoading } = useAuth();
+  const seedAppliedRef = useRef(false);
 
   const [loadingCourse, setLoadingCourse] = useState(!isNew);
   const [loadErr, setLoadErr] = useState("");
@@ -147,6 +189,8 @@ export default function StudioCourseEditor() {
   const [themeTags, setThemeTags] = useState([]);
   const [tagInputValue, setTagInputValue] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [autoCoverUrl, setAutoCoverUrl] = useState("");
+  const autoCoverGenRef = useRef(0);
 
   const [placeRows, setPlaceRows] = useState([]);
   const [draggingPlaceKey, setDraggingPlaceKey] = useState(null);
@@ -159,6 +203,9 @@ export default function StudioCourseEditor() {
   const [searchTouched, setSearchTouched] = useState(false);
   const [showSearchSuggest, setShowSearchSuggest] = useState(false);
   const [selectedSearchId, setSelectedSearchId] = useState(null);
+  const [searchSuggestDismissing, setSearchSuggestDismissing] = useState(false);
+  const [suggestDismissSnapshot, setSuggestDismissSnapshot] = useState(null);
+  const [selectedSuggestKey, setSelectedSuggestKey] = useState(null);
   const searchDebounceRef = useRef(null);
   const [resolvePlaceBusy, setResolvePlaceBusy] = useState(false);
   const [manualUuidInput, setManualUuidInput] = useState("");
@@ -177,6 +224,17 @@ export default function StudioCourseEditor() {
         .length,
     [placeRows]
   );
+
+  const firstPlaceRow = useMemo(
+    () =>
+      placeRows.find((r) => UUID_RE.test(String(r.place_id || "").trim())) ||
+      null,
+    [placeRows]
+  );
+
+  const displayCoverUrl = String(coverImageUrl || "").trim() || autoCoverUrl;
+  const coverUsesFirstPlacePhoto =
+    !String(coverImageUrl || "").trim() && Boolean(autoCoverUrl);
 
   const currentSnapshot = useMemo(
     () =>
@@ -238,27 +296,34 @@ export default function StudioCourseEditor() {
         : [];
       let loadedRows = [];
       if (steps.length > 0) {
-        loadedRows = steps.map((s) => {
-          const pl = s.places && typeof s.places === "object" ? s.places : {};
-          const meta = mapPlaceRowForCourse({
-            id: s.place_id,
-            ...pl,
-          });
-          return {
-            key: s.id || `loaded-${s.place_id}-${s.order_index}`,
-            place_id: String(s.place_id ?? ""),
-            place_name: meta.name,
-            place_address: meta.address,
-            place_category: meta.category,
-            place_lat: meta.lat,
-            place_lng: meta.lng,
-            memo: s.memo ?? "",
-            stay_minutes:
-              s.stay_minutes != null && s.stay_minutes !== ""
-                ? String(s.stay_minutes)
-                : "",
-          };
-        });
+        loadedRows = await Promise.all(
+          steps.map(async (s) => {
+            const pl = s.places && typeof s.places === "object" ? s.places : {};
+            const meta = mapPlaceRowForCourse({
+              id: s.place_id,
+              ...pl,
+            });
+            const row = {
+              key: s.id || `loaded-${s.place_id}-${s.order_index}`,
+              place_id: String(s.place_id ?? ""),
+              place_name: meta.name,
+              place_address: meta.address,
+              place_category: meta.category,
+              place_lat: meta.lat,
+              place_lng: meta.lng,
+              kakao_place_id: meta.kakao_place_id || pl.kakao_place_id || null,
+              memo: s.memo ?? "",
+              stay_minutes:
+                s.stay_minutes != null && s.stay_minutes !== ""
+                  ? String(s.stay_minutes)
+                  : "",
+            };
+            if (row.place_lat == null || row.place_lng == null) {
+              return enrichPlaceRowKakaoMeta(row);
+            }
+            return row;
+          })
+        );
       }
       setPlaceRows(loadedRows);
       markSavedSnapshot({
@@ -279,21 +344,92 @@ export default function StudioCourseEditor() {
   useEffect(() => {
     if (authLoading) return;
     if (!user?.id) return;
-    if (isNew) {
-      setLoadingCourse(false);
-      markSavedSnapshot({
-        title: "",
-        description: "",
-        area: "",
-        themeTags: [],
-        coverImageUrl: "",
-        placeRows: [],
-      });
-      setTagInputValue("");
+    if (!isNew) {
+      void loadCourse();
       return;
     }
-    void loadCourse();
-  }, [authLoading, user?.id, isNew, loadCourse, markSavedSnapshot]);
+    setLoadingCourse(false);
+
+    const seed = location.state?.studioCourseSeed;
+    if (
+      !seedAppliedRef.current &&
+      seed &&
+      typeof seed === "object" &&
+      Array.isArray(seed.placeRows) &&
+      seed.placeRows.length > 0
+    ) {
+      seedAppliedRef.current = true;
+      const rows = seed.placeRows.map((r, i) => ({
+        ...r,
+        key:
+          r.key ||
+          `seed-${String(r.place_id || i)}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      }));
+      setTitle(String(seed.title || ""));
+      setDescription(String(seed.description || ""));
+      setArea(String(seed.area || ""));
+      setThemeTags(normalizeHashtagTags(seed.themeTags));
+      setTagInputValue("");
+      setPlaceRows(rows);
+      markSavedSnapshot({
+        title: seed.title || "",
+        description: seed.description || "",
+        area: seed.area || "",
+        themeTags: normalizeHashtagTags(seed.themeTags),
+        coverImageUrl: "",
+        placeRows: rows,
+      });
+      navigate(location.pathname, { replace: true, state: {} });
+      return;
+    }
+
+    markSavedSnapshot({
+      title: "",
+      description: "",
+      area: "",
+      themeTags: [],
+      coverImageUrl: "",
+      placeRows: [],
+    });
+    setTagInputValue("");
+  }, [
+    authLoading,
+    user?.id,
+    isNew,
+    loadCourse,
+    markSavedSnapshot,
+    location.pathname,
+    location.state,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (String(coverImageUrl || "").trim()) {
+      setAutoCoverUrl("");
+      return undefined;
+    }
+    if (!firstPlaceRow) {
+      setAutoCoverUrl("");
+      return undefined;
+    }
+    const gen = autoCoverGenRef.current + 1;
+    autoCoverGenRef.current = gen;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const enriched = await enrichPlaceRowKakaoMeta(firstPlaceRow);
+        if (cancelled || autoCoverGenRef.current !== gen) return;
+        const url = await resolveCourseCoverFromFirstPlace(enriched);
+        if (cancelled || autoCoverGenRef.current !== gen) return;
+        setAutoCoverUrl(url || "");
+      } catch {
+        if (!cancelled && autoCoverGenRef.current === gen) setAutoCoverUrl("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [coverImageUrl, firstPlaceRow]);
 
   const addThemeTag = useCallback((raw) => {
     const tag = normalizeHashtagTag(raw);
@@ -415,19 +551,24 @@ export default function StudioCourseEditor() {
 
       let cid = courseId;
       const tags = normalizeHashtagTags(themeTags);
+      let cover = String(coverImageUrl).trim();
+      if (!cover && firstPlaceRow) {
+        const enriched = await enrichPlaceRowKakaoMeta(firstPlaceRow);
+        cover = (await resolveCourseCoverFromFirstPlace(enriched)) || "";
+      }
       const meta = {
         title: t,
         description: String(description).trim() || null,
         area: String(area).trim() || null,
         theme_tags: tags,
-        cover_image_url: String(coverImageUrl).trim() || null,
+        cover_image_url: cover || null,
       };
       const snapshotAfterSave = {
         title: t,
         description,
         area,
         themeTags: tags,
-        coverImageUrl,
+        coverImageUrl: cover,
         placeRows,
       };
 
@@ -455,13 +596,13 @@ export default function StudioCourseEditor() {
   };
 
   const addPlaceToCourse = useCallback(async (hit) => {
-    if (!hit || typeof hit !== "object") return;
+    if (!hit || typeof hit !== "object") return false;
 
     let resolved = hit;
     const rawId = String(hit.id ?? "").trim();
     if (!UUID_RE.test(rawId)) {
       const doc = hit._kakaoDoc;
-      if (!doc || doc.id == null) return;
+      if (!doc || doc.id == null) return false;
       setResolvePlaceBusy(true);
       try {
         const placeForEnsure = {
@@ -481,12 +622,12 @@ export default function StudioCourseEditor() {
           alert(
             "장소를 코스용 DB에 등록하지 못했습니다. 로그인·네트워크·권한을 확인해 주세요."
           );
-          return;
+          return false;
         }
         const { data, error } = await supabase
           .from("places")
           .select(
-            "id, name, place_name, address, category, category_name, lat, lng"
+            "id, name, place_name, address, category, category_name, lat, lng, kakao_place_id"
           )
           .eq("id", uuid)
           .maybeSingle();
@@ -508,10 +649,11 @@ export default function StudioCourseEditor() {
     }
 
     const row = newPlaceRowFromHit(resolved);
-    if (!UUID_RE.test(row.place_id)) return;
+    if (!UUID_RE.test(row.place_id)) return false;
+
+    let didAdd = false;
     setPlaceRows((prev) => {
       if (prev.some((r) => r.place_id === row.place_id)) {
-        alert("이미 코스에 추가된 장소입니다.");
         return prev;
       }
       const n = prev.filter((r) =>
@@ -521,8 +663,10 @@ export default function StudioCourseEditor() {
         alert("장소는 최대 6개까지 추가할 수 있습니다.");
         return prev;
       }
+      didAdd = true;
       return [...prev, row];
     });
+    return didAdd;
   }, []);
 
   const runCoursePlaceSearch = useCallback(async (q, { maxTotal = 12, kakaoSize = 8 } = {}) => {
@@ -592,27 +736,15 @@ export default function StudioCourseEditor() {
     };
   }, [runCoursePlaceSearch, searchQuery]);
 
-  const addSelectedSearchToCourse = useCallback(async () => {
-    if (!selectedSearchId) return;
-    const hit = searchHits.find((h) => h.id === selectedSearchId);
-    if (hit) await addPlaceToCourse(hit);
-  }, [addPlaceToCourse, searchHits, selectedSearchId]);
-
-  const handleSearchPinPress = useCallback(
-    (hit) => {
-      if (!hit || hit.id == null) return;
-      setSelectedSearchId(String(hit.id));
-      void addPlaceToCourse(hit);
-    },
-    [addPlaceToCourse]
-  );
-
   const handleClearCourseSearch = useCallback(() => {
     setSearchQuery("");
     setSearchHits([]);
     setSearchTouched(false);
     setShowSearchSuggest(false);
     setSelectedSearchId(null);
+    setSearchSuggestDismissing(false);
+    setSuggestDismissSnapshot(null);
+    setSelectedSuggestKey(null);
   }, []);
 
   const addManualUuid = () => {
@@ -775,14 +907,58 @@ export default function StudioCourseEditor() {
     placeRows.filter((r) => UUID_RE.test(String(r.place_id || "").trim()))
       .length < 6;
 
-  const coursePlaceIdSet = useMemo(
+  const coursePlaceKeySet = useMemo(() => {
+    const keys = new Set();
+    for (const row of placeRows) {
+      const placeId = String(row.place_id || "").trim();
+      if (UUID_RE.test(placeId)) keys.add(placeId);
+      const kakaoId = String(row.kakao_place_id || "").trim();
+      if (kakaoId) keys.add(kakaoId);
+    }
+    return keys;
+  }, [placeRows]);
+
+  const searchSuggestHits = useMemo(
     () =>
-      new Set(
-        placeRows
-          .map((r) => String(r.place_id || "").trim())
-          .filter((id) => UUID_RE.test(id))
+      searchHits.filter(
+        (hit) => !searchHitIsAlreadyInCourse(hit, coursePlaceKeySet)
       ),
-    [placeRows]
+    [coursePlaceKeySet, searchHits]
+  );
+
+  const pickSearchHit = useCallback(
+    async (hit) => {
+      if (!hit || hit.id == null) return;
+      if (saving || resolvePlaceBusy || !canAddMore || searchSuggestDismissing) {
+        return;
+      }
+      if (searchHitIsAlreadyInCourse(hit, coursePlaceKeySet)) return;
+
+      setSuggestDismissSnapshot(searchSuggestHits);
+      setSelectedSuggestKey(String(hit.id));
+      setSearchSuggestDismissing(true);
+      await addPlaceToCourse(hit);
+    },
+    [
+      addPlaceToCourse,
+      canAddMore,
+      coursePlaceKeySet,
+      resolvePlaceBusy,
+      saving,
+      searchSuggestDismissing,
+      searchSuggestHits,
+    ]
+  );
+
+  const handleSuggestDismissEnd = useCallback(() => {
+    handleClearCourseSearch();
+  }, [handleClearCourseSearch]);
+
+  const handleSearchPinPress = useCallback(
+    (hit) => {
+      void pickSearchHit(hit);
+    },
+    [pickSearchHit]
   );
 
   if (authLoading) {
@@ -901,9 +1077,16 @@ export default function StudioCourseEditor() {
     <StudioScrollLayout
       shellStyle={{
         ...studioCoursesShell,
-        ...(isMobile ? studioCoursesMobileShell : {}),
       }}
-      mainStyle={studioCoursesScrollMain}
+      mainStyle={{
+        ...studioCoursesScrollMain,
+        ...(isMobile
+          ? {
+              paddingBottom:
+                "calc(96px + env(safe-area-inset-bottom, 0px))",
+            }
+          : {}),
+      }}
       footer={
         isMobile ? (
         <div style={studioCoursesStickyFooter}>
@@ -996,52 +1179,55 @@ export default function StudioCourseEditor() {
             }}
             placeholder="예: 성수 이자카야"
             searchLoading={searchLoading}
+            reflectLoadingOnSubmit={false}
             searchDisabled={saving || resolvePlaceBusy}
             isMobile={isMobile}
+            interactiveMap
             suggestionsDropdown={
               <StudioMapSearchSuggestions
-                open={showSearchSuggest && searchQuery.trim().length >= 2}
+                open={
+                  (showSearchSuggest && searchQuery.trim().length >= 2) ||
+                  searchSuggestDismissing
+                }
                 loading={searchLoading}
-                items={searchHits.map((hit) => ({
-                  ...hit,
-                  inCourse: coursePlaceIdSet.has(hit.id),
-                }))}
+                hideLoadingPlaceholder
+                dismissing={searchSuggestDismissing}
+                onDismissAnimationEnd={handleSuggestDismissEnd}
+                selectedItemKey={selectedSuggestKey}
+                items={
+                  searchSuggestDismissing && suggestDismissSnapshot
+                    ? suggestDismissSnapshot
+                    : searchSuggestHits
+                }
                 onSelect={(hit) => {
-                  setSelectedSearchId(String(hit.id));
-                  if (
-                    !coursePlaceIdSet.has(hit.id) &&
-                    canAddMore &&
-                    !resolvePlaceBusy &&
-                    !saving
-                  ) {
-                    void addPlaceToCourse(hit);
-                  }
+                  void pickSearchHit(hit);
                 }}
                 getItemKey={(hit) => String(hit.id)}
                 emptyMessage={
                   searchTouched && !searchLoading
-                    ? "검색 결과가 없어요."
+                    ? searchSuggestHits.length === 0 &&
+                      searchHits.length > 0
+                      ? "검색 결과는 모두 코스에 담겨 있어요."
+                      : "검색 결과가 없어요."
                     : null
                 }
-                renderTrailing={(hit) =>
-                  !coursePlaceIdSet.has(hit.id) ? (
-                    <button
-                      type="button"
-                      style={{
-                        ...studioCoursesBtnPrimary,
-                        minHeight: "40px",
-                        flexShrink: 0,
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void addPlaceToCourse(hit);
-                      }}
-                      disabled={saving || !canAddMore || resolvePlaceBusy}
-                    >
-                      추가
-                    </button>
-                  ) : null
-                }
+                renderTrailing={(hit) => (
+                  <button
+                    type="button"
+                    style={{
+                      ...studioCoursesBtnPrimary,
+                      minHeight: "40px",
+                      flexShrink: 0,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void pickSearchHit(hit);
+                    }}
+                    disabled={saving || !canAddMore || resolvePlaceBusy}
+                  >
+                    추가
+                  </button>
+                )}
               />
             }
             mapSlot={
@@ -1051,21 +1237,40 @@ export default function StudioCourseEditor() {
                 selectedSearchId={selectedSearchId}
                 onSearchHitPress={handleSearchPinPress}
                 embedded
+                interactive
               />
             }
             footerSlot={
-              searchQuery.trim().length > 0 &&
-              searchQuery.trim().length < 2 ? (
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "rgba(255,200,120,0.95)",
-                    marginTop: "4px",
-                  }}
-                >
-                  검색어는 2글자 이상 입력해 주세요.
-                </div>
-              ) : null
+              <>
+                {searchQuery.trim().length > 0 &&
+                searchQuery.trim().length < 2 ? (
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "rgba(255,200,120,0.95)",
+                      marginTop: "4px",
+                    }}
+                  >
+                    검색어는 2글자 이상 입력해 주세요.
+                  </div>
+                ) : null}
+                {searchHits.some(
+                  (h) =>
+                    h &&
+                    Number.isFinite(Number(h?.lat)) &&
+                    Number.isFinite(Number(h?.lng))
+                ) ? (
+                  <p style={{ ...studioCoursesHint, marginTop: "8px" }}>
+                    보라·주황 「＋」핀은 검색 결과입니다. 탭하면 코스에 담습니다. 파란
+                    숫자는 이미 담긴 순서예요.
+                  </p>
+                ) : null}
+                {placeRows.length === 0 ? (
+                  <p style={{ ...studioCoursesHint, marginTop: "8px" }}>
+                    장소를 추가하면 지도에서 동선을 미리 볼 수 있어요.
+                  </p>
+                ) : null}
+              </>
             }
           />
           {!isMobile ? (
@@ -1313,10 +1518,15 @@ export default function StudioCourseEditor() {
               enterKeyHint="done"
             />
             <label style={studioCoursesLabel}>커버 사진</label>
+            {coverUsesFirstPlacePhoto ? (
+              <p style={{ ...studioCoursesHint, marginTop: 0, marginBottom: "8px" }}>
+                1차 장소 카카오 지도 사진이 커버로 자동 적용돼요.
+              </p>
+            ) : null}
             <div style={{ ...studioCoursesCoverBox, marginBottom: "12px" }}>
-              {coverImageUrl ? (
+              {displayCoverUrl ? (
                 <img
-                  src={coverImageUrl}
+                  src={displayCoverUrl}
                   alt="커버 미리보기"
                   style={studioCoursesCoverThumb}
                 />
@@ -1361,6 +1571,16 @@ export default function StudioCourseEditor() {
                   >
                     제거
                   </button>
+                ) : autoCoverUrl ? (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "rgba(255,255,255,0.42)",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    직접 올리면 자동 사진 대신 쓰여요.
+                  </span>
                 ) : null}
               </div>
             </div>

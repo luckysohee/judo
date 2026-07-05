@@ -175,6 +175,26 @@ const COURSE_AREA_CORE = {
     allow: [/문정/, /가락/, /장지/, /법조/, /법원로/],
     deny: [/잠실/, /석촌/, /송파동/],
   },
+  문래: {
+    km: 1.6,
+    allow: [/문래/, /문화촌/, /창작촌/, /영등포구/, /영등포/],
+    deny: [
+      /용산구/,
+      /종로구/,
+      /종로[1-6]가/,
+      /을지로/,
+      /여의도/,
+      /당산동/,
+      /양평동/,
+      /마포구/,
+      /합정/,
+      /홍대/,
+      /신길/,
+      /대림/,
+      /구로/,
+      /가산/,
+    ],
+  },
   잠실: {
     km: 2.2,
     allow: [/잠실/, /석촌/, /송파동/, /방이/, /삼전/, /신천/, /잠실본동/, /올림픽로/],
@@ -250,6 +270,16 @@ function placeMatchesArea(place, areaKey) {
       !b.includes("문정") &&
       !b.includes("가락") &&
       !b.includes("장지")
+    ) {
+      return false;
+    }
+  }
+  if (areaKey === "문래") {
+    const b = blob.toLowerCase();
+    if (
+      (/용산|종로구|종로[1-6]|을지로|여의|신용산|삼각지/.test(b) ||
+        /서울\s*중구|서울특별시\s*중구/.test(b)) &&
+      !/문래|문화촌|창작촌/.test(b)
     ) {
       return false;
     }
@@ -926,6 +956,21 @@ export function resolveCourseAreaPool(places, parsedQuery) {
   }
 
   return { areaPlaces, effectiveParsed: parsedQuery };
+}
+
+/** 코스 AI·초안 — 지역 키워드·폴백·거리·deny 통합 필터 */
+export function filterPlacesForCourseArea(places, areaKey) {
+  const area = String(areaKey || "").trim();
+  if (!area) return Array.isArray(places) ? places : [];
+  return resolveCourseAreaPool(places, { area }).areaPlaces;
+}
+
+/** 단일 장소가 코스 `area`에 속하는지 */
+export function placeBelongsToCourseArea(place, areaKey) {
+  const area = String(areaKey || "").trim();
+  if (!area) return true;
+  if (placeHardExcludedFromArea(place, area)) return false;
+  return filterPlacesForCourseArea([place], area).length > 0;
 }
 
 function choosePattern(parsed) {

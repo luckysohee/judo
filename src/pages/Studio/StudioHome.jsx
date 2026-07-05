@@ -81,6 +81,9 @@ const STUDIO_TAB = {
   archive: "잔 아카이브",
 };
 
+/** 스튜디오 「라이브」 — UI만 숨김(DB·핸들러는 재도입용으로 유지) */
+const SHOW_STUDIO_LIVE_BUTTON = false;
+
 /** DB·마이그레이션에 따라 프로필 사진 컬럼명이 다를 수 있음 */
 function isLikelyMissingCuratorImageColumnError(error) {
   if (!error) return false;
@@ -2519,7 +2522,7 @@ export default function StudioHome() {
   }, [location.state?.openStudioCourses, navigate]);
 
   useEffect(() => {
-    if (!liveStartConfirmOpen) return;
+    if (!SHOW_STUDIO_LIVE_BUTTON || !liveStartConfirmOpen) return;
     const onKey = (e) => {
       if (e.key === "Escape") setLiveStartConfirmOpen(false);
     };
@@ -6382,6 +6385,7 @@ export default function StudioHome() {
                     >
                       프로필 수정
                     </button>
+                    {SHOW_STUDIO_LIVE_BUTTON ? (
                     <button
                       type="button"
                       onClick={
@@ -6443,6 +6447,7 @@ export default function StudioHome() {
                         )}
                       </span>
                     </button>
+                    ) : null}
                   </div>
                 </>
               )}
@@ -7032,7 +7037,7 @@ export default function StudioHome() {
         />
       ) : null}
 
-      {liveStartConfirmOpen && (
+      {SHOW_STUDIO_LIVE_BUTTON && liveStartConfirmOpen && (
         <div
           role="presentation"
           style={{
