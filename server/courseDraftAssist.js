@@ -8,8 +8,8 @@ import {
   peekStudioAiCourseSuggestionQuota,
   STUDIO_AI_COURSE_SUGGESTION_FREE_MONTHLY,
 } from "./studioAiCourseSuggestionQuota.js";
-import { sanitizeCourseDraftAssistOutput } from "../src/utils/courseDraftAssistSanitize.js";
-import { courseStopTargetForDraft } from "../src/utils/courseStopTarget.js";
+import { sanitizeCourseDraftAssistOutput } from "./utils/courseDraftAssistSanitize.js";
+import { courseStopTargetForDraft } from "./utils/courseStopTarget.js";
 
 const COURSE_DRAFT_ASSIST_SCHEMA = {
   type: "object",

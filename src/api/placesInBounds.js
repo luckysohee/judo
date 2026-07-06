@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
+import { getApiAuthHeaders } from "../utils/apiAuthHeaders.js";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
 
 /**
@@ -25,7 +26,8 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "", timeoutMs 
   const path = `/api/places-in-bounds?${qs.toString()}`;
   const base = normalizeApiBaseUrl(apiBaseUrl);
   const url = base ? `${base}${path}` : path;
-  const res = await fetchWithTimeout(url, {}, timeoutMs);
+  const headers = await getApiAuthHeaders();
+  const res = await fetchWithTimeout(url, { headers }, timeoutMs);
   let data = null;
   try {
     data = await res.json();

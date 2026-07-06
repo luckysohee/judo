@@ -2,6 +2,11 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
+import {
+  isAlphaAllowlistEnabledServer,
+  requireAlphaAllowlistForApi,
+} from "./alphaAccess.js";
+
 const DEFAULT_DEV_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -173,6 +178,8 @@ export function setupApiSecurity(app) {
     return expensiveLimiter(req, res, next);
   });
 
+  app.use((req, res, next) => requireAlphaAllowlistForApi(req, res, next));
+
   app.use((req, res, next) => {
     if (!isAuthRequired(req.path)) return next();
     return requireSupabaseAuth(req, res, next);
@@ -180,6 +187,7 @@ export function setupApiSecurity(app) {
 
   console.log(
     "🔒 API security:",
-    `rate ${globalMax}/${windowMs}ms, expensive ${expensiveMax}, auth paths ${API_AUTH_REQUIRED_PREFIXES.length}`
+    `rate ${globalMax}/${windowMs}ms, expensive ${expensiveMax}, auth paths ${API_AUTH_REQUIRED_PREFIXES.length}`,
+    isAlphaAllowlistEnabledServer() ? ", alpha allowlist ON" : ""
   );
 }

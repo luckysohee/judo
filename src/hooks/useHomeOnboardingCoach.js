@@ -13,7 +13,11 @@ export function useHomeOnboardingCoach({ enabled = true } = {}) {
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
-    if (!enabled || isHomeOnboardingCompleted()) return undefined;
+    if (!enabled) {
+      setOpen(false);
+      return undefined;
+    }
+    if (isHomeOnboardingCompleted()) return undefined;
 
     let cancelled = false;
     let startTimer = null;
@@ -22,13 +26,19 @@ export function useHomeOnboardingCoach({ enabled = true } = {}) {
     const tryOpen = () => {
       if (cancelled || isHomeOnboardingCompleted()) return;
       startTimer = window.setTimeout(() => {
-        if (!cancelled) setOpen(true);
+        if (!cancelled && !isHomeOnboardingCompleted()) setOpen(true);
       }, 500);
+    };
+
+    const onSplashHidden = () => {
+      if (cancelled) return;
+      tryOpen();
     };
 
     if (typeof window !== "undefined" && window.__judoSplashHidden) {
       tryOpen();
-    } else {
+    } else if (typeof window !== "undefined") {
+      window.addEventListener("judo:splash-hidden", onSplashHidden, { once: true });
       pollTimer = window.setInterval(() => {
         if (typeof window !== "undefined" && window.__judoSplashHidden) {
           window.clearInterval(pollTimer);
@@ -42,6 +52,9 @@ export function useHomeOnboardingCoach({ enabled = true } = {}) {
       cancelled = true;
       if (startTimer != null) window.clearTimeout(startTimer);
       if (pollTimer != null) window.clearInterval(pollTimer);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("judo:splash-hidden", onSplashHidden);
+      }
     };
   }, [enabled]);
 

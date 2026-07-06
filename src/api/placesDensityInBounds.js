@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
+import { getApiAuthHeaders } from "../utils/apiAuthHeaders.js";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
 
 /**
@@ -21,7 +22,8 @@ export async function fetchMapPlaceDensityInBounds(bounds, apiBaseUrl = "", time
   const path = `/api/places-density-in-bounds?${qs.toString()}`;
   const base = normalizeApiBaseUrl(apiBaseUrl);
   const url = base ? `${base}${path}` : path;
-  const res = await fetchWithTimeout(url, {}, timeoutMs);
+  const headers = await getApiAuthHeaders();
+  const res = await fetchWithTimeout(url, { headers }, timeoutMs);
   let data = null;
   try {
     data = await res.json();

@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from "react";
 import { lazyWithRetry, clearChunkReloadFlag } from "./utils/lazyWithRetry";
 import { Routes, Route, Navigate } from "react-router-dom";
+import AlphaAccessGate from "./components/AlphaAccess/AlphaAccessGate";
 import { ToastProvider } from "./components/Toast/ToastProvider";
 import PostLoginAdminRedirect from "./components/PostLoginAdminRedirect";
 import AdminRoute from "./components/AdminRoute";
@@ -63,6 +64,7 @@ function App() {
 
   return (
     <ToastProvider>
+    <AlphaAccessGate>
     <CourseCompletionOverlay />
     <EntrySplash />
     <PostLoginAdminRedirect />
@@ -110,6 +112,7 @@ function App() {
       <Route path="/studio/place/:id/edit" element={<Lazy><EditPlace /></Lazy>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </AlphaAccessGate>
     </ToastProvider>
   );
 }

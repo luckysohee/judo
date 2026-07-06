@@ -79,7 +79,8 @@ export async function fetchUserTastePreferences(userId) {
     if (import.meta.env.DEV) {
       console.warn("[user_taste_preferences] fetch:", error.message || error);
     }
-    return null;
+    // 조회 실패 시 null → 설문 게이트가 영원히 안 뜨는 버그 방지
+    return normalizeTasteRow(null, uid);
   }
 
   return normalizeTasteRow(data, uid);

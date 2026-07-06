@@ -16,6 +16,7 @@ export function useUserTastePreferences({ userId, authLoading = false }) {
     const uid = String(userId || "").trim();
     if (!uid) {
       setProfile(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -60,7 +61,8 @@ export function useUserTastePreferences({ userId, authLoading = false }) {
   const needsOnboarding =
     Boolean(userId) &&
     !loading &&
-    profile &&
+    !authLoading &&
+    Boolean(profile) &&
     profile.onboarding_status === "pending";
 
   return {

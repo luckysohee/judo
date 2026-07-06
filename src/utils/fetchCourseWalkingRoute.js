@@ -1,4 +1,5 @@
 import { courseRouteLabelPosition } from "./courseDriveWaypoints";
+import { getApiAuthHeaders } from "./apiAuthHeaders.js";
 import { fetchWithTimeout } from "./fetchWithTimeout.js";
 
 // 비우면 Vite `/api` → server 프록시 (kakaoAPIProxy와 동일 규칙)
@@ -24,7 +25,8 @@ export async function fetchCourseWalkingRoute(slat, slng, dlat, dlng) {
     ? `${API_BASE_URL}/api/course-walking-route?${q}`
     : `/api/course-walking-route?${q}`;
   try {
-    const r = await fetchWithTimeout(path, {}, 12000);
+    const headers = await getApiAuthHeaders();
+    const r = await fetchWithTimeout(path, { headers }, 12000);
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data?.ok) {
       return { ok: false, error: data?.error || "http" };

@@ -5870,7 +5870,8 @@ export default function Home() {
   ]);
 
   const homeOnboardingCoachEnabled = useMemo(() => {
-    if (tasteNeedsOnboarding || tastePrefsLoading) return false;
+    if (authLoading || tastePrefsLoading) return false;
+    if (tasteNeedsOnboarding) return false;
     if (showLoginPrompt) return false;
     if (homeSearchMode.isOpen) return false;
     if (selectedPlace) return false;
@@ -5882,6 +5883,7 @@ export default function Home() {
     if (showFollowModal) return false;
     return true;
   }, [
+    authLoading,
     tasteNeedsOnboarding,
     tastePrefsLoading,
     showLoginPrompt,
