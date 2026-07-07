@@ -1,6 +1,10 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
 import { getApiAuthHeaders } from "../utils/apiAuthHeaders.js";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
+import {
+  MAP_PLACES_FETCH_TIMEOUT_BOOT_MS,
+  MAP_PLACES_FETCH_TIMEOUT_MS,
+} from "../utils/mapApiTimeouts.js";
 
 /**
  * 홈 지도 뷰포트 — 서버 `GET /api/places-in-bounds` (Supabase service role + `get_places_in_bounds` RPC).
@@ -8,9 +12,13 @@ import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
  *
  * @param {{ south: number, west: number, north: number, east: number, limit?: number }} bounds
  * @param {string} [apiBaseUrl] 프로덕션 등 `VITE_AI_API_BASE_URL` (끝 슬래시 없음). 비우면 상대 `/api/...` (Vite 프록시).
- * @param {number} [timeoutMs] 응답 없을 때 무한 대기 방지(기본 8초)
+ * @param {number} [timeoutMs] 응답 없을 때 무한 대기 방지(기본 12초, boot 16초)
  */
-export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "", timeoutMs = 8000) {
+export async function fetchMapPlacesInBounds(
+  bounds,
+  apiBaseUrl = "",
+  timeoutMs = MAP_PLACES_FETCH_TIMEOUT_MS,
+) {
   const { south, west, north, east, limit = 80 } = bounds || {};
   if (![south, west, north, east].every((n) => Number.isFinite(Number(n)))) {
     throw new Error("fetchMapPlacesInBounds: south, west, north, east required");
@@ -47,3 +55,5 @@ export async function fetchMapPlacesInBounds(bounds, apiBaseUrl = "", timeoutMs 
     joinRows: Array.isArray(data.join_rows) ? data.join_rows : [],
   };
 }
+
+export { MAP_PLACES_FETCH_TIMEOUT_BOOT_MS, MAP_PLACES_FETCH_TIMEOUT_MS };

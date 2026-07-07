@@ -2,7 +2,7 @@ import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 
 /** 동일 bbox 재요청·warmup+Home 동시 호출 완화 (인스턴스 메모리) */
-const PLACES_IN_BOUNDS_CACHE_TTL_MS = 90 * 1000;
+const PLACES_IN_BOUNDS_CACHE_TTL_MS = 3 * 60 * 1000;
 const placesInBoundsCache = createTtlCache(160, PLACES_IN_BOUNDS_CACHE_TTL_MS);
 /** @type {Map<string, Promise<object>>} */
 const placesInBoundsInflight = new Map();

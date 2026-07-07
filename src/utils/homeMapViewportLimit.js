@@ -63,7 +63,7 @@ export function shouldSkipMapViewportRefetch(next, last) {
 
   const latSpan = last.padded.ne.lat - last.padded.sw.lat;
   const lngSpan = last.padded.ne.lng - last.padded.sw.lng;
-  const margin = 0.12;
+  const margin = 0.17;
   const inner = {
     sw: {
       lat: last.padded.sw.lat + latSpan * margin,

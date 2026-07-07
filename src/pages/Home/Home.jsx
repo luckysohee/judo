@@ -176,7 +176,14 @@ import {
 } from "../../utils/placeCoords";
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
 import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
-import { fetchMapPlacesInBounds } from "../../api/placesInBounds";
+import {
+  fetchMapPlacesInBounds,
+  MAP_PLACES_FETCH_TIMEOUT_BOOT_MS,
+  MAP_PLACES_FETCH_TIMEOUT_MS,
+} from "../../api/placesInBounds";
+import {
+  MAP_VIEWPORT_LOADING_UI_DELAY_MS,
+} from "../../utils/mapApiTimeouts";
 import { fetchMapPlaceDensityInBounds } from "../../api/placesDensityInBounds";
 import { debounce } from "../../utils/debounce";
 import {
@@ -1458,6 +1465,8 @@ export default function Home() {
   const mapViewportLoadSeqRef = useRef(0);
   /** `/api/places-in-bounds` 동시 요청 수 — stale 완료만으로 로딩이 영구 true 되는 것 방지 */
   const mapViewportFetchInFlightRef = useRef(0);
+  /** '불러오는 중' 칩 — 짧은 요청은 깜빡임 없이 생략 */
+  const mapViewportLoadingDelayRef = useRef(null);
   /** bbox+limit별 네트워크 응답 캐시(병합·attach는 매번 최신 스냅으로 수행) */
   const mapViewportFetchCacheRef = useRef({});
   const isFirstViewportScheduleRef = useRef(true);
@@ -1551,8 +1560,23 @@ export default function Home() {
         joinResult = { rows: cached.joinRows, error: null };
       } else {
         mapViewportFetchInFlightRef.current += 1;
-        if (!silent) {
-          setMapViewportDbLoading(true);
+        const showLoadingUi = () => {
+          if (!silent) setMapViewportDbLoading(true);
+        };
+        if (silent) {
+          /* pan 후속 — 칩 숨김 */
+        } else if (MAP_VIEWPORT_LOADING_UI_DELAY_MS <= 0) {
+          showLoadingUi();
+        } else {
+          if (mapViewportLoadingDelayRef.current) {
+            clearTimeout(mapViewportLoadingDelayRef.current);
+          }
+          mapViewportLoadingDelayRef.current = setTimeout(() => {
+            mapViewportLoadingDelayRef.current = null;
+            if (mapViewportFetchInFlightRef.current > 0) {
+              showLoadingUi();
+            }
+          }, MAP_VIEWPORT_LOADING_UI_DELAY_MS);
         }
         try {
           let usedPrefetch = false;
@@ -1576,10 +1600,29 @@ export default function Home() {
           }
 
           if (!usedPrefetch) {
-            const bundle = await fetchMapPlacesInBounds(
-              { south, west, north, east, limit },
-              AI_API_BASE,
-            );
+            const fetchTimeoutMs = isBootViewport
+              ? MAP_PLACES_FETCH_TIMEOUT_BOOT_MS
+              : MAP_PLACES_FETCH_TIMEOUT_MS;
+            const fetchBounds = async (timeoutMs) =>
+              fetchMapPlacesInBounds(
+                { south, west, north, east, limit },
+                AI_API_BASE,
+                timeoutMs,
+              );
+            let bundle;
+            try {
+              bundle = await fetchBounds(fetchTimeoutMs);
+            } catch (firstErr) {
+              if (
+                isBootViewport &&
+                (firstErr?.code === "ETIMEDOUT" ||
+                  /시간이 초과|timeout/i.test(String(firstErr?.message || "")))
+              ) {
+                bundle = await fetchBounds(MAP_PLACES_FETCH_TIMEOUT_BOOT_MS + 4000);
+              } else {
+                throw firstErr;
+              }
+            }
             plainRows = bundle.places;
             joinResult = { rows: bundle.joinRows, error: null };
           }
@@ -1601,6 +1644,10 @@ export default function Home() {
           }
           return;
         } finally {
+          if (mapViewportLoadingDelayRef.current) {
+            clearTimeout(mapViewportLoadingDelayRef.current);
+            mapViewportLoadingDelayRef.current = null;
+          }
           mapViewportFetchInFlightRef.current = Math.max(
             0,
             mapViewportFetchInFlightRef.current - 1,
@@ -1788,8 +1835,11 @@ export default function Home() {
   const debouncedScheduleDbPlaces = useMemo(
     () =>
       debounce((payload) => {
-        void loadDbPlacesForViewport(payload);
-      }, 280),
+        void loadDbPlacesForViewport({
+          ...payload,
+          silent: mapMarkersBootstrappedRef.current,
+        });
+      }, 320),
     [loadDbPlacesForViewport]
   );
 
@@ -1842,16 +1892,6 @@ export default function Home() {
     },
     [debouncedScheduleDbPlaces, loadDbPlacesForViewport]
   );
-
-  /** Supabase 응답이 7초 이상 지연되면(타임아웃 전이라도) 에러 배너 노출 — 무한 '불러오는 중…' 방지 */
-  useEffect(() => {
-    if (!mapViewportDbLoading) return undefined;
-    setMapViewportLoadFailed(false);
-    const t = setTimeout(() => {
-      setMapViewportLoadFailed(true);
-    }, 7000);
-    return () => clearTimeout(t);
-  }, [mapViewportDbLoading]);
 
   /** 에러 배너의 '다시 시도' — 현재 보고 있는 영역으로 재요청 */
   const retryMapViewportLoad = useCallback(() => {

@@ -1,13 +1,18 @@
 import { normalizeApiBaseUrl } from "../utils/apiBaseUrl.js";
 import { getApiAuthHeaders } from "../utils/apiAuthHeaders.js";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout.js";
+import { MAP_DENSITY_FETCH_TIMEOUT_MS } from "../utils/mapApiTimeouts.js";
 
 /**
  * @param {{ south: number, west: number, north: number, east: number, level?: number }} bounds
  * @param {string} [apiBaseUrl]
  * @returns {Promise<{ clusters: { lat: number, lng: number, count: number }[], totalInBounds: number }>}
  */
-export async function fetchMapPlaceDensityInBounds(bounds, apiBaseUrl = "", timeoutMs = 6000) {
+export async function fetchMapPlaceDensityInBounds(
+  bounds,
+  apiBaseUrl = "",
+  timeoutMs = MAP_DENSITY_FETCH_TIMEOUT_MS,
+) {
   const { south, west, north, east, level = 8 } = bounds || {};
   if (![south, west, north, east].every((n) => Number.isFinite(Number(n)))) {
     throw new Error("fetchMapPlaceDensityInBounds: south, west, north, east required");

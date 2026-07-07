@@ -4,6 +4,18 @@ import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 
 let supabaseAuthClient = null;
 
+/** JWT → user (매 API getUser 생략) */
+const JWT_USER_CACHE_TTL_MS = 5 * 60 * 1000;
+/** uid → allowlist (매 API DB 2회 생략) */
+const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_JWT_CACHE_ENTRIES = 200;
+const MAX_ALLOWLIST_CACHE_ENTRIES = 300;
+
+/** @type {Map<string, { user: object, expiresAt: number }>} */
+const jwtUserCache = new Map();
+/** @type {Map<string, { allowed: boolean, expiresAt: number }>} */
+const allowlistCache = new Map();
+
 function getSupabaseAuthClient() {
   if (supabaseAuthClient) return supabaseAuthClient;
   const url = (
@@ -23,6 +35,19 @@ function getSupabaseAuthClient() {
   return supabaseAuthClient;
 }
 
+function pruneCache(map, maxEntries) {
+  if (map.size <= maxEntries) return;
+  const now = Date.now();
+  for (const [key, entry] of map) {
+    if (entry.expiresAt <= now) map.delete(key);
+  }
+  while (map.size > maxEntries) {
+    const first = map.keys().next().value;
+    if (first == null) break;
+    map.delete(first);
+  }
+}
+
 export function isAlphaAllowlistEnabledServer() {
   return String(process.env.ALPHA_ALLOWLIST_ENABLED || "").trim() === "true";
 }
@@ -33,13 +58,25 @@ async function resolveAuthUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) return null;
 
+  const token = authHeader.slice("Bearer ".length).trim();
+  if (!token) return null;
+
+  const cached = jwtUserCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.user;
+  }
+
   const client = getSupabaseAuthClient();
   if (!client) return null;
 
-  const token = authHeader.slice("Bearer ".length).trim();
   try {
     const { data, error } = await client.auth.getUser(token);
     if (error || !data?.user) return null;
+    jwtUserCache.set(token, {
+      user: data.user,
+      expiresAt: Date.now() + JWT_USER_CACHE_TTL_MS,
+    });
+    pruneCache(jwtUserCache, MAX_JWT_CACHE_ENTRIES);
     return data.user;
   } catch {
     return null;
@@ -51,27 +88,32 @@ async function isUserAlphaAllowed(user) {
   const uid = user?.id;
   if (!email || !uid) return false;
 
+  const cached = allowlistCache.get(uid);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.allowed;
+  }
+
   const { client } = createSupabaseServiceClient();
   if (!client) {
     console.warn("[alpha] service role missing — deny API access");
     return false;
   }
 
-  const { data: profile } = await client
-    .from("profiles")
-    .select("role")
-    .eq("id", uid)
-    .maybeSingle();
+  const [profileRes, allowlistRes] = await Promise.all([
+    client.from("profiles").select("role").eq("id", uid).maybeSingle(),
+    client.from("alpha_access_allowlist").select("email").eq("email", email).maybeSingle(),
+  ]);
 
-  if (profile?.role === "admin") return true;
+  const allowed =
+    profileRes.data?.role === "admin" || Boolean(allowlistRes.data);
 
-  const { data: row } = await client
-    .from("alpha_access_allowlist")
-    .select("email")
-    .eq("email", email)
-    .maybeSingle();
+  allowlistCache.set(uid, {
+    allowed,
+    expiresAt: Date.now() + ALLOWLIST_CACHE_TTL_MS,
+  });
+  pruneCache(allowlistCache, MAX_ALLOWLIST_CACHE_ENTRIES);
 
-  return Boolean(row);
+  return allowed;
 }
 
 /**
