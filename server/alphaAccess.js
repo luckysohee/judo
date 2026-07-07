@@ -1,8 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
-
-let supabaseAuthClient = null;
+import { getSupabaseJwtVerifyClient } from "./utils/supabaseJwtAuth.js";
 
 /** JWT → user (매 API getUser 생략) */
 const JWT_USER_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -17,22 +14,7 @@ const jwtUserCache = new Map();
 const allowlistCache = new Map();
 
 function getSupabaseAuthClient() {
-  if (supabaseAuthClient) return supabaseAuthClient;
-  const url = (
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    ""
-  ).trim();
-  const anonKey = (
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    ""
-  ).trim();
-  if (!url || !anonKey) return null;
-  supabaseAuthClient = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return supabaseAuthClient;
+  return getSupabaseJwtVerifyClient();
 }
 
 function pruneCache(map, maxEntries) {
