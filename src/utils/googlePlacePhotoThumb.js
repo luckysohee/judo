@@ -1,4 +1,5 @@
 import { getAiApiBaseUrl } from "./apiBaseUrl.js";
+import { getApiAuthHeaders } from "./apiAuthHeaders.js";
 
 const API_BASE_URL = getAiApiBaseUrl();
 
@@ -21,7 +22,7 @@ export async function fetchGooglePlacePhotoThumb(step) {
   const path = `/api/google-place-photos?${qs.toString()}`;
   const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: await getApiAuthHeaders() });
     const data = await res.json().catch(() => null);
     const first = Array.isArray(data?.imageUrls)
       ? String(data.imageUrls[0] || "").trim()

@@ -19,6 +19,7 @@ import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
+import { getApiAuthHeaders } from "../../utils/apiAuthHeaders.js";
 import {
   curatorPhotoPublicUrl,
   deleteCuratorPlacePhoto,
@@ -704,62 +705,68 @@ export default function PlacePreviewCard({
       params.set("lng", String(displayLng));
     }
 
-    fetch(`${base}/api/google-place-photos?${params}`, { signal: ac.signal })
-      .then(async (r) => {
-        const text = await r.text();
-        try {
-          return JSON.parse(text);
-        } catch {
+    void (async () => {
+      const headers = await getApiAuthHeaders();
+      fetch(`${base}/api/google-place-photos?${params}`, {
+        signal: ac.signal,
+        headers,
+      })
+        .then(async (r) => {
+          const text = await r.text();
+          try {
+            return JSON.parse(text);
+          } catch {
+            if (import.meta.env.DEV) {
+              console.warn("[google-place-photos] JSON 아님", r.status, text.slice(0, 200));
+            }
+            return { ok: false, imageUrls: [] };
+          }
+        })
+        .then((data) => {
           if (import.meta.env.DEV) {
-            console.warn("[google-place-photos] JSON 아님", r.status, text.slice(0, 200));
+            const n = Array.isArray(data?.imageUrls) ? data.imageUrls.length : 0;
+            if (!data?.ok || n === 0) {
+              console.warn("[google-place-photos]", {
+                ok: data?.ok,
+                count: n,
+                error: data?.error,
+                hint: data?.hint,
+                googleHttpStatus: data?.googleHttpStatus,
+                googleApiError: data?.googleApiError,
+                requestUrl: `${base || "(same-origin)"}/api/google-place-photos?${params}`,
+              });
+            }
           }
-          return { ok: false, imageUrls: [] };
-        }
-      })
-      .then((data) => {
-        if (import.meta.env.DEV) {
-          const n = Array.isArray(data?.imageUrls) ? data.imageUrls.length : 0;
-          if (!data?.ok || n === 0) {
-            console.warn("[google-place-photos]", {
-              ok: data?.ok,
-              count: n,
-              error: data?.error,
-              hint: data?.hint,
-              googleHttpStatus: data?.googleHttpStatus,
-              googleApiError: data?.googleApiError,
-              requestUrl: `${base || "(same-origin)"}/api/google-place-photos?${params}`,
-            });
+          if (!data?.ok || !Array.isArray(data.imageUrls)) return;
+          const urls = data.imageUrls
+            .filter(
+              (u) =>
+                typeof u === "string" &&
+                (u.startsWith("/") || /^https?:\/\//i.test(u))
+            )
+            .map((path) =>
+              path.startsWith("/") && base ? `${base}${path}` : path
+            );
+          if (urls.length > 0) {
+            setGooglePhotoUrls(urls);
+            setGooglePhotoAttributions(
+              Array.isArray(data.attributions) ? data.attributions : []
+            );
           }
-        }
-        if (!data?.ok || !Array.isArray(data.imageUrls)) return;
-        const urls = data.imageUrls
-          .filter(
-            (u) =>
-              typeof u === "string" &&
-              (u.startsWith("/") || /^https?:\/\//i.test(u))
-          )
-          .map((path) =>
-            path.startsWith("/") && base ? `${base}${path}` : path
-          );
-        if (urls.length > 0) {
-          setGooglePhotoUrls(urls);
-          setGooglePhotoAttributions(
-            Array.isArray(data.attributions) ? data.attributions : []
-          );
-        }
-      })
-      .catch((err) => {
-        if (err?.name === "AbortError") return;
-        if (import.meta.env.DEV) {
-          console.warn("google-place-photos fetch 실패:", err?.message || err);
-        }
-      })
-      .finally(() => {
-        if (!ac.signal.aborted) setGooglePhotosLoading(false);
-        placeOpenPerfRef.current?.mark("google_photos_done");
-        placeOpenPerfRef.current?.end({ phase: "photos_settled" });
-        placeOpenPerfRef.current = null;
-      });
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          if (import.meta.env.DEV) {
+            console.warn("google-place-photos fetch 실패:", err?.message || err);
+          }
+        })
+        .finally(() => {
+          if (!ac.signal.aborted) setGooglePhotosLoading(false);
+          placeOpenPerfRef.current?.mark("google_photos_done");
+          placeOpenPerfRef.current?.end({ phase: "photos_settled" });
+          placeOpenPerfRef.current = null;
+        });
+    })();
 
     return () => {
       ac.abort();

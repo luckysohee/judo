@@ -1,4 +1,5 @@
 import { getAiApiBaseUrl } from "./apiBaseUrl.js";
+import { getApiAuthHeaders } from "./apiAuthHeaders.js";
 import { isPerfTraceEnabled } from "./devPerfTrace.js";
 import {
   readKakaoPlaceDetailCache,
@@ -35,9 +36,7 @@ async function fetchKakaoPlaceDetailsRaw(placeId, opts = {}) {
     typeof performance !== "undefined" ? performance.now() : Date.now();
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
 
@@ -188,7 +187,7 @@ export async function searchKakaoAddressViaProxy(opts) {
     const url = base ? `${base}/api/kakao/address` : "/api/kakao/address";
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         query,
         size:
@@ -233,7 +232,7 @@ export async function searchKakaoKeywordViaProxy(opts) {
     }
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await getApiAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
     if (!response.ok) {

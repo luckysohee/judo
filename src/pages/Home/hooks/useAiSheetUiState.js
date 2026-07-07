@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getApiAuthHeaders } from "../../../utils/apiAuthHeaders.js";
 import { buildKakaoStaticMapUrl } from "../../../utils/kakaoStaticMapUrl";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../../utils/kakaoAPIProxy";
 import { resolvePlaceWgs84 } from "../../../utils/placeCoords";
@@ -171,7 +172,10 @@ export function useAiSheetUiState({ aiSheetOpen, aiBottomSheetPlaces }) {
         try {
           const res = await fetch(
             `/api/google-place-photos?${qs.toString()}`,
-            { signal: ac.signal },
+            {
+              signal: ac.signal,
+              headers: await getApiAuthHeaders(),
+            },
           );
           const data = await res.json().catch(() => null);
           const first = Array.isArray(data?.imageUrls)

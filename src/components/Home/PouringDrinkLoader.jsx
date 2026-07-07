@@ -65,12 +65,12 @@ export default function PouringDrinkLoader({
         aria-hidden
       >
         <defs>
-          <linearGradient id={`${clipId}-beer`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${clipId}-beerGrad`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#ffd166" />
             <stop offset="55%" stopColor="#f5a623" />
             <stop offset="100%" stopColor="#e8881a" />
           </linearGradient>
-          <clipPath id={`${clipId}-beer`}>
+          <clipPath id={`${clipId}-beerClip`}>
             <rect x={innerX} y={innerY} width={innerW} height={innerH} rx="2" />
           </clipPath>
           {/* 거품 — 입구 폭에 맞춰 좌우로만 살짝 넘침 */}
@@ -117,14 +117,14 @@ export default function PouringDrinkLoader({
         />
 
         {/* 1단계: 맥주 채움 — 컵 안쪽만 */}
-        <g clipPath={`url(#${clipId}-beer)`}>
+        <g clipPath={`url(#${clipId}-beerClip)`}>
           <rect
             className="judoMugBeer"
             x={innerX}
             y={innerY}
             width={innerW}
             height={innerH}
-            fill={`url(#${clipId}-beer)`}
+            fill={`url(#${clipId}-beerGrad)`}
           />
           <rect
             className="judoMugShine"
