@@ -235,6 +235,23 @@ export default function PlacePreviewCard({
     });
   }, []);
 
+  /** 주소·좌표 보강과 무관하게 venue 단위로만 사진 요청 (깜빡임 방지) */
+  const venuePhotoKey = useMemo(
+    () =>
+      [
+        String(internalPlaceIdForPhotos ?? ""),
+        String(kakaoPlaceId ?? ""),
+        String(kakaoKeywordQuery ?? "").trim(),
+      ].join("\u001f"),
+    [internalPlaceIdForPhotos, kakaoPlaceId, kakaoKeywordQuery]
+  );
+
+  const photoQueryRef = useRef({
+    address: "",
+    lat: null,
+    lng: null,
+  });
+
   useEffect(() => {
     setPlacePhotoUrls([]);
     setPlacePhotoAttributions([]);
@@ -243,7 +260,8 @@ export default function PlacePreviewCard({
     setCuratorPhotoRows([]);
     setFailedPhotoUrls(new Set());
     setHeroImageLoaded(false);
-  }, [place?.id, place?.place_id, kakaoPlaceId]);
+    setHeroPreviewIndex(0);
+  }, [venuePhotoKey]);
 
   // 카카오 place id가 있으면 기본정보 조회 (공식 REST에 detail.json 없음 → 서버에서 keyword 검색 후 id 매칭)
   useEffect(() => {
@@ -526,10 +544,7 @@ export default function PlacePreviewCard({
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  useEffect(() => {
-    setHeroPreviewIndex(0);
-    setHeroImageLoaded(false);
-  }, [place?.id, place?.place_id, kakaoPlaceId]);
+  const photoFetchSeqRef = useRef(0);
 
   useEffect(() => {
     if (heroPreviewIndex < visiblePreviewUrls.length) return;
@@ -556,9 +571,14 @@ export default function PlacePreviewCard({
     (url) => {
       markPhotoUrlFailed(url);
       setHeroPreviewIndex(0);
+      setHeroImageLoaded(false);
     },
     [markPhotoUrlFailed]
   );
+
+  useEffect(() => {
+    setHeroImageLoaded(false);
+  }, [heroPreviewUrl]);
 
   useEffect(() => {
     if (!lightboxOpen) return undefined;
@@ -623,29 +643,11 @@ export default function PlacePreviewCard({
     place?.region,
   ]);
 
-  const placePhotosFetchKey = useMemo(
-    () =>
-      [
-        String(internalPlaceIdForPhotos ?? ""),
-        String(kakaoPlaceId ?? ""),
-        String(kakaoKeywordQuery ?? "").trim(),
-        resolvedPlaceAddressLine,
-        displayLat != null && Number.isFinite(Number(displayLat))
-          ? String(displayLat)
-          : "",
-        displayLng != null && Number.isFinite(Number(displayLng))
-          ? String(displayLng)
-          : "",
-      ].join("\u001f"),
-    [
-      internalPlaceIdForPhotos,
-      kakaoPlaceId,
-      kakaoKeywordQuery,
-      resolvedPlaceAddressLine,
-      displayLat,
-      displayLng,
-    ]
-  );
+  photoQueryRef.current = {
+    address: resolvedPlaceAddressLine,
+    lat: displayLat,
+    lng: displayLng,
+  };
 
   useEffect(() => {
     if (!place) return undefined;
@@ -653,24 +655,28 @@ export default function PlacePreviewCard({
       return undefined;
     }
 
+    const seq = ++photoFetchSeqRef.current;
     let cancelled = false;
-    setPlacePhotosLoading(true);
-    setHeroImageLoaded(false);
+    const hadPhotos = placePhotoUrls.length > 0;
+    if (!hadPhotos) setPlacePhotosLoading(true);
 
     void (async () => {
       try {
+        const q = photoQueryRef.current;
         const data = await fetchPlacePhotos({
           placeId: internalPlaceIdForPhotos || undefined,
           kakaoPlaceId: kakaoPlaceId || undefined,
           name: kakaoKeywordQuery,
-          address: resolvedPlaceAddressLine,
-          lat: displayLat,
-          lng: displayLng,
+          address: q.address,
+          lat: q.lat,
+          lng: q.lng,
         });
-        if (cancelled) return;
-        setPlacePhotoUrls(data.urls);
-        setPlacePhotoAttributions(data.attributions);
-        setPlacePhotoSources(data.sources);
+        if (cancelled || seq !== photoFetchSeqRef.current) return;
+        if (data.urls.length > 0) {
+          setPlacePhotoUrls(data.urls);
+          setPlacePhotoAttributions(data.attributions);
+          setPlacePhotoSources(data.sources);
+        }
         setCuratorPhotoRows(
           data.curatorPhotos.map((row) => ({
             id: row.id,
@@ -683,38 +689,38 @@ export default function PlacePreviewCard({
         placeOpenPerfRef.current?.end({ phase: "photos_settled" });
         placeOpenPerfRef.current = null;
       } catch (err) {
-        if (!cancelled) {
-          try {
-            const rows = await fetchCuratorPlacePhotoRows({
-              kakaoPlaceId: kakaoPlaceId || undefined,
-              internalPlaceId: internalPlaceIdForPhotos || undefined,
-            });
-            const urls = rows
-              .map((r) => curatorPhotoPublicUrl(r.storage_path))
-              .filter(Boolean);
-            setCuratorPhotoRows(rows);
-            if (urls.length > 0) setPlacePhotoUrls(urls);
-          } catch {
-            /* ignore */
-          }
-          if (import.meta.env.DEV) {
-            console.warn("[place-photos]", err?.message || err);
-          }
+        if (cancelled || seq !== photoFetchSeqRef.current) return;
+        if (hadPhotos) return;
+        try {
+          const rows = await fetchCuratorPlacePhotoRows({
+            kakaoPlaceId: kakaoPlaceId || undefined,
+            internalPlaceId: internalPlaceIdForPhotos || undefined,
+          });
+          const urls = rows
+            .map((r) => curatorPhotoPublicUrl(r.storage_path))
+            .filter(Boolean);
+          setCuratorPhotoRows(rows);
+          if (urls.length > 0) setPlacePhotoUrls(urls);
+        } catch {
+          /* ignore */
+        }
+        if (import.meta.env.DEV) {
+          console.warn("[place-photos]", err?.message || err);
         }
       } finally {
-        if (!cancelled) setPlacePhotosLoading(false);
+        if (!cancelled && seq === photoFetchSeqRef.current) {
+          setPlacePhotosLoading(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [place, placePhotosFetchKey]);
+  }, [place, venuePhotoKey]);
 
   const showPhotoSkeleton =
-    !heroImageLoaded &&
-    visiblePreviewUrls.length === 0 &&
-    placePhotosLoading;
+    placePhotosLoading && visiblePreviewUrls.length === 0;
 
   const canCuratorUploadPhoto =
     isCurator &&
@@ -1398,19 +1404,20 @@ export default function PlacePreviewCard({
               >
                 <div style={styles.imageFrame}>
                   {!heroImageLoaded ? (
-                    <div
-                      style={styles.photoHeroSkeleton}
-                      aria-hidden
-                    />
+                    <div style={styles.photoHeroSkeleton} aria-hidden />
                   ) : null}
                   <img
-                    key={heroPreviewUrl}
                     src={heroPreviewUrl}
                     alt=""
+                    ref={(el) => {
+                      if (el?.complete && el.naturalWidth > 0) {
+                        setHeroImageLoaded(true);
+                      }
+                    }}
                     style={{
                       ...styles.imageFill,
                       opacity: heroImageLoaded ? 1 : 0,
-                      transition: "opacity 0.22s ease-out",
+                      transition: heroImageLoaded ? "opacity 0.18s ease-out" : "none",
                     }}
                     loading="eager"
                     referrerPolicy="no-referrer"
