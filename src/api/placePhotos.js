@@ -39,11 +39,10 @@ export async function fetchPlacePhotos(params = {}) {
     throw new Error(data?.message || "place-photos failed");
   }
 
-  const base = getAiApiBaseUrl();
-  const normalizeUrl = (path) => {
-    if (typeof path !== "string" || !path) return "";
-    if (path.startsWith("/") && base) return `${base}${path}`;
-    return path;
+  const normalizeUrl = (u) => {
+    if (typeof u !== "string" || !u) return "";
+    if (u.startsWith("/") && base) return `${base}${u}`;
+    return u;
   };
 
   return {

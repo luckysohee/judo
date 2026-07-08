@@ -683,8 +683,23 @@ export default function PlacePreviewCard({
         placeOpenPerfRef.current?.end({ phase: "photos_settled" });
         placeOpenPerfRef.current = null;
       } catch (err) {
-        if (!cancelled && import.meta.env.DEV) {
-          console.warn("[place-photos]", err?.message || err);
+        if (!cancelled) {
+          try {
+            const rows = await fetchCuratorPlacePhotoRows({
+              kakaoPlaceId: kakaoPlaceId || undefined,
+              internalPlaceId: internalPlaceIdForPhotos || undefined,
+            });
+            const urls = rows
+              .map((r) => curatorPhotoPublicUrl(r.storage_path))
+              .filter(Boolean);
+            setCuratorPhotoRows(rows);
+            if (urls.length > 0) setPlacePhotoUrls(urls);
+          } catch {
+            /* ignore */
+          }
+          if (import.meta.env.DEV) {
+            console.warn("[place-photos]", err?.message || err);
+          }
         }
       } finally {
         if (!cancelled) setPlacePhotosLoading(false);
