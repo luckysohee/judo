@@ -98,12 +98,20 @@ async function isUserAlphaAllowed(user) {
   return allowed;
 }
 
+/** `<img src>` 등은 Authorization 헤더를 붙일 수 없음 — 공개 허용 */
+const ALPHA_PUBLIC_API_PATHS = new Set([
+  "/api/health",
+  "/api/kakao/static-map",
+  "/api/google-place-photo-media",
+  "/api/google-place-photo-legacy",
+]);
+
 /**
- * 알파 모드일 때 `/api/*` (health 제외)는 JWT + allowlist 필수.
+ * 알파 모드일 때 `/api/*` (health·static-map 제외)는 JWT + allowlist 필수.
  */
 export async function requireAlphaAllowlistForApi(req, res, next) {
   if (!isAlphaAllowlistEnabledServer()) return next();
-  if (req.path === "/api/health") return next();
+  if (ALPHA_PUBLIC_API_PATHS.has(req.path)) return next();
   if (!req.path.startsWith("/api/")) return next();
 
   const user = await resolveAuthUser(req);

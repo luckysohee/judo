@@ -1,12 +1,13 @@
 import { supabase } from "../lib/supabase";
 import { prepareImageFileForUpload } from "./prepareImageFileForUpload";
+import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl";
 
 const BUCKET = "curator-place-photos";
 
 export function curatorPhotoPublicUrl(storagePath) {
   if (!storagePath || typeof storagePath !== "string") return "";
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-  return data?.publicUrl || "";
+  return rewriteLegacySupabaseStorageUrl(data?.publicUrl || "");
 }
 
 /**

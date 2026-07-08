@@ -25,6 +25,7 @@ import {
 import { dispatchCourseCompletedCelebration } from "../../lib/courseCompletionEvents";
 import { fetchCuratorCourseById } from "../../api/curatorCourses";
 import { resolveCourseCoverForCourse } from "../../utils/courseStepThumb";
+import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 import { mapPlaceRowForCourse } from "../../api/places";
 import CourseMapPreview from "../../components/Course/CourseMapPreview";
 import { useAuth } from "../../context/AuthContext";
@@ -618,7 +619,9 @@ export default function CourseDetailPage() {
     );
   }
 
-  const coverUrl = String(course.cover_image_url || "").trim();
+  const coverUrl = rewriteLegacySupabaseStorageUrl(
+    String(course.cover_image_url || "").trim()
+  );
   const tags = Array.isArray(course.theme_tags) ? course.theme_tags : [];
 
   return (

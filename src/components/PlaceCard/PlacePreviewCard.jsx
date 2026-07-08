@@ -223,12 +223,25 @@ export default function PlacePreviewCard({
     setKakaoDetails(null);
   }, [place?.id, place?.place_id, place?.kakao_place_id]);
 
+  const [failedPhotoUrls, setFailedPhotoUrls] = useState(() => new Set());
+
+  const markPhotoUrlFailed = useCallback((url) => {
+    if (typeof url !== "string" || !url) return;
+    setFailedPhotoUrls((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     setGooglePhotoUrls([]);
     setGooglePhotoAttributions([]);
     setGooglePhotosLoading(false);
     setCuratorPhotoRows([]);
     setCuratorPhotosLoading(false);
+    setFailedPhotoUrls(new Set());
   }, [place?.id, place?.place_id, kakaoPlaceId]);
 
   useEffect(() => {
@@ -565,6 +578,11 @@ export default function PlacePreviewCard({
     return out;
   }, [mergedKakaoCuratorPhotos, googlePhotoUrls]);
 
+  const visiblePreviewUrls = useMemo(
+    () => allPreviewUrls.filter((u) => !failedPhotoUrls.has(u)),
+    [allPreviewUrls, failedPhotoUrls]
+  );
+
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -572,14 +590,28 @@ export default function PlacePreviewCard({
     setHeroPreviewIndex(0);
   }, [place?.id, place?.place_id, kakaoPlaceId]);
 
-  const heroPreviewUrl = allPreviewUrls[heroPreviewIndex] ?? allPreviewUrls[0];
-  const stripPreviewUrls = allPreviewUrls.filter(
+  useEffect(() => {
+    if (heroPreviewIndex < visiblePreviewUrls.length) return;
+    setHeroPreviewIndex(0);
+  }, [heroPreviewIndex, visiblePreviewUrls.length]);
+
+  const heroPreviewUrl =
+    visiblePreviewUrls[heroPreviewIndex] ?? visiblePreviewUrls[0];
+  const stripPreviewUrls = visiblePreviewUrls.filter(
     (_, i) => i !== heroPreviewIndex
   );
 
   const previewHasKakaoOpenablePhoto = useMemo(
-    () => allPreviewUrls.some((u) => photoClickOpensKakao(u)),
-    [allPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+    () => visiblePreviewUrls.some((u) => photoClickOpensKakao(u)),
+    [visiblePreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+  );
+
+  const handlePreviewPhotoError = useCallback(
+    (url) => {
+      markPhotoUrlFailed(url);
+      setHeroPreviewIndex(0);
+    },
+    [markPhotoUrlFailed]
   );
 
   useEffect(() => {
@@ -588,34 +620,34 @@ export default function PlacePreviewCard({
       if (e.key === "Escape") setLightboxOpen(false);
       if (e.key === "ArrowRight") {
         setLightboxIndex((idx) =>
-          allPreviewUrls.length
-            ? (idx + 1) % allPreviewUrls.length
+          visiblePreviewUrls.length
+            ? (idx + 1) % visiblePreviewUrls.length
             : idx
         );
       }
       if (e.key === "ArrowLeft") {
         setLightboxIndex((idx) =>
-          allPreviewUrls.length
-            ? (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+          visiblePreviewUrls.length
+            ? (idx - 1 + visiblePreviewUrls.length) % visiblePreviewUrls.length
             : idx
         );
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxOpen, allPreviewUrls.length]);
+  }, [lightboxOpen, visiblePreviewUrls.length]);
 
   const openPhotoLightbox = useCallback(
     (index) => {
-      if (!allPreviewUrls.length) return;
+      if (!visiblePreviewUrls.length) return;
       const safeIndex =
-        Number.isFinite(index) && index >= 0 && index < allPreviewUrls.length
+        Number.isFinite(index) && index >= 0 && index < visiblePreviewUrls.length
           ? index
           : 0;
       setLightboxIndex(safeIndex);
       setLightboxOpen(true);
     },
-    [allPreviewUrls]
+    [visiblePreviewUrls]
   );
 
   const showGooglePhotoCredit =
@@ -682,7 +714,8 @@ export default function PlacePreviewCard({
     const q = kakaoKeywordQuery.trim();
     if (!q) return;
     if (kakaoPlaceId && isLoadingKakao) return;
-    if (kakaoPreviewPhotoUrls.length > 0) return;
+    if (curatorPhotosLoading) return;
+    if (visiblePreviewUrls.length > 0) return;
 
     setGooglePhotoUrls([]);
     setGooglePhotoAttributions([]);
@@ -771,8 +804,14 @@ export default function PlacePreviewCard({
     return () => {
       ac.abort();
     };
-    // 키에 이름·주소·좌표·장소 id + 카카오 사진 조회 완료 후에만 구글 폴백
-  }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length]);
+    // 카카오·큐레이터 로드 후에도 표시 가능한 URL이 없으면 구글 폴백
+  }, [
+    googlePlacePhotosFetchKey,
+    isLoadingKakao,
+    curatorPhotosLoading,
+    visiblePreviewUrls.length,
+    kakaoKeywordQuery,
+  ]);
 
   useEffect(() => {
     const t = placeOpenPerfRef.current;
@@ -794,7 +833,7 @@ export default function PlacePreviewCard({
   ]);
 
   const showKakaoPhotoLoading =
-    allPreviewUrls.length === 0 &&
+    visiblePreviewUrls.length === 0 &&
     (googlePhotosLoading ||
       curatorPhotosLoading ||
       ((isKakaoPlace || kakaoDetails) && isLoadingKakao));
@@ -1444,7 +1483,7 @@ export default function PlacePreviewCard({
             )}
           </div>
         </div>
-        {allPreviewUrls.length > 0 && heroPreviewUrl ? (
+        {visiblePreviewUrls.length > 0 && heroPreviewUrl ? (
           <div style={styles.kakaoPreviewSection}>
             <div style={styles.photoHeroWrap}>
               <button
@@ -1463,9 +1502,7 @@ export default function PlacePreviewCard({
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.onerror = null;
-                      setHeroPreviewIndex((i) =>
-                        i + 1 < allPreviewUrls.length ? i + 1 : i
-                      );
+                      handlePreviewPhotoError(heroPreviewUrl);
                     }}
                   />
                 </div>
@@ -1501,7 +1538,7 @@ export default function PlacePreviewCard({
                     <button
                       type="button"
                       onClick={() => {
-                        const idxInAll = allPreviewUrls.indexOf(src);
+                        const idxInAll = visiblePreviewUrls.indexOf(src);
                         openPhotoLightbox(idxInAll >= 0 ? idxInAll : 0);
                       }}
                       style={styles.kakaoPreviewThumbBtn}
@@ -1513,6 +1550,10 @@ export default function PlacePreviewCard({
                         style={styles.kakaoPreviewThumbImg}
                         loading="lazy"
                         referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          handlePreviewPhotoError(src);
+                        }}
                       />
                     </button>
                     {canUserDeleteCuratorPhotoUrl(src) ? (
@@ -2020,7 +2061,7 @@ export default function PlacePreviewCard({
             </div>
           </div>
         </div>
-        {lightboxOpen && allPreviewUrls.length > 0 ? (
+        {lightboxOpen && visiblePreviewUrls.length > 0 ? (
           <div style={styles.photoLightbox} onClick={() => setLightboxOpen(false)}>
             <button
               type="button"
@@ -2034,13 +2075,13 @@ export default function PlacePreviewCard({
             >
               <FaTimes size={16} />
             </button>
-            {allPreviewUrls.length > 1 ? (
+            {visiblePreviewUrls.length > 1 ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxIndex((idx) =>
-                    (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+                    (idx - 1 + visiblePreviewUrls.length) % visiblePreviewUrls.length
                   );
                 }}
                 style={styles.photoLightboxNavLeft}
@@ -2050,17 +2091,21 @@ export default function PlacePreviewCard({
               </button>
             ) : null}
             <img
-              src={allPreviewUrls[lightboxIndex]}
+              src={visiblePreviewUrls[lightboxIndex]}
               alt="장소 사진 크게 보기"
               style={styles.photoLightboxImage}
               onClick={(e) => e.stopPropagation()}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                handlePreviewPhotoError(visiblePreviewUrls[lightboxIndex]);
+              }}
             />
-            {allPreviewUrls.length > 1 ? (
+            {visiblePreviewUrls.length > 1 ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxIndex((idx) => (idx + 1) % allPreviewUrls.length);
+                  setLightboxIndex((idx) => (idx + 1) % visiblePreviewUrls.length);
                 }}
                 style={styles.photoLightboxNavRight}
                 aria-label="다음 사진"
