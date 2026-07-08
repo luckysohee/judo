@@ -323,6 +323,43 @@ export async function enrichDrivingMapWithStepThumbs(drive) {
   return { ...drive, steps };
 }
 
+/**
+ * 지도 핀(2차 찾기 펄스·확정 코스)에 카카오 og 썸네일 부착
+ * @param {object[]} places
+ */
+export async function enrichMapPlacesWithStepThumbs(places = []) {
+  if (!Array.isArray(places) || places.length === 0) return places;
+
+  return Promise.all(
+    places.map(async (p) => {
+      const existing = pickStepUploadedThumb({
+        step_image_url: p.courseStepThumbUrl || p.step_image_url || p.image_url,
+      });
+      if (existing) {
+        return { ...p, courseStepThumbUrl: existing };
+      }
+
+      const kakaoId = String(
+        p.kakao_place_id || p.place_id || p.kakaoId || ""
+      ).trim();
+      const thumb = await resolveCourseStepThumbUrl(
+        {
+          place_id: p.id,
+          name: p.name || p.place_name,
+          step_image_url: p.step_image_url || p.image_url,
+          lat: p.lat,
+          lng: p.lng,
+          address: p.address_name || p.address || "",
+          kakao_place_id: /^\d+$/.test(kakaoId) ? kakaoId : null,
+        },
+        { skipGoogleFallback: true }
+      );
+
+      return thumb ? { ...p, courseStepThumbUrl: thumb } : p;
+    })
+  );
+}
+
 /** 지도 드라이브 → 바텀시트·썸네일 스트립 입력 */
 export function sheetStepsFromDrivingMap(drive) {
   if (!drive || !Array.isArray(drive.steps)) return [];

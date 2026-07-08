@@ -6,8 +6,9 @@ import {
 import { isResolvableCourseStepThumbUrl } from "./courseStepThumb.js";
 import { resolvePlaceWgs84 } from "./placeCoords.js";
 import {
-  buildCourseVenueNameLabelForMarker,
+  buildCourseVenueNameLabelForPhotoOverlay,
   shouldShowCourseStepRouteBadge,
+  wrapVenueLabelSvgForHtml,
 } from "./mapMarkerVenueLabel.js";
 
 /** 카카오 level — 숫자가 작을수록 확대. 이 값 이하에서 큐레이터 픽 사진 마커 */
@@ -224,16 +225,12 @@ export function createPhotoCircleMarker({
   }
 
   if (place?.isCoursePin) {
-    const venueLabel = buildCourseVenueNameLabelForMarker(
-      size / 2,
-      size + 1,
-      place,
-      size
-    );
-    if (venueLabel?.svg) {
+    const venueLabel = buildCourseVenueNameLabelForPhotoOverlay(size, place);
+    const labelSvg = wrapVenueLabelSvgForHtml(venueLabel);
+    if (labelSvg) {
       const labelHost = document.createElement("div");
-      labelHost.style.cssText = `margin-top:2px;width:${venueLabel.totalW}px;height:${venueLabel.height}px;`;
-      labelHost.innerHTML = venueLabel.svg;
+      labelHost.style.cssText = `margin-top:2px;width:${venueLabel.totalW}px;height:${venueLabel.height}px;line-height:0;`;
+      labelHost.innerHTML = labelSvg;
       root.appendChild(labelHost);
     }
   }

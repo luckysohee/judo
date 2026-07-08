@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCourseVenueNameLabelForMarker,
+  buildCourseVenueNameLabelForPhotoOverlay,
   buildCourseVenueNameLabelSvg,
   shouldShowCourseVenueNameLabel,
+  wrapVenueLabelSvgForHtml,
 } from "./mapMarkerVenueLabel.js";
 
 describe("mapMarkerVenueLabel", () => {
@@ -70,6 +72,21 @@ describe("mapMarkerVenueLabel", () => {
     });
     expect(svg).toContain("rgba(15,23,42,0.92)");
     expect(svg).not.toContain("#dc2626");
+  });
+
+  it("wraps venue label svg for html overlay", () => {
+    const { svg, height, width, totalW } = buildCourseVenueNameLabelForPhotoOverlay(
+      40,
+      {
+        isCoursePin: true,
+        courseMarkerPulse: true,
+        name: "골목 포장마차",
+      }
+    );
+    const wrapped = wrapVenueLabelSvgForHtml({ svg, width, height, totalW });
+    expect(wrapped).toContain('viewBox="0 0');
+    expect(wrapped).toContain('font-size="10"');
+    expect(wrapped).toContain("골목 포장마차");
   });
 
   it("renders venue name svg", () => {

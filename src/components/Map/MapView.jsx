@@ -14,6 +14,7 @@ import {
   densityClusterBubbleStyle,
   formatClusterMarkerCount,
 } from "../../utils/mapClusterFormat";
+import { approxBoundsFromKakaoMapCenter, getDeviceLocation } from "../../utils/mapViewportBounds";
 
 function isSameVenueOnMap(selected, place) {
   if (!selected || !place) return false;
@@ -471,6 +472,8 @@ const MapView = forwardRef(({
   savedColorMap,
   livePlaceIds,
   onCurrentLocationChange,
+  /** Home 등 부모가 이미 받아 둔 GPS — 내 위치 버튼 즉시 이동용 */
+  userLocation = null,
   center,
   userFolders,
   onQuickSave,
@@ -489,6 +492,8 @@ const MapView = forwardRef(({
   /** false면 지도 우하단 내 위치 FAB 숨김(부모에서 다른 위치에 배치할 때) */
   showFloatingLocationButton = true,
   onMyLocationLoadingChange,
+  /** Home 등 — alert 대신 토스트 등 부모 UI로 위치 오류 전달 */
+  onMyLocationError,
   /**
    * true(기본): 지도 빈 곳 클릭 시 미리보기 카드 닫기(마커 클릭 직후 맵 click은 무시).
    * false: 지도 탭으로는 닫지 않음(X·스와이프 등만).
@@ -663,13 +668,18 @@ const MapView = forwardRef(({
     setSelectedPlaceRef.current = setSelectedPlace;
   }, [setSelectedPlace]);
 
-  const runWithIgnoredViewportEvents = useCallback((fn, clearMs = 450) => {
+  const runWithIgnoredViewportEvents = useCallback((fn, clearMs = 450, onClear) => {
     ignoreViewportEventRef.current = true;
     try {
       fn();
     } finally {
       setTimeout(() => {
         ignoreViewportEventRef.current = false;
+        try {
+          onClear?.();
+        } catch {
+          /* ignore */
+        }
       }, clearMs);
     }
   }, []);
@@ -719,6 +729,8 @@ const MapView = forwardRef(({
     } catch {
       level = undefined;
     }
+    const lv =
+      typeof level === "number" && Number.isFinite(level) ? level : 4;
     let boundsPayload;
     try {
       const b = mapRef.current.getBounds?.();
@@ -733,12 +745,69 @@ const MapView = forwardRef(({
     } catch {
       boundsPayload = undefined;
     }
+    if (!boundsPayload?.sw || !boundsPayload?.ne) {
+      boundsPayload = approxBoundsFromKakaoMapCenter(lat, lng, lv);
+    }
     onViewportChangeRef.current?.({
       lat,
       lng,
-      level: typeof level === "number" && Number.isFinite(level) ? level : undefined,
+      level: lv,
       bounds: boundsPayload,
     });
+  }, []);
+
+  /** 내 위치 등 프로그램 이동 직후 — bounds 준비될 때까지 재시도해 마커 즉시 로드 */
+  const notifyViewportAfterProgrammaticMove = useCallback(() => {
+    const emit = (attempt = 0) => {
+      if (!viewportNotifyReadyRef.current || !mapRef.current) {
+        if (attempt < 10) {
+          setTimeout(() => emit(attempt + 1), 80);
+        }
+        return;
+      }
+      const c = mapRef.current.getCenter();
+      if (!c) return;
+      const lat = c.getLat();
+      const lng = c.getLng();
+      let level = 4;
+      try {
+        const lv = mapRef.current.getLevel?.();
+        if (typeof lv === "number" && Number.isFinite(lv)) level = lv;
+      } catch {
+        /* ignore */
+      }
+      let boundsPayload;
+      try {
+        const b = mapRef.current.getBounds?.();
+        if (b) {
+          const sw = b.getSouthWest();
+          const ne = b.getNorthEast();
+          boundsPayload = {
+            sw: { lat: sw.getLat(), lng: sw.getLng() },
+            ne: { lat: ne.getLat(), lng: ne.getLng() },
+          };
+        }
+      } catch {
+        boundsPayload = undefined;
+      }
+      const usedApprox = !boundsPayload?.sw || !boundsPayload?.ne;
+      if (usedApprox) {
+        boundsPayload = approxBoundsFromKakaoMapCenter(lat, lng, level);
+      }
+      // forceImmediate: 성수 부트 bbox skip/debounce 우회 → 내 위치 직후 마커 바로 꽂힘
+      // (근사 bbox 재시도는 첫 1회만 force — 중복 places-in-bounds 방지)
+      onViewportChangeRef.current?.({
+        lat,
+        lng,
+        level,
+        bounds: boundsPayload,
+        forceImmediate: attempt === 0,
+      });
+      if (usedApprox && attempt < 6) {
+        setTimeout(() => emit(attempt + 1), 120);
+      }
+    };
+    requestAnimationFrame(() => emit(0));
   }, []);
 
   const prevPlacesSigRef = useRef("");
@@ -749,10 +818,22 @@ const MapView = forwardRef(({
   
   // 현재 위치 마커 상태
   const [currentLocation, setCurrentLocation] = useState(null);
+  const currentLocationRef = useRef(currentLocation);
+  const userLocationRef = useRef(userLocation);
   const currentLocationMarkerRef = useRef(null);
   const [isLocating, setIsLocating] = useState(false);
+  const isLocatingRef = useRef(false);
+  const myLocationReqSeqRef = useRef(0);
   /** 지도 인스턴스 생성 직후·getCurrentPosition이 먼저 끝난 경우 1회 보정용 */
   const pendingMyLocationPanRef = useRef(null);
+
+  useEffect(() => {
+    currentLocationRef.current = currentLocation;
+  }, [currentLocation]);
+
+  useEffect(() => {
+    userLocationRef.current = userLocation;
+  }, [userLocation]);
 
   // 특정 키워드가 포함된 카테고리 확인
   const isTargetCategory = (categoryName) => {
@@ -942,16 +1023,15 @@ const MapView = forwardRef(({
         if (typeof lv === "number" && Number.isFinite(lv) && lv !== 4) {
           map.setLevel(4);
         }
+      }, 280, () => {
+        notifyViewportAfterProgrammaticMove();
       });
-      setTimeout(() => {
-        onViewportChangeRef.current?.({ lat, lng });
-      }, 480);
       return true;
     } catch (error) {
       console.error("📍 지도 이동 실패:", error);
       return false;
     }
-  }, [runWithIgnoredViewportEvents]);
+  }, [runWithIgnoredViewportEvents, notifyViewportAfterProgrammaticMove]);
 
   /** GPS가 지도 생성보다 먼저 끝난 경우: mapReady 후 보정 이동 */
   useEffect(() => {
@@ -964,74 +1044,147 @@ const MapView = forwardRef(({
     applyMyLocationViewport(p.lat, p.lng);
   }, [mapReady, lockAutoMove, applyMyLocationViewport]);
 
-  // 내 위치 버튼 핸들러
-  const handleGetCurrentLocation = () => {
-    console.log('📍 내 위치 버튼 클릭');
-    
-    // 부모 컴포넌트에서 로그인 체크 등을 처리할 수 있도록 콜백 호출
-    if (onLocationButtonClick) {
-      const prevented = onLocationButtonClick();
-      console.log('📍 onLocationButtonClick 결과:', prevented);
-      if (prevented) return;
-    }
+  const finishMyLocation = useCallback(
+    (lat, lng, { endLoading = true } = {}) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const newLocation = { lat, lng };
+      userInteractedRef.current = true;
+      lastMoveReasonRef.current = "my-location";
+      lockAutoMove(800, "my-location");
+      setCurrentLocation(newLocation);
+      if (!applyMyLocationViewport(lat, lng)) {
+        pendingMyLocationPanRef.current = { lat, lng };
+      } else {
+        pendingMyLocationPanRef.current = null;
+      }
+      if (endLoading) {
+        isLocatingRef.current = false;
+        setIsLocating(false);
+        onMyLocationLoadingChange?.(false);
+      }
+    },
+    [applyMyLocationViewport, lockAutoMove, onMyLocationLoadingChange]
+  );
 
-    if (!navigator.geolocation) {
-      alert("이 브라우저에서는 위치 정보를 지원하지 않습니다.");
+  const endMyLocationLoading = useCallback(() => {
+    isLocatingRef.current = false;
+    setIsLocating(false);
+    onMyLocationLoadingChange?.(false);
+  }, [onMyLocationLoadingChange]);
+
+  const pickCachedUserLocation = useCallback(() => {
+    const external = userLocationRef.current;
+    const internal = currentLocationRef.current;
+    const cand =
+      external &&
+      Number.isFinite(external.lat) &&
+      Number.isFinite(external.lng)
+        ? external
+        : internal &&
+            Number.isFinite(internal.lat) &&
+            Number.isFinite(internal.lng)
+          ? internal
+          : null;
+    return cand;
+  }, []);
+
+  const handleGetCurrentLocation = useCallback(() => {
+    if (onLocationButtonClick?.() === true) return;
+
+    const reportLocationError = (message) => {
+      if (onMyLocationError) {
+        onMyLocationError(message);
+      } else {
+        alert(message);
+      }
+    };
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reportLocationError("이 브라우저에서는 위치 정보를 지원하지 않습니다.");
       return;
     }
 
+    userInteractedRef.current = true;
+    const reqId = ++myLocationReqSeqRef.current;
+    const isStale = () => reqId !== myLocationReqSeqRef.current;
+    const cached = pickCachedUserLocation();
+
+    // 캐시 좌표가 있으면 즉시 지도·파란 핀 반영, GPS는 이어서 보정
+    if (cached) {
+      finishMyLocation(cached.lat, cached.lng, { endLoading: false });
+    }
+
+    isLocatingRef.current = true;
     setIsLocating(true);
     onMyLocationLoadingChange?.(true);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const newLocation = { lat: latitude, lng: longitude };
+    // Cursor/VS Code 내장 브라우저는 Electron(Chromium)이라 Google 위치 API 키가 없어
+    // navigator.geolocation이 자주 실패함. Safari/Chrome에서는 정상 동작.
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    const inCursorOrElectron =
+      /Electron/i.test(ua) ||
+      (typeof window !== "undefined" &&
+        Boolean(window.electron || window.cursor));
 
-        lastMoveReasonRef.current = "my-location";
-        lockAutoMove(800, "my-location");
-
-        setCurrentLocation(newLocation);
-
-        // mapReady state는 비동기 콜백에서 오래된 클로저로 false일 수 있음 — ref만 보면 됨
-        if (!applyMyLocationViewport(latitude, longitude)) {
-          pendingMyLocationPanRef.current = { lat: latitude, lng: longitude };
-        } else {
-          pendingMyLocationPanRef.current = null;
+    getDeviceLocation({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 300000,
+      highAccuracyRetry: true,
+      watchFallback: true,
+    })
+      .then(({ lat, lng }) => {
+        if (isStale()) return;
+        finishMyLocation(lat, lng, { endLoading: true });
+      })
+      .catch((error) => {
+        if (isStale()) return;
+        endMyLocationLoading();
+        if (cached) {
+          // 캐시로 이미 이동했으면 실패 알림 생략
+          finishMyLocation(cached.lat, cached.lng, { endLoading: true });
+          return;
         }
-        
-        setIsLocating(false);
-        onMyLocationLoadingChange?.(false);
-      },
-      (error) => {
-        console.error('위치 가져오기 실패:', error);
-        setIsLocating(false);
-        onMyLocationLoadingChange?.(false);
-        
+
+        const code = Number(error?.code);
         let errorMsg = "위치 정보를 가져올 수 없습니다.";
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            errorMsg = "위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.";
-            break;
-          case error.POSITION_UNAVAILABLE:
-            errorMsg = "위치 정보를 사용할 수 없습니다.";
-            break;
-          case error.TIMEOUT:
-            errorMsg = "위치 요청 시간이 초과되었습니다.";
-            break;
+        if (code === 1) {
+          errorMsg =
+            "위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.";
+        } else if (error?.message === "GEO_UNSUPPORTED") {
+          errorMsg = "이 브라우저에서는 위치 정보를 지원하지 않습니다.";
+        } else if (code === 2) {
+          errorMsg = inCursorOrElectron
+            ? "Cursor 앱 안 브라우저에서는 위치를 못 가져와요. Safari·Chrome에서 http://localhost:5173 을 열어 주세요."
+            : "위치 정보를 사용할 수 없습니다.";
+        } else if (code === 3 || error?.message === "GEO_TIMEOUT") {
+          errorMsg = inCursorOrElectron
+            ? "Cursor 앱 안에서는 위치 요청이 실패해요. Safari·Chrome에서 http://localhost:5173 을 열어 주세요."
+            : "위치 요청 시간이 초과되었습니다.";
+        } else if (inCursorOrElectron) {
+          errorMsg =
+            "Cursor 앱 안 브라우저에서는 내 위치가 안 될 수 있어요. Safari·Chrome에서 http://localhost:5173 을 열어 주세요.";
         }
-        alert(errorMsg);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000
-      }
-    );
-  };
+        reportLocationError(errorMsg);
+      });
+  }, [
+    onLocationButtonClick,
+    pickCachedUserLocation,
+    finishMyLocation,
+    endMyLocationLoading,
+    onMyLocationLoadingChange,
+    onMyLocationError,
+  ]);
 
   const requestMyLocationRef = useRef(handleGetCurrentLocation);
   requestMyLocationRef.current = handleGetCurrentLocation;
+  const finishMyLocationRef = useRef(finishMyLocation);
+  finishMyLocationRef.current = finishMyLocation;
+  const notifyViewportAfterProgrammaticMoveRef = useRef(
+    notifyViewportAfterProgrammaticMove
+  );
+  notifyViewportAfterProgrammaticMoveRef.current =
+    notifyViewportAfterProgrammaticMove;
 
   useImperativeHandle(
     ref,
@@ -1055,6 +1208,7 @@ const MapView = forwardRef(({
       moveToLocation: (lat, lng, opts) => {
         if (!mapRef.current) return;
         lockAutoMoveRef.current?.(800, "imperative-moveToLocation");
+        userInteractedRef.current = true;
         runWithIgnoredViewportEvents(() => {
           const latNum =
             typeof lat === "string" ? parseFloat(lat) : Number(lat);
@@ -1082,6 +1236,8 @@ const MapView = forwardRef(({
           }
           mapRef.current.setCenter(center);
           mapRef.current.setLevel(4);
+        }, 280, () => {
+          notifyViewportAfterProgrammaticMoveRef.current?.();
         });
       },
       setZoomLevel: (level) => {
@@ -1187,45 +1343,18 @@ const MapView = forwardRef(({
         }
       },
       getCurrentLocation: () => {
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const lat = pos.coords.latitude;
-              const lng = pos.coords.longitude;
-              lockAutoMoveRef.current?.(800, "my-location-imperative");
-              runWithIgnoredViewportEvents(() => {
-                const map = mapRef.current;
-                if (!map) return;
-                try {
-                  map.relayout?.();
-                } catch {
-                  /* ignore */
-                }
-                map.setCenter(new window.kakao.maps.LatLng(lat, lng));
-                let lv;
-                try {
-                  lv = map.getLevel?.();
-                } catch {
-                  lv = undefined;
-                }
-                if (typeof lv === "number" && Number.isFinite(lv) && lv !== 4) {
-                  map.setLevel(4);
-                }
-              });
-              if (onCurrentLocationChange) {
-                onCurrentLocationChange({ lat, lng });
-              }
-              setTimeout(() => {
-                onViewportChangeRef.current?.({ lat, lng });
-              }, 450);
-            },
-            () => alert("위치 정보를 가져올 수 없습니다.")
-          );
-        }
+        requestMyLocationRef.current?.();
       },
       /** 로그인 체크·마커·지도 이동까지 포함한 홈 내 위치 버튼과 동일 동작 */
       requestMyLocation: () => {
         requestMyLocationRef.current?.();
+      },
+      /** Home 등 부모가 좌표를 직접 넘길 때 — 로그인·GPS 없이 지도+내위치 핀만 */
+      applyMyLocation: (lat, lng) => {
+        const la = Number(lat);
+        const ln = Number(lng);
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) return;
+        finishMyLocationRef.current?.(la, ln, { endLoading: true });
       },
       /** 하단 시트·카드 열림 등 레이아웃 변화 후 타일 재계산 */
       relayout: () => {

@@ -258,6 +258,57 @@ export const styles = {
     whiteSpace: "nowrap",
   },
 
+  /** 2차 찾기 깜빡임 — 지도 위 취소 바(범례 숨김과 무관하게 항상 표시) */
+  courseSecondPickCancelBar: {
+    position: "absolute",
+    top: "calc(64px + env(safe-area-inset-top, 0px))",
+    right: "max(16px, env(safe-area-inset-right, 0px))",
+    zIndex: 62,
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "4px 6px 4px 12px",
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.28)",
+    background: "rgba(17, 17, 17, 0.35)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.12), 0 4px 16px rgba(0,0,0,0.14)",
+    pointerEvents: "auto",
+    maxWidth: "min(280px, 72vw)",
+  },
+
+  courseSecondPickCancelLabel: {
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "rgba(255, 255, 255, 0.96)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    lineHeight: 1.2,
+  },
+
+  courseSecondPickCancelButton: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
+    minWidth: "28px",
+    padding: 0,
+    borderRadius: "999px",
+    border: "1px solid rgba(255,255,255,0.42)",
+    background: "rgba(255,255,255,0.16)",
+    color: "rgba(255,255,255,0.96)",
+    fontSize: "18px",
+    lineHeight: 1,
+    fontWeight: 500,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
+  },
+
   legendMyLocationButton: {
     pointerEvents: "auto",
     width: "100%",

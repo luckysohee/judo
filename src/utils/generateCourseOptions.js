@@ -2030,6 +2030,18 @@ export function courseOptionsToMapPlaces(options = []) {
   return out;
 }
 
+function pulseMapPlaceThumbUrl(place) {
+  if (!place || typeof place !== "object") return null;
+  return (
+    place.courseStepThumbUrl ||
+    place.step_image_url ||
+    place.image_url ||
+    place.image ||
+    place.thumbnail_url ||
+    null
+  );
+}
+
 /**
  * 2차 재추천 결과(코스 배열) → 지도: 1차 고정 + 2차 후보마다 깜빡임(MapView courseMarkerPulse)
  */
@@ -2057,6 +2069,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
         courseMapCaption: "1차",
         courseStepIndex: 1,
         courseMarkerPulse: false,
+        courseStepThumbUrl: pulseMapPlaceThumbUrl(firstPlace),
       });
     }
   }
@@ -2085,6 +2098,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
           courseStepIndex: 2,
           courseLegCount: 3,
           courseMarkerPulse: false,
+          courseStepThumbUrl: pulseMapPlaceThumbUrl(bp),
         });
       }
     }
@@ -2121,6 +2135,7 @@ export function courseSecondCandidatesToPulseMapPlaces(courses = []) {
       courseMapCaption: cap,
       courseStepIndex: Number(lastStep?.step) || 2,
       courseMarkerPulse: true,
+      courseStepThumbUrl: pulseMapPlaceThumbUrl(p),
       liquorSteerRequested: Boolean(courses[i]?.liquorSteerRequested),
       liquorCategoryMatched: Boolean(
         p.liquorCategoryMatched ?? courses[i]?.liquorCategoryMatched

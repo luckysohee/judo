@@ -56,6 +56,19 @@ export function buildCourseVenueNameLabelForMarker(
   return { ...centered, totalW };
 }
 
+/** 사진 원형 마커 아래 HTML에 붙일 상호 라벨 (y=0 기준) */
+export function buildCourseVenueNameLabelForPhotoOverlay(pinWidth, place, opts = {}) {
+  return buildCourseVenueNameLabelForMarker(pinWidth / 2, 0, place, pinWidth, opts);
+}
+
+/** `<g>` 조각을 HTML에 넣을 때 viewBox 고정 — 폰트 크기가 1차 핀 SVG와 같게 */
+export function wrapVenueLabelSvgForHtml({ svg, width, height, totalW }) {
+  const w = Math.max(1, Math.round(Number(totalW ?? width) || 0));
+  const h = Math.max(1, Math.round(Number(height) || 0));
+  if (!svg || !w || !h) return "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;overflow:visible;">${svg}</svg>`;
+}
+
 export function buildCourseVenueNameLabelSvg(centerX, topY, place, opts = {}) {
   if (!shouldShowCourseVenueNameLabel(place)) {
     return { svg: "", height: 0, width: 0 };

@@ -223,6 +223,7 @@ import {
 import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
 import {
   enrichDrivingMapWithStepThumbs,
+  enrichMapPlacesWithStepThumbs,
 } from "../../utils/courseStepThumb";
 import {
   homeRailCourseMapFitPadding,
@@ -1845,13 +1846,14 @@ export default function Home() {
   );
 
   const scheduleDbPlacesForBounds = useCallback(
-    (boundsRaw, mapLevel) => {
+    (boundsRaw, mapLevel, { forceImmediate = false } = {}) => {
       if (String(query || "").trim()) return;
       // 코스 2차 찾기·코스 경로 표시 중에는 뷰포트 DB 로드 금지(마커·깜빡임 보호)
       if (courseMapActiveRef.current) return;
 
       /** mount 부트 로드 진행 중 — idle bbox로 2번째 places-in-bounds 방지 */
       if (
+        !forceImmediate &&
         bootViewportLoadStartedRef.current &&
         !mapMarkersBootstrappedRef.current
       ) {
@@ -1879,6 +1881,15 @@ export default function Home() {
       if (isFirstViewportScheduleRef.current) {
         isFirstViewportScheduleRef.current = false;
         void loadDbPlacesForViewport({ boundsRaw, mapLevel });
+        return;
+      }
+
+      // 내 위치 직후: 성수 부트 bbox 안에 있어도 skip/debounce 없이 즉시 로드
+      // (안 그러면 지도를 한 번 더 움직여야 마커가 꽂힘)
+      if (forceImmediate) {
+        lastFetchedViewportRef.current = null;
+        debouncedScheduleDbPlaces.cancel?.();
+        void loadDbPlacesForViewport({ boundsRaw, mapLevel, silent: false });
         return;
       }
 
@@ -2271,6 +2282,8 @@ export default function Home() {
   }, []);
   const homeViewportH = useLayoutViewportHeight();
   const kakaoPlacesBeforeHomeRailRef = useRef(null);
+  /** 지도 「2차 찾기」시작 직전 홈 마커 — 경로 × / 2차 취소 시 복구 */
+  const kakaoPlacesBeforeMapCourseRef = useRef(null);
   const kakaoPlacesRef = useRef([]);
 
   /** 경로 × 후 같은 코스 키면 폴리라인·1·2차 핀(kakaoPlaces)이 다시 안 잡히게 */
@@ -3574,6 +3587,9 @@ export default function Home() {
       if (!pins.length) return;
       coursePathDismissedForCourseKeyRef.current = null;
       setKakaoPlaces(pins);
+      void enrichMapPlacesWithStepThumbs(pins).then((enriched) => {
+        if (enriched?.length) setKakaoPlaces(enriched);
+      });
       const bottom = Math.max(120, courseMapFitBottomPaddingPx + 56);
       const padding = { top: 72, right: 44, bottom, left: 44 };
       requestAnimationFrame(() => {
@@ -3831,7 +3847,7 @@ export default function Home() {
     return Boolean(steps[0]?.place && steps[1]?.place);
   }, [selectedCourse]);
 
-  /** 경로 × — 도보 루트·1·2차 마커·펄스 등 지도 코스 UI 전부 내림 */
+  /** 경로 × — 도보 루트·1·2차 마커·펄스 등 지도 코스 UI 전부 내림 → 홈 마커 복구 */
   const dismissCourseMapPath = useCallback(() => {
     clearCourseSecondPickPulse();
     if (!isCourseMode && homeRailCourseDrive) {
@@ -3842,8 +3858,13 @@ export default function Home() {
     if (k) coursePathDismissedForCourseKeyRef.current = k;
     setCourseMapOverlay(null);
     setCourseWalkStrollHint("");
+    setRecommendSheetPinnedCollapsed(false);
+    setSelectedPlace(null);
     if (isCourseMode) {
-      setKakaoPlaces([]);
+      const saved = kakaoPlacesBeforeMapCourseRef.current;
+      kakaoPlacesBeforeMapCourseRef.current = null;
+      resetCourseSearch();
+      setKakaoPlaces(Array.isArray(saved) ? saved : []);
     }
   }, [
     courseDrivingMap?.key,
@@ -3851,6 +3872,7 @@ export default function Home() {
     dismissHomeRailCourseMap,
     homeRailCourseDrive,
     isCourseMode,
+    resetCourseSearch,
     setKakaoPlaces,
   ]);
 
@@ -4656,7 +4678,7 @@ export default function Home() {
   }, []);
 
   const onMapViewportChange = useCallback(
-    ({ lat, lng, bounds, level }) => {
+    ({ lat, lng, bounds, level, forceImmediate = false }) => {
       if (bounds?.sw && bounds?.ne) {
         lastMapBoundsRef.current = bounds;
       }
@@ -4673,9 +4695,17 @@ export default function Home() {
           Number.isFinite(level) &&
           level >= HOME_MAP_DENSITY_LAYER_MIN_LEVEL
         ) {
-          debouncedLoadMapDensity({ boundsRaw: bounds, mapLevel: level });
+          if (forceImmediate) {
+            debouncedLoadMapDensity.cancel?.();
+            void loadMapDensityForViewport({
+              boundsRaw: bounds,
+              mapLevel: level,
+            });
+          } else {
+            debouncedLoadMapDensity({ boundsRaw: bounds, mapLevel: level });
+          }
         }
-        scheduleDbPlacesForBounds(bounds, level);
+        scheduleDbPlacesForBounds(bounds, level, { forceImmediate });
       }
       if (
         typeof lat === "number" &&
@@ -4686,8 +4716,29 @@ export default function Home() {
         setMapViewportCenterFromUser({ lat, lng });
       }
     },
-    [debouncedLoadMapDensity, scheduleDbPlacesForBounds]
+    [
+      debouncedLoadMapDensity,
+      loadMapDensityForViewport,
+      scheduleDbPlacesForBounds,
+    ]
   );
+
+  /**
+   * MapView `requestMyLocation` 로그인 게이트.
+   * true → GPS 중단 + 로그인 모달 / false → MapView가 GPS·지도 이동·파란 핀 처리
+   */
+  const handleCurrentLocationClick = useCallback(() => {
+    if (!user) {
+      requireLogin("location");
+      return true;
+    }
+    return false;
+  }, [user, requireLogin]);
+
+  /** 범례 「내 위치」— MapView 단일 경로 (로그인 게이트는 onLocationButtonClick) */
+  const handleRequestMyLocation = useCallback(() => {
+    mapRef.current?.requestMyLocation?.();
+  }, []);
 
   useEffect(() => {
     if (String(query || "").trim()) {
@@ -4876,6 +4927,42 @@ export default function Home() {
     () => [...dbPlaces, ...customPlaces],
     [dbPlaces, customPlaces]
   );
+
+  /** 2차 찾기 깜빡임·후보 마커 취소 — 홈 마커 복구 + 1차 카드(있으면) */
+  const handleCancelCourseSecondPick = useCallback(() => {
+    const firstPlace = selectedCourse?.steps?.[0]?.place;
+    const saved = kakaoPlacesBeforeMapCourseRef.current;
+    kakaoPlacesBeforeMapCourseRef.current = null;
+    clearCourseSecondPickPulse();
+    setRecommendSheetPinnedCollapsed(false);
+    setCourseSecondFindModalOpen(false);
+    resetCourseSearch();
+    setKakaoPlaces(Array.isArray(saved) ? saved : []);
+    if (firstPlace) {
+      const merged = mergePickedPlaceWithCuratorCatalog(
+        firstPlace,
+        curatorPlaceCatalogForMerge
+      );
+      if (merged) setSelectedPlace(merged);
+    }
+    showToast("2차 찾기를 취소했어요.", "info", 2200);
+  }, [
+    selectedCourse?.steps,
+    clearCourseSecondPickPulse,
+    curatorPlaceCatalogForMerge,
+    resetCourseSearch,
+    setKakaoPlaces,
+    showToast,
+  ]);
+
+  useEffect(() => {
+    if (!courseSecondPickMode) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") handleCancelCourseSecondPick();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [courseSecondPickMode, handleCancelCourseSecondPick]);
 
   const findSecondCandidateCourseForPlace = useCallback((pickPlace, courses) => {
     if (!pickPlace || !Array.isArray(courses) || !courses.length) return null;
@@ -5071,10 +5158,18 @@ export default function Home() {
       if (!merged) return;
       setMapCourseFirstBusy(true);
       try {
+        if (kakaoPlacesBeforeMapCourseRef.current == null) {
+          kakaoPlacesBeforeMapCourseRef.current = Array.isArray(
+            kakaoPlacesRef.current
+          )
+            ? kakaoPlacesRef.current.map((p) => ({ ...p }))
+            : [];
+        }
         const pack = await applyMapPickAsFirstStepAsync(merged, {
           mapSearchQuery: query,
         });
         if (!pack?.ok) {
+          kakaoPlacesBeforeMapCourseRef.current = null;
           showToast("지금은 코스에 담기 어려워요.", "error", 2800);
           return;
         }
@@ -5098,8 +5193,9 @@ export default function Home() {
             kakaoSecondSearchRadius,
           }
         );
-        const pulse = courseSecondCandidatesToPulseMapPlaces(results || []);
+        let pulse = courseSecondCandidatesToPulseMapPlaces(results || []);
         if (pulse.length > 0) {
+          pulse = await enrichMapPlacesWithStepThumbs(pulse);
           lastSecondCandidatesRef.current = results || [];
           setCourseSecondPulseMapPlaces(pulse);
           setCourseSecondPickMode(true);
@@ -5122,6 +5218,7 @@ export default function Home() {
             steerRequested && !steerMatched ? 5200 : 4200
           );
         } else {
+          kakaoPlacesBeforeMapCourseRef.current = null;
           showToast("2차 후보를 찾지 못했어요.", "error", 2800);
         }
       } finally {
@@ -9547,17 +9644,6 @@ const handleClearSearch = () => {
     isGeneralUserProfile
   );
 
-  // 내 위치 버튼 클릭 핸들러 (로그인 체크)
-  const handleCurrentLocationClick = () => {
-    if (!user) {
-      // 비로그인 사용자는 로그인 유도 모달 표시
-      requireLogin('location');
-      return true; // true 반환하면 MapView의 기본 동작 중단
-    }
-    // 로그인 사용자는 false 반환하여 MapView의 기본 동작 계속 진행
-    return false;
-  };
-
   const showDesktopSocialStack = viewportWidth >= 1180;
   const hideMapChromeForLoginPrompt = showLoginPrompt;
 
@@ -9935,7 +10021,11 @@ const handleClearSearch = () => {
             onSave={setSaveTargetPlace} // 일반 사용자 저장 핸들러 전달
             savedFolders={savedColorMap} // 저장된 폴더 정보 전달
             userSavedPlaces={userSavedPlaces} // 사용자 저장 장소 정보 전달
+            userLocation={currentLocation}
             onLocationButtonClick={handleCurrentLocationClick}
+            onMyLocationError={(message) => {
+              showToast(message, "error", 4500);
+            }}
             onCurrentLocationChange={(location) => {
               setCurrentLocation(location);
               devLog('📍 현재 위치 업데이트:', location);
@@ -9981,6 +10071,28 @@ const handleClearSearch = () => {
             regionBoundaryFitBottomPaddingPx={courseMapFitBottomPaddingPx}
             placesFitBoundsPadding={mapSearchPlacesFitPadding}
           />
+          {courseSecondPickMode &&
+          Array.isArray(courseSecondPulseMapPlaces) &&
+          courseSecondPulseMapPlaces.length > 0 ? (
+            <div
+              style={styles.courseSecondPickCancelBar}
+              role="status"
+              aria-live="polite"
+            >
+              <span style={styles.courseSecondPickCancelLabel}>
+                2차 후보 고르는 중
+              </span>
+              <button
+                type="button"
+                onClick={handleCancelCourseSecondPick}
+                style={styles.courseSecondPickCancelButton}
+                title="2차 찾기 취소"
+                aria-label="2차 찾기 취소"
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <RecommendationMapOverlay
             recommendation={
               !isCourseMode &&
@@ -10218,23 +10330,6 @@ const handleClearSearch = () => {
 
         {!hideMapChromeForLoginPrompt && !hideHomeMapChromeForRecommendSheet ? (
         <div style={styles.legendOverlay}>
-          {courseSecondPickMode &&
-          Array.isArray(courseSecondPulseMapPlaces) &&
-          courseSecondPulseMapPlaces.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                clearCourseSecondPickPulse();
-                setRecommendSheetPinnedCollapsed(false);
-                setSelectedPlace(null);
-              }}
-              style={styles.legendSecondPickResetButton}
-              title="2차 후보 깜빡임·후보 마커 끄기"
-              aria-label="2차 후보 끄기"
-            >
-              후보 끄기
-            </button>
-          ) : null}
           <div style={styles.legendMapControlsColumn}>
           <HomeMapLegendBar
             stackStyle={styles.legendMapLegendStack}
@@ -10281,7 +10376,7 @@ const handleClearSearch = () => {
               });
               if (selectedPlace) setSelectedPlace(null);
             }}
-            onRequestMyLocation={() => mapRef.current?.requestMyLocation?.()}
+            onRequestMyLocation={handleRequestMyLocation}
             mapLocationLoading={mapLocationLoading}
             myLocationButtonStyle={styles.legendMyLocationButton}
             myLocationSpinnerStyle={styles.legendMyLocationSpinner}
