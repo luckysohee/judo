@@ -717,87 +717,81 @@ export default function PlacePreviewCard({
 
     const seq = ++photoFetchSeqRef.current;
     let cancelled = false;
-    let resolvedUrls = false;
     let batchUrls = [];
     setPlacePhotosLoading(true);
 
     void (async () => {
       const q = photoQueryRef.current;
 
-      // 1) 큐레이터 — Supabase 직접 (Railway 왕복 없이 빠르게)
-      try {
-        const rows = await fetchCuratorPlacePhotoRows({
-          kakaoPlaceId: q.kakaoPlaceId || undefined,
-          internalPlaceId: q.placeId || undefined,
-        });
-        if (cancelled || seq !== photoFetchSeqRef.current) return;
-        if (rows.length > 0) {
-          const urls = rows
-            .map((r) => curatorPhotoPublicUrl(r.storage_path))
-            .filter(Boolean);
-          setCuratorPhotoRows(rows);
-          if (urls.length > 0) {
-            resolvedUrls = true;
-            batchUrls = urls;
-            photosVenueKeyRef.current = photoVenueKey;
-            setPlacePhotoUrls(urls);
-            setPlacePhotosLoading(false);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
+      const curatorPromise = fetchCuratorPlacePhotoRows({
+        kakaoPlaceId: q.kakaoPlaceId || undefined,
+        internalPlaceId: q.placeId || undefined,
+      }).catch(() => []);
 
-      // 2) 서버 — 카카오 og / 구글 보강
-      try {
-        const data = await fetchPlacePhotos({
-          placeId: q.placeId || undefined,
-          kakaoPlaceId: q.kakaoPlaceId || undefined,
-          name: q.name,
-          address: q.address,
-          lat: q.lat,
-          lng: q.lng,
-        });
-        if (cancelled || seq !== photoFetchSeqRef.current) return;
-        if (data.urls.length > 0) {
-          resolvedUrls = true;
-          const merged = mergeUniqueUrls(batchUrls, data.urls);
-          batchUrls = merged;
-          photosVenueKeyRef.current = photoVenueKey;
-          setPlacePhotoUrls(merged);
-        }
-        if (data.attributions.length > 0) {
-          setPlacePhotoAttributions(data.attributions);
-        }
-        if (data.sources.length > 0) {
-          setPlacePhotoSources(data.sources);
-        }
-        if (data.curatorPhotos.length > 0) {
-          setCuratorPhotoRows(
-            data.curatorPhotos.map((row) => ({
-              id: row.id,
-              curator_id: row.curator_id,
-              storage_path: row.storage_path,
-              created_at: row.created_at,
-            }))
-          );
-        }
-        placeOpenPerfRef.current?.mark("place_photos_done");
-        placeOpenPerfRef.current?.end({ phase: "photos_settled" });
-        placeOpenPerfRef.current = null;
-      } catch (err) {
-        if (cancelled || seq !== photoFetchSeqRef.current) return;
+      const serverPromise = fetchPlacePhotos({
+        placeId: q.placeId || undefined,
+        kakaoPlaceId: q.kakaoPlaceId || undefined,
+        name: q.name,
+        address: q.address,
+        lat: q.lat,
+        lng: q.lng,
+      }).catch((err) => {
         if (import.meta.env.DEV) {
           console.warn("[place-photos]", err?.message || err);
         }
+        return null;
+      });
+
+      try {
+        const [rows, data] = await Promise.all([curatorPromise, serverPromise]);
+        if (cancelled || seq !== photoFetchSeqRef.current) return;
+
+        if (rows.length > 0) {
+          setCuratorPhotoRows(rows);
+          const urls = rows
+            .map((r) => curatorPhotoPublicUrl(r.storage_path))
+            .filter(Boolean);
+          if (urls.length > 0) {
+            batchUrls = mergeUniqueUrls(batchUrls, urls);
+          }
+        }
+
+        if (data) {
+          if (data.urls.length > 0) {
+            batchUrls = mergeUniqueUrls(batchUrls, data.urls);
+          }
+          if (data.attributions.length > 0) {
+            setPlacePhotoAttributions(data.attributions);
+          }
+          if (data.sources.length > 0) {
+            setPlacePhotoSources(data.sources);
+          }
+          if (data.curatorPhotos.length > 0) {
+            setCuratorPhotoRows(
+              data.curatorPhotos.map((row) => ({
+                id: row.id,
+                curator_id: row.curator_id,
+                storage_path: row.storage_path,
+                created_at: row.created_at,
+              }))
+            );
+          }
+        }
+
+        photosVenueKeyRef.current = photoVenueKey;
+        if (batchUrls.length > 0) {
+          setPlacePhotoUrls(batchUrls);
+        } else if (venueChanged) {
+          setPlacePhotoUrls([]);
+          setPlacePhotoAttributions([]);
+          setPlacePhotoSources([]);
+        }
+
+        placeOpenPerfRef.current?.mark("place_photos_done");
+        placeOpenPerfRef.current?.end({ phase: "photos_settled" });
+        placeOpenPerfRef.current = null;
       } finally {
         if (!cancelled && seq === photoFetchSeqRef.current) {
-          if (!resolvedUrls && venueChanged) {
-            photosVenueKeyRef.current = photoVenueKey;
-            setPlacePhotoUrls([]);
-            setPlacePhotoAttributions([]);
-            setPlacePhotoSources([]);
-          }
           setPlacePhotosLoading(false);
         }
       }
@@ -808,9 +802,11 @@ export default function PlacePreviewCard({
     };
   }, [photoVenueKey]);
 
-  const showPhotoSection =
-    Boolean(photoVenueKey) &&
-    (displayPreviewUrls.length > 0 || placePhotosLoading);
+  const photoLoadPending =
+    Boolean(photoVenueKey) && photosVenueKeyRef.current !== photoVenueKey;
+  const showPhotoSection = Boolean(photoVenueKey);
+  const showHeroPlaceholder =
+    !heroPreviewUrl && (placePhotosLoading || photoLoadPending);
 
   const canCuratorUploadPhoto =
     isCurator &&
@@ -1510,15 +1506,11 @@ export default function PlacePreviewCard({
                   />
                 </div>
               </button>
+              ) : showHeroPlaceholder ? (
+                <div style={styles.photoHeroSkeletonStandalone} aria-hidden />
               ) : (
-                <div style={styles.photoHeroSkeletonStandalone} aria-hidden>
-                  {staticMapImage ? (
-                    <img
-                      src={staticMapImage}
-                      alt=""
-                      style={styles.photoSkeletonMap}
-                    />
-                  ) : null}
+                <div style={styles.imageFallback}>
+                  사진 없음 · 큐레이터는 「사진 올리기」 또는 카카오맵에서 확인
                 </div>
               )}
               {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
