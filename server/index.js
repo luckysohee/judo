@@ -168,7 +168,10 @@ import { handlePlacesDensityInBounds } from "./placesDensityInBounds.js";
 import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
 import { handlePlacePhotos } from "./placePhotos.js";
-import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
+import {
+  enrichKakaoPlaceDocWithOgImage,
+  fetchKakaoPlaceOgImageUrl,
+} from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 import { handleCourseDraftAssist } from "./courseDraftAssist.js";
@@ -668,6 +671,31 @@ app.get("/api/courses/search", handleSearchPublicCourses);
 app.get("/api/place-detail", handlePlaceDetail);
 /** 장소 카드 사진 — 큐레이터·카카오 og·구글 병합 (service role) */
 app.get("/api/place-photos", handlePlacePhotos);
+/** 카카오 장소 og:image만 (캐시, 빠른 히어로용) */
+app.get("/api/kakao-place-og", async (req, res) => {
+  const kakaoPlaceId =
+    typeof req.query.kakaoPlaceId === "string"
+      ? req.query.kakaoPlaceId.trim()
+      : "";
+  if (!/^\d+$/.test(kakaoPlaceId)) {
+    return res.status(400).json({
+      ok: false,
+      message: "kakaoPlaceId(숫자)가 필요합니다",
+      url: null,
+    });
+  }
+  try {
+    const url = await fetchKakaoPlaceOgImageUrl(kakaoPlaceId);
+    return res.json({ ok: true, url: url || null });
+  } catch (e) {
+    console.warn("kakao-place-og", e?.message || e);
+    return res.status(500).json({
+      ok: false,
+      message: e?.message || "kakao-place-og failed",
+      url: null,
+    });
+  }
+});
 
 function getRecommendSupabaseEnv() {
   return {

@@ -19,6 +19,8 @@ import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import { fetchPlacePhotos } from "../../api/placePhotos";
+import { fetchKakaoPlaceOg } from "../../api/kakaoPlaceOg";
+import { fetchGooglePlacePhotos } from "../../api/googlePlacePhotos";
 import {
   curatorPhotoPublicUrl,
   deleteCuratorPlacePhoto,
@@ -380,6 +382,29 @@ export default function PlacePreviewCard({
     checkinWgs?.lng,
   ]);
 
+  /** 카카오 상세(프록시)에 썸네일이 있으면 og보다 먼저 히어로에 반영 */
+  useEffect(() => {
+    if (!photoVenueKey || !kakaoDetails) return;
+    const urls = [];
+    const push = (u) => {
+      if (typeof u === "string" && u.trim() && !urls.includes(u)) {
+        urls.push(u.trim());
+      }
+    };
+    push(kakaoDetails.thumbnail_url);
+    if (Array.isArray(kakaoDetails.photo_urls)) {
+      for (const u of kakaoDetails.photo_urls) push(u);
+    }
+    if (!urls.length) return;
+    photosVenueKeyRef.current = photoVenueKey;
+    setPlacePhotoUrls((prev) => mergeUniqueUrls(prev, urls));
+    setPlacePhotosLoading(false);
+  }, [
+    photoVenueKey,
+    kakaoDetails?.thumbnail_url,
+    kakaoDetails?.photo_urls,
+  ]);
+
   // 카카오 place id가 없는 저장 장소는 장소명으로 기본정보 보강 조회
   useEffect(() => {
     if (kakaoPlaceId || kakaoDetails || !kakaoKeywordQuery.trim()) return;
@@ -717,85 +742,88 @@ export default function PlacePreviewCard({
 
     const seq = ++photoFetchSeqRef.current;
     let cancelled = false;
-    let batchUrls = [];
+    const batchRef = { urls: [] };
+    let pending = 0;
+    const q = photoQueryRef.current;
+
+    const applyUrls = (incoming) => {
+      if (cancelled || seq !== photoFetchSeqRef.current) return;
+      if (!incoming.length) return;
+      batchRef.urls = mergeUniqueUrls(batchRef.urls, incoming);
+      photosVenueKeyRef.current = photoVenueKey;
+      setPlacePhotoUrls(batchRef.urls);
+      setPlacePhotosLoading(false);
+    };
+
+    const settleWhenIdle = () => {
+      pending -= 1;
+      if (pending > 0 || cancelled || seq !== photoFetchSeqRef.current) return;
+      photosVenueKeyRef.current = photoVenueKey;
+      if (!batchRef.urls.length && venueChanged) {
+        setPlacePhotoUrls([]);
+        setPlacePhotoAttributions([]);
+        setPlacePhotoSources([]);
+      }
+      placeOpenPerfRef.current?.mark("place_photos_done");
+      placeOpenPerfRef.current?.end({ phase: "photos_settled" });
+      placeOpenPerfRef.current = null;
+      setPlacePhotosLoading(false);
+    };
+
     setPlacePhotosLoading(true);
 
-    void (async () => {
-      const q = photoQueryRef.current;
+    pending += 1;
+    void fetchCuratorPlacePhotoRows({
+      kakaoPlaceId: q.kakaoPlaceId || undefined,
+      internalPlaceId: q.placeId || undefined,
+    })
+      .then((rows) => {
+        if (cancelled || seq !== photoFetchSeqRef.current) return;
+        if (!rows.length) return;
+        setCuratorPhotoRows(rows);
+        applyUrls(
+          rows
+            .map((r) => curatorPhotoPublicUrl(r.storage_path))
+            .filter(Boolean)
+        );
+      })
+      .catch(() => {})
+      .finally(settleWhenIdle);
 
-      const curatorPromise = fetchCuratorPlacePhotoRows({
-        kakaoPlaceId: q.kakaoPlaceId || undefined,
-        internalPlaceId: q.placeId || undefined,
-      }).catch(() => []);
+    if (q.kakaoPlaceId && /^\d+$/.test(q.kakaoPlaceId)) {
+      pending += 1;
+      void fetchKakaoPlaceOg(q.kakaoPlaceId)
+        .then((url) => {
+          if (url) applyUrls([url]);
+        })
+        .finally(settleWhenIdle);
+    }
 
-      const serverPromise = fetchPlacePhotos({
-        placeId: q.placeId || undefined,
-        kakaoPlaceId: q.kakaoPlaceId || undefined,
+    if (q.name) {
+      pending += 1;
+      void fetchGooglePlacePhotos({
         name: q.name,
         address: q.address,
         lat: q.lat,
         lng: q.lng,
-      }).catch((err) => {
-        if (import.meta.env.DEV) {
-          console.warn("[place-photos]", err?.message || err);
-        }
-        return null;
-      });
-
-      try {
-        const [rows, data] = await Promise.all([curatorPromise, serverPromise]);
-        if (cancelled || seq !== photoFetchSeqRef.current) return;
-
-        if (rows.length > 0) {
-          setCuratorPhotoRows(rows);
-          const urls = rows
-            .map((r) => curatorPhotoPublicUrl(r.storage_path))
-            .filter(Boolean);
-          if (urls.length > 0) {
-            batchUrls = mergeUniqueUrls(batchUrls, urls);
-          }
-        }
-
-        if (data) {
-          if (data.urls.length > 0) {
-            batchUrls = mergeUniqueUrls(batchUrls, data.urls);
-          }
+      })
+        .then((data) => {
+          if (cancelled || seq !== photoFetchSeqRef.current) return;
+          if (data.urls.length > 0) applyUrls(data.urls);
           if (data.attributions.length > 0) {
             setPlacePhotoAttributions(data.attributions);
           }
           if (data.sources.length > 0) {
             setPlacePhotoSources(data.sources);
           }
-          if (data.curatorPhotos.length > 0) {
-            setCuratorPhotoRows(
-              data.curatorPhotos.map((row) => ({
-                id: row.id,
-                curator_id: row.curator_id,
-                storage_path: row.storage_path,
-                created_at: row.created_at,
-              }))
-            );
-          }
-        }
+        })
+        .finally(settleWhenIdle);
+    }
 
-        photosVenueKeyRef.current = photoVenueKey;
-        if (batchUrls.length > 0) {
-          setPlacePhotoUrls(batchUrls);
-        } else if (venueChanged) {
-          setPlacePhotoUrls([]);
-          setPlacePhotoAttributions([]);
-          setPlacePhotoSources([]);
-        }
-
-        placeOpenPerfRef.current?.mark("place_photos_done");
-        placeOpenPerfRef.current?.end({ phase: "photos_settled" });
-        placeOpenPerfRef.current = null;
-      } finally {
-        if (!cancelled && seq === photoFetchSeqRef.current) {
-          setPlacePhotosLoading(false);
-        }
-      }
-    })();
+    if (pending === 0) {
+      photosVenueKeyRef.current = photoVenueKey;
+      setPlacePhotosLoading(false);
+    }
 
     return () => {
       cancelled = true;
