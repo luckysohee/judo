@@ -1,7 +1,6 @@
 import cors from "cors";
 import rateLimit from "express-rate-limit";
-import { createClient } from "@supabase/supabase-js";
-
+import { getSupabaseJwtVerifyClient } from "./utils/supabaseJwtAuth.js";
 import {
   isAlphaAllowlistEnabledServer,
   requireAlphaAllowlistForApi,
@@ -48,31 +47,8 @@ function getAllowedOrigins() {
   return [...DEFAULT_DEV_ORIGINS];
 }
 
-function getSupabaseAuthEnv() {
-  const url = (
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    ""
-  ).trim();
-  const anonKey = (
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    ""
-  ).trim();
-  return { url, anonKey };
-}
-
-let supabaseAuthClient = null;
-
 function getSupabaseAuthClient() {
-  const { url, anonKey } = getSupabaseAuthEnv();
-  if (!url || !anonKey) return null;
-  if (!supabaseAuthClient) {
-    supabaseAuthClient = createClient(url, anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return supabaseAuthClient;
+  return getSupabaseJwtVerifyClient();
 }
 
 function pathMatchesPrefix(path, prefixes) {

@@ -2,18 +2,19 @@ import { getKakaoPlaceBasicInfoViaProxy } from "./kakaoAPIProxy";
 import { fetchGooglePlacePhotoThumb } from "./googlePlacePhotoThumb";
 import { mapPlaceRowForCourse } from "../api/places";
 import { supabase } from "../lib/supabase";
+import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl";
 
 export function isResolvableCourseStepThumbUrl(url) {
-  const u = String(url || "").trim();
+  const u = rewriteLegacySupabaseStorageUrl(String(url || "").trim());
   return /^https?:\/\//i.test(u);
 }
 
 /** 큐레이터가 올린 스텝 사진 URL */
 export function pickStepUploadedThumb(step) {
   if (!step || typeof step !== "object") return null;
-  const u = String(
-    step.step_image_url || step.image_url || step.thumb_url || ""
-  ).trim();
+  const u = rewriteLegacySupabaseStorageUrl(
+    String(step.step_image_url || step.image_url || step.thumb_url || "").trim()
+  );
   return isResolvableCourseStepThumbUrl(u) ? u : null;
 }
 
@@ -175,7 +176,9 @@ export function firstCoursePlaceStepFromCourse(course) {
  * @param {{ resolvedFirstThumbUrl?: string|null }} [opts]
  */
 export function pickCourseDisplayCoverUrl(course, opts = {}) {
-  const explicit = String(course?.cover_image_url || "").trim();
+  const explicit = rewriteLegacySupabaseStorageUrl(
+    String(course?.cover_image_url || "").trim()
+  );
   if (explicit) return explicit;
   const resolved = String(opts.resolvedFirstThumbUrl || "").trim();
   if (resolved) return resolved;

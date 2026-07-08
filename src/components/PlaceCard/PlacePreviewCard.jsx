@@ -18,8 +18,9 @@ import SaveModal from "../SaveModal/SaveModal";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
-import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
-import { getApiAuthHeaders } from "../../utils/apiAuthHeaders.js";
+import { fetchPlacePhotos } from "../../api/placePhotos";
+import { fetchKakaoPlaceOg } from "../../api/kakaoPlaceOg";
+import { fetchGooglePlacePhotos } from "../../api/googlePlacePhotos";
 import {
   curatorPhotoPublicUrl,
   deleteCuratorPlacePhoto,
@@ -40,11 +41,24 @@ import {
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { createPerfTrace } from "../../utils/devPerfTrace.js";
 import {
-  buildPlacePhotoVenueKey,
   preloadPlacePhotoUrls,
   readPlacePhotoCache,
   writePlacePhotoCache,
 } from "../../utils/placePhotoPrefetch.js";
+
+function mergeUniqueUrls(...lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists) {
+    for (const u of list || []) {
+      if (typeof u === "string" && u && !seen.has(u)) {
+        seen.add(u);
+        out.push(u);
+      }
+    }
+  }
+  return out;
+}
 
 export default function PlacePreviewCard({
   place,
@@ -86,12 +100,12 @@ export default function PlacePreviewCard({
   const [kakaoDetails, setKakaoDetails] = useState(null);
   const [isLoadingKakao, setIsLoadingKakao] = useState(false);
   const [curatorPhotoRows, setCuratorPhotoRows] = useState([]);
-  const [curatorPhotosLoading, setCuratorPhotosLoading] = useState(false);
+  const [placePhotoUrls, setPlacePhotoUrls] = useState([]);
+  const [placePhotoAttributions, setPlacePhotoAttributions] = useState([]);
+  const [placePhotoSources, setPlacePhotoSources] = useState([]);
+  const [placePhotosLoading, setPlacePhotosLoading] = useState(false);
   const [curatorPhotoUploading, setCuratorPhotoUploading] = useState(false);
   const [curatorPhotoDeletingId, setCuratorPhotoDeletingId] = useState(null);
-  const [googlePhotoUrls, setGooglePhotoUrls] = useState([]);
-  const [googlePhotoAttributions, setGooglePhotoAttributions] = useState([]);
-  const [googlePhotosLoading, setGooglePhotosLoading] = useState(false);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -135,37 +149,6 @@ export default function PlacePreviewCard({
   );
 
   const kakaoPlaceId = kakaoNumericPlaceId(place);
-
-  const venuePhotoKey = useMemo(() => buildPlacePhotoVenueKey(place), [
-    place?.id,
-    place?.place_id,
-    place?.kakao_place_id,
-    place?.kakaoId,
-    place?.lat,
-    place?.lng,
-    place?.y,
-    place?.x,
-    place?.name,
-    place?.place_name,
-    place?.address,
-    kakaoPlaceId,
-  ]);
-
-  const [sessionPhotoUrls, setSessionPhotoUrls] = useState([]);
-
-  useEffect(() => {
-    if (!venuePhotoKey) {
-      setSessionPhotoUrls([]);
-      return;
-    }
-    const cached = readPlacePhotoCache(venuePhotoKey);
-    if (cached.length > 0) {
-      setSessionPhotoUrls(cached);
-      preloadPlacePhotoUrls(cached);
-    } else {
-      setSessionPhotoUrls([]);
-    }
-  }, [venuePhotoKey]);
 
   /** check_ins·한잔함 통계 키 — 카카오 ID 우선 */
   const checkinPlaceKey = useMemo(() => {
@@ -260,33 +243,84 @@ export default function PlacePreviewCard({
     setKakaoDetails(null);
   }, [place?.id, place?.place_id, place?.kakao_place_id]);
 
-  useEffect(() => {
-    setGooglePhotoUrls([]);
-    setGooglePhotoAttributions([]);
-    setGooglePhotosLoading(false);
-    setCuratorPhotoRows([]);
-    setCuratorPhotosLoading(false);
-  }, [place?.id, place?.place_id, kakaoPlaceId]);
+  const [failedPhotoUrls, setFailedPhotoUrls] = useState(() => new Set());
+
+  const markPhotoUrlFailed = useCallback((url) => {
+    if (typeof url !== "string" || !url) return;
+    setFailedPhotoUrls((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  }, []);
+
+  /** enrichment 후에도 바뀌지 않는 venue 앵커 (이름·UUID 보강 제외) */
+  const venueSwitchAnchor = useMemo(() => {
+    const kid = String(kakaoPlaceId ?? "").trim();
+    if (kid) return `k:${kid}`;
+    const pid = String(internalPlaceIdForPhotos ?? "").trim();
+    if (pid) return `p:${pid}`;
+    const lat = Number(place?.lat ?? place?.y);
+    const lng = Number(place?.lng ?? place?.x);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return `geo:${lat.toFixed(5)},${lng.toFixed(5)}`;
+    }
+    return "";
+  }, [
+    kakaoPlaceId,
+    internalPlaceIdForPhotos,
+    place?.lat,
+    place?.y,
+    place?.lng,
+    place?.x,
+  ]);
+
+  const nameOnlyPhotoKeyRef = useRef("");
+  const prevVenueSwitchAnchorRef = useRef("");
+
+  if (prevVenueSwitchAnchorRef.current !== venueSwitchAnchor) {
+    prevVenueSwitchAnchorRef.current = venueSwitchAnchor;
+    nameOnlyPhotoKeyRef.current = "";
+  }
+
+  const photoVenueKey = useMemo(() => {
+    if (venueSwitchAnchor) return venueSwitchAnchor;
+    if (!nameOnlyPhotoKeyRef.current) {
+      const q = String(kakaoKeywordQuery ?? "").trim();
+      if (q) nameOnlyPhotoKeyRef.current = `q:${q}`;
+    }
+    return nameOnlyPhotoKeyRef.current;
+  }, [venueSwitchAnchor, kakaoKeywordQuery]);
+
+  const [sessionPhotoUrls, setSessionPhotoUrls] = useState([]);
 
   useEffect(() => {
-    if (!place) return;
-    if (!kakaoPlaceId && !internalPlaceIdForPhotos) return;
-    let cancelled = false;
-    setCuratorPhotosLoading(true);
-    (async () => {
-      const rows = await fetchCuratorPlacePhotoRows({
-        kakaoPlaceId: kakaoPlaceId || undefined,
-        internalPlaceId: internalPlaceIdForPhotos || undefined,
-      });
-      if (!cancelled) {
-        setCuratorPhotoRows(rows);
-        setCuratorPhotosLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [place, kakaoPlaceId, internalPlaceIdForPhotos]);
+    if (!photoVenueKey) {
+      setSessionPhotoUrls([]);
+      return;
+    }
+    const cached = readPlacePhotoCache(photoVenueKey);
+    if (cached.length > 0) {
+      setSessionPhotoUrls(cached);
+      preloadPlacePhotoUrls(cached);
+    } else {
+      setSessionPhotoUrls([]);
+    }
+  }, [photoVenueKey]);
+
+  const photoQueryRef = useRef({
+    placeId: "",
+    kakaoPlaceId: "",
+    name: "",
+    address: "",
+    lat: null,
+    lng: null,
+  });
+
+  const stickyPreviewUrlsRef = useRef([]);
+  const prevPhotoVenueKeyRef = useRef("");
+  const photosVenueKeyRef = useRef("");
 
   // 카카오 place id가 있으면 기본정보 조회 (공식 REST에 detail.json 없음 → 서버에서 keyword 검색 후 id 매칭)
   useEffect(() => {
@@ -367,6 +401,29 @@ export default function PlacePreviewCard({
     internalPlaceIdForPhotos,
     checkinWgs?.lat,
     checkinWgs?.lng,
+  ]);
+
+  /** 카카오 상세(프록시)에 썸네일이 있으면 og보다 먼저 히어로에 반영 */
+  useEffect(() => {
+    if (!photoVenueKey || !kakaoDetails) return;
+    const urls = [];
+    const push = (u) => {
+      if (typeof u === "string" && u.trim() && !urls.includes(u)) {
+        urls.push(u.trim());
+      }
+    };
+    push(kakaoDetails.thumbnail_url);
+    if (Array.isArray(kakaoDetails.photo_urls)) {
+      for (const u of kakaoDetails.photo_urls) push(u);
+    }
+    if (!urls.length) return;
+    photosVenueKeyRef.current = photoVenueKey;
+    setPlacePhotoUrls((prev) => mergeUniqueUrls(prev, urls));
+    setPlacePhotosLoading(false);
+  }, [
+    photoVenueKey,
+    kakaoDetails?.thumbnail_url,
+    kakaoDetails?.photo_urls,
   ]);
 
   // 카카오 place id가 없는 저장 장소는 장소명으로 기본정보 보강 조회
@@ -499,28 +556,6 @@ export default function PlacePreviewCard({
   const buildStaticMapUrl = (w, h, level) =>
     buildKakaoStaticMapUrl(displayLat, displayLng, { w, h, level });
 
-  /** 카카오 장소: API·저장소에서 온 사진 URL만 (지도 타일 제외) */
-  const kakaoPreviewPhotoUrls = useMemo(() => {
-    if (!(isKakaoPlace || kakaoDetails)) return [];
-    const out = [];
-    const pushU = (u) => {
-      if (u && typeof u === "string" && !out.includes(u)) out.push(u);
-    };
-    const fromApi = kakaoDetails?.photo_urls;
-    if (Array.isArray(fromApi)) {
-      fromApi.forEach(pushU);
-    }
-    pushU(kakaoDetails?.thumbnail_url);
-    pushU(place?.image);
-    return out;
-  }, [
-    isKakaoPlace,
-    kakaoDetails,
-    place?.image,
-    kakaoDetails?.thumbnail_url,
-    kakaoDetails?.photo_urls,
-  ]);
-
   const curatorPhotoUrls = useMemo(
     () =>
       curatorPhotoRows
@@ -549,23 +584,6 @@ export default function PlacePreviewCard({
     return Boolean(row && row.curator_id === user.id);
   };
 
-  const mergedKakaoCuratorPhotos = useMemo(() => {
-    const out = [];
-    const add = (u) => {
-      if (typeof u === "string" && u && !out.includes(u)) out.push(u);
-    };
-    curatorPhotoUrls.forEach(add);
-    if (isKakaoPlace || kakaoDetails) {
-      kakaoPreviewPhotoUrls.forEach(add);
-    }
-    return out;
-  }, [
-    curatorPhotoUrls,
-    kakaoPreviewPhotoUrls,
-    isKakaoPlace,
-    kakaoDetails,
-  ]);
-
   const kakaoPlacePageUrl = (isKakaoPlace || kakaoDetails)
     ? isKakaoPlace
       ? place.place_url
@@ -587,48 +605,92 @@ export default function PlacePreviewCard({
         !isGoogleProxyPhotoUrl(url)
     );
 
-  /** 세션 캐시·카카오·큐레이터 우선, 이어서 구글 */
+  /** 서버 `/api/place-photos` 통합 응답 */
   const allPreviewUrls = useMemo(() => {
     const seen = new Set();
     const out = [];
-    const add = (u) => {
+    for (const u of placePhotoUrls) {
       if (typeof u === "string" && u && !seen.has(u)) {
         seen.add(u);
         out.push(u);
       }
-    };
-    sessionPhotoUrls.forEach(add);
-    mergedKakaoCuratorPhotos.forEach(add);
-    googlePhotoUrls.forEach(add);
+    }
     return out;
-  }, [sessionPhotoUrls, mergedKakaoCuratorPhotos, googlePhotoUrls]);
+  }, [placePhotoUrls]);
+
+  if (allPreviewUrls.length > 0 && photosVenueKeyRef.current === photoVenueKey) {
+    stickyPreviewUrlsRef.current = allPreviewUrls;
+  }
+
+  const displayPreviewUrls = useMemo(() => {
+    const loaded =
+      photosVenueKeyRef.current === photoVenueKey
+        ? allPreviewUrls.length > 0
+          ? allPreviewUrls
+          : stickyPreviewUrlsRef.current
+        : [];
+    if (sessionPhotoUrls.length > 0) {
+      return mergeUniqueUrls(sessionPhotoUrls, loaded);
+    }
+    return loaded;
+  }, [photoVenueKey, allPreviewUrls, sessionPhotoUrls]);
 
   useEffect(() => {
-    if (!venuePhotoKey) return;
-    const urls = [...curatorPhotoUrls, ...kakaoPreviewPhotoUrls];
-    if (urls.length > 0) writePlacePhotoCache(venuePhotoKey, urls);
-  }, [venuePhotoKey, curatorPhotoUrls, kakaoPreviewPhotoUrls]);
+    if (!photoVenueKey || !placePhotoUrls.length) return;
+    writePlacePhotoCache(photoVenueKey, placePhotoUrls);
+  }, [photoVenueKey, placePhotoUrls]);
 
   useEffect(() => {
-    if (!allPreviewUrls.length) return;
-    preloadPlacePhotoUrls(allPreviewUrls.slice(0, 4));
-  }, [allPreviewUrls]);
+    if (!displayPreviewUrls.length) return;
+    preloadPlacePhotoUrls(displayPreviewUrls.slice(0, 4));
+  }, [displayPreviewUrls]);
+
+  const pickHeroUrl = useCallback(
+    (urls, startIdx, failed) => {
+      if (!urls.length) return null;
+      for (let i = 0; i < urls.length; i += 1) {
+        const idx = (startIdx + i) % urls.length;
+        const u = urls[idx];
+        if (!failed.has(u)) return u;
+      }
+      return urls[0] ?? null;
+    },
+    []
+  );
 
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  useEffect(() => {
-    setHeroPreviewIndex(0);
-  }, [place?.id, place?.place_id, kakaoPlaceId]);
+  const photoFetchSeqRef = useRef(0);
 
-  const heroPreviewUrl = allPreviewUrls[heroPreviewIndex] ?? allPreviewUrls[0];
-  const stripPreviewUrls = allPreviewUrls.filter(
-    (_, i) => i !== heroPreviewIndex
+  useEffect(() => {
+    if (heroPreviewIndex < displayPreviewUrls.length) return;
+    setHeroPreviewIndex(0);
+  }, [heroPreviewIndex, displayPreviewUrls.length]);
+
+  const heroPreviewUrl = pickHeroUrl(
+    displayPreviewUrls,
+    heroPreviewIndex,
+    failedPhotoUrls
   );
+  const stripPreviewUrls = displayPreviewUrls.filter((u) => u !== heroPreviewUrl);
+
+  const showGooglePhotoCredit =
+    placePhotoAttributions.length > 0 &&
+    heroPreviewUrl &&
+    isGoogleProxyPhotoUrl(heroPreviewUrl);
 
   const previewHasKakaoOpenablePhoto = useMemo(
-    () => allPreviewUrls.some((u) => photoClickOpensKakao(u)),
-    [allPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+    () => displayPreviewUrls.some((u) => photoClickOpensKakao(u)),
+    [displayPreviewUrls, kakaoPlacePageUrl, curatorPhotoUrlSet]
+  );
+
+  const handlePreviewPhotoError = useCallback(
+    (url) => {
+      markPhotoUrlFailed(url);
+      setHeroPreviewIndex((idx) => idx + 1);
+    },
+    [markPhotoUrlFailed]
   );
 
   useEffect(() => {
@@ -637,40 +699,36 @@ export default function PlacePreviewCard({
       if (e.key === "Escape") setLightboxOpen(false);
       if (e.key === "ArrowRight") {
         setLightboxIndex((idx) =>
-          allPreviewUrls.length
-            ? (idx + 1) % allPreviewUrls.length
+          displayPreviewUrls.length
+            ? (idx + 1) % displayPreviewUrls.length
             : idx
         );
       }
       if (e.key === "ArrowLeft") {
         setLightboxIndex((idx) =>
-          allPreviewUrls.length
-            ? (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+          displayPreviewUrls.length
+            ? (idx - 1 + displayPreviewUrls.length) % displayPreviewUrls.length
             : idx
         );
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxOpen, allPreviewUrls.length]);
+  }, [lightboxOpen, displayPreviewUrls.length]);
 
   const openPhotoLightbox = useCallback(
     (index) => {
-      if (!allPreviewUrls.length) return;
+      if (!displayPreviewUrls.length) return;
       const safeIndex =
-        Number.isFinite(index) && index >= 0 && index < allPreviewUrls.length
+        Number.isFinite(index) && index >= 0 && index < displayPreviewUrls.length
           ? index
           : 0;
       setLightboxIndex(safeIndex);
       setLightboxOpen(true);
     },
-    [allPreviewUrls]
+    [displayPreviewUrls]
   );
 
-  const showGooglePhotoCredit =
-    googlePhotoUrls.length > 0 &&
-    (mergedKakaoCuratorPhotos.length === 0 ||
-      heroPreviewIndex >= mergedKakaoCuratorPhotos.length);
   const showCuratorPhotoBadge = curatorPhotoUrls.length > 0;
 
   /** 구글 장소 검색 보강용 주소 한 줄 */
@@ -698,162 +756,122 @@ export default function PlacePreviewCard({
     place?.region,
   ]);
 
-  /**
-   * 큐레이터 사진 로딩으로 curatorPhotoUrls.length만 바뀌어도 이 효과가 돌면
-   * 매번 setGooglePhotoUrls([])로 구글 URL이 지워져 사진이 안 뜨는 현상이 난다.
-   * 장소·이름·주소·좌표가 바뀔 때만 다시 불러온다.
-   */
-  const googlePlacePhotosFetchKey = useMemo(
-    () =>
-      [
-        String(place?.id ?? ""),
-        String(place?.place_id ?? ""),
-        String(kakaoKeywordQuery ?? "").trim(),
-        resolvedPlaceAddressLine,
-        displayLat != null && Number.isFinite(Number(displayLat))
-          ? String(displayLat)
-          : "",
-        displayLng != null && Number.isFinite(Number(displayLng))
-          ? String(displayLng)
-          : "",
-      ].join("\u001f"),
-    [
-      place?.id,
-      place?.place_id,
-      kakaoKeywordQuery,
-      resolvedPlaceAddressLine,
-      displayLat,
-      displayLng,
-    ]
-  );
+  photoQueryRef.current = {
+    placeId: String(internalPlaceIdForPhotos ?? "").trim(),
+    kakaoPlaceId: String(kakaoPlaceId ?? "").trim(),
+    name: String(kakaoKeywordQuery ?? "").trim(),
+    address: resolvedPlaceAddressLine,
+    lat: displayLat,
+    lng: displayLng,
+  };
 
   useEffect(() => {
-    const q = kakaoKeywordQuery.trim();
-    if (!q) return;
-    if (
-      kakaoPlaceId &&
-      isLoadingKakao &&
-      sessionPhotoUrls.length === 0 &&
-      kakaoPreviewPhotoUrls.length === 0
-    ) {
-      return;
-    }
-    if (kakaoPreviewPhotoUrls.length > 0) return;
+    if (!photoVenueKey) return undefined;
 
-    setGooglePhotoUrls([]);
-    setGooglePhotoAttributions([]);
-    const ac = new AbortController();
-    setGooglePhotosLoading(true);
-
-    const base = getAiApiBaseUrl();
-
-    const params = new URLSearchParams({ name: q });
-    if (resolvedPlaceAddressLine) {
-      params.set("address", resolvedPlaceAddressLine.slice(0, 120));
-    }
-    if (
-      displayLat != null &&
-      displayLng != null &&
-      Number.isFinite(Number(displayLat)) &&
-      Number.isFinite(Number(displayLng))
-    ) {
-      params.set("lat", String(displayLat));
-      params.set("lng", String(displayLng));
+    const venueChanged = prevPhotoVenueKeyRef.current !== photoVenueKey;
+    if (venueChanged) {
+      prevPhotoVenueKeyRef.current = photoVenueKey;
+      stickyPreviewUrlsRef.current = [];
+      setFailedPhotoUrls(new Set());
+      setHeroPreviewIndex(0);
+      setCuratorPhotoRows([]);
     }
 
-    void (async () => {
-      const headers = await getApiAuthHeaders();
-      fetch(`${base}/api/google-place-photos?${params}`, {
-        signal: ac.signal,
-        headers,
+    const seq = ++photoFetchSeqRef.current;
+    let cancelled = false;
+    const batchRef = { urls: [] };
+    let pending = 0;
+    const q = photoQueryRef.current;
+
+    const applyUrls = (incoming) => {
+      if (cancelled || seq !== photoFetchSeqRef.current) return;
+      if (!incoming.length) return;
+      batchRef.urls = mergeUniqueUrls(batchRef.urls, incoming);
+      photosVenueKeyRef.current = photoVenueKey;
+      setPlacePhotoUrls(batchRef.urls);
+      setPlacePhotosLoading(false);
+    };
+
+    const settleWhenIdle = () => {
+      pending -= 1;
+      if (pending > 0 || cancelled || seq !== photoFetchSeqRef.current) return;
+      photosVenueKeyRef.current = photoVenueKey;
+      if (!batchRef.urls.length && venueChanged) {
+        setPlacePhotoUrls([]);
+        setPlacePhotoAttributions([]);
+        setPlacePhotoSources([]);
+      }
+      placeOpenPerfRef.current?.mark("place_photos_done");
+      placeOpenPerfRef.current?.end({ phase: "photos_settled" });
+      placeOpenPerfRef.current = null;
+      setPlacePhotosLoading(false);
+    };
+
+    setPlacePhotosLoading(true);
+
+    pending += 1;
+    void fetchCuratorPlacePhotoRows({
+      kakaoPlaceId: q.kakaoPlaceId || undefined,
+      internalPlaceId: q.placeId || undefined,
+    })
+      .then((rows) => {
+        if (cancelled || seq !== photoFetchSeqRef.current) return;
+        if (!rows.length) return;
+        setCuratorPhotoRows(rows);
+        applyUrls(
+          rows
+            .map((r) => curatorPhotoPublicUrl(r.storage_path))
+            .filter(Boolean)
+        );
       })
-        .then(async (r) => {
-          const text = await r.text();
-          try {
-            return JSON.parse(text);
-          } catch {
-            if (import.meta.env.DEV) {
-              console.warn("[google-place-photos] JSON 아님", r.status, text.slice(0, 200));
-            }
-            return { ok: false, imageUrls: [] };
-          }
+      .catch(() => {})
+      .finally(settleWhenIdle);
+
+    if (q.kakaoPlaceId && /^\d+$/.test(q.kakaoPlaceId)) {
+      pending += 1;
+      void fetchKakaoPlaceOg(q.kakaoPlaceId)
+        .then((url) => {
+          if (url) applyUrls([url]);
         })
+        .finally(settleWhenIdle);
+    }
+
+    if (q.name) {
+      pending += 1;
+      void fetchGooglePlacePhotos({
+        name: q.name,
+        address: q.address,
+        lat: q.lat,
+        lng: q.lng,
+      })
         .then((data) => {
-          if (import.meta.env.DEV) {
-            const n = Array.isArray(data?.imageUrls) ? data.imageUrls.length : 0;
-            if (!data?.ok || n === 0) {
-              console.warn("[google-place-photos]", {
-                ok: data?.ok,
-                count: n,
-                error: data?.error,
-                hint: data?.hint,
-                googleHttpStatus: data?.googleHttpStatus,
-                googleApiError: data?.googleApiError,
-                requestUrl: `${base || "(same-origin)"}/api/google-place-photos?${params}`,
-              });
-            }
+          if (cancelled || seq !== photoFetchSeqRef.current) return;
+          if (data.urls.length > 0) applyUrls(data.urls);
+          if (data.attributions.length > 0) {
+            setPlacePhotoAttributions(data.attributions);
           }
-          if (!data?.ok || !Array.isArray(data.imageUrls)) return;
-          const urls = data.imageUrls
-            .filter(
-              (u) =>
-                typeof u === "string" &&
-                (u.startsWith("/") || /^https?:\/\//i.test(u))
-            )
-            .map((path) =>
-              path.startsWith("/") && base ? `${base}${path}` : path
-            );
-          if (urls.length > 0) {
-            setGooglePhotoUrls(urls);
-            setGooglePhotoAttributions(
-              Array.isArray(data.attributions) ? data.attributions : []
-            );
+          if (data.sources.length > 0) {
+            setPlacePhotoSources(data.sources);
           }
         })
-        .catch((err) => {
-          if (err?.name === "AbortError") return;
-          if (import.meta.env.DEV) {
-            console.warn("google-place-photos fetch 실패:", err?.message || err);
-          }
-        })
-        .finally(() => {
-          if (!ac.signal.aborted) setGooglePhotosLoading(false);
-          placeOpenPerfRef.current?.mark("google_photos_done");
-          placeOpenPerfRef.current?.end({ phase: "photos_settled" });
-          placeOpenPerfRef.current = null;
-        });
-    })();
+        .finally(settleWhenIdle);
+    }
+
+    if (pending === 0) {
+      photosVenueKeyRef.current = photoVenueKey;
+      setPlacePhotosLoading(false);
+    }
 
     return () => {
-      ac.abort();
+      cancelled = true;
     };
-    // 키에 이름·주소·좌표가 바뀔 때만 다시 불러온다 (세션 캐시 있으면 카카오 대기 생략)
-  }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length, sessionPhotoUrls.length]);
+  }, [photoVenueKey]);
 
-  useEffect(() => {
-    const t = placeOpenPerfRef.current;
-    if (!t || isLoadingKakao || googlePhotosLoading) return;
-    if (kakaoPreviewPhotoUrls.length > 0) {
-      t.end({ phase: "kakao_photos" });
-      placeOpenPerfRef.current = null;
-      return;
-    }
-    if (!kakaoKeywordQuery.trim()) {
-      t.end({ phase: "no_photo_query" });
-      placeOpenPerfRef.current = null;
-    }
-  }, [
-    isLoadingKakao,
-    googlePhotosLoading,
-    kakaoPreviewPhotoUrls.length,
-    kakaoKeywordQuery,
-  ]);
-
-  const showKakaoPhotoLoading =
-    allPreviewUrls.length === 0 &&
-    (googlePhotosLoading ||
-      curatorPhotosLoading ||
-      ((isKakaoPlace || kakaoDetails) && isLoadingKakao));
+  const photoLoadPending =
+    Boolean(photoVenueKey) && photosVenueKeyRef.current !== photoVenueKey;
+  const showPhotoSection = Boolean(photoVenueKey);
+  const showHeroPlaceholder =
+    !heroPreviewUrl && (placePhotosLoading || photoLoadPending);
 
   const canCuratorUploadPhoto =
     isCurator &&
@@ -861,11 +879,37 @@ export default function PlacePreviewCard({
     (kakaoPlaceId || internalPlaceIdForPhotos);
 
   const reloadCuratorPlacePhotos = async () => {
-    const rows = await fetchCuratorPlacePhotoRows({
-      kakaoPlaceId: kakaoPlaceId || undefined,
-      internalPlaceId: internalPlaceIdForPhotos || undefined,
-    });
-    setCuratorPhotoRows(rows);
+    try {
+      const data = await fetchPlacePhotos({
+        placeId: internalPlaceIdForPhotos || undefined,
+        kakaoPlaceId: kakaoPlaceId || undefined,
+        name: kakaoKeywordQuery,
+        address: resolvedPlaceAddressLine,
+        lat: displayLat,
+        lng: displayLng,
+      });
+      setPlacePhotoUrls(data.urls);
+      setPlacePhotoAttributions(data.attributions);
+      setPlacePhotoSources(data.sources);
+      setCuratorPhotoRows(
+        data.curatorPhotos.map((row) => ({
+          id: row.id,
+          curator_id: row.curator_id,
+          storage_path: row.storage_path,
+          created_at: row.created_at,
+        }))
+      );
+      setHeroPreviewIndex(0);
+    } catch (err) {
+      const rows = await fetchCuratorPlacePhotoRows({
+        kakaoPlaceId: kakaoPlaceId || undefined,
+        internalPlaceId: internalPlaceIdForPhotos || undefined,
+      });
+      setCuratorPhotoRows(rows);
+      if (import.meta.env.DEV) {
+        console.warn("reloadCuratorPlacePhotos", err?.message || err);
+      }
+    }
   };
 
   const handleDeleteCuratorPhoto = async (row) => {
@@ -1500,18 +1544,21 @@ export default function PlacePreviewCard({
             )}
           </div>
         </div>
-        {allPreviewUrls.length > 0 && heroPreviewUrl ? (
+        {showPhotoSection ? (
           <div style={styles.kakaoPreviewSection}>
             <div style={styles.photoHeroWrap}>
+              {heroPreviewUrl ? (
               <button
                 type="button"
-                onClick={() => openPhotoLightbox(heroPreviewIndex)}
+                onClick={() => {
+                  const idx = displayPreviewUrls.indexOf(heroPreviewUrl);
+                  openPhotoLightbox(idx >= 0 ? idx : 0);
+                }}
                 style={styles.kakaoPhotoHeroBtn}
                 title="사진 크게 보기"
               >
                 <div style={styles.imageFrame}>
                   <img
-                    key={heroPreviewUrl}
                     src={heroPreviewUrl}
                     alt=""
                     style={styles.imageFill}
@@ -1519,13 +1566,18 @@ export default function PlacePreviewCard({
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.onerror = null;
-                      setHeroPreviewIndex((i) =>
-                        i + 1 < allPreviewUrls.length ? i + 1 : i
-                      );
+                      handlePreviewPhotoError(heroPreviewUrl);
                     }}
                   />
                 </div>
               </button>
+              ) : showHeroPlaceholder ? (
+                <div style={styles.photoHeroSkeletonStandalone} aria-hidden />
+              ) : (
+                <div style={styles.imageFallback}>
+                  사진 없음 · 큐레이터는 「사진 올리기」 또는 카카오맵에서 확인
+                </div>
+              )}
               {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
                 <button
                   type="button"
@@ -1557,7 +1609,7 @@ export default function PlacePreviewCard({
                     <button
                       type="button"
                       onClick={() => {
-                        const idxInAll = allPreviewUrls.indexOf(src);
+                        const idxInAll = displayPreviewUrls.indexOf(src);
                         openPhotoLightbox(idxInAll >= 0 ? idxInAll : 0);
                       }}
                       style={styles.kakaoPreviewThumbBtn}
@@ -1569,6 +1621,10 @@ export default function PlacePreviewCard({
                         style={styles.kakaoPreviewThumbImg}
                         loading="lazy"
                         referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          handlePreviewPhotoError(src);
+                        }}
                       />
                     </button>
                     {canUserDeleteCuratorPhotoUrl(src) ? (
@@ -1607,14 +1663,12 @@ export default function PlacePreviewCard({
                   : "지도는 상단 「카카오맵에서 열기」"
                 : ""}
             </div>
-            {showGooglePhotoCredit && googlePhotoAttributions.length > 0 ? (
+            {showGooglePhotoCredit && placePhotoAttributions.length > 0 ? (
               <div style={styles.googlePhotoCredit}>
-                {googlePhotoAttributions.join(" · ")}
+                {placePhotoAttributions.join(" · ")}
               </div>
             ) : null}
           </div>
-        ) : showKakaoPhotoLoading ? (
-          <div style={styles.kakaoPreviewLoading}>미리보기 불러오는 중…</div>
         ) : displayImage ? (
           <div style={styles.imageFrameStandalone}>
             <img
@@ -2076,7 +2130,7 @@ export default function PlacePreviewCard({
             </div>
           </div>
         </div>
-        {lightboxOpen && allPreviewUrls.length > 0 ? (
+        {lightboxOpen && displayPreviewUrls.length > 0 ? (
           <div style={styles.photoLightbox} onClick={() => setLightboxOpen(false)}>
             <button
               type="button"
@@ -2090,13 +2144,13 @@ export default function PlacePreviewCard({
             >
               <FaTimes size={16} />
             </button>
-            {allPreviewUrls.length > 1 ? (
+            {displayPreviewUrls.length > 1 ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxIndex((idx) =>
-                    (idx - 1 + allPreviewUrls.length) % allPreviewUrls.length
+                    (idx - 1 + displayPreviewUrls.length) % displayPreviewUrls.length
                   );
                 }}
                 style={styles.photoLightboxNavLeft}
@@ -2106,17 +2160,21 @@ export default function PlacePreviewCard({
               </button>
             ) : null}
             <img
-              src={allPreviewUrls[lightboxIndex]}
+              src={displayPreviewUrls[lightboxIndex]}
               alt="장소 사진 크게 보기"
               style={styles.photoLightboxImage}
               onClick={(e) => e.stopPropagation()}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                handlePreviewPhotoError(displayPreviewUrls[lightboxIndex]);
+              }}
             />
-            {allPreviewUrls.length > 1 ? (
+            {displayPreviewUrls.length > 1 ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxIndex((idx) => (idx + 1) % allPreviewUrls.length);
+                  setLightboxIndex((idx) => (idx + 1) % displayPreviewUrls.length);
                 }}
                 style={styles.photoLightboxNavRight}
                 aria-label="다음 사진"
@@ -2417,6 +2475,26 @@ const styles = {
     justifyContent: "center",
     fontSize: "12px",
     borderBottom: "1px solid rgba(255,255,255,0.07)",
+  },
+  photoHeroSkeleton: {
+    position: "absolute",
+    inset: 0,
+    backgroundColor: "#1f1f1f",
+  },
+  photoHeroSkeletonStandalone: {
+    position: "relative",
+    width: "100%",
+    height: "clamp(104px, 36vw, 168px)",
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
+  },
+  photoSkeletonMap: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    opacity: 0.35,
+    filter: "blur(1px)",
   },
   body: {
     padding: "8px 10px 10px",

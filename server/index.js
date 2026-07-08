@@ -167,6 +167,7 @@ import { handlePlacesInBounds } from "./placesInBounds.js";
 import { handlePlacesDensityInBounds } from "./placesDensityInBounds.js";
 import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
+import { handlePlacePhotos } from "./placePhotos.js";
 import {
   enrichKakaoPlaceDocWithOgImage,
   fetchKakaoPlaceOgImageUrl,
@@ -668,6 +669,8 @@ app.get("/api/courses/search", handleSearchPublicCourses);
 
 /** 장소 1건 + 추천 행(공개 필드) — 카드/시트 오픈 후 (service role 전용) */
 app.get("/api/place-detail", handlePlaceDetail);
+/** 장소 카드 사진 — 큐레이터·카카오 og·구글 병합 (service role) */
+app.get("/api/place-photos", handlePlacePhotos);
 /** 카카오 장소 og:image만 (캐시, 카드 사진 프리페치용) */
 app.get("/api/kakao-place-og", async (req, res) => {
   const kakaoPlaceId =

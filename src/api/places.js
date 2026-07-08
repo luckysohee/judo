@@ -1,6 +1,7 @@
 import { supabase } from "./client";
 import { kakaoNumericPlaceId, resolvePlaceWgs84 } from "../utils/placeCoords";
 import { searchKakaoKeywordViaProxy } from "../utils/kakaoAPIProxy.js";
+import { getApiAuthHeaders } from "../utils/apiAuthHeaders.js";
 
 /** Kakao 지도 level(숫자 클수록 멀리 봄) → bbox places 상한 */
 export function getLimitByZoom(level) {
@@ -29,7 +30,7 @@ export async function fetchPlaceDetail(placeId, apiBaseUrl = "") {
   const base = String(apiBaseUrl || "").replace(/\/$/, "");
   const path = `/api/place-detail?id=${encodeURIComponent(id)}`;
   const url = base ? `${base}${path}` : path;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: await getApiAuthHeaders() });
   let data = null;
   try {
     data = await res.json();
