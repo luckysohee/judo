@@ -39,6 +39,12 @@ import {
 } from "../../utils/hanjanSocialCopy";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { createPerfTrace } from "../../utils/devPerfTrace.js";
+import {
+  buildPlacePhotoVenueKey,
+  preloadPlacePhotoUrls,
+  readPlacePhotoCache,
+  writePlacePhotoCache,
+} from "../../utils/placePhotoPrefetch.js";
 
 export default function PlacePreviewCard({
   place,
@@ -129,6 +135,37 @@ export default function PlacePreviewCard({
   );
 
   const kakaoPlaceId = kakaoNumericPlaceId(place);
+
+  const venuePhotoKey = useMemo(() => buildPlacePhotoVenueKey(place), [
+    place?.id,
+    place?.place_id,
+    place?.kakao_place_id,
+    place?.kakaoId,
+    place?.lat,
+    place?.lng,
+    place?.y,
+    place?.x,
+    place?.name,
+    place?.place_name,
+    place?.address,
+    kakaoPlaceId,
+  ]);
+
+  const [sessionPhotoUrls, setSessionPhotoUrls] = useState([]);
+
+  useEffect(() => {
+    if (!venuePhotoKey) {
+      setSessionPhotoUrls([]);
+      return;
+    }
+    const cached = readPlacePhotoCache(venuePhotoKey);
+    if (cached.length > 0) {
+      setSessionPhotoUrls(cached);
+      preloadPlacePhotoUrls(cached);
+    } else {
+      setSessionPhotoUrls([]);
+    }
+  }, [venuePhotoKey]);
 
   /** check_ins·한잔함 통계 키 — 카카오 ID 우선 */
   const checkinPlaceKey = useMemo(() => {
@@ -550,7 +587,7 @@ export default function PlacePreviewCard({
         !isGoogleProxyPhotoUrl(url)
     );
 
-  /** 카카오·큐레이터 우선, 이어서 구글(카카오 썸네일만 있어도 구글 병렬 로드) */
+  /** 세션 캐시·카카오·큐레이터 우선, 이어서 구글 */
   const allPreviewUrls = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -560,10 +597,22 @@ export default function PlacePreviewCard({
         out.push(u);
       }
     };
+    sessionPhotoUrls.forEach(add);
     mergedKakaoCuratorPhotos.forEach(add);
     googlePhotoUrls.forEach(add);
     return out;
-  }, [mergedKakaoCuratorPhotos, googlePhotoUrls]);
+  }, [sessionPhotoUrls, mergedKakaoCuratorPhotos, googlePhotoUrls]);
+
+  useEffect(() => {
+    if (!venuePhotoKey) return;
+    const urls = [...curatorPhotoUrls, ...kakaoPreviewPhotoUrls];
+    if (urls.length > 0) writePlacePhotoCache(venuePhotoKey, urls);
+  }, [venuePhotoKey, curatorPhotoUrls, kakaoPreviewPhotoUrls]);
+
+  useEffect(() => {
+    if (!allPreviewUrls.length) return;
+    preloadPlacePhotoUrls(allPreviewUrls.slice(0, 4));
+  }, [allPreviewUrls]);
 
   const [heroPreviewIndex, setHeroPreviewIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -681,7 +730,14 @@ export default function PlacePreviewCard({
   useEffect(() => {
     const q = kakaoKeywordQuery.trim();
     if (!q) return;
-    if (kakaoPlaceId && isLoadingKakao) return;
+    if (
+      kakaoPlaceId &&
+      isLoadingKakao &&
+      sessionPhotoUrls.length === 0 &&
+      kakaoPreviewPhotoUrls.length === 0
+    ) {
+      return;
+    }
     if (kakaoPreviewPhotoUrls.length > 0) return;
 
     setGooglePhotoUrls([]);
@@ -771,8 +827,8 @@ export default function PlacePreviewCard({
     return () => {
       ac.abort();
     };
-    // 키에 이름·주소·좌표·장소 id + 카카오 사진 조회 완료 후에만 구글 폴백
-  }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length]);
+    // 키에 이름·주소·좌표가 바뀔 때만 다시 불러온다 (세션 캐시 있으면 카카오 대기 생략)
+  }, [googlePlacePhotosFetchKey, isLoadingKakao, kakaoPreviewPhotoUrls.length, sessionPhotoUrls.length]);
 
   useEffect(() => {
     const t = placeOpenPerfRef.current;

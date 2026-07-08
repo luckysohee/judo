@@ -36,6 +36,7 @@ import { followUser } from "../../utils/userProfileFollows";
 import { runWhenIdle } from "../../utils/runWhenIdle";
 import { createRandomUuid } from "../../utils/createRandomUuid";
 import { createPerfTrace } from "../../utils/devPerfTrace";
+import { prefetchPlacePhotos } from "../../utils/placePhotoPrefetch.js";
 
 import {
   getPlaceFolderIds,
@@ -5014,6 +5015,9 @@ export default function Home() {
               : {}),
           });
         }
+      }
+      if (resolved) {
+        prefetchPlacePhotos(resolved);
       }
       setSelectedPlace(resolved);
     },

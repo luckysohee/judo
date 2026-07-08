@@ -167,7 +167,10 @@ import { handlePlacesInBounds } from "./placesInBounds.js";
 import { handlePlacesDensityInBounds } from "./placesDensityInBounds.js";
 import { handleSearchPublicCourses } from "./searchPublicCourses.js";
 import { handlePlaceDetail } from "./placeDetail.js";
-import { enrichKakaoPlaceDocWithOgImage } from "./kakaoPlaceOgImage.js";
+import {
+  enrichKakaoPlaceDocWithOgImage,
+  fetchKakaoPlaceOgImageUrl,
+} from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 import { handleCourseDraftAssist } from "./courseDraftAssist.js";
@@ -665,6 +668,31 @@ app.get("/api/courses/search", handleSearchPublicCourses);
 
 /** 장소 1건 + 추천 행(공개 필드) — 카드/시트 오픈 후 (service role 전용) */
 app.get("/api/place-detail", handlePlaceDetail);
+/** 카카오 장소 og:image만 (캐시, 카드 사진 프리페치용) */
+app.get("/api/kakao-place-og", async (req, res) => {
+  const kakaoPlaceId =
+    typeof req.query.kakaoPlaceId === "string"
+      ? req.query.kakaoPlaceId.trim()
+      : "";
+  if (!/^\d+$/.test(kakaoPlaceId)) {
+    return res.status(400).json({
+      ok: false,
+      message: "kakaoPlaceId(숫자)가 필요합니다",
+      url: null,
+    });
+  }
+  try {
+    const url = await fetchKakaoPlaceOgImageUrl(kakaoPlaceId);
+    return res.json({ ok: true, url: url || null });
+  } catch (e) {
+    console.warn("kakao-place-og", e?.message || e);
+    return res.status(500).json({
+      ok: false,
+      message: e?.message || "kakao-place-og failed",
+      url: null,
+    });
+  }
+});
 
 function getRecommendSupabaseEnv() {
   return {
