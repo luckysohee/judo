@@ -183,3 +183,84 @@ describe("지도 2차 찾기 — 지역/한강 필터에 막히지 않음", () =
     );
   });
 });
+
+describe("regenerateSecondStep 해산물 안주", () => {
+  const parsed = parseCourseQuery("성수 데이트 코스");
+  const firstPlace = steerPlace("first", "성수 1차 식당", "양식", 37.544, 127.055);
+  const bunsik = steerPlace(
+    "bun",
+    "신당동 떡볶이",
+    "분식",
+    37.5451,
+    127.0561
+  );
+  const seafood = steerPlace(
+    "sea",
+    "성수 횟집",
+    "해산물",
+    37.5454,
+    127.0564
+  );
+  seafood.category_name = "음식점 > 해산물 > 회";
+  seafood.categories = ["해산물", "회"];
+  seafood.tags = ["해산물", "회"];
+
+  it("해산물/회 선택 시 분식은 제외하고 횟집을 고른다", () => {
+    const results = regenerateSecondStep({
+      selectedCourse: buildSelectedCourse(firstPlace),
+      parsedQuery: parsed,
+      places: [firstPlace, bunsik, seafood],
+      userSecondPreferences: {
+        anjuHints: ["해산물/회"],
+        maxSecondDistanceM: 2000,
+      },
+    });
+    const names = results.map((c) => c.steps[c.steps.length - 1].place.name);
+    expect(names).toContain("성수 횟집");
+    expect(names).not.toContain("신당동 떡볶이");
+  });
+});
+
+describe("regenerateSecondStep 국물 안주", () => {
+  const parsed = parseCourseQuery("성수 데이트 코스");
+  const firstPlace = steerPlace("first", "성수 1차 식당", "양식", 37.544, 127.055);
+  const bunsik = steerPlace(
+    "bun",
+    "신당동 떡볶이",
+    "분식",
+    37.5451,
+    127.0561
+  );
+  const gukbap = steerPlace(
+    "guk",
+    "성수 순대국밥",
+    "국밥",
+    37.5454,
+    127.0564
+  );
+  gukbap.category_name = "음식점 > 한식 > 국밥";
+  gukbap.categories = ["한식", "국밥"];
+  gukbap.tags = ["국밥", "해장"];
+
+  const bokeo = steerPlace("bok", "성수 복어전문", "복어", 37.5455, 127.0565);
+  bokeo.category_name = "음식점 > 한식 > 복어";
+  bokeo.categories = ["한식", "복어"];
+  bokeo.tags = ["복어", "복국"];
+
+  it("국물 선택 시 분식 제외, 국밥·복어를 고른다", () => {
+    const results = regenerateSecondStep({
+      selectedCourse: buildSelectedCourse(firstPlace),
+      parsedQuery: parsed,
+      places: [firstPlace, bunsik, gukbap, bokeo],
+      userSecondPreferences: {
+        anjuHints: ["국물"],
+        maxSecondDistanceM: 2000,
+      },
+    });
+    const names = results.map((c) => c.steps[c.steps.length - 1].place.name);
+    expect(names).not.toContain("신당동 떡볶이");
+    expect(names.some((n) => n === "성수 순대국밥" || n === "성수 복어전문")).toBe(
+      true
+    );
+  });
+});

@@ -99,7 +99,7 @@ export const COURSE_SECOND_SNACK_OPTIONS = [
   "국물",
   "해산물/회",
   "육류",
-  "치즈",
+  "플래터",
   "튀김",
 ];
 
@@ -191,17 +191,29 @@ export function expandAnjuHintTokens(hint) {
       "해장",
       "찌개",
       "국밥",
-      "탕",
       "전골",
-      "라면",
       "육개장",
-      "순대",
+      "순대국",
       "설렁탕",
       "감자탕",
       "뼈해장",
       "곰탕",
       "추어탕",
       "해장국",
+      "복어",
+      "복국",
+      "복매운탕",
+      "매운탕",
+      "부대찌개",
+      "샤브",
+      "도가니탕",
+      "갈비탕",
+      "삼계탕",
+      "해물탕",
+      "알탕",
+      "대구탕",
+      "꼬리탕",
+      "국물안주",
     ];
   }
   if (h === "튀김") {
@@ -246,6 +258,23 @@ export function expandAnjuHintTokens(hint) {
   if (h === "육류") {
     return ["육류", "고기", "삼겹살", "갈비", "고깃집", "스테이크"];
   }
+  // 레거시 «치즈» 칩도 동일 확장
+  if (h === "플래터" || h === "치즈") {
+    return [
+      "플래터",
+      "치즈플래터",
+      "치즈",
+      "샤퀴테리",
+      "샤퀴",
+      "타파스",
+      "과일안주",
+      "모둠안주",
+      "안주다양",
+      "와인바",
+      "치즈볼",
+      "맥앤치즈",
+    ];
+  }
   return [h];
 }
 
@@ -259,7 +288,12 @@ export function anjuExpandedTokenMatchesHaystack(hayLower, tok) {
   const k = String(tok ?? "").toLowerCase();
   if (!t || !k) return false;
   if (k !== "회") {
-    return t.includes(k) || k.includes(t) || t === k;
+    // 짧은 hay(예: «식»)가 긴 토큰(«해산물»)에 포함돼 오탐하지 않게
+    if (t.length <= 1) return false;
+    if (t.includes(k) || t === k) return true;
+    // 토큰⊃hay: hay가 토큰의 의미 있는 부분일 때만 (분식·식 ↔ 해산물 오탐 방지)
+    if (t.length >= 3 && k.includes(t)) return true;
+    return false;
   }
   if (/회식|회의|회원|학회|사회|대회|총회|주주|이사회|위원회|동호회/.test(t)) {
     return false;
@@ -273,6 +307,47 @@ export function anjuExpandedTokenMatchesHaystack(hayLower, tok) {
   }
   if (t === "회") return true;
   return false;
+}
+
+function placeAnjuSignalHay(place) {
+  return [
+    place?.name,
+    place?.place_name,
+    place?.category,
+    place?.category_name,
+    ...(Array.isArray(place?.categories) ? place.categories : []),
+    ...(Array.isArray(place?.tags) ? place.tags : []),
+  ]
+    .map((s) => String(s || "").toLowerCase())
+    .join(" ");
+}
+
+/** 분식·김밥·떡볶이 계열 — 해산물/회·국물 안주와 충돌 */
+export function placeLooksLikeBunsik(place) {
+  const hay = placeAnjuSignalHay(place);
+  if (!hay.trim()) return false;
+  return /분식|떡볶|김밥|라면\s*집|쫄면|만두\s*전문|어묵\s*전문|핫도그|토스트\s*전문/.test(
+    hay
+  );
+}
+
+/** 해산물/회 안주와 맞는 신호 */
+export function placeLooksLikeSeafoodAnju(place) {
+  const hay = placeAnjuSignalHay(place);
+  if (!hay.trim()) return false;
+  return /해산물|해물|횟집|회집|생선회|모둠회|물회|회덮밥|사시미|오마카세|스시|초밥|활어|수산|조개|낙지|문어|게장|회\s*전문|회전초밥/.test(
+    hay
+  );
+}
+
+/** 국물 안주 — 탕·국밥·복어·전골·찌개 한식 (분식·라면집 제외는 호출측) */
+export function placeLooksLikeGukmulAnju(place) {
+  const hay = placeAnjuSignalHay(place);
+  if (!hay.trim()) return false;
+  if (placeLooksLikeBunsik(place)) return false;
+  return /국물|국밥|해장|찌개|전골|육개장|순대국|설렁탕|감자탕|뼈해장|곰탕|추어탕|해장국|복어|복국|복매운탕|매운탕|부대찌개|샤브|도가니|갈비탕|삼계탕|해물탕|알탕|대구탕|꼬리탕|국물안주|탕\s*전문|전골\s*전문|국밥\s*전문|복어\s*전문/.test(
+    hay
+  );
 }
 
 /** 임베딩·의도 파서가 같은 어휘 집합을 보도록 짧은 문맥 블록 */

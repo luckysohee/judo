@@ -160,14 +160,26 @@ export function buildCourseSecondKakaoQueries(opts = {}) {
       "조개구이",
     ].forEach((q) => queries.add(q));
   }
-  if (hints.some((h) => /국물|해장|찌개|국밥/.test(String(h)))) {
-    ["포장마차", "곱창", "전골"].forEach((q) => queries.add(q));
+  if (hints.some((h) => /국물|해장|찌개|국밥|전골/.test(String(h)))) {
+    [
+      "국밥",
+      "전골",
+      "감자탕",
+      "해장국",
+      "복어",
+      "매운탕",
+      "부대찌개",
+      "설렁탕",
+    ].forEach((q) => queries.add(q));
   }
   if (hints.some((h) => /튀김|치킨/.test(String(h)))) {
     ["치킨", "닭강정"].forEach((q) => queries.add(q));
   }
   if (hints.some((h) => /육류|고기|삼겹|갈비/.test(String(h)))) {
     ["고깃집", "삼겹살"].forEach((q) => queries.add(q));
+  }
+  if (hints.some((h) => /플래터|치즈/.test(String(h)))) {
+    ["와인바", "치즈플래터", "타파스", "샤퀴테리"].forEach((q) => queries.add(q));
   }
 
   if (queries.size === 0) {

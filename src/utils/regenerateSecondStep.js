@@ -16,6 +16,9 @@ import {
   anjuExpandedTokenMatchesHaystack,
   expandAnjuHintTokens,
   expandVibePrefTokens,
+  placeLooksLikeBunsik,
+  placeLooksLikeGukmulAnju,
+  placeLooksLikeSeafoodAnju,
 } from "./placeTaxonomy.js";
 
 function choosePattern(parsedQuery) {
@@ -185,13 +188,16 @@ function placeCategoryHaystack(place) {
   return out.join(" ");
 }
 
-/** tags·categories·category_name 에서 안주 힌트 매칭용 */
+/** tags·categories·category_name·상호 에서 안주 힌트 매칭용 */
 function placeAnjuHaystack(place) {
   const out = [];
   const push = (s) => {
     const t = String(s ?? "").trim().toLowerCase();
     if (t) out.push(t);
   };
+  push(place?.name);
+  push(place?.place_name);
+  push(place?.category);
   if (Array.isArray(place?.tags)) {
     for (const t of place.tags) push(t);
   }
@@ -413,9 +419,23 @@ export function regenerateSecondStep({
       }
 
       const pa = prefStringList(userSecondPreferences?.anjuHints);
+      const wantsSeafoodAnju = Boolean(
+        pa?.some((h) => /해산물|해산물\/회|^회$/.test(String(h)))
+      );
+      const wantsGukmulAnju = Boolean(
+        pa?.some((h) => /^국물$|해장|찌개|국밥|전골/.test(String(h)))
+      );
+      if (
+        (wantsSeafoodAnju || wantsGukmulAnju) &&
+        placeLooksLikeBunsik(place)
+      ) {
+        return null;
+      }
+      let anjuHits = 0;
+      let seafoodAnjuMatched = false;
+      let gukmulAnjuMatched = false;
       if (pa?.length) {
         const hay = placeAnjuHaystack(place);
-        let hits = 0;
         for (const hint of pa) {
           const tokens = expandAnjuHintTokens(hint);
           if (
@@ -425,10 +445,23 @@ export function regenerateSecondStep({
               )
             )
           ) {
-            hits += 1;
+            anjuHits += 1;
           }
         }
-        extraBonus += hits * 11;
+        extraBonus += anjuHits * 11;
+        if (wantsSeafoodAnju && placeLooksLikeSeafoodAnju(place)) {
+          seafoodAnjuMatched = true;
+          extraBonus += 36;
+        } else if (wantsSeafoodAnju && anjuHits === 0) {
+          // 해산물 선택인데 회·해물 신호가 없으면 거리만으로 분식·일반집이 위로 오지 않게
+          extraBonus -= 40;
+        }
+        if (wantsGukmulAnju && placeLooksLikeGukmulAnju(place)) {
+          gukmulAnjuMatched = true;
+          extraBonus += 36;
+        } else if (wantsGukmulAnju && anjuHits === 0) {
+          extraBonus -= 40;
+        }
       }
 
       if (userSecondPreferences?.prioritizeCurators) {
@@ -466,16 +499,40 @@ export function regenerateSecondStep({
           timingBonus +
           proximityFloor,
         liquorCategoryMatched,
+        seafoodAnjuMatched,
+        gukmulAnjuMatched,
+        anjuHits,
       };
     })
     .filter(Boolean)
     .filter((place) => place.candidateScore > 0);
 
+  const anjuPrefList = prefStringList(userSecondPreferences?.anjuHints);
+  const wantsSeafoodAnjuPool = Boolean(
+    anjuPrefList?.some((h) => /해산물|해산물\/회|^회$/.test(String(h)))
+  );
+  const wantsGukmulAnjuPool = Boolean(
+    anjuPrefList?.some((h) => /^국물$|해장|찌개|국밥|전골/.test(String(h)))
+  );
+  // 해산물·국물: 신호 있는 후보가 있으면 그쪽으로만 좁힘
+  let scoredPool = candidates;
+  if (wantsSeafoodAnjuPool) {
+    const seafoodOnly = candidates.filter(
+      (p) => p.seafoodAnjuMatched || (p.anjuHits ?? 0) > 0
+    );
+    if (seafoodOnly.length) scoredPool = seafoodOnly;
+  } else if (wantsGukmulAnjuPool) {
+    const gukmulOnly = candidates.filter(
+      (p) => p.gukmulAnjuMatched || (p.anjuHits ?? 0) > 0
+    );
+    if (gukmulOnly.length) scoredPool = gukmulOnly;
+  }
+
   let filtered = [];
   if (hasUserMaxDistance) {
     // 사용자가 최대 거리를 명시하면 그 상한까지 전체 후보를 본다(근거리 tier 조기종료 금지).
     const userLimit = Math.max(...distanceLimits);
-    filtered = candidates
+    filtered = scoredPool
       .filter((place) => place.distanceFromAnchor <= userLimit)
       .sort((a, b) => {
         if (prioritizeCurators) {
@@ -490,7 +547,7 @@ export function regenerateSecondStep({
       });
   } else {
     for (const limit of distanceLimits) {
-      filtered = candidates
+      filtered = scoredPool
         .filter((place) => place.distanceFromAnchor <= limit)
         .sort((a, b) => {
           if (prioritizeCurators) {
@@ -523,12 +580,25 @@ export function regenerateSecondStep({
     const maxM = hasUserMaxDistance
       ? Math.max(...distanceLimits)
       : Math.max(...distanceLimits, 3000);
+    const anjuPrefs = prefStringList(userSecondPreferences?.anjuHints);
+    const wantsSeafoodAnju = Boolean(
+      anjuPrefs?.some((h) => /해산물|해산물\/회|^회$/.test(String(h)))
+    );
+    const wantsGukmulAnju = Boolean(
+      anjuPrefs?.some((h) => /^국물$|해장|찌개|국밥|전골/.test(String(h)))
+    );
     const nearby = areaPlaces
       .map((place) => {
         const w = resolvePlaceWgs84(place);
         if (!w) return null;
         const withCoords = { ...place, lat: w.lat, lng: w.lng };
         if (isSameVenueForCourseStep(firstAnchor, withCoords)) return null;
+        if (
+          (wantsSeafoodAnju || wantsGukmulAnju) &&
+          placeLooksLikeBunsik(withCoords)
+        ) {
+          return null;
+        }
         const distance = haversineMeters(
           Number(distanceAnchor.lat),
           Number(distanceAnchor.lng),
@@ -538,15 +608,26 @@ export function regenerateSecondStep({
         if (!Number.isFinite(distance) || distance < 35 || distance > maxM) {
           return null;
         }
+        const seafoodHit =
+          wantsSeafoodAnju && placeLooksLikeSeafoodAnju(withCoords);
+        const gukmulHit =
+          wantsGukmulAnju && placeLooksLikeGukmulAnju(withCoords);
+        // 해산물·국물 선택 시 근처 폴백도 신호 있는 곳만
+        if (wantsSeafoodAnju && !seafoodHit) return null;
+        if (wantsGukmulAnju && !gukmulHit) return null;
+        let score = Math.max(1, Math.round(40 - distance / 80));
+        if (seafoodHit || gukmulHit) score += 20;
         return {
           ...withCoords,
           distanceFromAnchor: Math.round(distance),
-          candidateScore: Math.max(1, Math.round(40 - distance / 80)),
+          candidateScore: score,
           liquorCategoryMatched: false,
+          seafoodAnjuMatched: seafoodHit,
+          gukmulAnjuMatched: gukmulHit,
         };
       })
       .filter(Boolean)
-      .sort((a, b) => a.distanceFromAnchor - b.distanceFromAnchor);
+      .sort((a, b) => b.candidateScore - a.candidateScore || a.distanceFromAnchor - b.distanceFromAnchor);
     diverse = pickDiverseSecondCandidates(nearby, 5);
   }
 

@@ -8,6 +8,11 @@ import {
   mapStudioVibesToSecondFindDefaults,
   normalizeStudioAtmosphere,
   expandVibePrefTokens,
+  anjuExpandedTokenMatchesHaystack,
+  placeLooksLikeBunsik,
+  placeLooksLikeSeafoodAnju,
+  placeLooksLikeGukmulAnju,
+  expandAnjuHintTokens,
 } from "./placeTaxonomy.js";
 
 describe("normalizeStudioPlaceCategory", () => {
@@ -70,5 +75,75 @@ describe("잔 올리기·2차 찾기 공통 분위기", () => {
     const hip = expandVibePrefTokens("힙한");
     expect(hip).toContain("힙");
     expect(hip).toContain("트렌디");
+  });
+});
+
+describe("안주 토큰 매칭", () => {
+  it("짧은 «식»이 «해산물»에 포함돼 오탐하지 않음", () => {
+    expect(anjuExpandedTokenMatchesHaystack("식", "해산물")).toBe(false);
+    expect(anjuExpandedTokenMatchesHaystack("분식", "해산물")).toBe(false);
+    expect(anjuExpandedTokenMatchesHaystack("해산물", "해산물")).toBe(true);
+    expect(anjuExpandedTokenMatchesHaystack("횟집", "횟집")).toBe(true);
+  });
+
+  it("분식은 해산물 안주와 충돌, 횟집은 맞음", () => {
+    expect(
+      placeLooksLikeBunsik({
+        name: "신당동 떡볶이",
+        category_name: "음식점 > 분식",
+      })
+    ).toBe(true);
+    expect(
+      placeLooksLikeSeafoodAnju({
+        name: "신당동 떡볶이",
+        category_name: "음식점 > 분식",
+      })
+    ).toBe(false);
+    expect(
+      placeLooksLikeSeafoodAnju({
+        name: "성수 횟집",
+        category_name: "음식점 > 해산물 > 회",
+      })
+    ).toBe(true);
+  });
+
+  it("플래터 칩은 치즈·와인바·타파스까지 확장", () => {
+    const tokens = expandAnjuHintTokens("플래터");
+    expect(tokens).toContain("치즈플래터");
+    expect(tokens).toContain("와인바");
+    expect(tokens).toContain("타파스");
+    expect(expandAnjuHintTokens("치즈")).toEqual(tokens);
+  });
+
+  it("국물은 라면·순대 분식 토큰 없이 탕·복어·전골 위주", () => {
+    const tokens = expandAnjuHintTokens("국물");
+    expect(tokens).not.toContain("라면");
+    expect(tokens).not.toContain("순대");
+    expect(tokens).not.toContain("탕");
+    expect(tokens).toContain("국밥");
+    expect(tokens).toContain("전골");
+    expect(tokens).toContain("복어");
+    expect(tokens).toContain("순대국");
+  });
+
+  it("국물 신호: 국밥·복어는 맞고 분식은 아님", () => {
+    expect(
+      placeLooksLikeGukmulAnju({
+        name: "성수 순대국밥",
+        category_name: "음식점 > 한식 > 국밥",
+      })
+    ).toBe(true);
+    expect(
+      placeLooksLikeGukmulAnju({
+        name: "복어전문점",
+        category_name: "음식점 > 한식 > 복어",
+      })
+    ).toBe(true);
+    expect(
+      placeLooksLikeGukmulAnju({
+        name: "신당동 떡볶이",
+        category_name: "음식점 > 분식",
+      })
+    ).toBe(false);
   });
 });
