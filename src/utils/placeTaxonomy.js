@@ -335,7 +335,7 @@ export function placeLooksLikeBunsik(place) {
 export function placeLooksLikeSeafoodAnju(place) {
   const hay = placeAnjuSignalHay(place);
   if (!hay.trim()) return false;
-  return /해산물|해물|횟집|회집|생선회|모둠회|물회|회덮밥|사시미|오마카세|스시|초밥|활어|수산|조개|낙지|문어|게장|회\s*전문|회전초밥/.test(
+  return /해산물|해물|횟집|회집|생선회|모둠회|물회|회덮밥|사시미|오마카세|스시|초밥|활어|수산|조개|낙지|문어|게장|회\s*전문|회전초밥|>\s*회\b|음식점\s*>\s*[^>]*해물|음식점\s*>\s*[^>]*횟/.test(
     hay
   );
 }
@@ -345,7 +345,7 @@ export function placeLooksLikeGukmulAnju(place) {
   const hay = placeAnjuSignalHay(place);
   if (!hay.trim()) return false;
   if (placeLooksLikeBunsik(place)) return false;
-  return /국물|국밥|해장|찌개|전골|육개장|순대국|설렁탕|감자탕|뼈해장|곰탕|추어탕|해장국|복어|복국|복매운탕|매운탕|부대찌개|샤브|도가니|갈비탕|삼계탕|해물탕|알탕|대구탕|꼬리탕|국물안주|탕\s*전문|전골\s*전문|국밥\s*전문|복어\s*전문/.test(
+  return /국물|국밥|해장|찌개|전골|육개장|순대국|설렁탕|감자탕|뼈해장|곰탕|추어탕|해장국|복어|복국|복매운탕|매운탕|부대찌개|샤브|도가니|갈비탕|삼계탕|해물탕|알탕|대구탕|꼬리탕|국물안주|탕\s*전문|전골\s*전문|국밥\s*전문|복어\s*전문|음식점\s*>\s*[^>]*국밥|음식점\s*>\s*[^>]*복어|음식점\s*>\s*[^>]*전골|음식점\s*>\s*[^>]*해장/.test(
     hay
   );
 }

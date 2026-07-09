@@ -263,4 +263,22 @@ describe("regenerateSecondStep 국물 안주", () => {
       true
     );
   });
+
+  it("anjuSoftFallback이면 국물 신호 없어도 분식만 막고 대안을 낸다", () => {
+    const bar = steerPlace("bar", "성수 그냥바", "바", 37.5452, 127.0562);
+    const results = regenerateSecondStep({
+      selectedCourse: buildSelectedCourse(firstPlace),
+      parsedQuery: parsed,
+      places: [firstPlace, bunsik, bar],
+      userSecondPreferences: {
+        anjuHints: ["국물"],
+        maxSecondDistanceM: 2000,
+        anjuSoftFallback: true,
+      },
+    });
+    const names = results.map((c) => c.steps[c.steps.length - 1].place.name);
+    expect(names).not.toContain("신당동 떡볶이");
+    expect(names).toContain("성수 그냥바");
+    expect(results.every((c) => c.anjuSoftFallbackUsed)).toBe(true);
+  });
 });

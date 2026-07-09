@@ -5206,14 +5206,34 @@ export default function Home() {
           const steerMatched = (results || []).some(
             (c) => c?.liquorCategoryMatched
           );
-          const baseMsg =
+          const anjuSoft = (results || []).some((c) => c?.anjuSoftFallbackUsed);
+          const anjuHints = Array.isArray(prefs?.anjuHints)
+            ? prefs.anjuHints
+            : [];
+          const wantsSeafood = anjuHints.some((h) =>
+            /해산물|해산물\/회|^회$/.test(String(h))
+          );
+          const wantsGukmul = anjuHints.some((h) =>
+            /^국물$|해장|찌개|국밥|전골/.test(String(h))
+          );
+          let baseMsg =
             "주변 2차 후보가 깜빡여요. 지도에 맞춰 두었어요 — 마커를 눌러 골라 주세요.";
+          if (anjuSoft && wantsSeafood) {
+            baseMsg =
+              "근처에 회·해물 맞춤이 부족해 대안을 넓혀 봤어요. 깜빡이는 마커를 눌러 골라 주세요.";
+          } else if (anjuSoft && wantsGukmul) {
+            baseMsg =
+              "근처에 국물·탕 맞춤이 부족해 대안을 넓혀 봤어요. 깜빡이는 마커를 눌러 골라 주세요.";
+          } else if (anjuSoft) {
+            baseMsg =
+              "선택한 안주 맞춤이 부족해 대안을 넓혀 봤어요. 깜빡이는 마커를 눌러 골라 주세요.";
+          }
           showToast(
             steerRequested && !steerMatched
               ? `${baseMsg} 근처에 해당 주종 맞춤 장소가 부족해 대안을 추천했어요.`
               : baseMsg,
             "info",
-            steerRequested && !steerMatched ? 5200 : 4200
+            anjuSoft || (steerRequested && !steerMatched) ? 5200 : 4200
           );
         } else {
           kakaoPlacesBeforeMapCourseRef.current = null;
@@ -5227,7 +5247,23 @@ export default function Home() {
             setCourseQueryParsed(courseQueryParsedBefore);
             setSelectedPlace(merged);
           }
-          showToast("2차 후보를 찾지 못했어요.", "error", 2800);
+          const anjuHints = Array.isArray(prefs?.anjuHints)
+            ? prefs.anjuHints
+            : [];
+          let emptyMsg = "2차 후보를 찾지 못했어요.";
+          if (anjuHints.some((h) => /해산물|해산물\/회|^회$/.test(String(h)))) {
+            emptyMsg =
+              "근처에 회·해물 2차 후보를 찾지 못했어요. 거리를 넓히거나 안주를 바꿔 보세요.";
+          } else if (
+            anjuHints.some((h) => /^국물$|해장|찌개|국밥|전골/.test(String(h)))
+          ) {
+            emptyMsg =
+              "근처에 국물·탕 2차 후보를 찾지 못했어요. 거리를 넓히거나 안주를 바꿔 보세요.";
+          } else if (anjuHints.length) {
+            emptyMsg =
+              "선택한 안주에 맞는 2차 후보를 찾지 못했어요. 거리를 넓히거나 조건을 바꿔 보세요.";
+          }
+          showToast(emptyMsg, "error", 3200);
         }
       } finally {
         setMapCourseFirstBusy(false);

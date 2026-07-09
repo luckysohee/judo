@@ -218,7 +218,7 @@ function placeAnjuHaystack(place) {
  * @param {object} opts.parsedQuery parseCourseQuery 결과
  * @param {object[]} [opts.places] normalizePlaces 결과
  * @param {"same"|"mood"|"closer"|"featured"} [opts.variant]
- * @param {{ vibes?: string[], liquorTypes?: string[], anjuHints?: string[], preferCloser?: boolean, prioritizeCurators?: boolean, maxSecondDistanceM?: number }} [opts.userSecondPreferences] 지도 2차 찾기 등 사용자가 고른 가산점·1차 기준 최대 거리(m)
+ * @param {{ vibes?: string[], liquorTypes?: string[], anjuHints?: string[], preferCloser?: boolean, prioritizeCurators?: boolean, maxSecondDistanceM?: number, anjuSoftFallback?: boolean }} [opts.userSecondPreferences] 지도 2차 찾기 등 사용자가 고른 가산점·1차 기준 최대 거리(m). `anjuSoftFallback`: 분식만 막고 해산물·국물 신호 필수는 풀어 빈 결과 완화
  */
 export function regenerateSecondStep({
   selectedCourse,
@@ -280,6 +280,7 @@ export function regenerateSecondStep({
     userSecondPreferences?.maxSecondDistanceM != null &&
     Number.isFinite(Number(userSecondPreferences.maxSecondDistanceM));
   const prioritizeCurators = Boolean(userSecondPreferences?.prioritizeCurators);
+  const anjuSoftFallback = Boolean(userSecondPreferences?.anjuSoftFallback);
 
   // 주종→음식 카테고리 우선이 요청됐는지(고량주·막걸리·전통주) — UI 안내 문구용
   const requestedLiquorSet = new Set(
@@ -452,15 +453,19 @@ export function regenerateSecondStep({
         if (wantsSeafoodAnju && placeLooksLikeSeafoodAnju(place)) {
           seafoodAnjuMatched = true;
           extraBonus += 36;
-        } else if (wantsSeafoodAnju && anjuHits === 0) {
+        } else if (wantsSeafoodAnju && anjuHits === 0 && !anjuSoftFallback) {
           // 해산물 선택인데 회·해물 신호가 없으면 거리만으로 분식·일반집이 위로 오지 않게
           extraBonus -= 40;
+        } else if (wantsSeafoodAnju && anjuHits === 0 && anjuSoftFallback) {
+          extraBonus -= 12;
         }
         if (wantsGukmulAnju && placeLooksLikeGukmulAnju(place)) {
           gukmulAnjuMatched = true;
           extraBonus += 36;
-        } else if (wantsGukmulAnju && anjuHits === 0) {
+        } else if (wantsGukmulAnju && anjuHits === 0 && !anjuSoftFallback) {
           extraBonus -= 40;
+        } else if (wantsGukmulAnju && anjuHits === 0 && anjuSoftFallback) {
+          extraBonus -= 12;
         }
       }
 
@@ -514,14 +519,14 @@ export function regenerateSecondStep({
   const wantsGukmulAnjuPool = Boolean(
     anjuPrefList?.some((h) => /^국물$|해장|찌개|국밥|전골/.test(String(h)))
   );
-  // 해산물·국물: 신호 있는 후보가 있으면 그쪽으로만 좁힘
+  // 해산물·국물: 신호 있는 후보가 있으면 그쪽으로만 좁힘 (soft 폴백 시에는 풀 유지)
   let scoredPool = candidates;
-  if (wantsSeafoodAnjuPool) {
+  if (!anjuSoftFallback && wantsSeafoodAnjuPool) {
     const seafoodOnly = candidates.filter(
       (p) => p.seafoodAnjuMatched || (p.anjuHits ?? 0) > 0
     );
     if (seafoodOnly.length) scoredPool = seafoodOnly;
-  } else if (wantsGukmulAnjuPool) {
+  } else if (!anjuSoftFallback && wantsGukmulAnjuPool) {
     const gukmulOnly = candidates.filter(
       (p) => p.gukmulAnjuMatched || (p.anjuHits ?? 0) > 0
     );
@@ -612,9 +617,11 @@ export function regenerateSecondStep({
           wantsSeafoodAnju && placeLooksLikeSeafoodAnju(withCoords);
         const gukmulHit =
           wantsGukmulAnju && placeLooksLikeGukmulAnju(withCoords);
-        // 해산물·국물 선택 시 근처 폴백도 신호 있는 곳만
-        if (wantsSeafoodAnju && !seafoodHit) return null;
-        if (wantsGukmulAnju && !gukmulHit) return null;
+        // 엄격 모드: 해산물·국물 신호 필수. soft 폴백이면 분식만 막고 거리 후보 허용
+        if (!anjuSoftFallback) {
+          if (wantsSeafoodAnju && !seafoodHit) return null;
+          if (wantsGukmulAnju && !gukmulHit) return null;
+        }
         let score = Math.max(1, Math.round(40 - distance / 80));
         if (seafoodHit || gukmulHit) score += 20;
         return {
@@ -643,6 +650,7 @@ export function regenerateSecondStep({
         totalScore: second.candidateScore,
         liquorSteerRequested,
         liquorCategoryMatched: Boolean(second.liquorCategoryMatched),
+        anjuSoftFallbackUsed: anjuSoftFallback,
         includeHalfStep: true,
         steps: [
           { ...selectedCourse.steps[0] },
@@ -667,6 +675,7 @@ export function regenerateSecondStep({
       totalScore: second.candidateScore,
       liquorSteerRequested,
       liquorCategoryMatched: Boolean(second.liquorCategoryMatched),
+      anjuSoftFallbackUsed: anjuSoftFallback,
       steps: [
         { ...selectedCourse.steps[0] },
         {

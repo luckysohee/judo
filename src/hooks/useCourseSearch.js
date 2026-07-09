@@ -780,6 +780,14 @@ export function useCourseSearch() {
         const wantsWhiskeySecond = (prefs?.liquorTypes || []).some((l) =>
           /위스키/i.test(String(l))
         );
+        const anjuHints = Array.isArray(prefs?.anjuHints) ? prefs.anjuHints : [];
+        const wantsSeafoodAnju = anjuHints.some((h) =>
+          /해산물|해산물\/회|^회$/.test(String(h))
+        );
+        const wantsGukmulAnju = anjuHints.some((h) =>
+          /^국물$|해장|찌개|국밥|전골/.test(String(h))
+        );
+        const wantsStrictAnju = wantsSeafoodAnju || wantsGukmulAnju;
 
         const scoreSecondCandidates = (pool, prefsOverride = prefs) =>
           filterDeliveryOnlySecondCandidates(
@@ -824,7 +832,8 @@ export function useCourseSearch() {
         // 2) 부족할 때만 카카오 소수 키워드 보강
         if (results.length < 2 && opts.augmentPlacesWithKakaoNearFirst) {
           await mergeKakaoAugment({
-            maxQueries: wantsWineSecond || wantsWhiskeySecond ? 3 : 2,
+            maxQueries:
+              wantsWineSecond || wantsWhiskeySecond || wantsStrictAnju ? 3 : 2,
           });
           const after = scoreSecondCandidates(places);
           if (after.length > results.length) results = after;
@@ -850,7 +859,18 @@ export function useCourseSearch() {
           if (retried.length > results.length) results = retried;
         }
 
+        // 2b) 해산물·국물: 여전히 부족하면 안주 키워드로 한 번 더 보강
+        if (wantsStrictAnju && results.length < 2 && opts.augmentPlacesWithKakaoNearFirst) {
+          await mergeKakaoAugment({
+            maxQueries: 2,
+            radius: Math.min(5000, kakaoRadius + 800),
+          });
+          const retried = scoreSecondCandidates(places);
+          if (retried.length > results.length) results = retried;
+        }
+
         // 3) 여전히 0이면 거리만 넓혀 재점수 (추가 카카오 호출 없음)
+        let lastPrefs = prefs;
         if (!results.length) {
           const widenedPrefs =
             prefs && typeof prefs === "object"
@@ -862,7 +882,28 @@ export function useCourseSearch() {
                   ),
                 }
               : { maxSecondDistanceM: 3500 };
+          lastPrefs = widenedPrefs;
           results = scoreSecondCandidates(places, widenedPrefs);
+        }
+
+        // 4) 해산물·국물 엄격 매칭으로 0건이면 분식만 막고 soft 폴백
+        if (!results.length && wantsStrictAnju) {
+          const softPrefs =
+            lastPrefs && typeof lastPrefs === "object"
+              ? {
+                  ...lastPrefs,
+                  anjuSoftFallback: true,
+                  maxSecondDistanceM: Math.min(
+                    5000,
+                    Math.max(Number(lastPrefs.maxSecondDistanceM) || 0, 4000)
+                  ),
+                }
+              : {
+                  anjuHints,
+                  anjuSoftFallback: true,
+                  maxSecondDistanceM: 4000,
+                };
+          results = scoreSecondCandidates(places, softPrefs);
         }
 
         return results;
