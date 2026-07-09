@@ -138,11 +138,22 @@ function findCoursePreservingLegEndpoints(previous, candidates) {
  * 지도에서 연 장소로「2차 찾기」할 때 넘기는 검색어(예: «합정 데이트 와인바»)는
  * `parseCourseQuery`가 steps=1로 두어 패턴이 null → 후보 0건이 된다.
  * `withTwoStepCourseIntent`로 steps=2로 올린 뒤, 쩜오차 코스면 `includeHalfStep`을 유지한다.
+ *
+ * 일반 장소명 검색(「ㅇㅇ술집」)은 코스 의도가 아니므로 area 힌트로 쓰지 않는다.
+ * 상호명에 지역 토큰이 섞여 잘못된 area로 풀이 비는 것도 막는다.
  */
 function withTwoStepCourseIntent(parsed) {
   if (!parsed || typeof parsed !== "object") return parsed;
   if (parsed.steps === 2) return parsed;
   return { ...parsed, steps: 2 };
+}
+
+/** 검색창 문장이 코스 의도일 때만 파서 힌트로 사용 */
+function courseParseHintFromMapSearch(mapSearchQuery) {
+  const hint = String(mapSearchQuery || "").trim();
+  if (hint.length < 2) return "";
+  if (!isCourseQuery(hint)) return "";
+  return hint;
 }
 
 /** `places`에 is_archived 컬럼이 없는 DB면 .eq 필터가 400 — select 후 로컬 필터 */
@@ -754,11 +765,35 @@ export function useCourseSearch() {
           setCoursePlaces(places);
         }
 
+        const augment = Array.isArray(opts.placesAugment)
+          ? opts.placesAugment
+          : [];
+        if (augment.length) {
+          places = mergeCoursePlacePoolsWithKakao(places, augment);
+        }
+
         const prefs = opts.userSecondPreferences ?? null;
         const kakaoRadius = opts.kakaoSecondSearchRadius ?? 2200;
         const wantsWineSecond = (prefs?.liquorTypes || []).some((l) =>
           /와인/i.test(String(l))
         );
+        const wantsWhiskeySecond = (prefs?.liquorTypes || []).some((l) =>
+          /위스키/i.test(String(l))
+        );
+
+        const scoreSecondCandidates = (pool, prefsOverride = prefs) =>
+          filterDeliveryOnlySecondCandidates(
+            regenerateSecondStep({
+              selectedCourse: course,
+              parsedQuery,
+              places: pool,
+              variant,
+              userSecondPreferences: prefsOverride,
+            })
+          );
+
+        // 1) 지도·DB만으로 먼저 점수 — 카카오 429 유발 다발 호출 방지
+        let results = scoreSecondCandidates(places);
 
         const mergeKakaoAugment = async (augmentOpts = {}) => {
           if (!opts.augmentPlacesWithKakaoNearFirst || !course?.steps?.[0]?.place) {
@@ -772,6 +807,7 @@ export function useCourseSearch() {
                 liquorTypes: prefs?.liquorTypes,
                 vibes: prefs?.vibes,
                 radius: kakaoRadius,
+                maxQueries: 3,
                 ...augmentOpts,
               }
             );
@@ -785,32 +821,48 @@ export function useCourseSearch() {
           }
         };
 
-        await mergeKakaoAugment(wantsWineSecond ? { maxQueries: 8 } : {});
+        // 2) 부족할 때만 카카오 소수 키워드 보강
+        if (results.length < 2 && opts.augmentPlacesWithKakaoNearFirst) {
+          await mergeKakaoAugment({
+            maxQueries: wantsWineSecond || wantsWhiskeySecond ? 3 : 2,
+          });
+          const after = scoreSecondCandidates(places);
+          if (after.length > results.length) results = after;
+        }
 
-        const scoreSecondCandidates = () =>
-          filterDeliveryOnlySecondCandidates(
-            regenerateSecondStep({
-              selectedCourse: course,
-              parsedQuery,
-              places,
-              variant,
-              userSecondPreferences: prefs,
-            })
-          );
-
-        let results = scoreSecondCandidates();
-
-        /** 와인 2차: DB·기본 카카오만으론 부족할 때 「분위기 있게 한잔」 칩과 같은 와인바 키워드로 한 번 더 */
         if (wantsWineSecond && results.length < 2) {
           await mergeKakaoAugment({
             vibeChipFallback: true,
-            maxQueries: 8,
+            maxQueries: 2,
             radius: Math.min(5000, kakaoRadius + 600),
           });
-          const retried = scoreSecondCandidates();
-          if (retried.length > results.length) {
-            results = retried;
-          }
+          const retried = scoreSecondCandidates(places);
+          if (retried.length > results.length) results = retried;
+        }
+
+        if (wantsWhiskeySecond && results.length < 2) {
+          await mergeKakaoAugment({
+            whiskeyChipFallback: true,
+            maxQueries: 2,
+            radius: Math.min(5000, kakaoRadius + 800),
+          });
+          const retried = scoreSecondCandidates(places);
+          if (retried.length > results.length) results = retried;
+        }
+
+        // 3) 여전히 0이면 거리만 넓혀 재점수 (추가 카카오 호출 없음)
+        if (!results.length) {
+          const widenedPrefs =
+            prefs && typeof prefs === "object"
+              ? {
+                  ...prefs,
+                  maxSecondDistanceM: Math.min(
+                    5000,
+                    Math.max(Number(prefs.maxSecondDistanceM) || 0, 3500)
+                  ),
+                }
+              : { maxSecondDistanceM: 3500 };
+          results = scoreSecondCandidates(places, widenedPrefs);
         }
 
         return results;
@@ -1087,7 +1139,7 @@ export function useCourseSearch() {
       const w = resolvePlaceWgs84(place);
       if (!w) return { ok: false };
 
-      const mapSearchHint = String(opts.mapSearchQuery || "").trim();
+      const mapSearchHint = courseParseHintFromMapSearch(opts.mapSearchQuery);
 
       const parsedHintOrPlace = (p0) => {
         const hint = String(mapSearchHint || "").trim();
@@ -1097,8 +1149,6 @@ export function useCourseSearch() {
             place?.address_name,
             place?.road_address_name,
             place?.address,
-            place?.place_name,
-            place?.name,
             place?.region,
           ]
             .filter(Boolean)
@@ -1283,12 +1333,14 @@ export function useCourseSearch() {
 
   return {
     courseOptions,
+    setCourseOptions,
     selectedCourse,
     setSelectedCourse,
     altSecondCourses,
     altFirstCourses,
     coursePlaces,
     courseQueryParsed,
+    setCourseQueryParsed,
     courseQuery: courseQueryParsed,
     seenCourseKeys,
     courseError,

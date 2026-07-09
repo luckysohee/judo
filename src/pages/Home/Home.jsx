@@ -110,7 +110,8 @@ import {
   rpcIncrementSearchPlaceFeedbackImpressions,
   fetchGlobalPlaceSearchEngagementMap,
 } from "../../utils/searchPlaceFeedback";
-import { rankCuratorSpotlightPlaces } from "../../utils/curatorSpotlightRank";
+import { rankCuratorSpotlightPlaces, pickOffMapEngagementKeys, mergeSpotlightPlacePools, formatPlaceRowForSpotlight } from "../../utils/curatorSpotlightRank";
+import { fetchPlacesByLookupKeys } from "../../utils/supabasePlaces";
 import HomeSearchAboveStrip from "../../components/Home/HomeSearchAboveStrip";
 import HomeSearchExpandPanel from "../../components/Home/HomeSearchExpandPanel";
 import HotCheckinStrip from "../../components/Home/HotCheckinStrip";
@@ -1461,6 +1462,8 @@ export default function Home() {
       : Math.floor(Math.random() * 0xffffffff)) >>> 0,
   );
   const [spotlightEngagementMap, setSpotlightEngagementMap] = useState({});
+  /** 검색 반응 상위 장소 — 현재 지도 마커 밖이어도 스포트라이트에 합류 */
+  const [spotlightOffMapPlaces, setSpotlightOffMapPlaces] = useState([]);
   /** 맞춤 결과 바텀시트 「새로고침」— 재검색 후에도 시트를 다시 펼침 */
   const forceReopenAiSheetAfterSearchRef = useRef(false);
 
@@ -2042,6 +2045,9 @@ export default function Home() {
   const {
     courseOptions,
     selectedCourse,
+    setSelectedCourse,
+    setCourseOptions,
+    setCourseQueryParsed,
     altSecondCourses,
     altFirstCourses,
     courseError,
@@ -3127,9 +3133,9 @@ export default function Home() {
   const [courseSecondFindVibes, setCourseSecondFindVibes] = useState([]);
   const [courseSecondFindLiquors, setCourseSecondFindLiquors] = useState([]);
   const [courseSecondFindAnju, setCourseSecondFindAnju] = useState([]);
-  /** 2차 찾기 정렬 — closer | curator 중 하나만, default는 둘 다 미적용 */
+  /** 2차 찾기 정렬 — closer | curator 중 하나만, null이면 기본 룰 */
   const [courseSecondFindSortPriority, setCourseSecondFindSortPriority] =
-    useState("default");
+    useState(null);
   /** 2차 찾기: 1차 좌표 기준 최대 거리(m) — 후보 스코어·카카오 주변 검색 반경 */
   const [courseSecondFindMaxDistanceM, setCourseSecondFindMaxDistanceM] =
     useState(3000);
@@ -3840,13 +3846,6 @@ export default function Home() {
     }, 220);
   }, [settleCourseFromSwipe]);
 
-  /** 1차·2차 장소가 모두 잡힌 선택 코스 */
-  const courseHasFinalTwoSteps = useMemo(() => {
-    const steps = selectedCourse?.steps;
-    if (!Array.isArray(steps) || steps.length < 2) return false;
-    return Boolean(steps[0]?.place && steps[1]?.place);
-  }, [selectedCourse]);
-
   /** 경로 × — 도보 루트·1·2차 마커·펄스 등 지도 코스 UI 전부 내림 → 홈 마커 복구 */
   const dismissCourseMapPath = useCallback(() => {
     clearCourseSecondPickPulse();
@@ -3875,21 +3874,6 @@ export default function Home() {
     resetCourseSearch,
     setKakaoPlaces,
   ]);
-
-  const handleResetCoursePickWithSavePrompt = useCallback(() => {
-    const course = selectedCourse;
-    if (!course?.steps?.[0]?.place || !course?.steps?.[1]?.place) return;
-
-    const okClear = window.confirm(
-      "선택한 코스(1차·2차)를 지울까요?\n검색 문장은 그대로 두고 코스만 비워요."
-    );
-    if (!okClear) return;
-
-    clearCourseSecondPickPulse();
-    resetCourseSearch();
-    setSelectedPlace(null);
-    setAiSheetOpen(false);
-  }, [selectedCourse, clearCourseSecondPickPulse, resetCourseSearch]);
 
   useEffect(() => {
     if (!isCourseMode || !aiSheetOpen || courseOptions.length < 2) {
@@ -4966,11 +4950,14 @@ export default function Home() {
 
   const findSecondCandidateCourseForPlace = useCallback((pickPlace, courses) => {
     if (!pickPlace || !Array.isArray(courses) || !courses.length) return null;
+    const secondPlaceOf = (c) => {
+      const steps = Array.isArray(c?.steps) ? c.steps : [];
+      return steps[steps.length - 1]?.place ?? null;
+    };
     const want = placeId(pickPlace);
     if (want != null && String(want) !== "") {
       const byId = courses.find((c) => {
-        const p2 = c?.steps?.[1]?.place;
-        const id2 = placeId(p2);
+        const id2 = placeId(secondPlaceOf(c));
         return id2 != null && String(id2) === String(want);
       });
       if (byId) return byId;
@@ -4978,7 +4965,7 @@ export default function Home() {
     const name = String(pickPlace?.name ?? "").trim();
     if (name) {
       const byName = courses.find(
-        (c) => String(c?.steps?.[1]?.place?.name ?? "").trim() === name
+        (c) => String(secondPlaceOf(c)?.name ?? "").trim() === name
       );
       if (byName) return byName;
     }
@@ -5123,13 +5110,13 @@ export default function Home() {
     if (!selectedPlace || mapCourseFirstBusy) return;
     const tasteDefaults = tasteProfileToSecondFindDefaults(tasteProfile);
     setCourseSecondFindVibes(tasteDefaults.vibes);
-    setCourseSecondFindLiquors(tasteDefaults.liquorTypes);
+    setCourseSecondFindLiquors(tasteDefaults.liquorTypes.slice(0, 1));
     setCourseSecondFindAnju([]);
     const preferCloserDefault =
       courseQueryParsed?.walkable != null
         ? Boolean(courseQueryParsed.walkable)
         : tasteDefaults.preferCloser;
-    setCourseSecondFindSortPriority(preferCloserDefault ? "closer" : "default");
+    setCourseSecondFindSortPriority(preferCloserDefault ? "closer" : null);
     setCourseSecondFindMaxDistanceM(3000);
     setCourseSecondFindModalOpen(true);
   }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable, tasteProfile]);
@@ -5156,6 +5143,10 @@ export default function Home() {
         curatorPlaceCatalogForMerge
       );
       if (!merged) return;
+      const hadCourseModeBefore = isCourseMode;
+      const selectedCourseBefore = selectedCourse;
+      const courseOptionsBefore = courseOptions;
+      const courseQueryParsedBefore = courseQueryParsed;
       setMapCourseFirstBusy(true);
       try {
         if (kakaoPlacesBeforeMapCourseRef.current == null) {
@@ -5191,6 +5182,13 @@ export default function Home() {
             /** 1차 주변 카카오 키워드로 풀 보강 — 지도에 보이는 포장마차·횟집 등 반영 */
             augmentPlacesWithKakaoNearFirst: true,
             kakaoSecondSearchRadius,
+            /** 지금 지도에 떠 있는 핀도 후보 풀에 합침 */
+            placesAugment: [
+              ...(Array.isArray(kakaoPlacesRef.current)
+                ? kakaoPlacesRef.current
+                : []),
+              ...(Array.isArray(dbPlaces) ? dbPlaces : []),
+            ],
           }
         );
         let pulse = courseSecondCandidatesToPulseMapPlaces(results || []);
@@ -5219,6 +5217,16 @@ export default function Home() {
           );
         } else {
           kakaoPlacesBeforeMapCourseRef.current = null;
+          // 후보 0건인데 1차만 박힌 코스 모드로 남기지 않음
+          if (!hadCourseModeBefore) {
+            resetCourseSearch();
+            setSelectedPlace(merged);
+          } else {
+            setSelectedCourse(selectedCourseBefore);
+            setCourseOptions(courseOptionsBefore);
+            setCourseQueryParsed(courseQueryParsedBefore);
+            setSelectedPlace(merged);
+          }
           showToast("2차 후보를 찾지 못했어요.", "error", 2800);
         }
       } finally {
@@ -5234,6 +5242,15 @@ export default function Home() {
       mapCourseFirstBusy,
       query,
       setAiSheetOpen,
+      isCourseMode,
+      selectedCourse,
+      courseOptions,
+      courseQueryParsed,
+      resetCourseSearch,
+      setSelectedCourse,
+      setCourseOptions,
+      setCourseQueryParsed,
+      dbPlaces,
     ]
   );
 
@@ -5787,12 +5804,9 @@ export default function Home() {
 
   const curatorSpotlightPlaces = useMemo(() => {
     const salt = curatorSpotlightSaltRef.current >>> 0;
-    return rankCuratorSpotlightPlaces(
-      dbPlaces,
-      spotlightEngagementMap,
-      salt
-    );
-  }, [dbPlaces, spotlightEngagementMap]);
+    const pool = mergeSpotlightPlacePools(dbPlaces, spotlightOffMapPlaces);
+    return rankCuratorSpotlightPlaces(pool, spotlightEngagementMap, salt);
+  }, [dbPlaces, spotlightOffMapPlaces, spotlightEngagementMap]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5803,6 +5817,46 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  /** 검색 반응이 큰데 지금 지도에 없는 장소 → DB에서 불러 스포트라이트에 합류 */
+  useEffect(() => {
+    let cancelled = false;
+    const keys = pickOffMapEngagementKeys(
+      spotlightEngagementMap,
+      dbPlaces,
+      { limit: 40, minClicks: 1, minImpressions: 4 }
+    );
+    if (!keys.length) {
+      setSpotlightOffMapPlaces([]);
+      return undefined;
+    }
+    void (async () => {
+      try {
+        const lookup = await fetchPlacesByLookupKeys(supabase, keys);
+        if (cancelled) return;
+        const seen = new Set();
+        const rows = [];
+        for (const key of keys) {
+          const row = lookup.get(String(key).trim());
+          if (!row) continue;
+          const id = String(row.id ?? "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          const formatted = formatPlaceRowForSpotlight(row);
+          if (formatted) rows.push(formatted);
+        }
+        setSpotlightOffMapPlaces(rows);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          devWarn("spotlight off-map places:", e);
+        }
+        if (!cancelled) setSpotlightOffMapPlaces([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightEngagementMap, dbPlaces]);
 
   // 외부 데이터를 저장할 상태 추가
   const [externalPlaces, setExternalPlaces] = useState([]);
@@ -10428,7 +10482,13 @@ const handleClearSearch = () => {
         !mutualSearchPanelOpen &&
         !hideHomeMapChromeForCourses &&
         !homeSearchMode.isOpen &&
-        !hideMapChromeForLoginPrompt ? (
+        !hideMapChromeForLoginPrompt &&
+        !(
+          isCourseMode &&
+          String(query || "").trim() &&
+          !isAiSearching &&
+          !aiSheetOpen
+        ) ? (
           <div
             data-judo-coach="search-bar"
             style={{
@@ -10679,8 +10739,6 @@ const handleClearSearch = () => {
               isCourseMode={isCourseMode}
               courseMergedHeaderRef={courseMergedHeaderRef}
               handleClearSearch={handleClearSearch}
-              courseHasFinalTwoSteps={courseHasFinalTwoSteps}
-              handleResetCoursePickWithSavePrompt={handleResetCoursePickWithSavePrompt}
               aiSheetOpen={aiSheetOpen}
               setAiSheetOpen={setAiSheetOpen}
               isAiSearching={isAiSearching}

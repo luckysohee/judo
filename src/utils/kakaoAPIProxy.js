@@ -9,6 +9,9 @@ import {
 // 서버 프록시를 통한 카카오 API 호출 (비우면 동일 출처 `/api/*`)
 const API_BASE_URL = getAiApiBaseUrl();
 
+/** 키워드 검색 429 직후 클라이언트 쿨다운 (ms epoch) */
+let kakaoKeywordCooldownUntil = 0;
+
 /**
  * @param {string} placeId 카카오 장소 숫자 id
  * @param {{ query?: string, x?: number, y?: number }} [opts] query=장소명, x=경도·y=위도(WGS84) — keyword 검색 매칭용
@@ -211,7 +214,11 @@ export async function searchKakaoAddressViaProxy(opts) {
 export async function searchKakaoKeywordViaProxy(opts) {
   const query = typeof opts?.query === "string" ? opts.query.trim() : "";
   if (!query) {
-    return { documents: [] };
+    return { documents: [], status: 0 };
+  }
+  // 서버/카카오 429 직후 짧은 쿨다운 — 연타로 한도만 더 깎지 않음
+  if (Date.now() < kakaoKeywordCooldownUntil) {
+    return { documents: [], status: 429 };
   }
   try {
     const base = API_BASE_URL;
@@ -236,13 +243,31 @@ export async function searchKakaoKeywordViaProxy(opts) {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryHdr = response.headers.get("Retry-After");
+        let retrySec = Number(retryHdr);
+        if (!Number.isFinite(retrySec) || retrySec <= 0) {
+          try {
+            const errBody = await response.clone().json();
+            retrySec = Number(errBody?.retry_after) || 8;
+          } catch {
+            retrySec = 8;
+          }
+        }
+        kakaoKeywordCooldownUntil =
+          Date.now() + Math.min(60_000, Math.max(3_000, retrySec * 1000));
+        return { documents: [], status: 429 };
+      }
       console.warn("searchKakaoKeywordViaProxy HTTP", response.status);
-      return { documents: [] };
+      return { documents: [], status: response.status };
     }
     const data = await response.json();
-    return { documents: Array.isArray(data.documents) ? data.documents : [] };
+    return {
+      documents: Array.isArray(data.documents) ? data.documents : [],
+      status: response.status,
+    };
   } catch (e) {
     console.error("searchKakaoKeywordViaProxy:", e);
-    return { documents: [] };
+    return { documents: [], status: 0 };
   }
 }

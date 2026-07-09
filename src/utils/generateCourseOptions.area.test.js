@@ -270,3 +270,16 @@ describe("resolveCourseAreaPool - 이태원에 삼각지·용산(용산동) 오�
     expect(ids).not.toContain("yongsandong-samgakji");
   });
 });
+
+describe("resolveCourseAreaPool - 지역 매칭 0건이면 전체 풀로 완화", () => {
+  it("엉뚱한 area면 area를 해제하고 places 전체를 반환", () => {
+    const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(places, {
+      area: "존재하지않는동네XYZ",
+      raw: "존재하지않는동네XYZ 코스",
+      steps: 2,
+    });
+    expect(areaPlaces).toHaveLength(places.length);
+    expect(effectiveParsed.area).toBeUndefined();
+    expect(effectiveParsed.steps).toBe(2);
+  });
+});

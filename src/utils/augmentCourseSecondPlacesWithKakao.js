@@ -14,17 +14,27 @@ export const VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES = [
 
 const LIQUOR_TYPE_KAKAO_QUERY_HINTS = {
   와인: VIBE_CHIP_WINE_SECOND_KAKAO_QUERIES,
-  위스키: ["위스키바", "위스키", "바", "라운지"],
-  하이볼: ["하이볼", "바", "칵테일바", "펍"],
+  // 일반 「바」「라운지」는 칵테일·라운지 잡음이 커서 위스키 전용 키워드만
+  위스키: ["위스키바", "위스키", "싱글몰트", "위스키 바", "위스키전문"],
+  하이볼: ["하이볼", "하이볼바", "위스키바", "칵테일바"],
   맥주: ["맥주", "호프", "펍", "포장마차"],
   소주: ["포장마차", "술집", "이자카야", "포차"],
-  칵테일: ["칵테일바", "바", "라운지"],
+  칵테일: ["칵테일바", "칵테일", "스피크이지"],
   사케: ["이자카야", "사케", "일본술"],
   // 고량주는 중식(중국집), 막걸리·전통주는 모던 한식·전통 주점 위주
   고량주: ["중식당", "중국집", "양꼬치", "마라"],
   막걸리: ["전집", "모던한식", "한식주점", "민속주점", "막걸리"],
   전통주: ["전통주점", "모던한식", "한식주점", "전집", "한정식"],
 };
+
+/** 위스키 2차 부족 시 재검색용 (와인 vibeChipFallback 과 동일 역할) */
+export const WHISKEY_SECOND_KAKAO_FALLBACK_QUERIES = [
+  "위스키바",
+  "위스키",
+  "싱글몰트",
+  "위스키 바",
+  "위스키전문점",
+];
 
 /**
  * 카카오 keywordSearch(1차 주변) → 코스 2차 스코어링용 place 객체.
@@ -106,6 +116,11 @@ export function buildCourseSecondKakaoQueries(opts = {}) {
     return [...queries];
   }
 
+  if (opts.whiskeyChipFallback && liquors.some((l) => /위스키/i.test(l))) {
+    for (const q of WHISKEY_SECOND_KAKAO_FALLBACK_QUERIES) queries.add(q);
+    return [...queries];
+  }
+
   for (const h of hints) {
     for (const t of expandAnjuHintTokens(h)) {
       const s = String(t).trim();
@@ -154,9 +169,6 @@ export function buildCourseSecondKakaoQueries(opts = {}) {
   if (hints.some((h) => /육류|고기|삼겹|갈비/.test(String(h)))) {
     ["고깃집", "삼겹살"].forEach((q) => queries.add(q));
   }
-  if (hints.some((h) => /마른|건어물|오징어/.test(String(h)))) {
-    ["포장마차", "맥주"].forEach((q) => queries.add(q));
-  }
 
   if (queries.size === 0) {
     ["포장마차", "술집", "이자카야"].forEach((q) => queries.add(q));
@@ -181,6 +193,8 @@ function mergePoolsByVenueKey(primary, secondary) {
  * 2차 찾기(지도): 1차 좌표 기준 카카오 키워드로 주변 업장을 붙여 DB만으로는 빠지는
  * 포장마차·횟집 등을 후보 풀에 포함.
  *
+ * 쿼리는 순차 호출(동시 다발 → 429 방지). 기본 최대 3개.
+ *
  * @param {object} firstPlace — 코스 1차 place
  * @param {{ anjuHints?: string[], liquorTypes?: string[], vibes?: string[], vibeChipFallback?: boolean, radius?: number, maxQueries?: number, perQuerySize?: number }} [opts]
  */
@@ -194,8 +208,8 @@ export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {
       : 2200;
   const maxQueries =
     opts.maxQueries != null && Number.isFinite(Number(opts.maxQueries))
-      ? Math.min(8, Math.max(1, Number(opts.maxQueries)))
-      : 6;
+      ? Math.min(4, Math.max(1, Number(opts.maxQueries)))
+      : 3;
   const perQuerySize =
     opts.perQuerySize != null && Number.isFinite(Number(opts.perQuerySize))
       ? Math.min(15, Math.max(5, Number(opts.perQuerySize)))
@@ -204,29 +218,37 @@ export async function fetchKakaoPlacesForCourseSecondAround(firstPlace, opts = {
   const list = buildCourseSecondKakaoQueries(opts).slice(0, maxQueries);
   const seenDoc = new Set();
   const out = [];
+  let hit429 = false;
 
-  await Promise.all(
-    list.map(async (query) => {
-      try {
-        const { documents } = await searchKakaoKeywordViaProxy({
-          query,
-          x: w.lng,
-          y: w.lat,
-          radius,
-          size: perQuerySize,
-        });
-        for (const doc of documents || []) {
-          const id = doc?.id != null ? String(doc.id) : "";
-          if (!id || seenDoc.has(id)) continue;
-          seenDoc.add(id);
-          const row = kakaoDocToCourseCandidatePlace(doc);
-          if (row) out.push(row);
-        }
-      } catch {
-        /* ignore per-query */
+  for (let i = 0; i < list.length; i += 1) {
+    if (hit429) break;
+    const query = list[i];
+    try {
+      const { documents, status } = await searchKakaoKeywordViaProxy({
+        query,
+        x: w.lng,
+        y: w.lat,
+        radius,
+        size: perQuerySize,
+      });
+      if (status === 429) {
+        hit429 = true;
+        break;
       }
-    })
-  );
+      for (const doc of documents || []) {
+        const id = doc?.id != null ? String(doc.id) : "";
+        if (!id || seenDoc.has(id)) continue;
+        seenDoc.add(id);
+        const row = kakaoDocToCourseCandidatePlace(doc);
+        if (row) out.push(row);
+      }
+    } catch {
+      /* ignore per-query */
+    }
+    if (i < list.length - 1) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
 
   return out;
 }

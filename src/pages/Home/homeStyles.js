@@ -1263,7 +1263,7 @@ export const styles = {
     boxShadow: "0 6px 16px rgba(0,0,0,0.18)",
   },
 
-  /** 코스 모드 — 검색어 지우고 완전히 취소 (작은 원형) */
+  /** 코스 모드 — 검색어 지우고 완전히 닫기 (작은 원형) */
   courseSearchClearButton: {
     flexShrink: 0,
     display: "flex",
@@ -1285,26 +1285,26 @@ export const styles = {
     WebkitTapHighlightColor: "transparent",
   },
 
-  /** 코스 모드 — 1차·2차 확정된 선택 코스만 비움 (검색어 유지). 검색 전체 취소 버튼과 구분 */
-  courseResetPickButton: {
+  /** 코스 시트 접기/펼치기 — 헤더 우측 */
+  courseSheetCollapseButton: {
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: "26px",
-    height: "26px",
-    minWidth: "26px",
-    padding: 0,
+    minWidth: "44px",
+    height: "28px",
+    padding: "0 10px",
     borderRadius: "999px",
-    border: "1px solid rgba(255, 255, 255, 0.28)",
-    background: "rgba(0, 0, 0, 0.38)",
-    color: "rgba(255,255,255,0.96)",
-    fontSize: "15px",
+    border: "1px solid rgba(255,255,255,0.28)",
+    background: "rgba(255,255,255,0.12)",
+    color: "rgba(255,255,255,0.92)",
+    fontSize: "12px",
     lineHeight: 1,
-    fontWeight: 500,
+    fontWeight: 700,
     cursor: "pointer",
     boxShadow: "none",
     WebkitTapHighlightColor: "transparent",
+    whiteSpace: "nowrap",
   },
 
   /** 코스 피크(제목) + 스와이프·액션을 한 덩어리 바텀시트로 */
@@ -1332,6 +1332,7 @@ export const styles = {
     flexShrink: 0,
     borderRadius: "16px 16px 0 0",
     pointerEvents: "auto",
+    touchAction: "none",
   },
 
   courseMergedBody: {
@@ -1350,13 +1351,14 @@ export const styles = {
   /** 아래로 드래그해 시트 접기 — 손가락 당김 영역 */
   courseSheetPullStrip: {
     flexShrink: 0,
-    height: "14px",
+    height: "22px",
     touchAction: "none",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     userSelect: "none",
     WebkitUserSelect: "none",
+    cursor: "grab",
   },
 
   courseSheetPullStripBar: {

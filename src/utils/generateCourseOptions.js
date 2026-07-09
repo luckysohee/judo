@@ -333,7 +333,19 @@ const RULE_CATEGORY_NEEDLES = {
   ],
   이자카야: ["이자카야"],
   와인바: ["와인바", "와인"],
-  바: ["pub", "펍", "칵테일", "칵테일바", "와이드바"],
+  바: [
+    "pub",
+    "펍",
+    "칵테일",
+    "칵테일바",
+    "와이드바",
+    "위스키",
+    "위스키바",
+    "whisky",
+    "whiskey",
+    "싱글몰트",
+    "하이볼",
+  ],
   한식: ["한식", "한정식", "백반"],
   고깃집: ["고깃집", "삼겹살", "갈비", "육류", "고기"],
   식사: ["식사", "음식점", "식당", "레스토랑"],
@@ -953,6 +965,12 @@ export function resolveCourseAreaPool(places, parsedQuery) {
     if (seen.has(k)) continue;
     seen.add(k);
     areaPlaces.push(p);
+  }
+
+  // 지역 키워드가 잘못 잡히거나(상호명 등) 풀이 비면 전체로 풀어 2차 후보 0건을 막음
+  if (!areaPlaces.length && Array.isArray(places) && places.length) {
+    const { area: _drop, ...rest } = parsedQuery || {};
+    return { areaPlaces: places, effectiveParsed: rest };
   }
 
   return { areaPlaces, effectiveParsed: parsedQuery };

@@ -3,6 +3,9 @@ import {
   computeCuratorSpotlightScore,
   getPlaceSearchEngagement,
   isCuratorSpotlightCandidate,
+  pickOffMapEngagementKeys,
+  mergeSpotlightPlacePools,
+  formatPlaceRowForSpotlight,
   rankCuratorSpotlightPlaces,
 } from "./curatorSpotlightRank.js";
 
@@ -31,5 +34,43 @@ describe("curatorSpotlightRank", () => {
     }));
     const ranked = rankCuratorSpotlightPlaces(places, {}, 0);
     expect(ranked.length).toBe(12);
+  });
+
+  it("pickOffMapEngagementKeys skips viewport places and keeps hot search keys", () => {
+    const map = {
+      a: { impressions: 2, clicks: 0 },
+      b: { impressions: 20, clicks: 5 },
+      c: { impressions: 8, clicks: 0 },
+      d: { impressions: 1, clicks: 3 },
+    };
+    const viewport = [{ id: "b", kakao_place_id: "b" }];
+    const keys = pickOffMapEngagementKeys(map, viewport, {
+      limit: 10,
+      minClicks: 1,
+      minImpressions: 4,
+    });
+    expect(keys).toEqual(["d", "c"]);
+    expect(keys).not.toContain("a");
+    expect(keys).not.toContain("b");
+  });
+
+  it("mergeSpotlightPlacePools includes off-map places", () => {
+    const merged = mergeSpotlightPlacePools(
+      [{ id: "1", name: "OnMap", curatorCount: 1 }],
+      [{ id: "2", name: "OffMap", curatorCount: 0 }]
+    );
+    expect(merged.map((p) => p.id).sort()).toEqual(["1", "2"]);
+  });
+
+  it("formatPlaceRowForSpotlight keeps kakao id for engagement match", () => {
+    const row = formatPlaceRowForSpotlight({
+      id: "uuid-1",
+      name: "Cafe",
+      kakao_place_id: "12345",
+      lat: 37.5,
+      lng: 127.0,
+    });
+    expect(row?.kakao_place_id).toBe("12345");
+    expect(row?.id).toBe("uuid-1");
   });
 });

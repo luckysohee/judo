@@ -1,6 +1,6 @@
 import {
   COURSE_SECOND_SNACK_OPTIONS,
-  STUDIO_ATMOSPHERE_OPTIONS,
+  COURSE_SECOND_VIBE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
 } from "../../utils/placeTaxonomy.js";
 import { COURSE_SECOND_FIND_DISTANCE_OPTIONS } from "../../pages/Home/homeModule.js";
@@ -27,7 +27,9 @@ const CHIP_ROW_STYLE = {
 
 function chipStyle(on) {
   return {
-    padding: "6px 11px",
+    flex: "1 1 0",
+    minWidth: "4.2em",
+    padding: "7px 8px",
     borderRadius: 999,
     border: on
       ? "1px solid rgba(17, 17, 17, 0.55)"
@@ -37,6 +39,8 @@ function chipStyle(on) {
     fontWeight: 700,
     color: on ? "#111111" : "#5c4033",
     cursor: "pointer",
+    textAlign: "center",
+    whiteSpace: "nowrap",
   };
 }
 
@@ -64,14 +68,32 @@ function MultiSelectChips({ keyPrefix, options, selected, onToggle }) {
   );
 }
 
+/** 하나만 선택 (다시 누르면 해제) — selected는 길이 0~1 배열 */
+function SingleSelectChips({ keyPrefix, options, selected, onChange }) {
+  const current = Array.isArray(selected) ? selected[0] : null;
+  return (
+    <div style={CHIP_ROW_STYLE}>
+      {options.map((v) => {
+        const on = current === v;
+        return (
+          <button
+            key={`${keyPrefix}-${v}`}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? [] : [v])}
+            style={chipStyle(on)}
+          >
+            {v}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const SECOND_FIND_SORT_OPTIONS = [
-  { id: "default", label: "기본" },
   { id: "closer", label: "더 가까운 곳 우선" },
-  {
-    id: "curator",
-    label: "큐레이터 추천 우선",
-    hint: "여러 큐레이터가 겹쳐 담은 곳·등록 수에 가산점",
-  },
+  { id: "curator", label: "큐레이터 추천 우선" },
 ];
 
 export default function CourseSecondFindModal({
@@ -87,7 +109,8 @@ export default function CourseSecondFindModal({
   onChangeAnju,
   maxDistanceM,
   onChangeMaxDistanceM,
-  sortPriority = "default",
+  /** closer | curator | null(미선택=기본 룰) */
+  sortPriority = null,
   onChangeSortPriority,
 }) {
   if (!open) return null;
@@ -130,49 +153,26 @@ export default function CourseSecondFindModal({
             fontSize: 16,
             fontWeight: 800,
             color: "#3d2914",
-            marginBottom: 4,
+            marginBottom: 14,
           }}
         >
           2차 후보 조건
         </div>
-        <p
-          style={{
-            margin: "0 0 14px",
-            fontSize: 12,
-            lineHeight: 1.45,
-            color: "#666",
-          }}
-        >
-          골라 주시면 그에 맞춰 가산점을 줘요. 분위기·주종은 잔 올리기와 같은
-          목록이에요. 거리는 1차 기준으로 후보를 잘라요. 안 고르면 분위기·주종·
-          안주는 기본 룰만 쓰고, 거리는 3km로 둡니다.
-        </p>
-        <p
-          style={{
-            margin: "0 0 12px",
-            fontSize: 11,
-            lineHeight: 1.4,
-            color: "rgba(61,41,20,0.68)",
-            fontWeight: 700,
-          }}
-        >
-          선택한 조건으로 주변 2차 후보를 다시 계산해요.
-        </p>
 
         <div style={SECTION_LABEL_STYLE}>분위기</div>
         <MultiSelectChips
           keyPrefix="2fv"
-          options={STUDIO_ATMOSPHERE_OPTIONS}
+          options={COURSE_SECOND_VIBE_OPTIONS}
           selected={vibes}
           onToggle={onChangeVibes}
         />
 
         <div style={SECTION_LABEL_STYLE}>주종</div>
-        <MultiSelectChips
+        <SingleSelectChips
           keyPrefix="2fl"
           options={STUDIO_LIQUOR_TYPE_OPTIONS}
           selected={liquors}
-          onToggle={onChangeLiquors}
+          onChange={onChangeLiquors}
         />
 
         <div style={SECTION_LABEL_STYLE}>안주</div>
@@ -184,7 +184,7 @@ export default function CourseSecondFindModal({
         />
 
         <div style={SECTION_LABEL_STYLE}>1차에서 거리</div>
-        <div style={CHIP_ROW_STYLE}>
+        <div style={{ ...CHIP_ROW_STYLE, flexWrap: "nowrap" }}>
           {COURSE_SECOND_FIND_DISTANCE_OPTIONS.map(({ m, label }) => {
             const on = maxDistanceM === m;
             return (
@@ -201,40 +201,30 @@ export default function CourseSecondFindModal({
         </div>
 
         <div style={SECTION_LABEL_STYLE}>정렬</div>
-        <div style={{ ...CHIP_ROW_STYLE, marginBottom: 16 }}>
-          {SECOND_FIND_SORT_OPTIONS.map(({ id, label, hint }) => {
+        <div
+          style={{
+            ...CHIP_ROW_STYLE,
+            marginBottom: 16,
+            flexWrap: "nowrap",
+          }}
+        >
+          {SECOND_FIND_SORT_OPTIONS.map(({ id, label }) => {
             const on = sortPriority === id;
             return (
               <button
                 key={`2fs-${id}`}
                 type="button"
                 aria-pressed={on}
-                onClick={() => onChangeSortPriority?.(id)}
+                onClick={() =>
+                  onChangeSortPriority?.(on ? null : id)
+                }
                 style={{
                   ...chipStyle(on),
-                  ...(hint
-                    ? {
-                        flex: "1 1 100%",
-                        textAlign: "left",
-                        lineHeight: 1.35,
-                      }
-                    : {}),
+                  flex: "1 1 0",
+                  textAlign: "center",
                 }}
               >
                 {label}
-                {hint ? (
-                  <span
-                    style={{
-                      display: "block",
-                      marginTop: 4,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: on ? "rgba(17,17,17,0.55)" : "#777",
-                    }}
-                  >
-                    {hint}
-                  </span>
-                ) : null}
               </button>
             );
           })}

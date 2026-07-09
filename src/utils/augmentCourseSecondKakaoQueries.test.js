@@ -34,4 +34,21 @@ describe("buildCourseSecondKakaoQueries", () => {
     expect(q).toContain("모던한식");
     expect(q.some((k) => /전집|전통주점|한식주점/.test(k))).toBe(true);
   });
+
+  it("위스키 주종은 위스키 전용 키워드만 쓰고 일반 바·라운지는 넣지 않는다", () => {
+    const q = buildCourseSecondKakaoQueries({ liquorTypes: ["위스키"] });
+    expect(q).toContain("위스키바");
+    expect(q).toContain("위스키");
+    expect(q).not.toContain("바");
+    expect(q).not.toContain("라운지");
+  });
+
+  it("whiskeyChipFallback이면 위스키 전용 키워드만 쓴다", () => {
+    const q = buildCourseSecondKakaoQueries({
+      liquorTypes: ["위스키"],
+      whiskeyChipFallback: true,
+    });
+    expect(q.every((k) => /위스키|싱글몰트/.test(k))).toBe(true);
+    expect(q).not.toContain("포장마차");
+  });
 });

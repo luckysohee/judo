@@ -33,6 +33,12 @@ export const API_EXPENSIVE_PREFIXES = [
   "/api/kakao/",
 ];
 
+/** 카카오 Local(키워드·주소) — expensive보다 더 빡센 전용 한도 */
+export const API_KAKAO_LOCAL_PREFIXES = [
+  "/api/kakao/search",
+  "/api/kakao/address",
+];
+
 function parseCsvEnv(value) {
   return String(value || "")
     .split(",")
@@ -133,6 +139,8 @@ export function setupApiSecurity(app) {
   const windowMs = Number(process.env.API_RATE_LIMIT_WINDOW_MS) || 60_000;
   const globalMax = Number(process.env.API_RATE_LIMIT_MAX) || 120;
   const expensiveMax = Number(process.env.API_RATE_LIMIT_EXPENSIVE_MAX) || 24;
+  /** 카카오 Local 키워드/주소 — 분당 (기본 40, 업스트림 큐와 맞춤) */
+  const kakaoLocalMax = Number(process.env.API_RATE_LIMIT_KAKAO_LOCAL_MAX) || 40;
 
   const globalLimiter = createLimiter({
     windowMs,
@@ -147,7 +155,16 @@ export function setupApiSecurity(app) {
     message: "Too many API requests for this endpoint — slow down",
   });
 
+  const kakaoLocalLimiter = createLimiter({
+    windowMs,
+    max: kakaoLocalMax,
+    message: "Too many Kakao local search requests — slow down",
+  });
+
   app.use((req, res, next) => {
+    if (pathMatchesPrefix(req.path, API_KAKAO_LOCAL_PREFIXES)) {
+      return kakaoLocalLimiter(req, res, next);
+    }
     if (!pathMatchesPrefix(req.path, API_EXPENSIVE_PREFIXES)) {
       return next();
     }
@@ -163,7 +180,7 @@ export function setupApiSecurity(app) {
 
   console.log(
     "🔒 API security:",
-    `rate ${globalMax}/${windowMs}ms, expensive ${expensiveMax}, auth paths ${API_AUTH_REQUIRED_PREFIXES.length}`,
+    `rate ${globalMax}/${windowMs}ms, expensive ${expensiveMax}, kakao-local ${kakaoLocalMax}, auth paths ${API_AUTH_REQUIRED_PREFIXES.length}`,
     isAlphaAllowlistEnabledServer() ? ", alpha allowlist ON" : ""
   );
 }

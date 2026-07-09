@@ -55,33 +55,113 @@ function resolveSecondStepDistanceLimits(walkable, userSecondPreferences) {
     if (tiers[tiers.length - 1] < maxM) return [...tiers, maxM];
     return tiers;
   }
-  return walkable ? [500, 700, 1000] : [2000];
-}
-
-function placeLiquorTokens(place) {
-  const raw = place?.liquorTypes ?? place?.liquor_types;
-  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
-  if (raw == null || raw === "") return [];
-  return [String(raw).trim()].filter(Boolean);
+  return walkable ? [500, 700, 1000, 1500] : [800, 1200, 2000, 3000];
 }
 
 /**
- * 주종(2차 찾기 체크) → 어울리는 음식 카테고리 우선 가산.
- * 고량주는 중식(중국집), 막걸리·전통주는 모던 한식 위주로 후보를 끌어올린다.
+ * 주종(2차 찾기 체크) → 어울리는 음식·바 카테고리 우선 가산.
+ * 고량주→중식, 막걸리·전통주→한식, 위스키→위스키바/바 계열.
  */
 const LIQUOR_CATEGORY_STEER = [
   {
     liquors: ["고량주"],
-    // 중식·중국집 (바이주/고량주와 어울림)
     match: /중식|중국|중화|차이니즈|마라|훠궈|딤섬|짬뽕|탕수육|양꼬치|향(?:신|차이)/,
   },
   {
     liquors: ["막걸리", "전통주"],
-    // 모던 한식·전통 주점·전집 (막걸리/전통주와 어울림)
     match:
       /한식|한정식|모던\s*한식|전\s*집|부침|빈대떡|파전|전통\s*주점|주막|한상|국밥|보쌈|족발|두부|순대|막걸리|민속주점/,
   },
+  {
+    liquors: ["위스키"],
+    match:
+      /위스키|whisky|whiskey|싱글\s*몰트|single\s*malt|스카치|bourbon|버번|위스키바|위스키\s*바/,
+  },
 ];
+
+/** 이름·카테고리에서 주종 추론 (DB liquor_types 비어 있을 때) */
+const LIQUOR_INFER_FROM_BLOB = [
+  { re: /위스키|whisky|whiskey|싱글\s*몰트|single\s*malt/i, token: "위스키" },
+  { re: /하이볼/i, token: "하이볼" },
+  { re: /와인|wine/i, token: "와인" },
+  { re: /칵테일|cocktail/i, token: "칵테일" },
+  { re: /사케|니혼슈|일본술/i, token: "사케" },
+  { re: /막걸리/i, token: "막걸리" },
+  { re: /전통주|청주|약주/i, token: "전통주" },
+  { re: /고량주|바이주/i, token: "고량주" },
+  { re: /맥주|beer|호프/i, token: "맥주" },
+  { re: /소주/i, token: "소주" },
+];
+
+function placeLiquorTokens(place) {
+  const raw = place?.liquorTypes ?? place?.liquor_types;
+  const fromMeta = Array.isArray(raw)
+    ? raw.map((x) => String(x).trim()).filter(Boolean)
+    : raw == null || raw === ""
+      ? []
+      : [String(raw).trim()].filter(Boolean);
+  const set = new Set(fromMeta.map((t) => t.toLowerCase()));
+  const blob = [
+    place?.name,
+    place?.place_name,
+    place?.category,
+    place?.category_name,
+    ...(Array.isArray(place?.tags) ? place.tags : []),
+    ...(Array.isArray(place?.categories) ? place.categories : []),
+  ]
+    .map((s) => String(s || ""))
+    .join(" ");
+  for (const { re, token } of LIQUOR_INFER_FROM_BLOB) {
+    if (re.test(blob)) set.add(token.toLowerCase());
+  }
+  return [...set];
+}
+
+/**
+ * 점수 상위 풀에서 카테고리·주종 다양성을 살려 최대 `limit`개 고른다.
+ * (항상 같은 top-3만 나오면 뻔해지므로)
+ */
+export function pickDiverseSecondCandidates(ranked, limit = 5) {
+  const list = Array.isArray(ranked) ? ranked : [];
+  if (list.length <= limit) return list.slice();
+
+  const band = list.slice(0, Math.min(18, list.length));
+  const picked = [];
+  const usedCats = new Set();
+  const usedLiquorSig = new Set();
+
+  const catKey = (p) => {
+    const c = String(p?.category || p?.category_name || "")
+      .split(/[>,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .pop();
+    return String(c || "기타").toLowerCase().slice(0, 24);
+  };
+  const liquorSig = (p) =>
+    placeLiquorTokens(p)
+      .slice(0, 3)
+      .sort()
+      .join("|") || "none";
+
+  // 1패스: 카테고리·주종 시그니처가 겹치지 않게
+  for (const p of band) {
+    if (picked.length >= limit) break;
+    const ck = catKey(p);
+    const lk = liquorSig(p);
+    if (usedCats.has(ck) && usedLiquorSig.has(lk)) continue;
+    picked.push(p);
+    usedCats.add(ck);
+    usedLiquorSig.add(lk);
+  }
+  // 2패스: 부족하면 점수순으로 채움
+  for (const p of band) {
+    if (picked.length >= limit) break;
+    if (picked.includes(p)) continue;
+    picked.push(p);
+  }
+  return picked;
+}
 
 /** category·category_name·tags·categories 합친 소문자 문자열 */
 function placeCategoryHaystack(place) {
@@ -173,10 +253,17 @@ export function regenerateSecondStep({
   if (!wFirst) return [];
   const firstAnchor = { ...firstPlace, lat: wFirst.lat, lng: wFirst.lng };
 
-  const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(
-    places,
-    parsedQuery
-  );
+  // 지도 「2차 찾기」는 지역 키워드보다 1차 주변 거리 우선 (주소 area 오탐으로 풀이 비는 것 방지)
+  const mapSecondFind = Boolean(userSecondPreferences);
+  const { areaPlaces, effectiveParsed } = mapSecondFind
+    ? {
+        areaPlaces: Array.isArray(places) ? places : [],
+        effectiveParsed: (() => {
+          const { area: _a, ...rest } = parsedQuery || {};
+          return rest;
+        })(),
+      }
+    : resolveCourseAreaPool(places, parsedQuery);
 
   const walkable = Boolean(effectiveParsed.walkable);
   const distanceLimits = resolveSecondStepDistanceLimits(
@@ -206,7 +293,8 @@ export function regenerateSecondStep({
     })
     .filter(Boolean)
     .filter((place) => {
-      if (!walkable && !userSecondPreferences) return true;
+      // 도보 의도일 때만 한강 횡단 제외. 지도 2차 찾기(prefs)만으로 한강 필터를 켜지 않음.
+      if (!walkable) return true;
       return !courseWalkCrossesHanRiver(
         Number(distanceAnchor.lat),
         Number(distanceAnchor.lng),
@@ -299,16 +387,25 @@ export function regenerateSecondStep({
       const pl = prefStringList(userSecondPreferences?.liquorTypes);
       if (pl?.length) {
         const set = new Set(pl.map((s) => s.toLowerCase()));
-        const hits = placeLiquorTokens(place).filter((t) =>
+        const placeTokens = placeLiquorTokens(place);
+        const hits = placeTokens.filter((t) =>
           set.has(String(t).toLowerCase())
         ).length;
-        extraBonus += hits * 12;
+        // 사용자가 고른 주종 매칭을 강하게 (rule2 전주종 +15보다 우선)
+        extraBonus += hits * 28;
 
-        // 주종 → 음식 카테고리 우선: 고량주는 중식, 막걸리·전통주는 모던 한식을 끌어올림
+        // 선택한 주종이 하나도 안 맞으면 감점 — 소주포차가 위스키 선택에 뜨는 것 완화
+        if (hits === 0 && placeTokens.length > 0) {
+          extraBonus -= 10;
+        }
+
+        // 주종 → 음식·바 카테고리 우선
         const catHay = placeCategoryHaystack(place);
+        const nameHay = `${String(place?.name || "")} ${String(place?.place_name || "")}`.toLowerCase();
+        const steerHay = `${catHay} ${nameHay}`;
         for (const steer of LIQUOR_CATEGORY_STEER) {
           const liquorPicked = steer.liquors.some((l) => set.has(l.toLowerCase()));
-          if (liquorPicked && steer.match.test(catHay)) {
+          if (liquorPicked && steer.match.test(steerHay)) {
             extraBonus += 26;
             liquorCategoryMatched = true;
           }
@@ -349,6 +446,9 @@ export function regenerateSecondStep({
 
       const distanceBonus = Math.max(0, 30 - distance / 25) * distanceWeight;
 
+      // 태그·카테고리 없는 카카오/DB 장소도 허용 거리 안이면 후보에 남기기
+      const proximityFloor = Math.max(0, Math.round(30 - distance / 100));
+
       const secondClose = getMinutesUntilClose(place);
       let timingBonus = 0;
       if (effectiveParsed.rightNow && secondClose != null) {
@@ -359,7 +459,12 @@ export function regenerateSecondStep({
       return {
         ...place,
         distanceFromAnchor: Math.round(distance),
-        candidateScore: baseScore + distanceBonus + extraBonus + timingBonus,
+        candidateScore:
+          baseScore +
+          distanceBonus +
+          extraBonus +
+          timingBonus +
+          proximityFloor,
         liquorCategoryMatched,
       };
     })
@@ -411,8 +516,41 @@ export function regenerateSecondStep({
   });
 
   const sliceSource = top.length ? top : filtered;
+  let diverse = pickDiverseSecondCandidates(sliceSource, 5);
 
-  return sliceSource.slice(0, 3).map((second) => {
+  // 지도 2차: 점수·거리 단계로도 비면 1차 주변 가까운 순으로 강제 후보
+  if (!diverse.length && mapSecondFind) {
+    const maxM = hasUserMaxDistance
+      ? Math.max(...distanceLimits)
+      : Math.max(...distanceLimits, 3000);
+    const nearby = areaPlaces
+      .map((place) => {
+        const w = resolvePlaceWgs84(place);
+        if (!w) return null;
+        const withCoords = { ...place, lat: w.lat, lng: w.lng };
+        if (isSameVenueForCourseStep(firstAnchor, withCoords)) return null;
+        const distance = haversineMeters(
+          Number(distanceAnchor.lat),
+          Number(distanceAnchor.lng),
+          w.lat,
+          w.lng
+        );
+        if (!Number.isFinite(distance) || distance < 35 || distance > maxM) {
+          return null;
+        }
+        return {
+          ...withCoords,
+          distanceFromAnchor: Math.round(distance),
+          candidateScore: Math.max(1, Math.round(40 - distance / 80)),
+          liquorCategoryMatched: false,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.distanceFromAnchor - b.distanceFromAnchor);
+    diverse = pickDiverseSecondCandidates(nearby, 5);
+  }
+
+  return diverse.map((second) => {
     if (useBridgeAnchor) {
       return {
         key: `${selectedCourse.key}-r2-${variant}-${placeId(second) ?? second.name}`,

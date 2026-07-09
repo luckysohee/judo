@@ -48,6 +48,7 @@ import {
   STUDIO_LIQUOR_TYPE_OPTIONS,
   STUDIO_PLACE_CATEGORY_OPTIONS,
   normalizeStudioPlaceCategory,
+  normalizeStudioAtmosphere,
 } from "../../utils/placeTaxonomy.js";
 import { fetchCuratorPlacesMergedWithPlaces } from "../../utils/supabasePlaces";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
@@ -379,7 +380,7 @@ function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
         kakao_place_id: null,
         category: "미분류",
         alcohol_type: alc[0] ?? "",
-        atmosphere: moodArr[0] ?? "",
+        atmosphere: normalizeStudioAtmosphere(moodArr[0] ?? ""),
         recommended_menu: "",
         menu_reason: line ?? "",
         tags: filterPlaceTagsForDisplay(parseDbStringArray(curatorPlace.tags)),
@@ -405,7 +406,9 @@ function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
       kakao_place_id: place.kakao_place_id ?? null,
       category: normalizeStudioPlaceCategory(place.category || "") || "미분류",
       alcohol_type: alc[0] ?? place.alcohol_type ?? "",
-      atmosphere: moodArr[0] ?? place.atmosphere ?? "",
+      atmosphere: normalizeStudioAtmosphere(
+        moodArr[0] ?? place.atmosphere ?? ""
+      ),
       recommended_menu: place.recommended_menu || "",
       menu_reason: line !== null ? line : (place.menu_reason || ""),
       tags: filterPlaceTagsForDisplay(tagsMerged),
@@ -1018,10 +1021,11 @@ const NewPlaceSection = ({ curator, setMyPlaces, setActiveSection }) => {
                 tabIndex={4}
               >
                 <option value="">선택하세요</option>
-                <option value="quiet">조용한</option>
-                <option value="lively">활기찬</option>
-                <option value="modern">모던한</option>
-                <option value="cozy">아늑한</option>
+                {STUDIO_ATMOSPHERE_OPTIONS.map((m) => (
+                  <option key={`basic-atm-${m}`} value={m}>
+                    {m}
+                  </option>
+                ))}
               </select>
             </div>
             <div style={sectionStyles.formGroup}>
@@ -1918,7 +1922,7 @@ export default function StudioHome() {
     "🔥 특징": ["야장", "바테이블(닷지)", "늦게까지", "24시간", "웨이팅있음", "가성비", "안주맛집", "술이맛있음", "시그니처있음"],
     "🎭 감성": ["노포감성", "로컬맛집", "감성술집", "숨은맛집"], // 분위기성 태그 제거
     "📺 화제": ["성시경", "성시경맛집", "최자", "최자맛집", "소안맛집", "소주안주맛집"],
-    "🍽 안주": ["국물안주", "해산물강함", "고기안주", "가벼운안주", "안주다양"],
+    "🍽 안주": ["국물안주", "해산물강함", "고기안주", "안주다양"],
     "🧭 공간": ["단체가능", "테이블넓음", "룸 있음", "예약필수", "웨이팅짧음", "2차추천"],
     "🚽 화장실": ["실내 화장실", "외부 화장실", "위생적인", "비위생적인"],
     "🙋 맞이·서비스": [
@@ -2710,7 +2714,7 @@ export default function StudioHome() {
             category:
               normalizeStudioPlaceCategory(place.category || "") || "미분류",
             alcohol_type: place.alcohol_type || "",
-            atmosphere: place.atmosphere || "",
+            atmosphere: normalizeStudioAtmosphere(place.atmosphere || ""),
             recommended_menu: place.recommended_menu || "",
             menu_reason: place.menu_reason || "",
             tags: place.tags || [],
@@ -3780,10 +3784,11 @@ export default function StudioHome() {
         Array.isArray(place.alcohol_types) && place.alcohol_types.length
           ? place.alcohol_types[0]
           : place.alcohol_type || "";
-      const moodFromCp =
+      const moodFromCp = normalizeStudioAtmosphere(
         Array.isArray(place.moods) && place.moods.length
           ? place.moods[0]
-          : place.atmosphere || "";
+          : place.atmosphere || ""
+      );
 
       setFormData({
         name_address: place.name,
@@ -4057,7 +4062,8 @@ export default function StudioHome() {
       if (nameInput) nameInput.value = draft.basicInfo?.name_address || "";
       if (categorySelect) categorySelect.value = draft.basicInfo?.category || "";
       if (alcoholSelect) alcoholSelect.value = draft.alcohol_type || "";
-      if (atmosphereSelect) atmosphereSelect.value = draft.atmosphere || "";
+      const draftAtm = normalizeStudioAtmosphere(draft.atmosphere || "");
+      if (atmosphereSelect) atmosphereSelect.value = draftAtm;
       if (reasonTextarea) reasonTextarea.value = draft.menu_reason || "";
       
       // React 상태도 업데이트
@@ -4065,7 +4071,7 @@ export default function StudioHome() {
         name_address: draft.basicInfo?.name_address || "",
         category: draft.basicInfo?.category || "",
         alcohol_type: draft.alcohol_type || "",
-        atmosphere: draft.atmosphere || "",
+        atmosphere: draftAtm,
         recommended_menu: draft.recommended_menu || "",
         menu_reason: draft.menu_reason || "",
         tags: filterPlaceTagsForDisplay(draft.tags || []),

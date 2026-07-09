@@ -17,18 +17,16 @@ export const STUDIO_LIQUOR_TYPE_OPTIONS = [
   "칵테일",
 ];
 
-/** Studio 잔 올리기 「분위기」 셀렉트와 동일 */
+/**
+ * Studio 잔 올리기 · 2차 찾기 공통 분위기 축.
+ * 활기찬 = 활기찬+시끄러운 / 모던함 = 세련된+모던한 / 힙한 = 별도
+ */
 export const STUDIO_ATMOSPHERE_OPTIONS = [
-  "조용한",
   "활기찬",
-  "시끄러운",
-  "아기자기한",
-  "세련된",
+  "모던함",
+  "조용한",
   "편안한",
-  "로맨틱한",
-  "빈티지",
-  "모던한",
-  "전통적인",
+  "힙한",
 ];
 
 /** Studio 잔 올리기 「업종」— 아카이브·집계와 동일 순서 (지도 원문 → `normalizeStudioPlaceCategory`) */
@@ -103,25 +101,71 @@ export const COURSE_SECOND_SNACK_OPTIONS = [
   "육류",
   "치즈",
   "튀김",
-  "마른안주",
 ];
 
-/** Studio 분위기 선택 → places.vibes·태그 등과 맞추기 위한 별칭 */
+/** 2차 찾기 분위기 칩 — 잔 올리기와 동일 */
+export const COURSE_SECOND_VIBE_OPTIONS = STUDIO_ATMOSPHERE_OPTIONS;
+
+/** 레거시·세분 분위기 → 공통 축 (잔 올리기 셀렉트·2차 칩) */
+export function mapStudioVibeToSecondFindBucket(vibe) {
+  const v = String(vibe ?? "").trim();
+  if (!v) return null;
+  if (STUDIO_ATMOSPHERE_OPTIONS.includes(v)) return v;
+  if (/활기|시끄|시끌|북적|우당탕|소란/i.test(v)) return "활기찬";
+  if (/힙/i.test(v)) return "힙한";
+  if (/세련|모던/i.test(v)) return "모던함";
+  if (/조용|잔잔|차분/i.test(v)) return "조용한";
+  if (/편안|편한|부담없|아늑/i.test(v)) return "편안한";
+  return null;
+}
+
+/** DB·폼에 남은 옛 분위기 문자열 → 표준 옵션 (없으면 "") */
+export function normalizeStudioAtmosphere(raw) {
+  return mapStudioVibeToSecondFindBucket(raw) || "";
+}
+
+/** @param {string[]} vibes */
+export function mapStudioVibesToSecondFindDefaults(vibes) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(vibes) ? vibes : []) {
+    const b = mapStudioVibeToSecondFindBucket(raw);
+    if (!b || seen.has(b)) continue;
+    seen.add(b);
+    out.push(b);
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+
+/** Studio·2차 찾기 분위기 선택 → places.vibes·태그 등과 맞추기 위한 별칭 */
 const VIBE_PREF_ALIASES = {
-  활기찬: ["활기찬", "시끌벅적", "시끌", "북적", "활기"],
-  시끄러운: ["시끄러운", "시끄", "시끌", "우당탕", "소란"],
+  활기찬: [
+    "활기찬",
+    "활기",
+    "시끌벅적",
+    "시끌",
+    "북적",
+    "시끄러운",
+    "시끄",
+    "우당탕",
+    "소란",
+  ],
+  시끄러운: ["시끄러운", "시끄", "시끌", "우당탕", "소란", "활기찬", "북적"],
+  모던함: ["모던함", "모던한", "모던", "세련된", "세련"],
+  세련된: ["세련된", "세련", "모던", "모던한", "모던함"],
+  모던한: ["모던한", "모던", "모던함", "세련된", "세련"],
+  힙한: ["힙한", "힙", "힙플", "힙플레이스", "트렌디", "핫플"],
   조용한: ["조용한", "조용", "잔잔", "차분"],
-  편안한: ["편안한", "편한", "부담없"],
+  편안한: ["편안한", "편한", "부담없", "아늑"],
   로맨틱한: ["로맨틱한", "로맨틱", "데이트", "분위기좋은"],
-  세련된: ["세련된", "세련", "모던", "힙"],
-  모던한: ["모던한", "모던"],
   아기자기한: ["아기자기", "아담"],
   빈티지: ["빈티지", "올드", "레트로"],
   전통적인: ["전통", "전통적인", "노포", "옛날"],
 };
 
 /**
- * @param {string} pref 사용자가 고른 분위기(Studio 표준 한 가지)
+ * @param {string} pref 사용자가 고른 분위기(2차 칩 또는 Studio 표준)
  * @returns {string[]} 소문자 토큰 — place.vibes·atmosphere·태그와 부분 매칭
  */
 export function expandVibePrefTokens(pref) {
@@ -136,7 +180,7 @@ export function expandVibePrefTokens(pref) {
 }
 
 /**
- * @param {string} hint 안주 칩 (국물 = 해장·국물류, 튀김·마른안주 = 태그·카테고리 매칭 확장)
+ * @param {string} hint 안주 칩 (국물 = 해장·국물류, 튀김 = 태그·카테고리 매칭 확장)
  */
 export function expandAnjuHintTokens(hint) {
   const h = String(hint ?? "").trim().toLowerCase();
@@ -171,25 +215,6 @@ export function expandAnjuHintTokens(hint) {
       "치킨",
       "닭강정",
       "튀김요리",
-    ];
-  }
-  if (h === "마른안주" || h === "마른 안주") {
-    return [
-      "마른안주",
-      "마른 안주",
-      "말린",
-      "건어물",
-      "육포",
-      "말린오징어",
-      "오징어",
-      "쥐포",
-      "버터칩",
-      "견과",
-      "견과류",
-      "땅콩",
-      "과자",
-      "스낵",
-      "안주",
     ];
   }
   if (h === "해산물" || h === "해산물/회") {

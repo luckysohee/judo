@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
-import { normalizeStudioPlaceCategory } from "../../utils/placeTaxonomy.js";
+import {
+  STUDIO_ATMOSPHERE_OPTIONS,
+  normalizeStudioPlaceCategory,
+} from "../../utils/placeTaxonomy.js";
 
 // 임시저장 키
 const DRAFT_KEY = "newPlace_draft";
@@ -359,12 +362,11 @@ export default function NewPlace() {
             style={styles.select}
           >
             <option value="">선택하세요</option>
-            <option value="quiet">조용한</option>
-            <option value="lively">활기찬</option>
-            <option value="modern">모던한</option>
-            <option value="traditional">전통적인</option>
-            <option value="cozy">아늑한</option>
-            <option value="luxury">고급스러운</option>
+            {STUDIO_ATMOSPHERE_OPTIONS.map((m) => (
+              <option key={`new-atm-${m}`} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
         </div>
 

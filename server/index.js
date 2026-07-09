@@ -173,6 +173,10 @@ import {
   fetchKakaoPlaceOgImageUrl,
 } from "./kakaoPlaceOgImage.js";
 import { createTtlCache } from "./simpleTtlCache.js";
+import {
+  kakaoLocalCacheKey,
+  runKakaoLocalThrottled,
+} from "./kakaoLocalThrottle.js";
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 import { handleCourseDraftAssist } from "./courseDraftAssist.js";
 import { createCorsMiddleware, setupApiSecurity } from "./apiSecurity.js";
@@ -3010,7 +3014,7 @@ app.post("/api/kakao/search", async (req, res) => {
       return res.status(400).json({ error: "query가 필요합니다." });
     }
     const params = {
-      query: kw,
+      query: String(kw).trim(),
       size: Number(size) > 0 ? Math.min(Number(size), 15) : 15,
     };
     const nx = x != null ? Number(x) : NaN;
@@ -3023,16 +3027,50 @@ app.post("/api/kakao/search", async (req, res) => {
         params.radius = Math.min(r, 20000);
       }
     }
-    const response = await axios.get(
-      "https://dapi.kakao.com/v2/local/search/keyword.json",
-      {
-        params,
-        headers: { Authorization: `KakaoAK ${key}` },
+    const cacheKey = kakaoLocalCacheKey("keyword", params);
+    const result = await runKakaoLocalThrottled(cacheKey, async () => {
+      try {
+        const response = await axios.get(
+          "https://dapi.kakao.com/v2/local/search/keyword.json",
+          {
+            params,
+            headers: { Authorization: `KakaoAK ${key}` },
+            timeout: 12000,
+            validateStatus: (s) => s >= 200 && s < 500,
+          }
+        );
+        return { status: response.status, data: response.data };
+      } catch (e) {
+        if (e?.response?.status === 429) throw e;
+        throw e;
       }
-    );
-    res.json(response.data);
+    });
+
+    if (result.status === 429) {
+      if (result.retryAfterSec) {
+        res.setHeader("Retry-After", String(result.retryAfterSec));
+      }
+      return res.status(429).json(result.data);
+    }
+    if (!result.ok) {
+      return res.status(result.status >= 400 ? result.status : 502).json(
+        result.data ?? { error: "카카오 검색 API 호출 실패" }
+      );
+    }
+    if (result.cached) {
+      res.setHeader("X-Kakao-Cache", "HIT");
+    }
+    res.json(result.data);
   } catch (error) {
     console.error("kakao search:", error.message);
+    const status = error?.response?.status;
+    if (status === 429) {
+      res.setHeader("Retry-After", "8");
+      return res.status(429).json({
+        error: "카카오 429: 호출 한도 초과",
+        retry_after: 8,
+      });
+    }
     res.status(500).json({ error: "카카오 검색 API 호출 실패" });
   }
 });
@@ -3056,25 +3094,47 @@ app.post("/api/kakao/address", async (req, res) => {
       query: kw.slice(0, 100),
       size: Number(size) > 0 ? Math.min(Number(size), 30) : 10,
     };
-    const response = await axios.get(
-      "https://dapi.kakao.com/v2/local/search/address.json",
-      {
-        params,
-        headers: { Authorization: `KakaoAK ${key}` },
-        timeout: 12000,
-        validateStatus: (s) => s >= 200 && s < 500,
+    const cacheKey = kakaoLocalCacheKey("address", params);
+    const result = await runKakaoLocalThrottled(cacheKey, async () => {
+      const response = await axios.get(
+        "https://dapi.kakao.com/v2/local/search/address.json",
+        {
+          params,
+          headers: { Authorization: `KakaoAK ${key}` },
+          timeout: 12000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        }
+      );
+      return { status: response.status, data: response.data };
+    });
+
+    if (result.status === 429) {
+      if (result.retryAfterSec) {
+        res.setHeader("Retry-After", String(result.retryAfterSec));
       }
-    );
-    if (response.status !== 200) {
+      return res.status(429).json(result.data);
+    }
+    if (!result.ok || result.status !== 200) {
       return res.status(502).json({
         error: "카카오 주소 검색 비정상 응답",
-        status: response.status,
-        kakao: response.data,
+        status: result.status,
+        kakao: result.data,
       });
     }
-    res.json(response.data);
+    if (result.cached) {
+      res.setHeader("X-Kakao-Cache", "HIT");
+    }
+    res.json(result.data);
   } catch (error) {
     console.error("kakao address:", error.message);
+    const status = error?.response?.status;
+    if (status === 429) {
+      res.setHeader("Retry-After", "8");
+      return res.status(429).json({
+        error: "카카오 429: 호출 한도 초과",
+        retry_after: 8,
+      });
+    }
     res.status(500).json({ error: "카카오 주소 검색 API 호출 실패" });
   }
 });

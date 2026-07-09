@@ -2,7 +2,11 @@
  * 가입 설문·user_taste_preferences → 장소 룰 스코어 (LLM 없음)
  */
 
-import { STUDIO_ATMOSPHERE_OPTIONS, STUDIO_LIQUOR_TYPE_OPTIONS } from "./placeTaxonomy.js";
+import {
+  STUDIO_ATMOSPHERE_OPTIONS,
+  STUDIO_LIQUOR_TYPE_OPTIONS,
+  mapStudioVibesToSecondFindDefaults,
+} from "./placeTaxonomy.js";
 import { curatorMetaTextForTasteBlob } from "./curatorPlaceMetaLift.js";
 
 export const TASTE_SITUATION_OPTIONS = [
@@ -488,8 +492,9 @@ export function tasteProfileToSecondFindDefaults(profile) {
   if (!profile) {
     return { vibes: [], liquorTypes: [], preferCloser: false };
   }
+  // 레거시·세분 분위기 → 공통 축(활기찬/모던함/힙한/…)으로 접기
   return {
-    vibes: [...(profile.vibes || [])].slice(0, 4),
+    vibes: mapStudioVibesToSecondFindDefaults(profile.vibes || []),
     liquorTypes: [...(profile.liquor_types || [])].slice(0, 3),
     preferCloser: Boolean(profile.prefer_walkable),
   };
@@ -503,7 +508,7 @@ export function liquorOptionsForOnboarding() {
 }
 
 export function vibeOptionsForOnboarding() {
-  return STUDIO_ATMOSPHERE_OPTIONS.slice(0, 10).map((value) => ({
+  return STUDIO_ATMOSPHERE_OPTIONS.map((value) => ({
     value,
     label: value,
   }));

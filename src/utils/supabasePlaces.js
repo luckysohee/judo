@@ -81,7 +81,13 @@ function mergeCuratorPlaceRow(cp, placeRow) {
  * `places.id`(uuid) · `kakao_place_id` 혼합 키를 안전하게 조회.
  * PostgREST `id=in.(…)` 400(잘못된 uuid·타입 혼합) 방지.
  */
-async function fetchPlacesByLookupKeys(supabaseClient, placeIds) {
+/**
+ * `places.id`(uuid) · `kakao_place_id` 혼합 키 조회.
+ * @param {import("@supabase/supabase-js").SupabaseClient} [supabaseClient]
+ * @param {unknown[]} placeIds
+ * @returns {Promise<Map<string, object>>}
+ */
+export async function fetchPlacesByLookupKeys(supabaseClient, placeIds) {
   const client = supabaseClient || supabase;
   const lookup = new Map();
   const { uuids, kakaoIds, other } = partitionPlaceLookupKeys(placeIds);

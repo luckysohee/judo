@@ -27,12 +27,12 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
       },
       location: {
         title: '내 위치 기능',
-        description: '현재 위치에서 가까운 맛집을\n찾아보세요!',
+        description: '지도를 내 위치로 옮기고\n주변 장소를 바로 확인해 보세요.',
         icon: '📍',
         benefits: [
-          '실시간 내 주변 맛집',
-          '도보 거리 순 정렬',
-          '위치 기반 추천'
+          '내 위치 주변 지도 보기',
+          '가까운 장소 마커 표시',
+          '도보·코스 검색 기준점'
         ]
       },
       ai: {

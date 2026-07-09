@@ -20,8 +20,6 @@ export default function HomeCourseMergedSheet({
   isCourseMode,
   courseMergedHeaderRef,
   handleClearSearch,
-  courseHasFinalTwoSteps,
-  handleResetCoursePickWithSavePrompt,
   aiSheetOpen,
   setAiSheetOpen,
   isAiSearching,
@@ -75,22 +73,11 @@ export default function HomeCourseMergedSheet({
                   type="button"
                   style={styles.courseSearchClearButton}
                   onClick={handleClearSearch}
-                  aria-label="코스 추천 취소 및 검색어 지우기"
-                  title="검색어 지우고 새로 검색"
+                  aria-label="코스 추천 닫기"
+                  title="검색어 지우고 코스 추천 닫기"
                 >
                   ×
                 </button>
-                {courseHasFinalTwoSteps ? (
-                  <button
-                    type="button"
-                    style={styles.courseResetPickButton}
-                    onClick={() => void handleResetCoursePickWithSavePrompt()}
-                    aria-label="선택한 코스만 비우기"
-                    title="1차·2차 코스만 초기화 (검색어는 유지)"
-                  >
-                    ×
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   style={{
@@ -100,8 +87,16 @@ export default function HomeCourseMergedSheet({
                     flex: 1,
                     minWidth: 0,
                     opacity: isAiSearching ? 0.92 : 1,
+                    cursor: aiSheetOpen ? "default" : "pointer",
                   }}
-                  onClick={() => setAiSheetOpen((open) => !open)}
+                  onClick={() => {
+                    if (!aiSheetOpen) setAiSheetOpen(true);
+                  }}
+                  aria-label={
+                    aiSheetOpen
+                      ? "추천 코스"
+                      : "추천 코스 펼치기"
+                  }
                 >
                   <div style={{ ...styles.aiPeekLeft, gap: "8px" }}>
                     <div style={styles.aiPeekTextWrap}>
@@ -120,13 +115,24 @@ export default function HomeCourseMergedSheet({
                           courseError
                         ) : (
                           <span>
-                            {aiSummary || "눌러서 코스 상세 보기"}
+                            {aiSummary ||
+                              (aiSheetOpen
+                                ? "아래로 밀면 접혀요"
+                                : "눌러서 코스 상세 보기")}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <span style={styles.aiPeekArrow}>{aiSheetOpen ? "▾" : "▴"}</span>
+                </button>
+                <button
+                  type="button"
+                  style={styles.courseSheetCollapseButton}
+                  onClick={() => setAiSheetOpen((open) => !open)}
+                  aria-label={aiSheetOpen ? "코스 시트 접기" : "코스 시트 펼치기"}
+                  title={aiSheetOpen ? "접기" : "펼치기"}
+                >
+                  {aiSheetOpen ? "접기" : "펼치기"}
                 </button>
               </div>
 
@@ -135,7 +141,8 @@ export default function HomeCourseMergedSheet({
                   <div
                     ref={coursePullStripRef}
                     style={styles.courseSheetPullStrip}
-                    aria-hidden
+                    aria-label="아래로 밀어 접기"
+                    role="presentation"
                   >
                     <div style={styles.courseSheetPullStripBar} />
                   </div>
