@@ -11,7 +11,7 @@ const API_BASE_URL = (
 ).replace(/\/$/, "");
 
 /**
- * 1차→2차 보행 경로 폴리라인 (서버: 카카오 도보 우선 → OSRM fallback).
+ * 1차→2차 보행 경로 폴리라인 (서버: 카카오 도보 우선 → FOSSGIS/OSRM foot fallback).
  * @returns {Promise<{ ok: true, path: {lat,lng}[], distanceMeters: number, durationSeconds: number, provider?: 'kakao'|'osrm' } | { ok: false, error?: string }>}
  */
 export async function fetchCourseWalkingRoute(slat, slng, dlat, dlng) {
@@ -58,7 +58,7 @@ function appendWalkingPathSegment(basePath, nextSegment) {
 }
 
 /**
- * 1차→쩜오→2차 등 다구간 보행 경로를 OSRM로 각각 받아 이어 붙임.
+ * 1차→쩜오→2차 등 다구간 보행 경로를 서버 도보 API로 각각 받아 이어 붙임.
  * @param {{ lat: number, lng: number }[]} waypoints 순서대로 최소 2개
  * @returns {Promise<{ ok: true, path: {lat,lng}[], distanceMeters: number, durationSeconds: number } | null>}
  */

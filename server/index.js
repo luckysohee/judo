@@ -882,7 +882,8 @@ app.get("/api/region-outline", async (req, res) => {
 });
 
 /**
- * 코스 1차→2차 보행 경로 — 카카오모빌리티 도보 길찾기 우선, 실패 시 OSRM foot fallback.
+ * 코스 1차→2차 보행 경로 — 카카오모빌리티 도보 길찾기 우선,
+ * 실패 시 FOSSGIS routed-foot (project-osrm foot 는 한국에서 자동차형이라 제외).
  * Query: slat, slng, dlat, dlng (WGS84)
  */
 app.get("/api/course-walking-route", async (req, res) => {
