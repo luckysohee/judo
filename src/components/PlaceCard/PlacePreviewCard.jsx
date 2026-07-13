@@ -34,6 +34,7 @@ import {
 import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
+import { collectPlaceMenuHints } from "../../utils/placeMenuHints";
 import {
   normalizeHanjanStats,
   pickHanjanSocialLines,
@@ -542,6 +543,8 @@ export default function PlacePreviewCard({
       window.open(placeUrl, '_blank');
     }
   };
+
+  const menuHints = useMemo(() => collectPlaceMenuHints(place), [place]);
   /** DB·지도에서 온 좌표 (큐레이터 전용 장소는 kakaoDetails 없어도 lat/lng만으로 구글 편향 가능) */
   const displayLat =
     checkinWgs?.lat ??
@@ -584,11 +587,12 @@ export default function PlacePreviewCard({
     return Boolean(row && row.curator_id === user.id);
   };
 
-  const kakaoPlacePageUrl = (isKakaoPlace || kakaoDetails)
-    ? isKakaoPlace
-      ? place.place_url
-      : kakaoDetails?.place_url
-    : null;
+  const kakaoPlacePageUrl = String(
+    (isKakaoPlace ? place?.place_url : null) ||
+      kakaoDetails?.place_url ||
+      place?.place_url ||
+      ""
+  ).trim() || null;
 
   /** 서버 프록시 구글 장소 사진 — 클릭 시 카카오맵으로 보내지 않음 */
   const isGoogleProxyPhotoUrl = (url) =>
@@ -1819,6 +1823,40 @@ export default function PlacePreviewCard({
             </div>
           )}
 
+          {(menuHints.hasAny || kakaoPlacePageUrl) ? (
+            <div style={styles.menuBlock} aria-label="메뉴 정보">
+              <div style={styles.menuBlockLabel}>추천 메뉴</div>
+              {menuHints.items.length > 0 ? (
+                <div style={styles.menuPills}>
+                  {menuHints.items.map((t) => (
+                    <span key={`menu-${t}`} style={styles.menuPill}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {menuHints.notes.map((n) => (
+                <div key={n} style={styles.menuNote}>
+                  {n}
+                </div>
+              ))}
+              {!menuHints.hasAny ? (
+                <div style={styles.menuEmpty}>
+                  등록된 메뉴 정보가 아직 없어요. 카카오맵에서 확인해 보세요.
+                </div>
+              ) : null}
+              {kakaoPlacePageUrl ? (
+                <button
+                  type="button"
+                  onClick={handleKakaoView}
+                  style={styles.menuKakaoBtn}
+                >
+                  카카오맵에서 메뉴 보기
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
           {place.blogInsight && place.blogInsight.reviewCount > 0 ? (
             <div style={styles.blogInsightBlock} aria-label="블로그 기반 정보">
               <div style={styles.blogInsightLabel}>
@@ -2516,6 +2554,63 @@ const styles = {
     fontWeight: 800,
     color: "#ffffff",
     lineHeight: 1.25,
+  },
+  menuBlock: {
+    marginTop: "10px",
+    padding: "8px 10px",
+    borderRadius: "10px",
+    backgroundColor: "#222222",
+    border: "1px solid rgba(255,255,255,0.07)",
+  },
+  menuBlockLabel: {
+    fontSize: "10px",
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.55)",
+    marginBottom: "6px",
+    letterSpacing: "-0.02em",
+  },
+  menuPills: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+    marginBottom: "6px",
+  },
+  menuPill: {
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "#f5f5f5",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: "999px",
+    padding: "4px 10px",
+    letterSpacing: "-0.02em",
+  },
+  menuNote: {
+    fontSize: "12px",
+    lineHeight: 1.45,
+    color: "rgba(255,255,255,0.72)",
+    marginBottom: "4px",
+    letterSpacing: "-0.02em",
+  },
+  menuEmpty: {
+    fontSize: "12px",
+    lineHeight: 1.45,
+    color: "rgba(255,255,255,0.5)",
+    marginBottom: "8px",
+    letterSpacing: "-0.02em",
+  },
+  menuKakaoBtn: {
+    marginTop: "6px",
+    width: "100%",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255, 224, 102, 0.35)",
+    backgroundColor: "rgba(255, 224, 102, 0.12)",
+    color: "#FFE066",
+    fontSize: "12px",
+    fontWeight: 700,
+    cursor: "pointer",
+    letterSpacing: "-0.02em",
   },
   blogInsightBlock: {
     marginTop: "10px",
