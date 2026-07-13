@@ -76,6 +76,33 @@ describe("homeCourseDiscoveryLists", () => {
     expect(out2.map((x) => x.id)).toEqual(["2"]);
   });
 
+  it("matches curator 별명 and @handle", () => {
+    const courses = [
+      c("1", { title: "코스A", curator_id: "u1" }),
+      c("2", { title: "코스B", curator_id: "u2" }),
+    ];
+    const nameByCurator = new Map([
+      ["u1", "노포킬러 @nopo"],
+      ["u2", "다른사람 @other"],
+    ]);
+    const nicknameByCurator = new Map([
+      ["u1", "노포킬러"],
+      ["u2", "다른사람"],
+    ]);
+    expect(
+      filterCoursesForDiscoverySearch(courses, "노포", {
+        nameByCurator,
+        nicknameByCurator,
+      }).map((x) => x.id)
+    ).toEqual(["1"]);
+    expect(
+      filterCoursesForDiscoverySearch(courses, "@nopo", {
+        nameByCurator,
+        nicknameByCurator,
+      }).map((x) => x.id)
+    ).toEqual(["1"]);
+  });
+
   it("weekly ranking prefers 7d completions", () => {
     const courses = [c("a"), c("b")];
     const stats = new Map([

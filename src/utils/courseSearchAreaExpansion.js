@@ -2,7 +2,7 @@
  * 코스 디스커버리 검색: 동네명(성수동·성수역 등)을 클러스터 키(성수)로 정규화하고
  * 인접 지역을 묶어 「근처 지역 코스」로 함께 추천하기 위한 헬퍼.
  *
- * 서버 `/api/courses/search`는 q를 title·area·description·tags에 ilike(%q%)로만 매칭한다.
+ * 서버 `/api/courses/search`는 q를 title·area·description·tags·큐레이터 별명/핸들에 ilike(%q%)로 매칭한다.
  * 따라서 "성수동"은 area="성수" 코스를 못 잡으므로, 클러스터 루트("성수")로 정규화해
  * "성수"·"성수동"·"성수동2가"까지 폭넓게 걸리도록 한다.
  */

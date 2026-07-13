@@ -9,9 +9,10 @@ const MAX_QUERY_LEN = 80;
  * @returns {string}
  */
 export function sanitizePublicCourseSearchQuery(raw) {
-  const q = String(raw ?? "")
+  let q = String(raw ?? "")
     .trim()
     .slice(0, MAX_QUERY_LEN);
+  if (q.startsWith("@")) q = q.replace(/^@+/, "").trim();
   if (!q) return "";
   return q.replace(/[%_\\]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -48,6 +49,28 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
   const escaped = query.replace(/[%_\\,]/g, " ").trim();
   const pattern = `%${escaped}%`;
   const end = offset + limit;
+
+  let curatorIds = [];
+  try {
+    const { data: curs } = await sb
+      .from("curators")
+      .select("user_id")
+      .or(
+        `name.ilike.${pattern},display_name.ilike.${pattern},username.ilike.${pattern},slug.ilike.${pattern}`
+      )
+      .limit(40);
+    curatorIds = (curs || [])
+      .map((r) => String(r?.user_id || "").trim())
+      .filter(Boolean);
+  } catch {
+    curatorIds = [];
+  }
+
+  let orFilter = `title.ilike.${pattern},area.ilike.${pattern},description.ilike.${pattern}`;
+  if (curatorIds.length > 0) {
+    orFilter += `,curator_id.in.(${curatorIds.join(",")})`;
+  }
+
   const { data, error } = await sb
     .from("curator_courses")
     .select(
@@ -56,7 +79,7 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
     .eq("status", "published")
     .eq("is_public", true)
     .is("imported_from_course_id", null)
-    .or(`title.ilike.${pattern},area.ilike.${pattern},description.ilike.${pattern}`)
+    .or(orFilter)
     .order("updated_at", { ascending: false })
     .range(offset, end);
 

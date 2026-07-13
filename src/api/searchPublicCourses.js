@@ -13,7 +13,10 @@ import { getAiApiBaseUrl } from "../utils/apiBaseUrl.js";
  * @param {{ limit?: number, offset?: number }} opts
  */
 async function searchViaSupabaseRpc(rawQuery, opts = {}) {
-  const q = String(rawQuery || "").trim();
+  const q = String(rawQuery || "")
+    .trim()
+    .replace(/^@+/, "")
+    .trim();
   if (!q || !supabase?.rpc) {
     return { courses: [], hasMore: false };
   }
@@ -47,7 +50,10 @@ async function searchViaSupabaseRpc(rawQuery, opts = {}) {
  * @returns {Promise<{ courses: object[], hasMore: boolean }>}
  */
 export async function searchPublicCuratorCourses(rawQuery, opts = {}) {
-  const q = String(rawQuery || "").trim();
+  const q = String(rawQuery || "")
+    .trim()
+    .replace(/^@+/, "")
+    .trim();
   if (!q) {
     return { courses: [], hasMore: false };
   }

@@ -53,16 +53,9 @@ function isCoursePublicListed(course) {
   );
 }
 
-function courseMatchesSearch(course, query) {
-  const needle = String(query || "").trim().toLowerCase();
-  if (!needle) return true;
-  const title = String(course?.title || "").toLowerCase();
-  const area = String(course?.area || "").toLowerCase();
-  const tags = Array.isArray(course?.theme_tags)
-    ? course.theme_tags.join(" ").toLowerCase()
-    : "";
+function courseMatchesSearch(course, query, opts = {}) {
   return (
-    title.includes(needle) || area.includes(needle) || tags.includes(needle)
+    filterCoursesForDiscoverySearch([course], query, opts).length > 0
   );
 }
 const AI_API_BASE = getAiApiBaseUrl();
@@ -853,9 +846,12 @@ export default function HomeCoursesDiscoveryRail({
   const searchedOwnCourses = useMemo(() => {
     if (!trimmedSearch) return ownCourses;
     return ownCourses.filter((course) =>
-      courseMatchesSearch(course, trimmedSearch)
+      courseMatchesSearch(course, trimmedSearch, {
+        nameByCurator,
+        nicknameByCurator,
+      })
     );
-  }, [ownCourses, trimmedSearch]);
+  }, [ownCourses, trimmedSearch, nameByCurator, nicknameByCurator]);
 
   const searchedImportedCourses = useMemo(() => {
     if (!trimmedSearch) return importedCourses;
@@ -863,8 +859,9 @@ export default function HomeCoursesDiscoveryRail({
     const q = plan.primaryQuery || trimmedSearch;
     return filterCoursesForDiscoverySearch(importedCourses, q, {
       nameByCurator,
+      nicknameByCurator,
     });
-  }, [importedCourses, trimmedSearch, nameByCurator]);
+  }, [importedCourses, trimmedSearch, nameByCurator, nicknameByCurator]);
 
   const mergeCuratorNames = useCallback(async (courses, genRef, gen) => {
     const ids = [

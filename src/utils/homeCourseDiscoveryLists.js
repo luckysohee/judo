@@ -366,17 +366,22 @@ export function buildHomeCourseDiscoveryPeekList(
 }
 
 /**
- * 클라이언트 로컬 필터 (레거시·테스트). UI 검색은 `searchPublicCuratorCourses` 서버 API.
+ * 클라이언트 로컬 필터 (내 코스·가져온 코스 탭). 공개 검색은 `searchPublicCuratorCourses`.
  * @param {object[]} courses
  * @param {string} rawQuery
- * @param {{ nameByCurator?: Map<string, string> }} [opts]
+ * @param {{
+ *   nameByCurator?: Map<string, string>,
+ *   nicknameByCurator?: Map<string, string>,
+ * }} [opts]
  */
 export function filterCoursesForDiscoverySearch(courses, rawQuery, opts = {}) {
   const q = String(rawQuery || "")
     .trim()
+    .replace(/^@+/, "")
     .toLowerCase();
   if (!q) return Array.isArray(courses) ? courses : [];
   const nameByCurator = opts.nameByCurator;
+  const nicknameByCurator = opts.nicknameByCurator;
 
   return (Array.isArray(courses) ? courses : []).filter((c) => {
     if (!c || typeof c !== "object") return false;
@@ -387,13 +392,15 @@ export function filterCoursesForDiscoverySearch(courses, rawQuery, opts = {}) {
       .map((t) => String(t).toLowerCase())
       .join(" ");
     const cid = String(c.curator_id || "").trim();
-    const curator = nameByCurator?.get(cid)?.toLowerCase() || "";
+    const curatorLabel = nameByCurator?.get(cid)?.toLowerCase() || "";
+    const curatorNick = nicknameByCurator?.get(cid)?.toLowerCase() || "";
     return (
       title.includes(q) ||
       area.includes(q) ||
       desc.includes(q) ||
       tags.includes(q) ||
-      curator.includes(q)
+      curatorLabel.includes(q) ||
+      curatorNick.includes(q)
     );
   });
 }
