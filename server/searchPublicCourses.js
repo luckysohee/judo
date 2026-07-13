@@ -41,7 +41,74 @@ async function searchViaRpc(sb, { query, limit, offset }) {
 }
 
 /**
- * RPC 미적용 DB용 폴백 — 제목·지역·설명만
+ * RPC가 profiles만 볼 때도 스튜디오 별명·핸들로 보강.
+ * @param {import("@supabase/supabase-js").SupabaseClient} sb
+ * @param {{ query: string, limit: number }} opts
+ */
+async function searchCoursesByCuratorLabel(sb, { query, limit }) {
+  const escaped = query.replace(/[%_]/g, "").trim();
+  if (!escaped) return [];
+  const pattern = `%${escaped}%`;
+
+  const packs = await Promise.all([
+    sb.from("curators").select("user_id").ilike("name", pattern).limit(25),
+    sb
+      .from("curators")
+      .select("user_id")
+      .ilike("display_name", pattern)
+      .limit(25),
+    sb.from("curators").select("user_id").ilike("username", pattern).limit(25),
+    sb.from("curators").select("user_id").ilike("slug", pattern).limit(25),
+  ]);
+
+  const idSet = new Set();
+  for (const pack of packs) {
+    for (const row of pack?.data || []) {
+      const uid = String(row?.user_id || "").trim();
+      if (uid) idSet.add(uid);
+    }
+  }
+  const curatorIds = [...idSet];
+  if (curatorIds.length === 0) return [];
+
+  const { data, error } = await sb
+    .from("curator_courses")
+    .select(
+      "id, curator_id, title, description, cover_image_url, area, theme_tags, status, is_public, created_at, updated_at"
+    )
+    .eq("status", "published")
+    .eq("is_public", true)
+    .is("imported_from_course_id", null)
+    .in("curator_id", curatorIds)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("[searchPublicCourses] curator label search", error.message);
+    return [];
+  }
+  return (Array.isArray(data) ? data : []).map((row) => ({
+    ...row,
+    place_count: 0,
+    preview_steps: [],
+  }));
+}
+
+function mergeCourseRows(primary, extra, limit) {
+  const seen = new Set();
+  const out = [];
+  for (const row of [...(primary || []), ...(extra || [])]) {
+    const id = String(row?.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * RPC 미적용 DB용 폴백 — 제목·지역·설명 + 큐레이터 라벨
  * @param {import("@supabase/supabase-js").SupabaseClient} sb
  * @param {{ query: string, limit: number, offset: number }} opts
  */
@@ -49,27 +116,6 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
   const escaped = query.replace(/[%_\\,]/g, " ").trim();
   const pattern = `%${escaped}%`;
   const end = offset + limit;
-
-  let curatorIds = [];
-  try {
-    const { data: curs } = await sb
-      .from("curators")
-      .select("user_id")
-      .or(
-        `name.ilike.${pattern},display_name.ilike.${pattern},username.ilike.${pattern},slug.ilike.${pattern}`
-      )
-      .limit(40);
-    curatorIds = (curs || [])
-      .map((r) => String(r?.user_id || "").trim())
-      .filter(Boolean);
-  } catch {
-    curatorIds = [];
-  }
-
-  let orFilter = `title.ilike.${pattern},area.ilike.${pattern},description.ilike.${pattern}`;
-  if (curatorIds.length > 0) {
-    orFilter += `,curator_id.in.(${curatorIds.join(",")})`;
-  }
 
   const { data, error } = await sb
     .from("curator_courses")
@@ -79,7 +125,7 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
     .eq("status", "published")
     .eq("is_public", true)
     .is("imported_from_course_id", null)
-    .or(orFilter)
+    .or(`title.ilike.${pattern},area.ilike.${pattern},description.ilike.${pattern}`)
     .order("updated_at", { ascending: false })
     .range(offset, end);
 
@@ -87,7 +133,7 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
   const rows = Array.isArray(data) ? data : [];
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  const courses = page.map((row) => {
+  let courses = page.map((row) => {
     const nested = row.curator_course_places;
     const { curator_course_places: _omit, ...rest } = row;
     let place_count = 0;
@@ -96,6 +142,12 @@ async function searchViaTableFallback(sb, { query, limit, offset }) {
     }
     return { ...rest, place_count, preview_steps: [] };
   });
+
+  if (offset === 0) {
+    const byCurator = await searchCoursesByCuratorLabel(sb, { query, limit });
+    courses = mergeCourseRows(courses, byCurator, limit);
+  }
+
   return {
     courses,
     hasMore,
@@ -153,17 +205,28 @@ export async function handleSearchPublicCourses(req, res) {
       }
     }
 
-    const courses = (result.courses || []).map((row) => ({
+    const coursesRaw = (result.courses || []).map((row) => ({
       ...row,
       preview_steps: Array.isArray(row.preview_steps) ? row.preview_steps : [],
       place_count: Math.max(0, Math.floor(Number(row.place_count) || 0)),
     }));
 
+    let courses = coursesRaw;
+    let hasMore = Boolean(result.hasMore);
+    if (offset === 0) {
+      const byCurator = await searchCoursesByCuratorLabel(sb, {
+        query,
+        limit,
+      });
+      courses = mergeCourseRows(coursesRaw, byCurator, limit);
+      if (byCurator.length >= limit) hasMore = true;
+    }
+
     return res.json({
       ok: true,
       query,
       courses,
-      has_more: Boolean(result.hasMore),
+      has_more: hasMore,
     });
   } catch (e) {
     console.error("/api/courses/search", e);
