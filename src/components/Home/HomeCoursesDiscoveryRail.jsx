@@ -39,6 +39,7 @@ import { enrichCoursesWithAutoCover, pickCourseDisplayCoverUrl } from "../../uti
 import { useHomeSearchMode } from "../../hooks/useHomeSearchMode";
 import HomeCourseSearchOverlay from "./HomeCourseSearchOverlay";
 import StudioCourseSuggestionPanel from "../Studio/StudioCourseSuggestionPanel";
+import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
 
 const COURSE_SEARCH_DEBOUNCE_MS = 320;
 const COURSE_SEARCH_PAGE_SIZE = 24;
@@ -64,10 +65,7 @@ function courseMatchesSearch(course, query) {
     title.includes(needle) || area.includes(needle) || tags.includes(needle)
   );
 }
-const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || "").replace(
-  /\/$/,
-  ""
-);
+const AI_API_BASE = getAiApiBaseUrl();
 
 import { fetchCuratorMapsForUserIds } from "../../utils/curatorCourseDiscoveryLabels";
 
@@ -1678,7 +1676,7 @@ export default function HomeCoursesDiscoveryRail({
         <p style={styles.emptyCol}>검색 중…</p>
       ) : searchPhase === "error" ? (
         <p style={styles.emptyCol}>
-          검색에 실패했어요. API 서버와 DB 마이그레이션을 확인해 주세요.
+          검색에 실패했어요. 잠시 후 다시 시도해 주세요.
         </p>
       ) : (
         <>
