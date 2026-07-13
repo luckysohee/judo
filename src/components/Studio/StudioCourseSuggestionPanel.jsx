@@ -20,6 +20,7 @@ import {
   studioMapSearchClearBtn,
 } from "../../pages/Studio/studioCoursesSharedStyles";
 import StudioCourseDraftBriefing from "./StudioCourseDraftBriefing";
+import StudioCourseSearchLoading from "./StudioCourseSearchLoading";
 
 const styles = {
   wrap: {
@@ -110,6 +111,8 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
   const [preferHiddenGems, setPreferHiddenGems] = useState(false);
   const [preferCuratorPicks, setPreferCuratorPicks] = useState(true);
   const runGenRef = useRef(0);
+  /** 「다른 조합」이 A↔B만 돌지 않게 이전에 쓴 placeKey 누적 */
+  const usedPlaceKeysRef = useRef([]);
 
   const trimmed = query.replace(/\s+/g, " ").trim();
   const showRecommendButton = phase === "idle";
@@ -143,6 +146,7 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
     }
     const gen = runGenRef.current + 1;
     runGenRef.current = gen;
+    usedPlaceKeysRef.current = [];
     setErr("");
     setResult(null);
     setPhase("loading");
@@ -158,6 +162,10 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
         preferCuratorPicks,
       });
       if (runGenRef.current !== gen) return;
+      const keys = (pipelineResult.draft?.steps || [])
+        .map((s) => String(s?.placeKey || "").trim())
+        .filter(Boolean);
+      usedPlaceKeysRef.current = keys;
       setResult(pipelineResult);
       setPhase("preview");
       void refreshQuota();
@@ -191,25 +199,55 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
     const gen = runGenRef.current + 1;
     runGenRef.current = gen;
     const nextVariant = (Number(result.variantSeed) || 0) + 1;
-    setPhase("loading");
+    const lastKeys = (Array.isArray(result.draft?.steps)
+      ? result.draft.steps
+      : []
+    )
+      .map((s) => String(s?.placeKey || "").trim())
+      .filter(Boolean);
+    const poolSize = Math.max(
+      result.candidatePool?.length || 0,
+      result.places?.length || 0
+    );
+    let excludePlaceKeys = [
+      ...new Set([...usedPlaceKeysRef.current, ...lastKeys]),
+    ];
+    // 누적이 풀을 거의 덮으면 직전만 제외해 조합 여지 유지
+    if (poolSize > 0 && excludePlaceKeys.length >= Math.max(4, poolSize - 3)) {
+      usedPlaceKeysRef.current = lastKeys;
+      excludePlaceKeys = lastKeys;
+    }    setPhase("loading");
     setPhaseMsg("다른 조합 찾는 중…");
     setErr("");
     try {
       const pipelineResult = await runStudioCourseDraftAssistFromPlaces({
         query: result.query,
         parsed: result.parsed,
-        places: result.places,
+        places: result.candidatePool?.length
+          ? result.candidatePool
+          : result.places,
         variantSeed: nextVariant,
         preferHiddenGems: result.preferHiddenGems ?? preferHiddenGems,
         preferCuratorPicks: result.preferCuratorPicks ?? preferCuratorPicks,
+        excludePlaceKeys,
         onPhase: (msg) => {
           if (runGenRef.current !== gen) return;
           setPhaseMsg(msg);
         },
       });
       if (runGenRef.current !== gen) return;
+      const newKeys = (pipelineResult.draft?.steps || [])
+        .map((s) => String(s?.placeKey || "").trim())
+        .filter(Boolean);
+      usedPlaceKeysRef.current = [
+        ...new Set([...usedPlaceKeysRef.current, ...newKeys]),
+      ];
       setResult({
         ...pipelineResult,
+        candidatePool:
+          pipelineResult.candidatePool ||
+          result.candidatePool ||
+          pipelineResult.places,
         curatorPickCount: result.curatorPickCount ?? 0,
       });
       setPhase("preview");
@@ -267,6 +305,7 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
 
   const handleClosePreview = useCallback(() => {
     runGenRef.current += 1;
+    usedPlaceKeysRef.current = [];
     setResult(null);
     setPhase("idle");
     setErr("");
@@ -275,6 +314,7 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
 
   const handleClearSearch = useCallback(() => {
     runGenRef.current += 1;
+    usedPlaceKeysRef.current = [];
     setQuery("");
     setResult(null);
     setPhase("idle");
@@ -415,7 +455,10 @@ export default function StudioCourseSuggestionPanel({ onDraftSaved } = {}) {
       </div>
 
       {phase === "loading" || phase === "saving" ? (
-        <p style={styles.phase}>{phaseMsg || "처리 중…"}</p>
+        <StudioCourseSearchLoading
+          phaseMsg={phaseMsg}
+          mode={phase === "saving" ? "saving" : "loading"}
+        />
       ) : null}
 
       {err ? (

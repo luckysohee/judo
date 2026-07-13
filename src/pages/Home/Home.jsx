@@ -9841,6 +9841,7 @@ const handleClearSearch = () => {
       <main style={styles.mainContainer}>
         {/* 타인 체크인 — 좌측 피드(잠시 후 사라짐, 최대 3줄). 팝업 토스트 없음 */}
         {!homeSearchMode.isOpen &&
+        !homeCourseDiscoverySearchOpen &&
         !hideHomeMapChromeForRecommendSheet &&
         !hideHomeMapChromeForStudioFullscreen ? (
         <div style={{ 

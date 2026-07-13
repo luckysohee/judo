@@ -1,3 +1,8 @@
+import {
+  scrubDraftStepClaims,
+  scrubTextAgainstPlaces,
+} from "./courseDraftClaimScrub.js";
+
 /** @param {string} tip @param {string[]} names */
 export function tipMentionsAnyPlace(tip, names) {
   const t = String(tip || "");
@@ -53,15 +58,25 @@ export function sanitizeCourseDraftAssistOutput(
   opts = {}
 ) {
   const allowed = new Set(allowedKeys);
+  const placeByKey = new Map(
+    (Array.isArray(places) ? places : [])
+      .filter((p) => p?.placeKey)
+      .map((p) => [String(p.placeKey), p])
+  );
+
   const steps = (Array.isArray(out?.steps) ? out.steps : [])
-    .map((s) => ({
-      placeKey: String(s?.placeKey || "").trim(),
-      memo: String(s?.memo || "").trim().slice(0, 160),
-      visit_tip: String(s?.visit_tip || "").trim().slice(0, 160),
-      stay_minutes: Number.isFinite(Number(s?.stay_minutes))
-        ? Math.max(0, Math.min(180, Math.floor(Number(s.stay_minutes))))
-        : 0,
-    }))
+    .map((s) => {
+      const placeKey = String(s?.placeKey || "").trim();
+      const raw = {
+        placeKey,
+        memo: String(s?.memo || "").trim().slice(0, 160),
+        visit_tip: String(s?.visit_tip || "").trim().slice(0, 160),
+        stay_minutes: Number.isFinite(Number(s?.stay_minutes))
+          ? Math.max(0, Math.min(180, Math.floor(Number(s.stay_minutes))))
+          : 0,
+      };
+      return scrubDraftStepClaims(raw, placeByKey.get(placeKey));
+    })
     .filter((s) => s.placeKey && allowed.has(s.placeKey));
 
   const seen = new Set();
@@ -94,18 +109,16 @@ export function sanitizeCourseDraftAssistOutput(
     .filter(Boolean)
     .slice(0, 8);
 
-  const placeByKey = new Map(
-    (Array.isArray(places) ? places : [])
-      .filter((p) => p?.placeKey)
-      .map((p) => [String(p.placeKey), p])
-  );
-  const selectedNames = deduped
-    .map((s) => String(placeByKey.get(s.placeKey)?.name || "").trim())
+  const selectedPlaces = deduped
+    .map((s) => placeByKey.get(s.placeKey))
+    .filter(Boolean);
+  const selectedNames = selectedPlaces
+    .map((p) => String(p?.name || "").trim())
     .filter((n) => n.length >= 2);
 
   const route_tips = refinePlaceSpecificTips(
     (Array.isArray(out?.route_tips) ? out.route_tips : [])
-      .map((t) => String(t || "").trim())
+      .map((t) => scrubTextAgainstPlaces(String(t || "").trim(), selectedPlaces))
       .filter(Boolean)
       .map((t) => t.slice(0, 240)),
     selectedNames,
@@ -114,7 +127,7 @@ export function sanitizeCourseDraftAssistOutput(
 
   const visit_checklist = refinePlaceSpecificTips(
     (Array.isArray(out?.visit_checklist) ? out.visit_checklist : [])
-      .map((t) => String(t || "").trim())
+      .map((t) => scrubTextAgainstPlaces(String(t || "").trim(), selectedPlaces))
       .filter(Boolean)
       .map((t) => t.slice(0, 240)),
     selectedNames,
@@ -123,9 +136,15 @@ export function sanitizeCourseDraftAssistOutput(
 
   return {
     title: String(out?.title || "").trim().slice(0, 120),
-    description: String(out?.description || "").trim().slice(0, 500),
+    description: scrubTextAgainstPlaces(
+      String(out?.description || "").trim(),
+      selectedPlaces
+    ).slice(0, 500),
     area: String(out?.area || "").trim().slice(0, 40),
-    theme_tags,
+    theme_tags: theme_tags
+      .map((t) => scrubTextAgainstPlaces(t, selectedPlaces))
+      .filter(Boolean)
+      .slice(0, 8),
     route_tips,
     visit_checklist,
     steps: deduped,

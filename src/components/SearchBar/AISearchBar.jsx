@@ -115,11 +115,10 @@ export default function AISearchBar({
       const parsed = parseQuery(searchQuery);
       console.log('🔍 파싱된 쿼리:', parsed);
 
-      // 3. Supabase에서 위치 기반 검색
+      // 3. Supabase에서 위치 기반 검색 (`places`에 is_archived 없음)
       const { data: places, error } = await supabase
         .from('places')
-        .select('*')
-        .eq('is_archived', false);
+        .select('*');
 
       if (error) {
         console.error('DB 검색 오류:', error);

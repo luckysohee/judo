@@ -283,3 +283,131 @@ describe("resolveCourseAreaPool - 지역 매칭 0건이면 전체 풀로 완화"
     expect(effectiveParsed.steps).toBe(2);
   });
 });
+
+describe("resolveCourseAreaPool - 충무로에 다동·무교 오염 제거", () => {
+  const chungmuroPlaces = [
+    {
+      id: "chungmuro-core",
+      name: "충무로 노포",
+      address: "서울특별시 중구 충무로2가",
+      lat: 37.5612,
+      lng: 126.994,
+    },
+    {
+      id: "pildong-core",
+      name: "필동 막걸리",
+      address: "서울특별시 중구 필동2가",
+      lat: 37.5605,
+      lng: 126.9955,
+    },
+    {
+      id: "dadong-far",
+      name: "다동 황소막창",
+      address: "서울 중구 다동 123",
+      lat: 37.5672,
+      lng: 126.9828,
+    },
+    {
+      id: "mugyo-far",
+      name: "무교동 포차",
+      address: "서울 중구 무교동 1",
+      lat: 37.5678,
+      lng: 126.9785,
+    },
+  ];
+
+  const { areaPlaces } = resolveCourseAreaPool(chungmuroPlaces, {
+    area: "충무로",
+    raw: "충무로 노포 술집 코스",
+  });
+  const ids = areaPlaces.map((p) => p.id);
+
+  it("충무로·필동은 포함", () => {
+    expect(ids).toContain("chungmuro-core");
+    expect(ids).toContain("pildong-core");
+  });
+
+  it("다동·무교(시청 쪽)는 제외", () => {
+    expect(ids).not.toContain("dadong-far");
+    expect(ids).not.toContain("mugyo-far");
+  });
+
+  it("을지로3가 상호·주소는 제외, 초동은 포함", () => {
+    const withEuljiro = [
+      ...chungmuroPlaces,
+      {
+        id: "deepin-euljiro3",
+        name: "디핀 을지로3가",
+        address: "서울 중구 을지로3가",
+        lat: 37.5663,
+        lng: 126.991,
+      },
+      {
+        id: "chungmuro-addr-but-euljiro-coords",
+        name: "충무로간판술집",
+        address: "서울 중구 충무로3가",
+        lat: 37.5663,
+        lng: 126.991,
+      },
+      {
+        id: "euljiro-coords-only",
+        name: "아무술집",
+        address: "서울 중구",
+        lat: 37.5663,
+        lng: 126.991,
+      },
+      {
+        id: "chodong-ok",
+        name: "초동 포차",
+        address: "서울 중구 초동",
+        lat: 37.5645,
+        lng: 126.995,
+      },
+      {
+        id: "station-core-no-token",
+        name: "역앞 호프",
+        address: "서울 중구",
+        lat: 37.5614,
+        lng: 126.9942,
+      },
+    ];
+    const { areaPlaces: pool } = resolveCourseAreaPool(withEuljiro, {
+      area: "충무로",
+      raw: "충무로 노포 술집 코스",
+    });
+    const poolIds = pool.map((p) => p.id);
+    expect(poolIds).not.toContain("deepin-euljiro3");
+    expect(poolIds).not.toContain("chungmuro-addr-but-euljiro-coords");
+    expect(poolIds).not.toContain("euljiro-coords-only");
+    expect(poolIds).toContain("chodong-ok");
+    expect(poolIds).toContain("station-core-no-token");
+  });
+});
+
+describe("resolveCourseAreaPool - 충무로 0건일 때 전체 풀로 풀지 않음", () => {
+  it("역 반경 밖·을지로만 있으면 빈 배열 (을지로 재유입 금지)", () => {
+    const onlyEuljiro = [
+      {
+        id: "deepin",
+        name: "디핀 을지로3가",
+        address: "서울 중구 을지로3가",
+        lat: 37.5663,
+        lng: 126.991,
+      },
+      {
+        id: "chungmuro-label-far",
+        name: "충무로간판",
+        address: "서울 중구 충무로4가",
+        lat: 37.5665,
+        lng: 126.9905,
+      },
+    ];
+    const { areaPlaces, effectiveParsed } = resolveCourseAreaPool(onlyEuljiro, {
+      area: "충무로",
+      raw: "충무로 노포 술집 코스",
+      steps: 2,
+    });
+    expect(areaPlaces).toHaveLength(0);
+    expect(effectiveParsed.area).toBe("충무로");
+  });
+});

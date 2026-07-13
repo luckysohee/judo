@@ -68,6 +68,22 @@ export async function fetchPlaceUuidByKakaoPlaceId(kakaoPlaceId) {
 /** 코스 에디터 검색: 2글자 미만은 호출부에서 빈 배열 (문서화용 상수) */
 export const SEARCH_PLACES_FOR_COURSE_MIN_LEN = 2;
 
+/** `places` 테이블에는 `is_archived`가 없음(큐레이터 쪽). select에 넣으면 400. */
+const PLACES_COURSE_SELECT_WITH_PLACE_NAME =
+  "id, name, place_name, address, category, lat, lng";
+const PLACES_COURSE_SELECT_BASIC = "id, name, address, category, lat, lng";
+
+/**
+ * PostgREST `.or()` ilike 값 — 공백·특수문자 있으면 반드시 따옴표.
+ * @param {string} token 이미 % _ , 제거된 검색어
+ */
+export function postgrestIlikeOrPattern(token) {
+  const t = String(token ?? "").trim();
+  if (!t) return "";
+  const inner = t.replace(/"/g, '""');
+  return `"%${inner}%"`;
+}
+
 function hasUsableCoords(lat, lng) {
   if (lat == null || lng == null) return false;
   const la = Number(lat);
@@ -140,12 +156,14 @@ export async function searchPlacesForCourse(query, options = {}) {
     .replace(/%/g, "")
     .replace(/_/g, "")
     .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
   if (token.length < SEARCH_PLACES_FOR_COURSE_MIN_LEN) {
     return [];
   }
 
-  const pattern = `%${token}%`;
+  const pattern = postgrestIlikeOrPattern(token);
+  if (!pattern) return [];
 
   const orWithPlaceName = `name.ilike.${pattern},place_name.ilike.${pattern},address.ilike.${pattern},category.ilike.${pattern}`;
   const orBasic = `name.ilike.${pattern},address.ilike.${pattern},category.ilike.${pattern}`;
@@ -153,18 +171,9 @@ export async function searchPlacesForCourse(query, options = {}) {
   const run = async (selectCols, orClause) =>
     supabase.from("places").select(selectCols).or(orClause).limit(limit);
 
-  let res = await run(
-    "id, name, place_name, address, category, lat, lng, is_archived",
-    orWithPlaceName
-  );
+  let res = await run(PLACES_COURSE_SELECT_WITH_PLACE_NAME, orWithPlaceName);
   if (res.error) {
-    res = await run(
-      "id, name, address, category, lat, lng, is_archived",
-      orBasic
-    );
-  }
-  if (res.error) {
-    res = await run("id, name, address, category, lat, lng", orBasic);
+    res = await run(PLACES_COURSE_SELECT_BASIC, orBasic);
   }
 
   const { data, error } = res;
@@ -175,6 +184,7 @@ export async function searchPlacesForCourse(query, options = {}) {
   }
 
   const rows = Array.isArray(data) ? data : [];
+  // places에는 is_archived 없음 — 혹시 조인·뷰로 오면 로컬에서만 걸러냄
   const active = rows.filter((p) => p?.is_archived !== true);
 
   const mapped = active.map(mapPlaceRowForCourse).filter((m) => m.id);
@@ -282,12 +292,22 @@ export async function mergeCourseSearchWithKakao(dbHits, query, options = {}) {
       if (seen.has(uuidStr)) continue;
       const { data, error } = await supabase
         .from("places")
-        .select(
-          "id, name, place_name, address, category, lat, lng, is_archived"
-        )
+        .select(PLACES_COURSE_SELECT_WITH_PLACE_NAME)
         .eq("id", uuidStr)
         .maybeSingle();
-      if (!error && data && data.is_archived !== true) {
+      if (error) {
+        const retry = await supabase
+          .from("places")
+          .select(PLACES_COURSE_SELECT_BASIC)
+          .eq("id", uuidStr)
+          .maybeSingle();
+        if (!retry.error && retry.data) {
+          merged.push(mapPlaceRowForCourse(retry.data));
+          seen.add(uuidStr);
+        }
+        continue;
+      }
+      if (data) {
         merged.push(mapPlaceRowForCourse(data));
         seen.add(uuidStr);
       }

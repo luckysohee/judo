@@ -1,9 +1,15 @@
+import { scoreNopoSignals } from "./nopoSearchProfile.js";
+import { blogInsightToCourseEvidence } from "./coursePlaceDiscovery.js";
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 큐레이터·DB에 있는 한줄 메모를 LLM용으로 합침 */
+/** 큐레이터·DB·블로그 근거를 LLM용 한줄로 합침 */
 export function curatorNoteForCourseDraft(place) {
   if (!place || typeof place !== "object") return "";
+  const { commentBits: blogBits } = blogInsightToCourseEvidence(
+    place.blogInsight
+  );
   const bits = [
     place.curatorNote,
     place.comment,
@@ -11,10 +17,11 @@ export function curatorNoteForCourseDraft(place) {
     place.one_line_review,
     place.menu_reason,
     place.aiText,
+    ...blogBits,
   ]
     .map((v) => String(v ?? "").trim())
     .filter(Boolean);
-  return [...new Set(bits)].join(" · ").slice(0, 220);
+  return [...new Set(bits)].join(" · ").slice(0, 280);
 }
 
 /** LLM·저장 파이프라인 공통 placeKey */
@@ -58,6 +65,11 @@ export function compactPlacesForCourseDraftAssist(places, opts = {}) {
     if (!placeKey || seen.has(placeKey)) continue;
     seen.add(placeKey);
     const curatorNote = curatorNoteForCourseDraft(p);
+    const nopo = scoreNopoSignals(p);
+    const { tags: blogTags } = blogInsightToCourseEvidence(p.blogInsight);
+    const hasBlog =
+      p.hasBlogEvidence === true ||
+      (p.blogInsight != null && typeof p.blogInsight === "object");
     out.push({
       placeKey,
       name: String(p.name || p.place_name || "").trim(),
@@ -67,11 +79,19 @@ export function compactPlacesForCourseDraftAssist(places, opts = {}) {
       ).trim(),
       region: String(p.region || p.areaName || "").trim(),
       tags: [
-        ...(Array.isArray(p.tags) ? p.tags.slice(0, 5).map(String) : []),
+        ...(Array.isArray(p.tags) ? p.tags.map(String) : []),
+        ...blogTags,
         ...(p.isCuratorPick ? ["큐레이터_내픽"] : []),
-      ].slice(0, 6),
+        ...(hasBlog ? ["블로그근거"] : []),
+      ]
+        .filter(Boolean)
+        .filter((t, i, arr) => arr.indexOf(t) === i)
+        .slice(0, 8),
       comment: curatorNote,
       isCuratorPick: p.isCuratorPick === true,
+      hasBlogEvidence: hasBlog,
+      nopoScore: nopo.score,
+      nopoOk: !nopo.disallowed && nopo.score >= 3,
     });
     if (out.length >= limit) break;
   }

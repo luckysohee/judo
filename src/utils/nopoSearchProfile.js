@@ -11,19 +11,36 @@ export const NOPO_DISALLOWED_VENUE_RE =
 
 /** 대형·다점포 프랜차이즈·체인 브랜드 (상호·카테고리·블로그 텍스트) */
 export const NOPO_CHAIN_RE =
-  /맥도날드|mcdonald|버거킹|burger\s*king|kfc|롯데리아|lotteria|맘스터치|mom'?s\s*touch|스타벅스|starbucks|서브웨이|subway|파리바게뜨|paris\s*baguette|뚜레쥬르|tous\s*les\s*jours|배스킨|baskin|던킨|dunkin|이디야|ediya|투썸|twosome|메가\s*mgc|메가mgc|mgc\s*커피|메가\s*커피|메가커피|컴포즈|compose|공차|gong\s*cha|빽다방|paik\s*'?s|할리스|hollys|탐앤탐스|tom\s*n\s*toms|폴바셋|paul\s*bassett|파스쿠찌|pascucci|엔제리너스|angelinus|커피빈|coffee\s*bean|블루보틀|blue\s*bottle|테라로사|terarosa|프릳츠|fritz|깔리|cali(?![a-z])|%?\s*arabica|아라비카|브루클린\s*커피|brooklyn\s*coffee|매머드|mammoth|요거프레소|yogerpresso|토프레소|카페봄봄|달콤\s*커피|달콤커피|바나프레소|커피에\s*반하다|더벤티|the\s*venti|커피\s*마마|커피마마|카페베네|caffe\s*bene|베스킨라빈스|설빙|sulbing|피자헛|pizza\s*hut|domino|도미노|mr\.?\s*pizza|미스터피자|bbq\s*chicken|bbq치킨|bhc|교촌|네네|굽네|goobne|치킨플러스|호식이|푸라닭|노브랜드|no\s*brand|cu(?![a-z])|gs25|세븐일레븐|7[\s-]?eleven|emart24|이마트24|배달의민족|쿠팡이츠|배달\s*전문|푸드코트|패스트푸드|버거\s*킹|subway|피자\s*스쿨|pizza\s*school/i;
+  /맥도날드|mcdonald|버거킹|burger\s*king|kfc|롯데리아|lotteria|맘스터치|mom'?s\s*touch|스타벅스|starbucks|서브웨이|subway|파리바게뜨|paris\s*baguette|뚜레쥬르|tous\s*les\s*jours|배스킨|baskin|던킨|dunkin|이디야|ediya|투썸|twosome|메가\s*mgc|메가mgc|mgc\s*커피|메가\s*커피|메가커피|컴포즈|compose|공차|gong\s*cha|빽다방|paik\s*'?s|할리스|hollys|탐앤탐스|tom\s*n\s*toms|폴바셋|paul\s*bassett|파스쿠찌|pascucci|엔제리너스|angelinus|커피빈|coffee\s*bean|블루보틀|blue\s*bottle|테라로사|terarosa|프릳츠|fritz|깔리|cali(?![a-z])|%?\s*arabica|아라비카|브루클린\s*커피|brooklyn\s*coffee|매머드|mammoth|요거프레소|yogerpresso|토프레소|카페봄봄|달콤\s*커피|달콤커피|바나프레소|커피에\s*반하다|더벤티|the\s*venti|커피\s*마마|커피마마|카페베네|caffe\s*bene|베스킨라빈스|설빙|sulbing|피자헛|pizza\s*hut|domino|도미노|mr\.?\s*pizza|미스터피자|bbq\s*chicken|bbq치킨|bhc|교촌|네네|굽네|goobne|치킨플러스|호식이|푸라닭|노브랜드|no\s*brand|cu(?![a-z])|gs25|세븐일레븐|7[\s-]?eleven|emart24|이마트24|배달의민족|쿠팡이츠|배달\s*전문|푸드코트|패스트푸드|버거\s*킹|subway|피자\s*스쿨|pizza\s*school|육회관|육회바른|조선육회/i;
 
 /** 상호에 「체인」이 메뉴·별칭인 경우 — 프랜차이즈 오탐 방지 */
 export const NOPO_CHAIN_NAME_FALSE_POSITIVE_RE =
   /노가리\s*체인|갈비\s*체인|꼬치\s*체인|사슴\s*체인|치즈\s*체인|떡\s*체인/i;
 
+/**
+ * 「○○ 을지로점」「○○ 강남점」처럼 다점포·분점 상호.
+ * 노포 검색에서 신생 체인·확장점을 걸러냄.
+ */
+export const NOPO_MULTI_BRANCH_NAME_RE =
+  /\s+(?:[가-힣A-Za-z0-9]+(?:동|로|가|역|구)?|[가-힣]{2,})점\s*$/u;
+
+/** 본점·1호점만으로는 분점 체인으로 보지 않음(원조 상호 보존) */
+export const NOPO_SINGLE_ORIGIN_BRANCH_RE = /(?:본점|1호점|원조점)\s*$/u;
+
 /** 역사·원조·골목·시장 — 강한 노포 신호 */
 export const NOPO_HISTORY_RE =
-  /원조|전통|할머니|할아버지|할매|할아버지|골목|시장|노포|개업\s*\d{2,4}|19[5-9]\d|20[0-1]\d\s*년|유서|명물|오래된|오랜|삼대|4대|5대|전통주|옛날|그때\s*그|시골|향토/i;
+  /원조|전통|할머니|할아버지|할매|골목|시장|노포|개업\s*\d{2,4}|19[5-9]\d|20[0-1]\d\s*년|유서|명물|오래된|오랜|삼대|4대|5대|전통주|옛날|그때\s*그|시골|향토|(?:^|\s)본점(?:\s|$)/i;
 
 /** 분위기만으로도 노포 느낌 — 연식 미확인 허용 */
 export const NOPO_ATMOSPHERE_RE =
-  /노포감성|옛날감성|로컬맛집|숨은맛집|감성술집|골목길|골목\s*술|포장마차|실내포장|노천|야장|이자카야|선술|막걸리|동네\s*술|골목\s*바|골목\s*주점/i;
+  /노포감성|옛날감성|로컬맛집|숨은맛집|골목길|골목\s*술|포장마차|실내포장|노천|야장|이자카야|선술|막걸리|동네\s*술|골목\s*바|골목\s*주점/i;
+
+/**
+ * 최근·감성·심야 컨셉 — 노포 검색에 끼면 안 되는 상호·카테고리 신호
+ * (큐레이터 노포 태그·원조/역사 근거가 있으면 예외)
+ */
+export const NOPO_MODERN_FALSE_POSITIVE_RE =
+  /심야식당|심야\s*식당|감성주점|감성\s*술집|칵테일바|칵테일\s*바|위스키\s*바|하이볼|루프탑|루프\s*탑|라운지\s*바|크래프트\s*바|브루어리|브루펍|와인바|다이닝\s*바|스피크이지|speak\s*easy|인스타|핫플|신상|오픈\s*기념|브런치|바\s*>\s*칵테일/i;
 
 /** 음식점·술집 업종 (유흥 제외) */
 export const NOPO_VENUE_KIND_RE =
@@ -79,8 +96,22 @@ export function placeLooksLikeChainStore(place) {
   if (!place || typeof place !== "object") return false;
   const name = String(place?.place_name || place?.name || "").trim();
   if (name && NOPO_CHAIN_NAME_FALSE_POSITIVE_RE.test(name)) return false;
+  if (placeLooksLikeMultiBranchName(place)) return true;
   const text = collectNopoHaystack(place);
   return Boolean(text && NOPO_CHAIN_RE.test(text));
+}
+
+/**
+ * 「브랜드 지역점」분점 상호 — 노포가 아닌 확장·신생 체인 신호.
+ * 본점·1호점·원조점은 오래된집 표기로 흔해 분점으로 보지 않음.
+ */
+export function placeLooksLikeMultiBranchName(place) {
+  if (!place || typeof place !== "object") return false;
+  const name = String(place?.place_name || place?.name || "").trim();
+  if (!name || !NOPO_MULTI_BRANCH_NAME_RE.test(name)) return false;
+  // 본점·1호점·원조점 = 원점 표기 (을밀대 본점, 우래옥 본점 등)
+  if (NOPO_SINGLE_ORIGIN_BRANCH_RE.test(name)) return false;
+  return true;
 }
 
 /** 체인이어도 큐레이터 노포 태그가 있으면 유지 (1호점·원조 논쟁 케이스) */
@@ -159,7 +190,13 @@ export function scoreNopoSignals(place) {
       score -= 8;
       signals.push("chain_curator_exception");
     } else {
-      return { score: -100, signals: ["chain"], disallowed: true };
+      return {
+        score: -100,
+        signals: placeLooksLikeMultiBranchName(place)
+          ? ["chain", "multi_branch"]
+          : ["chain"],
+        disallowed: true,
+      };
     }
   }
 
@@ -167,13 +204,37 @@ export function scoreNopoSignals(place) {
     score += 5;
     signals.push("history");
   }
-  if (NOPO_ATMOSPHERE_RE.test(text)) {
+  // 카테고리「포장마차」단독은 신생 포차 체인 오탐 → 상호·태그·코멘트·블로그에서만 분위기 인정
+  const nameAndMeta = [
+    place?.place_name,
+    place?.name,
+    Array.isArray(place?.tags) ? place.tags.join(" ") : "",
+    place?.comment,
+    place?.curatorNote,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const textSansPojaCategory = text.replace(/포장마차/gi, " ");
+  if (
+    NOPO_ATMOSPHERE_RE.test(nameAndMeta) ||
+    NOPO_ATMOSPHERE_RE.test(textSansPojaCategory)
+  ) {
     score += 3;
     signals.push("atmosphere");
   }
   if (NOPO_VENUE_KIND_RE.test(text)) {
     score += 1;
     signals.push("venue_kind");
+  }
+  // 심야식당·칵테일·감성주점 등 — 노포 근거 없으면 강하게 감점 (약한 술집 후보로도 안 남김)
+  if (
+    NOPO_MODERN_FALSE_POSITIVE_RE.test(text) &&
+    !NOPO_HISTORY_RE.test(text) &&
+    !placeSignalsNopoCuratorMeta(place)
+  ) {
+    score -= 8;
+    signals.push("modern_false_positive");
   }
   if (placeSignalsNopoCuratorMeta(place)) {
     score += 6;
@@ -208,18 +269,33 @@ export function scoreNopoSignals(place) {
  */
 export function rankAndFilterNopoPlaces(places, opts = {}) {
   const minKeep = Number(opts.minKeep) || 3;
+  const strict = opts.strict === true;
   const list = Array.isArray(places) ? places : [];
   const scored = list.map((p) => ({ place: p, ...scoreNopoSignals(p) }));
   const allowed = scored.filter((row) => !row.disallowed);
   const positive = allowed.filter((row) => row.score >= 3);
-  const weak = allowed.filter((row) => row.score >= 1);
+  // venue_kind(+1)만 있는 일반 술집은 노포 풀에서 제외
+  const weak = allowed.filter(
+    (row) =>
+      row.score >= 2 &&
+      (row.signals?.includes("history") ||
+        row.signals?.includes("atmosphere") ||
+        row.signals?.includes("curator_nopo") ||
+        row.signals?.includes("blog_nopo"))
+  );
 
   let picked =
     positive.length >= minKeep
       ? positive
-      : weak.length >= minKeep
+      : !strict && weak.length >= minKeep
         ? weak
-        : allowed;
+        : positive.length > 0
+          ? positive
+          : !strict && weak.length > 0
+            ? weak
+            : strict
+              ? positive
+              : allowed.filter((row) => row.score >= 3);
 
   picked.sort((a, b) => b.score - a.score);
   return picked.map((row) => row.place);

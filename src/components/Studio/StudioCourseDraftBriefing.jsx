@@ -242,7 +242,6 @@ export default function StudioCourseDraftBriefing({
               <th style={{ ...styles.th, ...styles.orderCell }}>순서</th>
               <th style={styles.th}>매장</th>
               <th style={styles.th}>대표 포인트</th>
-              <th style={styles.th}>방문 팁</th>
             </tr>
           </thead>
           <tbody>
@@ -260,7 +259,6 @@ export default function StudioCourseDraftBriefing({
                 : null;
               const address = resolvePlaceAddress(place);
               const memo = String(step?.memo || "").trim() || "—";
-              const visitTip = String(step?.visit_tip || "").trim() || "—";
               return (
                 <tr key={`${placeKey}-${i}`}>
                   <td style={{ ...styles.td, ...styles.orderCell }}>{i + 1}</td>
@@ -278,7 +276,6 @@ export default function StudioCourseDraftBriefing({
                     ) : null}
                   </td>
                   <td style={styles.td}>{memo}</td>
-                  <td style={styles.td}>{visitTip}</td>
                 </tr>
               );
             })}

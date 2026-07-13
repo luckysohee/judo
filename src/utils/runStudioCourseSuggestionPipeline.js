@@ -1,10 +1,12 @@
 import {
   compactPlacesForCourseDraftAssist,
   indexPlacesByDraftKey,
+  placeKeyForCourseDraftAssist,
 } from "./compactPlacesForCourseDraftAssist.js";
 import {
   diversifyPlacesForCourseDraft,
   diversityHintForVariant,
+  rewriteDraftStepsForDiversity,
 } from "./diversifyPlacesForCourseDraft.js";
 import { discoverPlacesForCourseSuggestion } from "./discoverPlacesForCourseSuggestion.js";
 import {
@@ -23,13 +25,15 @@ import {
   sanitizeCourseDraftForWalkability,
 } from "./courseDraftWalkability.js";
 import { raceCourseDraftAssist } from "./fetchCourseDraftAssist.js";
+import { queryWantsNopoFoodFocus } from "./searchParser.js";
 
 /**
  * @param {object} p
  * @param {string} p.query
  * @param {object} p.parsed
- * @param {object[]} p.places
+ * @param {object[]} p.places — 발견 풀(재생성 시에도 원본 풀 권장)
  * @param {number} [p.variantSeed]
+ * @param {string[]} [p.excludePlaceKeys] — 직전 코스 placeKey (다른 조합)
  * @param {(msg: string) => void} [p.onPhase]
  */
 export async function runStudioCourseDraftAssistFromPlaces({
@@ -39,22 +43,35 @@ export async function runStudioCourseDraftAssistFromPlaces({
   variantSeed = 0,
   preferHiddenGems = false,
   preferCuratorPicks = true,
+  excludePlaceKeys = [],
   onPhase,
 }) {
   const stopTarget =
     parsed?.stopTarget ?? courseStopTargetForDraft(parsed);
   const minStops = Math.max(2, Number(stopTarget?.min) || 2);
+  const poolPlaces = Array.isArray(places) ? places.filter(Boolean) : [];
+  const excludeKeys = (Array.isArray(excludePlaceKeys) ? excludePlaceKeys : [])
+    .map((k) => String(k || "").trim())
+    .filter(Boolean);
 
   const intentFiltered = filterPlacesForCourseSuggestionIntent(
     String(query || "").trim(),
-    places
+    poolPlaces
   );
   const areaKey = String(parsed?.area || "").trim();
   const areaPool = areaKey
     ? filterPlacesForCourseArea(intentFiltered, areaKey)
     : intentFiltered;
-  const candidatePlaces =
-    areaKey && areaPool.length >= 2 ? areaPool : intentFiltered;
+  // 지역 고정이면 권역 밖 풀로 되돌리지 않음 (을지로 재유입 방지)
+  let candidatePlaces =
+    areaKey && areaPool.length > 0 ? areaPool : intentFiltered;
+  if (queryWantsNopoFoodFocus(String(query || "").trim(), null)) {
+    candidatePlaces = filterPlacesForCourseSuggestionIntent(
+      String(query || "").trim(),
+      candidatePlaces,
+      { minKeep: 24, minAbsolute: minStops, nopoWidePool: true }
+    );
+  }
   const walkPool = filterPlacesForWalkableCourseDraft(candidatePlaces);
   const walkCandidates =
     walkPool.length >= minStops ? walkPool : candidatePlaces;
@@ -63,6 +80,8 @@ export async function runStudioCourseDraftAssistFromPlaces({
     variantSeed,
     preferHiddenGems,
     preferCuratorPicks,
+    excludePlaceKeys: excludeKeys,
+    placeKeyFn: placeKeyForCourseDraftAssist,
   });
   const compact = annotateCompactPlacesWithWalkHints(
     compactPlacesForCourseDraftAssist(diversified, { limit: 28 }),
@@ -77,6 +96,15 @@ export async function runStudioCourseDraftAssistFromPlaces({
     );
   }
 
+  const avoidNames = excludeKeys
+    .map((k) => {
+      const p =
+        diversified.find((x) => placeKeyForCourseDraftAssist(x) === k) ||
+        poolPlaces.find((x) => placeKeyForCourseDraftAssist(x) === k);
+      return String(p?.name || p?.place_name || "").trim();
+    })
+    .filter(Boolean);
+
   onPhase?.("코스 초안 작성 중…");
 
   const assist = await raceCourseDraftAssist({
@@ -86,8 +114,10 @@ export async function runStudioCourseDraftAssistFromPlaces({
     variantSeed,
     diversityHint: diversityHintForVariant(variantSeed, {
       preferHiddenGems,
-      preferCuratorPicks,
+      preferCuratorPicks: preferCuratorPicks && excludeKeys.length === 0,
       parsed,
+      avoidPlaceKeys: excludeKeys,
+      avoidPlaceNames: avoidNames,
     }),
   });
 
@@ -119,6 +149,27 @@ export async function runStudioCourseDraftAssistFromPlaces({
   draft = sanitizeCourseDraftForWalkability(draft, placeByKey);
   draft = sanitizeCourseDraftForStopCount(draft, stopTarget);
 
+  if (excludeKeys.length > 0 && draft?.steps?.length) {
+    draft = rewriteDraftStepsForDiversity(draft, excludeKeys, compact, {
+      minStops,
+      keyFn: (p) => String(p?.placeKey || placeKeyForCourseDraftAssist(p) || "").trim(),
+      nameFn: (p) => String(p?.name || p?.place_name || "").trim(),
+    });
+    // 교체된 placeKey가 diversified에 없으면 풀에서 보강
+    for (const step of draft.steps || []) {
+      const k = String(step?.placeKey || "").trim();
+      if (k && !placeByKey.has(k)) {
+        const hit =
+          diversified.find((p) => placeKeyForCourseDraftAssist(p) === k) ||
+          poolPlaces.find((p) => placeKeyForCourseDraftAssist(p) === k);
+        if (hit) placeByKey.set(k, hit);
+      }
+    }
+    draft = sanitizeCourseDraftForArea(parsed, draft, placeByKey);
+    draft = sanitizeCourseDraftForWalkability(draft, placeByKey);
+    draft = sanitizeCourseDraftForStopCount(draft, stopTarget);
+  }
+
   if (!draft?.steps?.length || draft.steps.length < minStops) {
     const areaLabel = String(parsed?.area || "").trim();
     throw new Error(
@@ -137,7 +188,10 @@ export async function runStudioCourseDraftAssistFromPlaces({
   return {
     query: String(query || "").trim(),
     parsed,
+    /** LLM에 넘긴 섞인 후보 (미리보기용) */
     places: diversified,
+    /** 「다른 조합」은 이 풀에서 다시 뽑음 */
+    candidatePool: poolPlaces,
     placeByKey,
     draft,
     variantSeed,

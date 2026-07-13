@@ -3,6 +3,7 @@ import {
   categoryBucketForPlace,
   diversifyPlacesForCourseDraft,
   diversityHintForVariant,
+  rewriteDraftStepsForDiversity,
 } from "./diversifyPlacesForCourseDraft.js";
 
 describe("diversifyPlacesForCourseDraft", () => {
@@ -31,6 +32,43 @@ describe("diversifyPlacesForCourseDraft", () => {
 
   it("diversityHintForVariant rotates", () => {
     expect(diversityHintForVariant(0)).not.toBe(diversityHintForVariant(1));
+  });
+
+  it("excludePlaceKeys are demoted to the end", () => {
+    const places = Array.from({ length: 8 }, (_, i) => ({
+      id: `kakao_${i}`,
+      name: `Place ${i}`,
+      category: "카페",
+    }));
+    const out = diversifyPlacesForCourseDraft(places, {
+      query: "test",
+      variantSeed: 2,
+      excludePlaceKeys: ["kakao_0", "kakao_1"],
+      placeKeyFn: (p) => String(p.id),
+    });
+    const ids = out.map((p) => p.id);
+    expect(ids.slice(-2).sort()).toEqual(["kakao_0", "kakao_1"]);
+    expect(ids.slice(0, 4)).not.toContain("kakao_0");
+    expect(ids.slice(0, 4)).not.toContain("kakao_1");
+  });
+
+  it("rewriteDraftStepsForDiversity swaps overlapping stops", () => {
+    const draft = {
+      steps: [
+        { placeKey: "a", memo: "A", visit_tip: "", stay_minutes: 30 },
+        { placeKey: "b", memo: "B", visit_tip: "", stay_minutes: 30 },
+      ],
+    };
+    const out = rewriteDraftStepsForDiversity(
+      draft,
+      ["a", "b"],
+      [
+        { placeKey: "c", name: "C" },
+        { placeKey: "d", name: "D" },
+        { placeKey: "a", name: "A" },
+      ]
+    );
+    expect(out.steps.map((s) => s.placeKey).sort()).toEqual(["c", "d"]);
   });
 
   it("preferHiddenGems deprioritizes low rank (famous) kakao places", () => {

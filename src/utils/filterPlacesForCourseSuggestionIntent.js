@@ -10,7 +10,10 @@ import {
   NOPO_FOOD_DRINK_CATEGORY_RE,
   placeLooksLikeChainStore,
   placeLooksLikeNonFoodVenue,
+  rankAndFilterNopoPlaces,
+  scoreNopoSignals,
 } from "./nopoSearchProfile.js";
+import { queryWantsNopoFoodFocus } from "./searchParser.js";
 
 /** 업무 미팅에 어울리지 않는 이자카야·캐주얼 다점포 체인 */
 export const MEETING_CASUAL_CHAIN_RE =
@@ -277,6 +280,18 @@ export function buildPartyCourseSearchPhrases(query, parsed) {
   const q = String(query || "");
   const intent = detectIntents(q);
   if (intent.meeting) return [];
+
+  if (queryWantsNopoFoodFocus(q, null)) {
+    // bare 「술집」은 심야식당·호프를 끌어오므로 노포 신호 문구만
+    return [
+      `${area} 노포`,
+      `${area} 포차`,
+      `${area} 막걸리`,
+      `${area} 선술집`,
+      `${area} 골목 포차`,
+    ];
+  }
+
   const party =
     intent.after ||
     intent.drink ||
@@ -342,25 +357,46 @@ export function sanitizeCourseDraftForIntent(query, draft, placeByKey) {
   if (!draft || !Array.isArray(draft.steps) || draft.steps.length < 2) {
     return draft;
   }
-  const intent = detectIntents(query);
-  if (!intent.meeting) return draft;
+  const q = String(query || "");
+  const intent = detectIntents(q);
+  const wantsNopo = queryWantsNopoFoodFocus(q, null);
+  if (!intent.meeting && !wantsNopo) return draft;
 
   const map =
     placeByKey instanceof Map
       ? placeByKey
       : new Map(Object.entries(placeByKey || {}));
 
-  const steps = draft.steps.filter((step) => {
-    const key = String(step?.placeKey || "").trim();
-    const place = map.get(key);
-    if (!place) return true;
-    if (!placeIsFoodOrDrinkVenue(place)) return false;
-    if (placeSignalsSoloDrinking(place) || placeSignalsMeetingMismatch(place)) {
-      return false;
-    }
-    if (!placeSuitableForMeetingCourse(query, place)) return false;
-    return true;
-  });
+  let steps = draft.steps;
+  if (wantsNopo) {
+    const nopoSteps = steps.filter((step) => {
+      const key = String(step?.placeKey || "").trim();
+      const place = map.get(key);
+      if (!place) return false;
+      const { score, disallowed, signals } = scoreNopoSignals(place);
+      // wide pool과 맞춤: 체인·심야만 제외 (score≥3만 남기면 6곳만 순환)
+      return (
+        !disallowed &&
+        score >= 1 &&
+        !signals?.includes("modern_false_positive")
+      );
+    });
+    if (nopoSteps.length >= 2) steps = nopoSteps;
+  }
+
+  if (intent.meeting) {
+    steps = steps.filter((step) => {
+      const key = String(step?.placeKey || "").trim();
+      const place = map.get(key);
+      if (!place) return true;
+      if (!placeIsFoodOrDrinkVenue(place)) return false;
+      if (placeSignalsSoloDrinking(place) || placeSignalsMeetingMismatch(place)) {
+        return false;
+      }
+      if (!placeSuitableForMeetingCourse(query, place)) return false;
+      return true;
+    });
+  }
 
   if (steps.length === 0) return draft;
   return { ...draft, steps };
@@ -412,13 +448,79 @@ export function filterPlacesForCourseSuggestionIntent(query, places, opts = {}) 
   const list = Array.isArray(places) ? places.filter(Boolean) : [];
   if (list.length <= minAbsolute) return list;
 
+  const q = String(query || "");
+  if (queryWantsNopoFoodFocus(q, null)) {
+    const scored = list.map((place) => ({
+      place,
+      ...scoreNopoSignals(place),
+    }));
+    const allowed = scored.filter((row) => !row.disallowed);
+    const positive = allowed
+      .filter((row) => row.score >= 3)
+      .sort((a, b) => b.score - a.score);
+    // 코스 다양성: 체인·심야만 빼고 식음 후보를 넓게 (점수순 최대 28)
+    if (opts.nopoWidePool) {
+      const wide = allowed
+        .filter(
+          (row) =>
+            row.score >= 1 &&
+            !row.signals?.includes("modern_false_positive")
+        )
+        .sort((a, b) => b.score - a.score);
+      const take = Math.min(
+        28,
+        Math.max(minKeep, wide.length, positive.length)
+      );
+      if (wide.length >= minAbsolute) {
+        // 강한 노포를 앞에, 나머지는 점수순으로 채워 조합 여지 확보
+        const strongKeys = new Set(
+          positive.map((row) => String(row.place?.id || row.place?.name || ""))
+        );
+        const rest = wide.filter(
+          (row) =>
+            !strongKeys.has(String(row.place?.id || row.place?.name || ""))
+        );
+        return [...positive, ...rest]
+          .slice(0, take)
+          .map((row) => row.place);
+      }
+    }
+    // 노포 신호가 있는 후보가 있으면 그쪽으로만 — 일반 호프·심야식당 섞지 않음
+    if (positive.length >= minAbsolute) {
+      return positive.map((row) => row.place);
+    }
+    // soft: 역사·분위기 신호 있는 약한 후보만 (venue_kind만 있는 술집 제외)
+    if (opts.nopoSoftFallback) {
+      const soft = allowed
+        .filter(
+          (row) =>
+            row.score >= 2 &&
+            (row.signals?.includes("history") ||
+              row.signals?.includes("atmosphere") ||
+              row.signals?.includes("curator_nopo") ||
+              row.signals?.includes("blog_nopo"))
+        )
+        .sort((a, b) => b.score - a.score);
+      if (soft.length >= minAbsolute) {
+        return soft.map((row) => row.place);
+      }
+    }
+    const nopoKept = rankAndFilterNopoPlaces(list, {
+      minKeep: Math.max(minAbsolute, Math.min(8, minKeep)),
+      strict: !opts.nopoSoftFallback,
+    });
+    if (nopoKept.length >= minAbsolute) return nopoKept;
+    // 노포 근거 없으면 빈 배열에 가깝게 — 일반 술집으로 채우지 않음
+    return positive.map((row) => row.place);
+  }
+
   const intent = detectIntents(query);
   const shouldRank =
     intent.meeting ||
     intent.date ||
     intent.after ||
     intent.quiet ||
-    /혼술|혼자/.test(String(query || ""));
+    /혼술|혼자/.test(q);
 
   if (!shouldRank) return list;
 

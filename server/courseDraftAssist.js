@@ -143,6 +143,9 @@ export async function handleCourseDraftAssist(req, res, deps) {
     meetingContext &&
     (parsed?.intents?.after === true ||
       /(?:2|3)\s*차|이\s*차|삼\s*차|끝나고|뒷풀이/i.test(query));
+  const nopoContext =
+    /노포|옛날감성|숨은맛집|원조|오래된\s*집/i.test(String(query || "")) ||
+    parsed?.intents?.nopo === true;
   const areaKey = String(parsed?.area || "").trim();
   const stopCountRule = stopTarget.exact
     ? `steps는 **정확히 ${stopTarget.target}곳** (N차 = N곳). ${stopTarget.target}개 미만·초과 금지.`
@@ -161,15 +164,28 @@ export async function handleCourseDraftAssist(req, res, deps) {
                 "너는 한국 로컬 코스 큐레이터다. 빵지순례·카페 투어·데이트·술자리 등 검색 의도에 맞는 **다중 스텝 동선**을 짠다. 출력은 JSON 스키마뿐.\n\n" +
                 "[금지] places에 없는 placeKey. 목록에 없는 새 상호·주소. 타 서비스(네이버 AI 등) 문구 그대로 복사.\n" +
                 "[금지·뻔한 문구] '주차 어려움', '대중교통 이용', '영업시간 확인', 'SNS 확인'처럼 **어느 가게에나 통하는** 한 줄만 쓰지 말 것.\n\n" +
+                "[근거 엄수·환각 금지] memo·visit_tip·description·route_tips·visit_checklist·theme_tags에 **메뉴명·노포·원조·해물/회/막걸리 등 구체 주장**을 쓰려면 " +
+                "해당 place의 **category·tags·comment**에 그 내용(또는 동의어)이 **실제로 있을 때만**. " +
+                "comment가 비어 있으면 **카테고리·주소·상호만**으로 짧게 쓰고 **대표 메뉴·안주·노포 여부를 절대 지어내지 말 것**. " +
+                "검색어에 «노포»가 있어도 tags/comment에 노포 근거 없는 가게를 노포·원조·오래된집이라고 쓰지 말 것. " +
+                "해물·회·조개 등 메뉴를 추측하지 말 것.\n\n" +
+                "[장소 선택·근거] 후보는 앱이 카카오·네이버·블로그로 찾아온 목록이다. " +
+                "hasBlogEvidence=true 또는 comment에 「블로그:」/후기 요약이 있으면 **그 근거를 memo에 반영**. " +
+                "블로그 근거가 있는 후보를 우선 고르되, 동선·다양성도 고려. 근거에 없는 메뉴·분위기는 쓰지 말 것.\n\n" +
+                (nopoContext
+                  ? "[노포 코스 선택] 검색어가 노포 의도다. steps에는 **nopoOk=true** 이거나 tags/category/comment에 노포·포차·막걸리·선술·원조·오래된 근거가 있는 장소만. " +
+                    "nopoScore가 높을수록 우선. **심야식당·칵테일바·감성주점·호프·프랜차이즈**처럼 현대 술집은 nopoOk=false면 **선택 금지**. " +
+                    "후보에 노포 근거 장소가 부족하면 그 중에서만 고르고, 근거 없는 가게로 채우지 말 것.\n\n"
+                  : "") +
                 "[steps] 후보 placeKey만 사용. " +
                 stopCountRule +
-                " memo=**그 가게 대표 메뉴·특징**(카테고리·comment 근거). visit_tip=**그 가게만** 해당(품절 메뉴·웨이팅·좌석·테이크아웃·추천 시간대). 상호명을 memo·visit_tip 안에도 넣어라.\n" +
+                " memo=**근거 있는 특징만**(카테고리·comment). **visit_tip는 항상 빈 문자열 \"\"** (쓰지 않음).\n" +
                 "[route_tips] 동선 요령 2~4개. **각 항목에 steps에 넣은 상호명 1개 이상** + 동선 순서·이동 이유·가게 간 거리·comment·주소 단서. " +
-                "예: '베통→성수베이킹: 성수역 쪽 먼저 두면 소금빵 품절 전 1·2번째 점 커버'.\n" +
+                "예: '베통→성수베이킹: 성수역 쪽 먼저 두면 소금빵 품절 전 1·2번째 점 커버'(단 comment에 소금빵이 있을 때만).\n" +
                 "[visit_checklist] 방문 전 체크 2~4개. **매장별 실행 팁** — 항목마다 상호명 포함, 그 가게 comment·카테고리·주소를 근거로 콕 집어 쓸 것. " +
-                "예: '크램 성수 — 크로issant·무화과 토스트 테이크아웃만, 좌석 4석이라 늦은 점심 웨이팅'.\n" +
-                "[description] 코스 소개 2~4문장 — 선택한 매장명·대표 메뉴·추천 시간대를 구체적으로. title·description은 검색어 맥락에 **새로** 작성.\n" +
-                "[comment 필드] 후보 JSON의 comment(큐레이터 한줄·메뉴 사유)가 있으면 memo·visit_tip·route_tips·visit_checklist에 **반드시** 반영.\n" +
+                "예: '크램 성수 — 크로issant·무화과 토스트 테이크아웃만'(comment 근거 있을 때만).\n" +
+                "[description] 코스 소개 2~4문장 — 선택한 매장명·**근거 있는** 특징·추천 시간대. title·description은 검색어 맥락에 **새로** 작성하되 사실 날조 금지.\n" +
+                "[comment 필드] 후보 JSON의 comment(큐레이터 한줄·메뉴 사유)가 있으면 memo·route_tips·visit_checklist에 **반드시** 반영. 없으면 메뉴를 만들지 말 것.\n" +
                 "[도보 동선] 코스는 **같은 동네 안 도보**가 기본. 연속 장소는 **직선 1km 이내**가 이상적, **2km 미만**까지. " +
                 "2km 넘게 벌어지면 그 가게만큼 메리트(대표 메뉴·분위기)가 있을 때만 넣고 route_tips에 **택시/이동 이유**를 적어라. " +
                 "walkFromHubM(후보 중심까지 m)이 큰 장소는 우선순위 낮춤. steps 순서는 **걸어 다니기 좋게**.\n" +
@@ -177,7 +193,8 @@ export async function handleCourseDraftAssist(req, res, deps) {
                   ? `[지역 고정] 검색 지역은 **${areaKey}** 뿐. steps·route_tips·visit_checklist·title·description·area 필드에 **${areaKey} 밖 동네·구 이름(용산·종로·을지로 등)을 넣지 말 것**. 후보 address가 ${areaKey}와 맞지 않으면 선택 금지.\n`
                   : "") +
                 "[다양성] 같은 검색어라도 **매번 다른 조합**. 후보 앞쪽(유명점)만 반복하지 말 것. " +
-                "카테고리·분위기·동선을 섞고, 후보 중·후반 장소도 포함. 프랜차이즈·같은 체인 연속 금지.\n" +
+                "카테고리·분위기·동선을 섞고, 후보 중·후반 장소도 포함. 프랜차이즈·같은 체인 연속 금지. " +
+                "diversityHint에 금지 placeKey가 있으면 **절대 다시 고르지 말 것**(대안 부족 시 최대 1곳).\n" +
                 (meetingContext
                   ? "[업무·미팅] 한정식·다이닝·일식·양식·룸 있는 레스토랑 등 접대·격식 식사 위주. 이자카야·체인·혼술·1인 주점·헌팅·클럽·포장마차·시끌 유흥은 **선택 금지**.\n"
                   : "") +
@@ -200,14 +217,19 @@ export async function handleCourseDraftAssist(req, res, deps) {
                 `규칙:\n` +
                 `- steps[].placeKey는 위 placeKey만\n` +
                 `- ${stopCountRule}\n` +
-                `- memo·visit_tip: 각 60~120자, **상호명 + 메뉴/특징 + 그 가게만 해당하는 팁**\n` +
-                `- route_tips·visit_checklist: 각 2~4개, **항목마다 steps에 넣은 상호명 포함**, comment·category·address 근거로 구체적으로\n` +
+                `- memo: 40~120자. **comment·category·tags에 있는 내용만**. 없으면 메뉴·노포·해물을 지어내지 말 것\n` +
+                `- visit_tip: 항상 "" (비움). 방문 팁은 쓰지 않음\n` +
+                `- route_tips·visit_checklist: 각 2~4개, **항목마다 steps에 넣은 상호명 포함**, comment·category·address 근거로만\n` +
                 `- route_tips는 **2곳 이상 상호를 한 문장에** 묶어 동선 이유 설명\n` +
                 `- visit_checklist는 **매장 1곳당 1항목** 위주(품절·웨이팅·좌석·테이크아웃·추천 시간)\n` +
                 `- **도보 동선**: 구간 1km 이내 선호, 2km 미만. 멀면 택시 사유 필수\n` +
                 (areaKey
                   ? `- **지역 ${areaKey} 고정**: 다른 구·동네 장소·동선 설명 금지\n`
                   : "") +
+                (nopoContext
+                  ? `- **노포 코스**: nopoOk=true 또는 nopoScore≥3 후보만 steps에. 심야식당·호프·감성주점 금지\n`
+                  : "") +
+                `- hasBlogEvidence=true 후보를 우선 고려하고, comment의 블로그 요약을 memo에 반영\n` +
                 (diversityHint
                   ? `- 다양성 힌트(variant ${variantSeed}): ${diversityHint}\n`
                   : `- 다양성: 유명점만 나열하지 말고 후보 전체에서 고르게 선택\n`),
@@ -223,7 +245,7 @@ export async function handleCourseDraftAssist(req, res, deps) {
           schema: COURSE_DRAFT_ASSIST_SCHEMA,
         },
       },
-      temperature: 0.72,
+      temperature: variantSeed > 0 ? 0.9 : 0.55,
     });
 
     const out = JSON.parse(response.output_text);

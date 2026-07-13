@@ -229,4 +229,187 @@ describe("filterPlacesForCourseSuggestionIntent", () => {
     );
     expect(draft.steps.map((s) => s.placeKey)).toEqual(["b"]);
   });
+
+  it("노포 코스 검색에서는 신호 없는 모던 바보다 노포 태그를 남긴다", () => {
+    const query = "충무로 노포 술집 코스";
+    const places = [
+      {
+        id: "modern",
+        name: "디핀 충무로",
+        category: "술집 > 칵테일바",
+      },
+      {
+        id: "nopo",
+        name: "필동 막걸리집",
+        category: "술집 > 포장마차",
+        tags: ["노포", "막걸리"],
+      },
+      {
+        id: "chain",
+        name: "스타벅스 충무로점",
+        category: "카페 > 커피전문점",
+      },
+    ];
+    const out = filterPlacesForCourseSuggestionIntent(query, places, {
+      minKeep: 2,
+      minAbsolute: 1,
+    });
+    expect(out.some((p) => p.id === "nopo")).toBe(true);
+    expect(out.some((p) => p.id === "chain")).toBe(false);
+    expect(out.some((p) => p.id === "modern")).toBe(false);
+  });
+
+  it("노포 코스에서 심야식당·일반 호프는 빼고 노포 태그만 남긴다", () => {
+    const query = "충무로 노포 술집 코스";
+    const places = [
+      {
+        id: "baeksu",
+        name: "백수씨심야식당",
+        category: "술집 > 호프",
+      },
+      {
+        id: "hop",
+        name: "아무호프",
+        category: "술집 > 호프",
+      },
+      {
+        id: "nopo",
+        name: "필동 포차",
+        category: "술집 > 포장마차",
+        tags: ["노포"],
+      },
+    ];
+    const out = filterPlacesForCourseSuggestionIntent(query, places, {
+      minKeep: 2,
+      minAbsolute: 1,
+    });
+    expect(out.map((p) => p.id)).toEqual(["nopo"]);
+  });
+
+  it("노포 검색 phrase에 bare 술집을 넣지 않는다", () => {
+    const phrases = buildPartyCourseSearchPhrases("충무로 노포 술집 코스", {
+      area: "충무로",
+    });
+    expect(phrases.some((p) => /노포|포차|막걸리|선술/.test(p))).toBe(true);
+    expect(phrases.some((p) => /술집$/.test(p) && !/선술집$/.test(p))).toBe(
+      false
+    );
+  });
+
+  it("노포 soft fallback도 심야식당·호프를 다시 넣지 않는다", () => {
+    const query = "충무로 노포 술집 코스";
+    const places = [
+      {
+        id: "baeksu",
+        name: "백수씨심야식당",
+        category: "술집 > 호프",
+      },
+      {
+        id: "hop",
+        name: "아무호프",
+        category: "술집 > 호프",
+      },
+      {
+        id: "weak",
+        name: "골목 작은집",
+        category: "술집",
+        tags: ["분위기"],
+        comment: "오래된 골목 분위기",
+      },
+    ];
+    const out = filterPlacesForCourseSuggestionIntent(query, places, {
+      minKeep: 2,
+      minAbsolute: 1,
+      nopoSoftFallback: true,
+    });
+    expect(out.some((p) => p.id === "baeksu")).toBe(false);
+    expect(out.some((p) => p.id === "hop")).toBe(false);
+  });
+
+  it("LLM 초안에서 노포 근거 없는 step을 제거한다", () => {
+    const query = "충무로 노포 술집 코스";
+    const placeByKey = new Map([
+      [
+        "a",
+        { name: "백수씨심야식당", category: "술집 > 호프" },
+      ],
+      [
+        "b",
+        {
+          name: "필동 포차",
+          category: "술집 > 포장마차",
+          tags: ["노포"],
+        },
+      ],
+      [
+        "c",
+        {
+          name: "인현동 막걸리",
+          category: "술집 > 전통주점",
+          tags: ["노포", "막걸리"],
+        },
+      ],
+    ]);
+    const draft = sanitizeCourseDraftForIntent(
+      query,
+      {
+        steps: [
+          { placeKey: "a", memo: "", visit_tip: "", stay_minutes: 0 },
+          { placeKey: "b", memo: "", visit_tip: "", stay_minutes: 0 },
+          { placeKey: "c", memo: "", visit_tip: "", stay_minutes: 0 },
+        ],
+      },
+      placeByKey
+    );
+    expect(draft.steps.map((s) => s.placeKey)).toEqual(["b", "c"]);
+  });
+
+  it("노포 코스에서 분점 상호(을지로점)는 제외한다", () => {
+    const query = "을지로 노포 술집 코스";
+    const places = [
+      {
+        id: "yuk",
+        name: "육회관포차 을지로점",
+        category: "술집 > 포장마차",
+      },
+      {
+        id: "nopo",
+        name: "을지로 골목 막걸리",
+        category: "술집 > 전통주점",
+        tags: ["노포"],
+      },
+    ];
+    const out = filterPlacesForCourseSuggestionIntent(query, places, {
+      minKeep: 2,
+      minAbsolute: 1,
+    });
+    expect(out.map((p) => p.id)).toEqual(["nopo"]);
+  });
+
+  it("노포 wide pool은 본점·막걸리뿐 아니라 일반 한식 후보도 남긴다", () => {
+    const query = "을지로 노포";
+    const places = [
+      { id: "1", name: "을밀대 본점", category: "한식 > 국수" },
+      { id: "2", name: "은주정", category: "한식 > 주점" },
+      { id: "3", name: "대성집", category: "한식 > 국밥" },
+      { id: "4", name: "남포면옥", category: "한식 > 국수" },
+      { id: "5", name: "황평집", category: "한식" },
+      { id: "6", name: "백수씨심야식당", category: "술집 > 호프" },
+      { id: "7", name: "육회관포차 을지로점", category: "술집 > 포장마차" },
+      { id: "8", name: "챔프커피 을지로", category: "카페" },
+    ];
+    const out = filterPlacesForCourseSuggestionIntent(query, places, {
+      minKeep: 8,
+      minAbsolute: 2,
+      nopoWidePool: true,
+    });
+    const ids = out.map((p) => p.id);
+    expect(ids).toContain("1");
+    expect(ids).toContain("2");
+    expect(ids).toContain("3");
+    expect(ids).toContain("4");
+    expect(ids).not.toContain("6");
+    expect(ids).not.toContain("7");
+    expect(out.length).toBeGreaterThanOrEqual(5);
+  });
 });

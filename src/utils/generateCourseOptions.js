@@ -161,9 +161,69 @@ const COURSE_AREA_CORE = {
     deny: [/성수/, /서울숲/, /성동구/, /역삼/, /삼성동/, /옥수|금호/, /잠원|반포/, /한남|독서당/],
   },
   명동: {
-    km: 1.5,
-    allow: [/명동/, /회현/, /충무로/, /을지로/, /남대문로[1-9]길/, /소공동/, /북창동/, /다동/, /무교/, /태평로/, /저동/, /남산동/],
-    deny: [/남영/, /숙대/, /갈월/, /용산구/, /한강대로/, /신당|약수|다산/],
+    km: 1.4,
+    allow: [
+      /명동/,
+      /회현/,
+      /충무로/,
+      /남대문로[1-9]길/,
+      /소공동/,
+      /북창동/,
+      /태평로/,
+      /저동/,
+      /남산동/,
+    ],
+    deny: [
+      /다동/,
+      /무교/,
+      /을지로입구/,
+      /시청/,
+      /세종대로/,
+      /남영/,
+      /숙대/,
+      /갈월/,
+      /용산구/,
+      /한강대로/,
+      /신당|약수|다산/,
+    ],
+  },
+  충무로: {
+    /**
+     * 주소 «충무로N가»만으로 넣지 않음 — 충무로역 좌표 반경만 허용.
+     * 을지로3가 ≈ 0.6km → km 0.5로 차단.
+     */
+    km: 0.5,
+    stationCoreKm: 0.5,
+    distanceFirst: true,
+    allow: [
+      /충무로/,
+      /필동/,
+      /인현/,
+      /예장/,
+      /초동/,
+      /퇴계로/,
+    ],
+    deny: [
+      /다동/,
+      /무교/,
+      /시청/,
+      /세종대로/,
+      /광화문/,
+      /을지로/,
+      /청계/,
+      /명동/,
+      /회현/,
+      /저동/,
+      /남산동/,
+      /소공/,
+      /북창/,
+      /남영/,
+      /숙대/,
+      /갈월/,
+      /용산구/,
+      /신당|약수|다산/,
+      /동대문역|동대문시장/,
+    ],
   },
   신촌: {
     km: 1.8,
@@ -217,18 +277,44 @@ function placeHardExcludedFromArea(place, areaKey) {
 
   // 1) 무조건 제외(인접 타 권역 토큰)
   if (cfg.deny?.some((re) => re.test(blob))) return true;
-  // 2) 이 동네 구체 동/지명 보유 → 경계라도 유지
-  if (cfg.allow?.some((re) => re.test(blob))) return false;
-  // 3) 코어 반경 밖이면 제외(주소 토큰이 제각각이어도 거리로 확실히 끊음)
-  if (cfg.km != null) {
+
+  const hasAllow = Boolean(cfg.allow?.some((re) => re.test(blob)));
+  let distKm = null;
+  if (cfg.km != null || cfg.stationCoreKm != null || cfg.distanceFirst) {
     const center = getRegionCenterCoords(areaKey);
     const w = resolvePlaceWgs84(place);
     if (center && w) {
-      const distKm =
-        haversineMeters(center.lat, center.lng, w.lat, w.lng) / 1000;
-      if (distKm > cfg.km) return true;
+      distKm = haversineMeters(center.lat, center.lng, w.lat, w.lng) / 1000;
     }
   }
+
+  // 충무로역 등: 주소 토큰보다 역 좌표 반경이 우선 («충무로» 주소라도 을지로3가면 제외)
+  if (cfg.distanceFirst) {
+    const maxKm = cfg.km ?? cfg.stationCoreKm;
+    if (distKm != null && maxKm != null) {
+      return distKm > maxKm;
+    }
+    // 좌표 없을 때만 허용 동·지명으로 완화
+    return !hasAllow;
+  }
+
+  // 2) 허용 동·지명 매칭 → 유지
+  if (hasAllow) return false;
+
+  // 3) stationCore: 토큰 없어도 역 바로 옆 좌표만 허용
+  if (
+    cfg.stationCoreKm != null &&
+    distKm != null &&
+    distKm <= cfg.stationCoreKm
+  ) {
+    return false;
+  }
+
+  // 4) 허용 토큰 필수 권역
+  if (cfg.requireAllowToken) return true;
+
+  // 5) 일반: 코어 반경 밖이면 제외
+  if (cfg.km != null && distKm != null && distKm > cfg.km) return true;
   return false;
 }
 
@@ -920,6 +1006,21 @@ const COURSE_AREA_FALLBACK_PHRASES = {
     "남창동",
     "봉래동",
   ],
+  충무로: [
+    "충무로",
+    "충무로역",
+    "필동",
+    "인현동",
+    "예장동",
+    "초동",
+    "퇴계로",
+    "서울 중구 필동",
+    "서울특별시 중구 필동",
+    "서울 중구 인현",
+    "서울 중구 초동",
+    "서울 중구 충무로",
+    "서울 중구 예장",
+  ],
 };
 
 function filterPlacesByCourseAreaFallback(places, areaKey) {
@@ -967,8 +1068,14 @@ export function resolveCourseAreaPool(places, parsedQuery) {
     areaPlaces.push(p);
   }
 
-  // 지역 키워드가 잘못 잡히거나(상호명 등) 풀이 비면 전체로 풀어 2차 후보 0건을 막음
+  // 지역 키워드가 잘못 잡히거나(상호명 등) 풀이 비면 전체로 풀어 2차 후보 0건을 막음.
+  // 단, 충무로처럼 역 좌표 고정(distanceFirst) 권역은 절대 전체 풀로 풀지 않음
+  // → 비는 순간 을지로·명동 후보가 다시 들어오는 문제 방지
   if (!areaPlaces.length && Array.isArray(places) && places.length) {
+    const cfg = COURSE_AREA_CORE[area];
+    if (cfg?.distanceFirst || cfg?.requireAllowToken) {
+      return { areaPlaces: [], effectiveParsed: parsedQuery };
+    }
     const { area: _drop, ...rest } = parsedQuery || {};
     return { areaPlaces: places, effectiveParsed: rest };
   }

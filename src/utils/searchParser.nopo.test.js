@@ -87,6 +87,63 @@ describe("노포 검색", () => {
     expect(s.score).toBeGreaterThan(2);
   });
 
+  it("scoreNopoSignals — 심야식당은 노포로 안 봄", () => {
+    const s = scoreNopoSignals({
+      place_name: "백수씨심야식당",
+      category_name: "술집 > 호프",
+    });
+    expect(s.score).toBeLessThan(2);
+    expect(s.signals).toContain("modern_false_positive");
+  });
+
+  it("scoreNopoSignals — 육회관포차 을지로점 같은 분점·신생 체인은 제외", () => {
+    const s = scoreNopoSignals({
+      place_name: "육회관포차 을지로점",
+      category_name: "술집 > 포장마차",
+    });
+    expect(s.disallowed).toBe(true);
+    expect(s.signals).toContain("chain");
+    expect(s.signals).toContain("multi_branch");
+  });
+
+  it("scoreNopoSignals — 을밀대·우래옥 본점은 분점으로 오인하지 않음", () => {
+    for (const name of ["을밀대 본점", "우래옥 본점", "평양면옥 본점"]) {
+      const s = scoreNopoSignals({
+        place_name: name,
+        category_name: "음식점 > 한식 > 국수",
+      });
+      expect(s.disallowed).toBe(false);
+      expect(s.signals).not.toContain("multi_branch");
+      expect(s.score).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("scoreNopoSignals — 1호점만으로 역사 점수 주지 않음", () => {
+    const s = scoreNopoSignals({
+      place_name: "다시열린하얀집 1호점",
+      category_name: "한식",
+    });
+    expect(s.signals).not.toContain("history");
+  });
+
+  it("scoreNopoSignals — 카테고리 포장마차만으로는 노포 분위기 점수 없음", () => {
+    const s = scoreNopoSignals({
+      place_name: "아무포차",
+      category_name: "술집 > 포장마차",
+    });
+    expect(s.signals).not.toContain("atmosphere");
+    expect(s.score).toBeLessThan(3);
+  });
+
+  it("scoreNopoSignals — 상호에 골목·포장마차가 있으면 분위기 인정", () => {
+    const s = scoreNopoSignals({
+      place_name: "골목 포장마차",
+      category_name: "포장마차",
+    });
+    expect(s.disallowed).toBe(false);
+    expect(s.score).toBeGreaterThanOrEqual(3);
+  });
+
   it("queryWantsNopoFoodFocus", () => {
     expect(queryWantsNopoFoodFocus("강남구 노포", null)).toBe(true);
     expect(queryWantsNopoFoodFocus("강남 와인바", null)).toBe(false);
