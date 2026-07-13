@@ -20,6 +20,61 @@ function throwIfSupabaseError(error, koLabel) {
   throw error;
 }
 
+function trimOrNull(raw, maxLen) {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  return t.slice(0, maxLen);
+}
+
+function normalizeBookingStatusForSave(raw) {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "bookable" || s === "recommended" || s === "walkin") return s;
+  return "unknown";
+}
+
+/** 마이그레이션 전 DB — booking_* 컬럼 없음 */
+let coursePlaceBookingColumnsReady = null;
+
+function isMissingBookingColumnError(error) {
+  const msg = String(error?.message || error?.details || "");
+  const code = String(error?.code || "");
+  return (
+    code === "42703" ||
+    /booking_status|booking_url|booking_phone|crowd_note/i.test(msg)
+  );
+}
+
+function stripBookingFieldsFromPlaceRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const {
+      booking_status: _a,
+      booking_url: _b,
+      booking_phone: _c,
+      crowd_note: _d,
+      ...rest
+    } = r || {};
+    return rest;
+  });
+}
+
+const COURSE_PLACES_SELECT_CORE = `
+        id,
+        course_id,
+        place_id,
+        order_index,
+        memo,
+        image_url,
+        stay_minutes,
+        created_at`;
+
+const COURSE_PLACES_SELECT_BOOKING = `
+        booking_status,
+        booking_url,
+        booking_phone,
+        crowd_note`;
+
 async function assertCourseEditable(courseId, label) {
   const { data, error } = await supabase
     .from("curator_courses")
@@ -92,6 +147,10 @@ function normalizePublicCuratorCoursesRow(row) {
  * @property {string} [memo]
  * @property {string} [image_url]
  * @property {number|null} [stay_minutes]
+ * @property {'unknown'|'bookable'|'recommended'|'walkin'|null} [booking_status]
+ * @property {string|null} [booking_url]
+ * @property {string|null} [booking_phone]
+ * @property {string|null} [crowd_note]
  */
 
 /**
@@ -225,21 +284,20 @@ export async function deleteCuratorCourse(courseId) {
  */
 export async function fetchCuratorCourseById(courseId) {
   const id = assertUuid(courseId, "fetchCuratorCourseById.courseId");
-  const { data, error } = await supabase
+  const withBooking = coursePlaceBookingColumnsReady !== false;
+  const placesSelect = withBooking
+    ? `${COURSE_PLACES_SELECT_CORE},${COURSE_PLACES_SELECT_BOOKING},
+        places (*)`
+    : `${COURSE_PLACES_SELECT_CORE},
+        places (*)`;
+
+  let { data, error } = await supabase
     .from("curator_courses")
     .select(
       `
       *,
       curator_course_places (
-        id,
-        course_id,
-        place_id,
-        order_index,
-        memo,
-        image_url,
-        stay_minutes,
-        created_at,
-        places (*)
+        ${placesSelect}
       )
     `
     )
@@ -249,6 +307,35 @@ export async function fetchCuratorCourseById(courseId) {
       foreignTable: "curator_course_places",
     })
     .maybeSingle();
+
+  if (error && withBooking && isMissingBookingColumnError(error)) {
+    coursePlaceBookingColumnsReady = false;
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[curatorCourses] booking_* 컬럼 없음 — 마이그레이션 전 조회 폴백"
+      );
+    }
+    ({ data, error } = await supabase
+      .from("curator_courses")
+      .select(
+        `
+      *,
+      curator_course_places (
+        ${COURSE_PLACES_SELECT_CORE},
+        places (*)
+      )
+    `
+      )
+      .eq("id", id)
+      .order("order_index", {
+        ascending: true,
+        foreignTable: "curator_course_places",
+      })
+      .maybeSingle());
+  } else if (!error && withBooking) {
+    coursePlaceBookingColumnsReady = true;
+  }
+
   throwIfSupabaseError(error, "[코스 단건 조회 실패]");
   if (!data) return null;
   const steps = Array.isArray(data.curator_course_places)
@@ -262,7 +349,30 @@ export async function fetchCuratorCourseById(courseId) {
 /** 홈 코스 탭·지도 미리보기 — `places (*)` 없이 필요한 컬럼만 */
 export async function fetchCuratorCourseForHomePreview(courseId) {
   const id = assertUuid(courseId, "fetchCuratorCourseForHomePreview.courseId");
-  const { data, error } = await supabase
+  const withBooking = coursePlaceBookingColumnsReady !== false;
+  const placesSelect = withBooking
+    ? `${COURSE_PLACES_SELECT_CORE},${COURSE_PLACES_SELECT_BOOKING},
+        places (
+          id,
+          name,
+          lat,
+          lng,
+          kakao_place_id,
+          address,
+          category
+        )`
+    : `${COURSE_PLACES_SELECT_CORE},
+        places (
+          id,
+          name,
+          lat,
+          lng,
+          kakao_place_id,
+          address,
+          category
+        )`;
+
+  let { data, error } = await supabase
     .from("curator_courses")
     .select(
       `
@@ -278,13 +388,41 @@ export async function fetchCuratorCourseForHomePreview(courseId) {
       is_public,
       imported_from_course_id,
       curator_course_places (
-        id,
-        course_id,
-        place_id,
-        order_index,
-        memo,
-        image_url,
-        stay_minutes,
+        ${placesSelect}
+      )
+    `
+    )
+    .eq("id", id)
+    .order("order_index", {
+      ascending: true,
+      foreignTable: "curator_course_places",
+    })
+    .maybeSingle();
+
+  if (error && withBooking && isMissingBookingColumnError(error)) {
+    coursePlaceBookingColumnsReady = false;
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[curatorCourses] booking_* 컬럼 없음 — 홈 미리보기 폴백"
+      );
+    }
+    ({ data, error } = await supabase
+      .from("curator_courses")
+      .select(
+        `
+      id,
+      title,
+      description,
+      cover_image_url,
+      area,
+      theme_tags,
+      curator_id,
+      created_at,
+      status,
+      is_public,
+      imported_from_course_id,
+      curator_course_places (
+        ${COURSE_PLACES_SELECT_CORE},
         places (
           id,
           name,
@@ -296,13 +434,17 @@ export async function fetchCuratorCourseForHomePreview(courseId) {
         )
       )
     `
-    )
-    .eq("id", id)
-    .order("order_index", {
-      ascending: true,
-      foreignTable: "curator_course_places",
-    })
-    .maybeSingle();
+      )
+      .eq("id", id)
+      .order("order_index", {
+        ascending: true,
+        foreignTable: "curator_course_places",
+      })
+      .maybeSingle());
+  } else if (!error && withBooking) {
+    coursePlaceBookingColumnsReady = true;
+  }
+
   throwIfSupabaseError(error, "[코스 홈 미리보기 조회 실패]");
   if (!data) return null;
   const steps = Array.isArray(data.curator_course_places)
@@ -509,6 +651,10 @@ export async function saveCuratorCoursePlaces(courseId, places) {
         raw.stay_minutes == null
           ? null
           : Math.max(0, Math.floor(Number(raw.stay_minutes))),
+      booking_status: normalizeBookingStatusForSave(raw.booking_status),
+      booking_url: trimOrNull(raw.booking_url, 2000),
+      booking_phone: trimOrNull(raw.booking_phone, 40),
+      crowd_note: trimOrNull(raw.crowd_note, 120),
     };
   });
 
@@ -530,10 +676,31 @@ export async function saveCuratorCoursePlaces(courseId, places) {
     .eq("course_id", cid);
   throwIfSupabaseError(delErr, "[코스 장소 저장 실패: 기존 삭제]");
 
-  const { data, error } = await supabase
-    .from("curator_course_places")
-    .insert(rows)
-    .select();
+  const tryInsert = async (payload) =>
+    supabase.from("curator_course_places").insert(payload).select();
+
+  let { data, error } = await tryInsert(
+    coursePlaceBookingColumnsReady === false
+      ? stripBookingFieldsFromPlaceRows(rows)
+      : rows
+  );
+
+  if (
+    error &&
+    coursePlaceBookingColumnsReady !== false &&
+    isMissingBookingColumnError(error)
+  ) {
+    coursePlaceBookingColumnsReady = false;
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[curatorCourses] booking_* 컬럼 없음 — 예약 필드 제외하고 저장"
+      );
+    }
+    ({ data, error } = await tryInsert(stripBookingFieldsFromPlaceRows(rows)));
+  } else if (!error && coursePlaceBookingColumnsReady !== false) {
+    coursePlaceBookingColumnsReady = true;
+  }
+
   throwIfSupabaseError(error, "[코스 장소 저장 실패: 삽입]");
   return Array.isArray(data) ? data : [];
 }
@@ -647,6 +814,10 @@ export async function duplicateCuratorCourseToMine(courseId) {
         s.stay_minutes == null
           ? null
           : Math.max(0, Math.floor(Number(s.stay_minutes))),
+      booking_status: normalizeBookingStatusForSave(s.booking_status),
+      booking_url: trimOrNull(s.booking_url, 2000),
+      booking_phone: trimOrNull(s.booking_phone, 40),
+      crowd_note: trimOrNull(s.crowd_note, 120),
     }));
 
   await saveCuratorCoursePlaces(newId, placeRows);

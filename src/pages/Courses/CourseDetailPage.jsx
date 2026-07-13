@@ -28,6 +28,7 @@ import { resolveCourseCoverForCourse } from "../../utils/courseStepThumb";
 import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 import { mapPlaceRowForCourse } from "../../api/places";
 import CourseMapPreview from "../../components/Course/CourseMapPreview";
+import CourseStepScheduleList from "../../components/Course/CourseStepScheduleList";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import {
@@ -98,6 +99,7 @@ export default function CourseDetailPage() {
   const [likedByMe, setLikedByMe] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
   const [isCurator, setIsCurator] = useState(false);
+  const [scheduleStartClock, setScheduleStartClock] = useState("18:00");
 
   useEffect(() => {
     let cancelled = false;
@@ -346,6 +348,10 @@ export default function CourseDetailPage() {
           category: meta.category,
           memo: s.memo != null ? String(s.memo).trim() : "",
           stay_minutes: stay,
+          booking_status: String(s.booking_status || "unknown").trim() || "unknown",
+          booking_url: String(s.booking_url || "").trim(),
+          booking_phone: String(s.booking_phone || "").trim(),
+          crowd_note: String(s.crowd_note || "").trim(),
         };
       }),
     [sortedSteps]
@@ -1236,6 +1242,15 @@ export default function CourseDetailPage() {
             })
           )}
         </div>
+        {displaySteps.length > 0 ? (
+          <div style={{ marginTop: 16 }}>
+            <CourseStepScheduleList
+              steps={displaySteps}
+              startClock={scheduleStartClock}
+              onStartClockChange={setScheduleStartClock}
+            />
+          </div>
+        ) : null}
         <div style={{ ...studioCoursesRowActions, marginTop: "22px" }}>
           <button
             type="button"

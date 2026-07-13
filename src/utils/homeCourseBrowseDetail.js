@@ -41,6 +41,10 @@ export function normalizeHomeCourseBrowseDetail(row) {
         category: meta.category || "",
         memo: s.memo != null ? String(s.memo).trim() : "",
         stay_minutes: stay,
+        booking_status: String(s.booking_status || "unknown").trim() || "unknown",
+        booking_url: String(s.booking_url || "").trim(),
+        booking_phone: String(s.booking_phone || "").trim(),
+        crowd_note: String(s.crowd_note || "").trim(),
         image_url: s.image_url || null,
         step_label: `${stepNum}차`,
       });

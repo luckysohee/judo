@@ -12,6 +12,7 @@ import {
 import { shareOrCopyCourseLink } from "../../utils/courseDetailUi";
 import { supabase } from "../../lib/supabase";
 import CoursePreviewPlaceStampRow from "../Course/CoursePreviewPlaceStampRow";
+import CourseStepScheduleList from "../Course/CourseStepScheduleList";
 import {
   areAllCourseStepsStamped,
   fetchCourseStampSteps,
@@ -381,6 +382,7 @@ export default function HomeCourseDiscoveryDetail({
   const [localGuideIndex, setLocalGuideIndex] = useState(0);
   const [localCompleted, setLocalCompleted] = useState(false);
   const [stampStateLoading, setStampStateLoading] = useState(false);
+  const [scheduleStartClock, setScheduleStartClock] = useState("18:00");
 
   const courseId = String(course?.courseId || "").trim();
   const activeFollowId = String(followCourseId || "").trim();
@@ -691,7 +693,19 @@ export default function HomeCourseDiscoveryDetail({
     ...s,
     place_id: String(s.place_id || places[i]?.place_id || "").trim(),
     memo: places[i]?.memo || s.memo,
+    stay_minutes: places[i]?.stay_minutes ?? s.stay_minutes,
+    booking_status: places[i]?.booking_status || s.booking_status,
+    booking_url: places[i]?.booking_url || s.booking_url,
+    booking_phone: places[i]?.booking_phone || s.booking_phone,
+    crowd_note: places[i]?.crowd_note || s.crowd_note,
+    name: places[i]?.name || s.name,
+    orderLabel: places[i]?.step_label || s.label || `${i + 1}차`,
   }));
+  const scheduleSteps = places.length > 0 ? places.map((p, i) => ({
+    ...p,
+    key: p.place_id || `p-${i}`,
+    orderLabel: p.step_label || `${i + 1}차`,
+  })) : thumbSteps;
   const cover = pickCourseDisplayCoverUrl({ ...course, thumb_steps: thumbSteps });
   const metaRest = [
     course.area,
@@ -817,6 +831,11 @@ export default function HomeCourseDiscoveryDetail({
                 replayBusy={replayBusy}
                 onReplayStamps={onReplayStamps}
                 stampStateVersion={stampStateVersion}
+              />
+              <CourseStepScheduleList
+                steps={scheduleSteps}
+                startClock={scheduleStartClock}
+                onStartClockChange={setScheduleStartClock}
               />
             </div>
           ) : null}

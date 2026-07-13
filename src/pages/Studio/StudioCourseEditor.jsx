@@ -18,6 +18,7 @@ import { ensurePlaceUuidForPick } from "../../utils/resolvePlaceUuidForPick";
 import {
   resolveCourseCoverFromFirstPlace,
 } from "../../utils/courseStepThumb";
+import { COURSE_BOOKING_STATUS_OPTIONS } from "../../utils/courseTimeAssurance";
 import {
   studioCoursesShell,
   studioCoursesScrollMain,
@@ -105,6 +106,10 @@ function captureEditorSnapshot({
       place_id: String(r.place_id).trim().toLowerCase(),
       memo: String(r.memo ?? "").trim(),
       stay_minutes: String(r.stay_minutes ?? "").trim(),
+      booking_status: String(r.booking_status ?? "unknown").trim(),
+      booking_url: String(r.booking_url ?? "").trim(),
+      booking_phone: String(r.booking_phone ?? "").trim(),
+      crowd_note: String(r.crowd_note ?? "").trim(),
     }));
   return JSON.stringify({
     title: String(title ?? "").trim(),
@@ -131,6 +136,10 @@ function newPlaceRowFromHit(hit) {
     kakao_place_id: String(h.kakao_place_id || "").trim() || null,
     memo: "",
     stay_minutes: "",
+    booking_status: "unknown",
+    booking_url: "",
+    booking_phone: "",
+    crowd_note: "",
   };
 }
 
@@ -317,6 +326,10 @@ export default function StudioCourseEditor() {
                 s.stay_minutes != null && s.stay_minutes !== ""
                   ? String(s.stay_minutes)
                   : "",
+              booking_status: String(s.booking_status || "unknown").trim() || "unknown",
+              booking_url: String(s.booking_url || "").trim(),
+              booking_phone: String(s.booking_phone || "").trim(),
+              crowd_note: String(s.crowd_note || "").trim(),
             };
             if (row.place_lat == null || row.place_lng == null) {
               return enrichPlaceRowKakaoMeta(row);
@@ -497,6 +510,10 @@ export default function StudioCourseEditor() {
         memo: String(placeRows[i].memo ?? "").trim() || null,
         image_url: null,
         stay_minutes: stay,
+        booking_status: String(placeRows[i].booking_status || "unknown").trim(),
+        booking_url: String(placeRows[i].booking_url ?? "").trim() || null,
+        booking_phone: String(placeRows[i].booking_phone ?? "").trim() || null,
+        crowd_note: String(placeRows[i].crowd_note ?? "").trim() || null,
       });
     }
     if (cleaned.length > 6) {
@@ -1396,7 +1413,7 @@ export default function StudioCourseEditor() {
                         userSelect: "none",
                       }}
                     >
-                      메모·체류 (선택)
+                      메모·체류·예약 (선택)
                     </summary>
                     <label style={{ ...studioCoursesLabel, marginTop: "8px" }}>
                       메모
@@ -1410,13 +1427,56 @@ export default function StudioCourseEditor() {
                     />
                     <label style={studioCoursesLabel}>체류(분)</label>
                     <input
-                      style={{ ...studioCoursesInput, marginBottom: 0 }}
+                      style={{ ...studioCoursesInput, marginBottom: "8px" }}
                       value={row.stay_minutes}
                       onChange={(e) =>
                         updateRow(row.key, "stay_minutes", e.target.value)
                       }
                       inputMode="numeric"
                       placeholder="선택"
+                    />
+                    <label style={studioCoursesLabel}>예약 상태</label>
+                    <select
+                      style={{ ...studioCoursesInput, marginBottom: "8px" }}
+                      value={row.booking_status || "unknown"}
+                      onChange={(e) =>
+                        updateRow(row.key, "booking_status", e.target.value)
+                      }
+                    >
+                      {COURSE_BOOKING_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <label style={studioCoursesLabel}>예약 링크 (URL)</label>
+                    <input
+                      style={{ ...studioCoursesInput, marginBottom: "8px" }}
+                      value={row.booking_url || ""}
+                      onChange={(e) =>
+                        updateRow(row.key, "booking_url", e.target.value)
+                      }
+                      placeholder="https://…"
+                      inputMode="url"
+                    />
+                    <label style={studioCoursesLabel}>전화 예약</label>
+                    <input
+                      style={{ ...studioCoursesInput, marginBottom: "8px" }}
+                      value={row.booking_phone || ""}
+                      onChange={(e) =>
+                        updateRow(row.key, "booking_phone", e.target.value)
+                      }
+                      placeholder="02-…"
+                      inputMode="tel"
+                    />
+                    <label style={studioCoursesLabel}>혼잡·웨이팅 메모</label>
+                    <input
+                      style={{ ...studioCoursesInput, marginBottom: 0 }}
+                      value={row.crowd_note || ""}
+                      onChange={(e) =>
+                        updateRow(row.key, "crowd_note", e.target.value)
+                      }
+                      placeholder="예: 금요일 혼잡"
                     />
                   </details>
                 </div>
