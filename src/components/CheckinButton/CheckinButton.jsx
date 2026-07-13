@@ -8,7 +8,10 @@ import {
   resolveCheckinPlaceCoords,
   resolvePlaceWgs84,
 } from "../../utils/placeCoords";
-import { resolveCheckinDisplayName } from "../../utils/checkinDisplayName";
+import {
+  mergeCheckinProfileLabelRow,
+  resolveCheckinDisplayName,
+} from "../../utils/checkinDisplayName";
 import {
   formatFireLine,
   normalizeHanjanStats,
@@ -132,6 +135,9 @@ function messageForHanjanError(err) {
   }
   if (msg.includes("checkin_location_accuracy_too_poor")) {
     return "GPS 정확도가 너무 낮습니다. 실외에서 다시 시도해 주세요.";
+  }
+  if (msg.includes("checkin_already_within_24h")) {
+    return "이 장소는 24시간에 한 번만 한잔할 수 있어요.";
   }
   if (msg.includes("checkin_not_authenticated")) {
     return "로그인이 필요합니다.";
@@ -258,14 +264,23 @@ export default function CheckinButton({
       return undefined;
     }
     (async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("display_name, username")
-        .eq("id", user.id)
-        .maybeSingle();
+      const [{ data: prof, error: pe }, { data: cur, error: ce }] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("display_name, username, avatar_url")
+            .eq("id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("curators")
+            .select("user_id, name, display_name, slug, username, avatar_url")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+        ]);
       if (cancelled) return;
-      if (!error && data) setProfileRow(data);
-      else setProfileRow(null);
+      if (pe) console.warn("checkin profile:", pe.message || pe);
+      if (ce) console.warn("checkin curator:", ce.message || ce);
+      setProfileRow(mergeCheckinProfileLabelRow(prof, cur));
     })();
     return () => {
       cancelled = true;
@@ -283,9 +298,9 @@ export default function CheckinButton({
 
   const getUserNickname = () => resolveCheckinDisplayName(user, profileRow);
 
-  /** 오늘 KST 기준 이 장소에 이미 한잔 기록이 있는지 (토스트용, 버튼은 막지 않음) */
-  const userAlreadyHanjanToday = async () => {
-    if (!user?.id) return false;
+  /** 같은 장소 · rolling 24시간 내 이미 한잔했는지 */
+  const userAlreadyHanjanWithin24h = async () => {
+    if (!user?.id || !placeId) return false;
     try {
       const { data, error } = await supabase
         .from("check_ins")
@@ -294,7 +309,7 @@ export default function CheckinButton({
         .eq("user_id", user.id)
         .gte(
           "created_at",
-          new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString()
+          new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
         )
         .limit(1);
       if (error) return false;
@@ -303,6 +318,23 @@ export default function CheckinButton({
       return false;
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id || !placeId) {
+      setHanjanPicked(false);
+      return undefined;
+    }
+    void (async () => {
+      const already = await userAlreadyHanjanWithin24h();
+      if (!cancelled && already) setHanjanPicked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // placeId/user 변경 시만 — helper 재생성 무시
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, placeId]);
 
   const handleHanjan = () => {
     if (loading) return;
@@ -315,27 +347,32 @@ export default function CheckinButton({
       return;
     }
 
-    const nickname = getUserNickname();
-    const confirmed = window.confirm(
-      `🍶 ${placeName}\n\n「한잔함」은 "${nickname}" 닉네임으로 이 장소에 남는 기록이에요. 홈 화면에 기록이 공개됩니다.\n\n기록할까요?`
-    );
+    void (async () => {
+      const already = await userAlreadyHanjanWithin24h();
+      if (already) {
+        setHanjanPicked(true);
+        showToast("이 장소는 24시간에 한 번만 한잔할 수 있어요.", "info", 3200);
+        return;
+      }
 
-    if (confirmed) {
-      queueMicrotask(() => {
-        void executeHanjan();
-      });
-    }
+      const nickname = getUserNickname();
+      const confirmed = window.confirm(
+        `🍶 ${placeName}\n\n「한잔함」은 "${nickname}" 닉네임으로 이 장소에 남는 기록이에요. 홈 화면에 기록이 공개됩니다.\n\n기록할까요?`
+      );
+
+      if (confirmed) {
+        queueMicrotask(() => {
+          void executeHanjan();
+        });
+      }
+    })();
   };
 
   const toastAfterSuccess = async (skipDistanceCheck) => {
     const s = await refreshAfterRecord();
     const total = s?.totalDedup ?? 0;
     if (skipDistanceCheck) {
-      const again = await userAlreadyHanjanToday();
-      showToast(
-        again ? "🍶 또 한잔 추가됨 😏" : "🍶 한잔 기록했어요",
-        "success"
-      );
+      showToast("🍶 한잔 기록했어요", "success");
       return;
     }
     if (total >= 5) {
@@ -462,7 +499,7 @@ export default function CheckinButton({
             });
           } else {
             const looseOnly = window.confirm(
-              "위치를 확인하지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
+              "위치를 확인하지 못했습니다.\n\n위치 없이 한잔만 남길까요? (같은 장소는 24시간에 1번만 가능해요.)"
             );
             if (looseOnly) {
               await runHanjanRpc({
@@ -487,7 +524,7 @@ export default function CheckinButton({
       );
       if (plat == null || plng == null) {
         const looseOnly = window.confirm(
-          "장소 좌표를 찾지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
+          "장소 좌표를 찾지 못했습니다.\n\n위치 없이 한잔만 남길까요? (같은 장소는 24시간에 1번만 가능해요.)"
         );
         if (looseOnly) {
           await runHanjanRpc({
@@ -521,7 +558,7 @@ export default function CheckinButton({
         if (distM != null && distM > 1200) {
           showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
           const looseOnly = window.confirm(
-            `이 장소와 ${formatDistanceLabel(distM) ?? "멀리"} 떨어져 있습니다.\n\n가게 근처가 맞는지, 지도 핀 위치를 확인해 주세요.\n\n위치 검증 없이 오늘 1회만 기록할까요?`
+            `이 장소와 ${formatDistanceLabel(distM) ?? "멀리"} 떨어져 있습니다.\n\n가게 근처가 맞는지, 지도 핀 위치를 확인해 주세요.\n\n위치 검증 없이 기록할까요? (같은 장소는 24시간에 1번만 가능해요.)`
           );
           if (looseOnly) {
             await runHanjanRpc({
@@ -584,7 +621,7 @@ export default function CheckinButton({
           if (!isTooFarRpcError(retryErr)) {
             if (isGeoTimeoutOrDenied(retryErr)) {
               const looseOnly = window.confirm(
-                "정확한 위치를 다시 받지 못했습니다.\n\n위치 없이 한잔만 남길까요? (숫자에는 오늘 1번만 반영돼요.)"
+                "정확한 위치를 다시 받지 못했습니다.\n\n위치 없이 한잔만 남길까요? (같은 장소는 24시간에 1번만 가능해요.)"
               );
               if (looseOnly) {
                 await runHanjanRpc({
@@ -604,7 +641,7 @@ export default function CheckinButton({
 
         showToast(messageForTooFarFromPlace(rpcErr), "warning", 4500);
         const looseOnly = window.confirm(
-          "가게 근처에서 다시 시도해 주세요.\n\n그래도 기록이 필요하면 위치 검증 없이 오늘 1회만 남길 수 있어요. 진행할까요?"
+          "가게 근처에서 다시 시도해 주세요.\n\n그래도 기록이 필요하면 위치 검증 없이 남길 수 있어요. (같은 장소는 24시간에 1번만 가능해요.) 진행할까요?"
         );
         if (looseOnly) {
           await runHanjanRpc({

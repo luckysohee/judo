@@ -4,7 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "../Toast/ToastProvider";
 import { supabase } from "../../lib/supabase";
 import { fetchMutualCheckins } from "../../utils/userActivity";
-import { resolveCheckinRowDisplayName } from "../../utils/checkinDisplayName";
+import {
+  mergeCheckinProfileLabelRow,
+  resolveCheckinRowDisplayName,
+} from "../../utils/checkinDisplayName";
 import { HOME_HOT_STRIP_CONTENT_SLOT_PX } from "../../utils/homeHotStripLayout";
 import PickUserButton from "../PickUserButton/PickUserButton";
 
@@ -261,17 +264,17 @@ export default function MutualCheckinsHomeSection({
           const uid = c?.user_id != null ? String(c.user_id) : "";
           if (!uid) continue;
           const prev = pmap[uid] || { id: uid };
-          const nick = String(
-            c.display_name || c.name || prev.display_name || prev.username || "",
-          ).trim();
           const handle = String(c.slug || c.username || prev.username || "").trim();
-          pmap[uid] = {
-            ...prev,
-            id: uid,
-            display_name: nick || prev.display_name,
-            username: handle || prev.username,
-            avatar_url: String(c.avatar_url || "").trim() || prev.avatar_url,
-          };
+          pmap[uid] = mergeCheckinProfileLabelRow(
+            {
+              ...prev,
+              id: uid,
+              display_name: prev.display_name,
+              username: handle || prev.username,
+              avatar_url: String(c.avatar_url || "").trim() || prev.avatar_url,
+            },
+            c,
+          );
         }
         setProfilesById(pmap);
       } else {

@@ -1483,6 +1483,8 @@ export default function Home() {
   const mapMarkersBootstrappedRef = useRef(false);
   const lastMapBoundsRef = useRef(null);
   const lastMapLevelRef = useRef(null);
+  /** 검색 '이 근처' 기준점 — React state는 ~45m 이상 이동 시에만 갱신 */
+  const lastMapCenterEmittedRef = useRef(null);
   /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
   const homeSearchSkipCoursePreviewRef = useRef(false);
   /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
@@ -4668,7 +4670,7 @@ export default function Home() {
       }
       if (typeof level === "number" && Number.isFinite(level)) {
         lastMapLevelRef.current = level;
-        setMapZoomLevel(level);
+        setMapZoomLevel((prev) => (prev === level ? prev : level));
       }
       // 코스 2차 찾기·코스 경로 표시 중에는 지도를 움직여도 DB '불러오기'를 하지 않는다.
       // (불필요한 places-in-bounds 요청·캐시 낭비 방지 + 마커 재생성으로 2차 후보
@@ -4697,7 +4699,17 @@ export default function Home() {
         typeof lng === "number" &&
         Number.isFinite(lng)
       ) {
-        setMapViewportCenterFromUser({ lat, lng });
+        const prev = lastMapCenterEmittedRef.current;
+        const dLatM = prev ? (lat - prev.lat) * 111320 : Infinity;
+        const dLngM = prev
+          ? (lng - prev.lng) * 111320 * Math.cos((lat * Math.PI) / 180)
+          : Infinity;
+        const movedM = Math.hypot(dLatM, dLngM);
+        // 미세 팬마다 Home 전체 리렌더 하지 않음 (검색 '이 근처'용 기준점만 갱신)
+        if (!prev || movedM >= 45 || forceImmediate) {
+          lastMapCenterEmittedRef.current = { lat, lng };
+          setMapViewportCenterFromUser({ lat, lng });
+        }
       }
     },
     [

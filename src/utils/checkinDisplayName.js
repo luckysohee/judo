@@ -14,22 +14,58 @@ function looksLikeFullEmail(s) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s).trim());
 }
 
+/** 공개 표시에 쓸 수 있는 짧은 이름인지 */
+function isUsablePublicLabel(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return false;
+  if (looksLikeFullEmail(t)) return false;
+  if (t.includes("@")) return false;
+  return true;
+}
+
 /**
- * 공개 표시용 — profiles.username(핸들) 우선, 없으면 display_name
- * @param {{ display_name?: string, username?: string }|null|undefined} profileRow
+ * 공개 표시용 — 스튜디오 별명(curators.name) → profiles 닉네임 → @핸들
+ * `profileRow.name` 에 큐레이터 별명을 실어 올 수 있음.
+ * @param {{ display_name?: string, username?: string, name?: string }|null|undefined} profileRow
  */
 export function resolveProfilePublicLabel(profileRow) {
-  const handle = stripLeadingAt(profileRow?.username);
-  if (handle) return handle.slice(0, 100);
+  const curatorNick = String(profileRow?.name || "").trim();
+  if (isUsablePublicLabel(curatorNick)) return curatorNick.slice(0, 100);
+
   const fromProfile = (profileRow?.display_name || "").trim();
-  if (fromProfile) return fromProfile.slice(0, 100);
+  if (isUsablePublicLabel(fromProfile)) return fromProfile.slice(0, 100);
+
+  const handle = stripLeadingAt(profileRow?.username);
+  if (isUsablePublicLabel(handle)) return handle.slice(0, 100);
   return "";
 }
 
 /**
- * check_ins 행 표시 — profile 핸들 우선, 없으면 저장된 user_nickname
+ * profiles + curators 행을 체크인 표시용으로 합침.
+ * 스튜디오 「별명」은 curators.name.
+ */
+export function mergeCheckinProfileLabelRow(profileRow, curatorRow) {
+  const p = profileRow && typeof profileRow === "object" ? profileRow : {};
+  const c = curatorRow && typeof curatorRow === "object" ? curatorRow : null;
+  const curatorNick = c
+    ? String(c.name || c.display_name || "").trim()
+    : "";
+  return {
+    ...p,
+    id: p.id ?? c?.user_id,
+    name: curatorNick || String(p.name || "").trim(),
+    display_name: String(p.display_name || "").trim(),
+    username: String(
+      c?.slug || c?.username || p.username || ""
+    ).trim(),
+    avatar_url: String(c?.avatar_url || p.avatar_url || "").trim(),
+  };
+}
+
+/**
+ * check_ins 행 표시 — 프로필/큐레이터 별명 우선, 없으면 저장된 user_nickname
  * @param {object|null|undefined} row
- * @param {Record<string, { display_name?: string, username?: string }>|null|undefined} profilesById
+ * @param {Record<string, { display_name?: string, username?: string, name?: string }>|null|undefined} profilesById
  */
 export function resolveCheckinRowDisplayName(row, profilesById) {
   const uid = row?.user_id != null ? String(row.user_id) : "";
@@ -38,33 +74,36 @@ export function resolveCheckinRowDisplayName(row, profilesById) {
     if (label) return label;
   }
   const stored = String(row?.user_nickname || row?.user || "").trim();
-  if (stored) return stored.slice(0, 100);
+  if (isUsablePublicLabel(stored)) return stored.slice(0, 100);
   return "아는 사람";
 }
 
 /**
- * check_ins.user_nickname 에 넣을 표시 이름 (핸들 우선)
+ * check_ins.user_nickname 에 넣을 표시 이름 (스튜디오 별명·닉네임 우선)
  * @param {object|null} user — Supabase auth user
- * @param {{ display_name?: string, username?: string }|null|undefined} profileRow — profiles 한 행
+ * @param {{ display_name?: string, username?: string, name?: string }|null|undefined} profileRow
  */
 export function resolveCheckinDisplayName(user, profileRow) {
   if (!user) return "게스트";
 
-  const handle = stripLeadingAt(profileRow?.username);
-  if (handle) return handle.slice(0, 100);
-
-  const md = user.user_metadata || {};
-  let uName = stripLeadingAt(md.username);
-  if (uName && !looksLikeFullEmail(uName)) return uName.slice(0, 100);
+  const curatorNick = String(profileRow?.name || "").trim();
+  if (isUsablePublicLabel(curatorNick)) return curatorNick.slice(0, 100);
 
   const fromProfile = (profileRow?.display_name || "").trim();
-  if (fromProfile) return fromProfile.slice(0, 100);
+  if (isUsablePublicLabel(fromProfile)) return fromProfile.slice(0, 100);
 
+  const md = user.user_metadata || {};
   const mdName = (md.display_name || md.full_name || md.name || "").trim();
-  if (mdName) return mdName.slice(0, 100);
+  if (isUsablePublicLabel(mdName)) return mdName.slice(0, 100);
 
   const nick = String(md.nickname || "").trim();
-  if (nick && !nick.includes("@") && !looksLikeFullEmail(nick)) return nick.slice(0, 100);
+  if (isUsablePublicLabel(nick)) return nick.slice(0, 100);
+
+  const handle = stripLeadingAt(profileRow?.username);
+  if (isUsablePublicLabel(handle)) return handle.slice(0, 100);
+
+  const uName = stripLeadingAt(md.username);
+  if (isUsablePublicLabel(uName)) return uName.slice(0, 100);
 
   const local = legacyEmailLocalPart(user.email);
   if (local) return local.slice(0, 100);
@@ -113,6 +152,7 @@ export function checkinNicknameAliases(user, profileRow) {
   const md = user?.user_metadata || {};
   const raw = [
     primary,
+    String(profileRow?.name || "").trim(),
     stripLeadingAt(profileRow?.username),
     (profileRow?.display_name || "").trim(),
     legacyEmailLocalPart(user?.email),

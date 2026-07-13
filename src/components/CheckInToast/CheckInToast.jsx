@@ -4,7 +4,10 @@ import { useRealtimeCheckins, consumeNewPeerCheckinRows } from '../../hooks/useR
 import { useAuth } from '../../context/AuthContext';
 import { useToastSettings } from '../../hooks/useToastSettings';
 import { supabase } from '../../lib/supabase';
-import { resolveCheckinRowDisplayName } from '../../utils/checkinDisplayName';
+import {
+  mergeCheckinProfileLabelRow,
+  resolveCheckinRowDisplayName,
+} from '../../utils/checkinDisplayName';
 
 /** false — 실제 check_ins만 표시 (테스트용 데모 토스트 끔) */
 const SHOW_CHECKIN_TOAST_DEMO = false;
@@ -153,14 +156,32 @@ const CheckInToast = () => {
     }
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, username, display_name")
-        .in("id", ids);
-      if (cancelled || error || !Array.isArray(data)) return;
+      const [{ data: profs, error: pe }, { data: curs, error: ce }] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("id, username, display_name, avatar_url")
+            .in("id", ids),
+          supabase
+            .from("curators")
+            .select("user_id, name, display_name, slug, username, avatar_url")
+            .in("user_id", ids),
+        ]);
+      if (cancelled) return;
+      if (pe) console.warn("checkin toast profiles:", pe.message || pe);
+      if (ce) console.warn("checkin toast curators:", ce.message || ce);
+      const byProfile = {};
+      for (const p of profs || []) {
+        if (p?.id) byProfile[String(p.id)] = p;
+      }
+      const byCurator = {};
+      for (const c of curs || []) {
+        const uid = c?.user_id != null ? String(c.user_id) : "";
+        if (uid) byCurator[uid] = c;
+      }
       const next = {};
-      for (const p of data) {
-        if (p?.id) next[String(p.id)] = p;
+      for (const id of ids) {
+        next[id] = mergeCheckinProfileLabelRow(byProfile[id], byCurator[id]);
       }
       setProfilesById(next);
     })();
@@ -169,7 +190,7 @@ const CheckInToast = () => {
     };
   }, [recentCheckins]);
 
-  /** Supabase check_ins 행 → 토스트용 (핸들 우선) */
+  /** Supabase check_ins 행 → 토스트용 (별명 우선) */
   const enrichCheckinRow = useCallback((c) => {
     const nick = resolveCheckinRowDisplayName(c, profilesById);
     const placeLabel = (c.place_name || c.place || "").trim();

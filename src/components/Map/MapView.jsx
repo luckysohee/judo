@@ -3,7 +3,10 @@ import createMarker, {
   isCourseBridgeMapPin,
   isEphemeralSearchMapMarker,
 } from "../../utils/createMarker";
-import { shouldUsePhotoCircleMarker } from "../../utils/mapPhotoCircleMarker";
+import {
+  MAP_PHOTO_CIRCLE_MARKER_MAX_LEVEL,
+  shouldUsePhotoCircleMarker,
+} from "../../utils/mapPhotoCircleMarker";
 import { getKakaoJavascriptAppKey, loadKakaoMapsSdk } from "../../utils/loadKakaoMapsSdk";
 import {
   resolvePlaceWgs84,
@@ -432,6 +435,80 @@ function placesViewportSignature(places) {
   return `${places.length}|${parts.join(";")}`;
 }
 
+/** 마커 재생성 스킵용 — 줌 미세 변화는 시각 밴드·클러스터 옵션만 반영 */
+function markerVisualFingerprint(places, extras = {}) {
+  const {
+    selectedPlace = null,
+    livePlaceIds = null,
+    checkinCountByPlaceId = null,
+    hotRankTopPlaceIds = null,
+    savedColorMap = null,
+    photoBand = 0,
+    clusterSnap = null,
+    mapDensityLayerActive = false,
+    situationFolderFilter = "",
+    courseRouteOnMap = false,
+    courseSecondPickMode = false,
+  } = extras;
+  const placesSig = placesViewportSignature(places);
+  const selectedId =
+    selectedPlace?.id != null ? String(selectedPlace.id) : "";
+  const selectedKid = normalizeKakaoPlaceId(selectedPlace) || "";
+  let liveKey = "";
+  if (livePlaceIds instanceof Set && livePlaceIds.size > 0) {
+    liveKey = [...livePlaceIds].map(String).sort().join(",");
+  }
+  let checkinFp = "";
+  if (checkinCountByPlaceId && Array.isArray(places)) {
+    for (const p of places) {
+      const id = p?.id != null ? String(p.id) : "";
+      if (!id) continue;
+      const c = checkinCountByPlaceId[id];
+      if (c) checkinFp += `${id}:${c};`;
+    }
+  }
+  const hotFp = Array.isArray(hotRankTopPlaceIds)
+    ? hotRankTopPlaceIds.map(String).join(",")
+    : "";
+  let savedFp = "";
+  if (savedColorMap && Array.isArray(places)) {
+    for (const p of places) {
+      const id = p?.id != null ? String(p.id) : "";
+      if (!id) continue;
+      const color = savedColorMap[id] || savedColorMap[p.id];
+      if (color) savedFp += `${id}:${color};`;
+    }
+  }
+  const clusterKey = clusterSnap
+    ? `${clusterSnap.useClusterer ? 1 : 0}:${clusterSnap.gridSize ?? ""}:${clusterSnap.minClusterSize ?? ""}`
+    : "";
+  return [
+    placesSig,
+    selectedId,
+    selectedKid,
+    liveKey,
+    checkinFp,
+    hotFp,
+    savedFp,
+    photoBand,
+    clusterKey,
+    mapDensityLayerActive ? 1 : 0,
+    situationFolderFilter || "",
+    courseRouteOnMap ? 1 : 0,
+    courseSecondPickMode ? 1 : 0,
+  ].join("|");
+}
+
+function boundsAlmostEqual(a, b, eps = 1e-5) {
+  if (!a?.sw || !a?.ne || !b?.sw || !b?.ne) return false;
+  return (
+    Math.abs(a.sw.lat - b.sw.lat) < eps &&
+    Math.abs(a.sw.lng - b.sw.lng) < eps &&
+    Math.abs(a.ne.lat - b.ne.lat) < eps &&
+    Math.abs(a.ne.lng - b.ne.lng) < eps
+  );
+}
+
 /** 체크인 랭킹 TOP과 place.id / place_id 등 매칭 */
 /** 마커 옆 짧은 자막 — 체크인·핫만. 상황 칩(1차·2차·분위기) 딱지는 지도에 안 붙임 */
 function buildMapShortCaption(_place, _situationFolderKey, checkinMeta) {
@@ -700,6 +777,8 @@ const MapView = forwardRef(({
 
   const lockAutoMoveRef = useRef(lockAutoMove);
   lockAutoMoveRef.current = lockAutoMove;
+  /** 동일 idle 중복 parent notify 방지 */
+  const lastEmittedViewportRef = useRef(null);
 
   useEffect(
     () => () => {
@@ -748,6 +827,22 @@ const MapView = forwardRef(({
     if (!boundsPayload?.sw || !boundsPayload?.ne) {
       boundsPayload = approxBoundsFromKakaoMapCenter(lat, lng, lv);
     }
+    const prev = lastEmittedViewportRef.current;
+    if (
+      prev &&
+      prev.level === lv &&
+      Math.abs(prev.lat - lat) < 1e-5 &&
+      Math.abs(prev.lng - lng) < 1e-5 &&
+      boundsAlmostEqual(prev.bounds, boundsPayload)
+    ) {
+      return;
+    }
+    lastEmittedViewportRef.current = {
+      lat,
+      lng,
+      level: lv,
+      bounds: boundsPayload,
+    };
     onViewportChangeRef.current?.({
       lat,
       lng,
@@ -811,6 +906,8 @@ const MapView = forwardRef(({
   }, []);
 
   const prevPlacesSigRef = useRef("");
+  /** 마커 시각이 안 바뀌면 destroy/rebuild 스킵 */
+  const prevMarkerRebuildSigRef = useRef("");
   /** 첫 진입 부트 — 스플래시·인트로가 실제 핀 렌더 완료를 기다릴 때 1회만 신호 */
   const mapMarkersBootPaintedRef = useRef(false);
 
@@ -1721,27 +1818,27 @@ const MapView = forwardRef(({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
 
-    // 마커를 새로 만들기 전에 기존 코스 펄스(깜빡임) interval을 정리한다.
-    // (지도 이동·줌으로 이 effect가 재실행돼 마커가 교체될 때, 옛 마커에 붙은
-    //  interval이 남아 새 마커가 깜빡이지 않던 버그 방지 — 펄스를 마커 수명에 묶음)
-    for (const id of coursePulseIntervalsRef.current) window.clearInterval(id);
-    coursePulseIntervalsRef.current = [];
-
     if (mapDensityLayerActive) {
+      for (const id of coursePulseIntervalsRef.current) window.clearInterval(id);
+      coursePulseIntervalsRef.current = [];
       markersRef.current.forEach((m) => m.setMap(null));
       disposeClusterer(clustererRef.current);
       clustererRef.current = null;
       prevClusterGridSizeRef.current = null;
       lastAppliedClusterOptionsRef.current = null;
+      prevMarkerRebuildSigRef.current = "density";
       return;
     }
 
     if (!places?.length) {
+      for (const id of coursePulseIntervalsRef.current) window.clearInterval(id);
+      coursePulseIntervalsRef.current = [];
       markersRef.current.forEach((m) => m.setMap(null));
       disposeClusterer(clustererRef.current);
       clustererRef.current = null;
       prevClusterGridSizeRef.current = null;
       lastAppliedClusterOptionsRef.current = null;
+      prevMarkerRebuildSigRef.current = "empty";
       return;
     }
 
@@ -1782,16 +1879,56 @@ const MapView = forwardRef(({
         prevClusterGridSizeRef.current
       );
       clusterOpts = { ...rawOpts, gridSize: stabilizedGrid };
-      prevClusterGridSizeRef.current = stabilizedGrid;
     } else {
       clusterOpts = rawOpts;
+    }
+
+    const courseRouteOnMap = Boolean(
+      Array.isArray(courseOverlay?.polylinePath) &&
+        courseOverlay.polylinePath.length >= 2
+    );
+    const photoBand =
+      rawLevel <= MAP_PHOTO_CIRCLE_MARKER_MAX_LEVEL ? 1 : 0;
+    const optsSnapshotForSig = snapshotClusterOpts(clusterOpts);
+    const rebuildSig = markerVisualFingerprint(validPlaces, {
+      selectedPlace,
+      livePlaceIds,
+      checkinCountByPlaceId,
+      hotRankTopPlaceIds,
+      savedColorMap,
+      photoBand,
+      clusterSnap: optsSnapshotForSig,
+      mapDensityLayerActive: false,
+      situationFolderFilter,
+      courseRouteOnMap,
+      courseSecondPickMode,
+    });
+
+    // 줌만 살짝 바뀌고 마커 시각이 같으면 전부 갈아끼우지 않음 (팬/핀치 체감 개선)
+    if (
+      prevMarkerRebuildSigRef.current === rebuildSig &&
+      markersRef.current.length > 0
+    ) {
+      return;
+    }
+    prevMarkerRebuildSigRef.current = rebuildSig;
+
+    // 마커를 새로 만들기 전에 기존 코스 펄스(깜빡임) interval을 정리한다.
+    // (지도 이동·줌으로 이 effect가 재실행돼 마커가 교체될 때, 옛 마커에 붙은
+    //  interval이 남아 새 마커가 깜빡이지 않던 버그 방지 — 펄스를 마커 수명에 묶음)
+    for (const id of coursePulseIntervalsRef.current) window.clearInterval(id);
+    coursePulseIntervalsRef.current = [];
+
+    if (rawOpts.useClusterer) {
+      prevClusterGridSizeRef.current = clusterOpts.gridSize;
+    } else {
       prevClusterGridSizeRef.current = null;
     }
 
     const useCluster =
       clusterOpts.useClusterer && Boolean(window.kakao?.maps?.MarkerClusterer);
 
-    const optsSnapshot = snapshotClusterOpts(clusterOpts);
+    const optsSnapshot = optsSnapshotForSig;
     const sameClusterSetup =
       useCluster &&
       clustererRef.current &&
@@ -1830,10 +1967,6 @@ const MapView = forwardRef(({
     const bounds = new window.kakao.maps.LatLngBounds();
     const liveMarkers = [];
     const clusterMarkers = [];
-    const courseRouteOnMap = Boolean(
-      Array.isArray(courseOverlay?.polylinePath) &&
-        courseOverlay.polylinePath.length >= 2
-    );
 
     const nextMarkers = [];
     const pulseMarkers = [];
