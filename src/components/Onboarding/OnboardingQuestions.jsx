@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   buildTasteOnboardingQuestions,
+  resolveOnboardingRegions,
 } from "../../utils/userTasteProfile";
 
 /**
@@ -33,6 +34,10 @@ export default function OnboardingQuestions({
   }, [initialAnswers]);
 
   const questions = useMemo(() => buildTasteOnboardingQuestions(), []);
+  const currentQ = questions[currentQuestion];
+  const regionsSelected = Array.isArray(answers.regions) ? answers.regions : [];
+  const showRegionsOtherInput =
+    currentQ?.id === "regions" && regionsSelected.includes("기타");
 
   const handleAnswer = (questionId, value, isMultiple = false) => {
     setAnswers((prev) => {
@@ -41,7 +46,11 @@ export default function OnboardingQuestions({
         const newValues = currentValues.includes(value)
           ? currentValues.filter((v) => v !== value)
           : [...currentValues, value];
-        return { ...prev, [questionId]: newValues };
+        const next = { ...prev, [questionId]: newValues };
+        if (questionId === "regions" && !newValues.includes("기타")) {
+          delete next.regions_other;
+        }
+        return next;
       }
       return { ...prev, [questionId]: value };
     });
@@ -56,6 +65,8 @@ export default function OnboardingQuestions({
     if (out.prefer_walkable === "yes") out.prefer_walkable = true;
     else if (out.prefer_walkable === "no") out.prefer_walkable = false;
     else delete out.prefer_walkable;
+    out.regions = resolveOnboardingRegions(out);
+    delete out.regions_other;
     onComplete?.(out);
   };
 
@@ -66,13 +77,19 @@ export default function OnboardingQuestions({
   const canProceed = () => {
     const question = questions[currentQuestion];
     const answer = answers[question.id];
+    if (question.id === "regions") {
+      const list = Array.isArray(answer) ? answer : [];
+      if (list.length === 0) return false;
+      if (list.includes("기타")) {
+        return String(answers.regions_other || "").trim().length >= 1;
+      }
+      return true;
+    }
     if (question.type === "single") {
       return answer != null && answer !== "";
     }
     return Array.isArray(answer) && answer.length > 0;
   };
-
-  const currentQ = questions[currentQuestion];
 
   return (
     <div
@@ -214,7 +231,7 @@ export default function OnboardingQuestions({
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 8,
-                marginBottom: 28,
+                marginBottom: showRegionsOtherInput ? 12 : 28,
               }}
             >
               {currentQ.options.map((option) => {
@@ -255,6 +272,59 @@ export default function OnboardingQuestions({
                 );
               })}
             </div>
+
+            {showRegionsOtherInput ? (
+              <div style={{ marginBottom: 28 }}>
+                <label
+                  htmlFor="judo-regions-other"
+                  style={{
+                    display: "block",
+                    marginBottom: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  자주 가는 동네를 직접 적어 주세요
+                </label>
+                <input
+                  id="judo-regions-other"
+                  type="text"
+                  value={String(answers.regions_other || "")}
+                  onChange={(e) =>
+                    setAnswers((prev) => ({
+                      ...prev,
+                      regions_other: e.target.value,
+                    }))
+                  }
+                  placeholder="예: 파주, 분당, 수원"
+                  autoComplete="off"
+                  autoFocus
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(167, 139, 250, 0.45)",
+                    background: "rgba(0,0,0,0.35)",
+                    color: "#f5f5f5",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    outline: "none",
+                  }}
+                />
+                <p
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: 11,
+                    color: "rgba(255,255,255,0.45)",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  여러 곳이면 쉼표로 구분할 수 있어요.
+                </p>
+              </div>
+            ) : null}
           </motion.div>
         </AnimatePresence>
 
@@ -301,6 +371,7 @@ export default function OnboardingQuestions({
               fontWeight: 700,
               cursor: canProceed() ? "pointer" : "not-allowed",
               marginLeft: "auto",
+              opacity: canProceed() ? 1 : 0.55,
             }}
           >
             {currentQuestion === questions.length - 1

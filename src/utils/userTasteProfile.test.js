@@ -136,4 +136,19 @@ describe("userTasteProfile", () => {
     expect(withRegion.boost).toBeGreaterThan(skipRegion.boost);
     expect(skipRegion.matched.region).toBeUndefined();
   });
+
+  it("stores custom region from 그 외 input", () => {
+    const row = tasteRowFromOnboardingAnswers(
+      {
+        regions: ["성수", "기타"],
+        regions_other: "파주, 분당",
+      },
+      "user-1"
+    );
+    expect(row.regions).toEqual(["성수", "파주", "분당"]);
+    const back = tasteRowToOnboardingAnswers(row);
+    expect(back.regions).toContain("기타");
+    expect(back.regions).toContain("성수");
+    expect(back.regions_other).toBe("파주, 분당");
+  });
 });

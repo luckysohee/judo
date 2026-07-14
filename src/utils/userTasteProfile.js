@@ -40,6 +40,45 @@ export const TASTE_REGION_OPTIONS = [
   "기타",
 ];
 
+const TASTE_REGION_PRESET_SET = new Set(
+  TASTE_REGION_OPTIONS.filter((r) => r !== "기타")
+);
+
+/**
+ * 설문 「그 외」직접 입력 → regions 배열에 실동네명으로 합침.
+ * @param {Record<string, unknown>} answers
+ * @returns {string[]}
+ */
+export function resolveOnboardingRegions(answers) {
+  const a = answers && typeof answers === "object" ? answers : {};
+  const selected = normList(a.regions);
+  const otherRaw = String(a.regions_other ?? "").trim();
+  const otherParts = otherRaw
+    ? otherRaw
+        .split(/[,，、/|]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const s = String(v || "").trim();
+    if (!s || s === "기타" || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+
+  for (const r of selected) {
+    if (r === "기타") continue;
+    push(r);
+  }
+  for (const o of otherParts) push(o);
+
+  /** 「그 외」만 골랐는데 입력이 없으면 빈 배열 — 진행 불가 처리는 UI */
+  return out;
+}
+
 /** 음주·외출 빈도 */
 export const TASTE_DRINK_FREQUENCY_OPTIONS = [
   { value: "rarely", label: "🌙 거의 안 마셔요" },
@@ -285,7 +324,7 @@ export function tasteRowFromOnboardingAnswers(answers, userId, status = "complet
   const a = answers && typeof answers === "object" ? answers : {};
   const liquor = normList(a.liquor_types);
   const vibes = normList(a.vibes);
-  const regions = normList(a.regions);
+  const regions = resolveOnboardingRegions(a);
   const situations = a.situation ? [String(a.situation)] : normList(a.situations);
   let partySize = null;
   const ps = Number(a.party_size);
@@ -348,7 +387,18 @@ export function tasteRowToOnboardingAnswers(row) {
     answers.party_size = row.party_size;
   }
   if (Array.isArray(row.regions) && row.regions.length) {
-    answers.regions = [...row.regions];
+    const preset = [];
+    const custom = [];
+    for (const r of row.regions) {
+      const s = String(r || "").trim();
+      if (!s || s === "기타") continue;
+      if (TASTE_REGION_PRESET_SET.has(s)) preset.push(s);
+      else custom.push(s);
+    }
+    answers.regions = custom.length ? [...preset, "기타"] : [...preset];
+    if (custom.length) {
+      answers.regions_other = custom.join(", ");
+    }
   }
   if (row.onboarding_status === "completed") {
     answers.prefer_walkable = row.prefer_walkable ? "yes" : "no";
