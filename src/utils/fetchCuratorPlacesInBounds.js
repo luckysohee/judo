@@ -1,4 +1,5 @@
 import { resolvePlaceWgs84, isLikelyKoreaWgs84 } from "./placeCoords";
+import { placeAddressCoordsConsistent } from "./placeGeoConsistency";
 
 /**
  * 뷰포트에 여유를 둔 bbox (가장자리 핀 깜빡임 완화)
@@ -35,6 +36,7 @@ export function filterJoinRowsToBounds(rows, bounds) {
     if (!p) return false;
     const wgs = resolvePlaceWgs84(p);
     if (!wgs || !isLikelyKoreaWgs84(wgs.lat, wgs.lng)) return false;
+    if (!placeAddressCoordsConsistent(p)) return false;
     return (
       wgs.lat >= sw.lat &&
       wgs.lat <= ne.lat &&

@@ -247,13 +247,6 @@ export default function SearchBar({
         const { documents } = await searchKakaoKeywordViaProxy({
           query: keyword,
           size: 15,
-          ...(origin
-            ? {
-                x: origin.lng,
-                y: origin.lat,
-                radius: 20000,
-              }
-            : {}),
         });
         finishWithRows(documents);
       } catch (e) {
@@ -271,13 +264,6 @@ export default function SearchBar({
     const searchOptions = {
       ...(mealFocusedQuery ? { category_group_code: "FD6" } : {}),
       size: mealFocusedQuery ? 30 : 15,
-      ...(origin
-        ? {
-            location: new window.kakao.maps.LatLng(origin.lat, origin.lng),
-            radius: 20000,
-            sort: window.kakao.maps.services.SortBy.DISTANCE,
-          }
-        : {}),
     };
 
     ps.keywordSearch(

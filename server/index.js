@@ -3022,7 +3022,8 @@ app.post("/api/kakao/search", async (req, res) => {
     if (Number.isFinite(nx) && Number.isFinite(ny)) {
       params.x = nx;
       params.y = ny;
-      const r = radius != null ? Number(radius) : 500;
+      /** radius 미지정 시 전국 키워드 검색(동명이인). 기본 500m면 성수 근처만 나옴 */
+      const r = radius != null ? Number(radius) : NaN;
       if (Number.isFinite(r) && r > 0) {
         params.radius = Math.min(r, 20000);
       }

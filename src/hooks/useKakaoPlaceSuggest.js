@@ -69,12 +69,10 @@ async function fetchKakaoRows(keyword, origin) {
 
   const fetchViaProxy = async () => {
     try {
+      /** x/y를 넣으면 서버/카카오가 지역 편향 — 제안은 전국 동명이인 포함 후 클라이언트에서 거리 정렬 */
       const { documents } = await searchKakaoKeywordViaProxy({
         query: keyword,
         size: 15,
-        ...(origin
-          ? { x: origin.lng, y: origin.lat, radius: 20000 }
-          : {}),
       });
       return processRawRows(documents);
     } catch (e) {
@@ -92,13 +90,6 @@ async function fetchKakaoRows(keyword, origin) {
     const searchOptions = {
       ...(mealFocusedQuery ? { category_group_code: "FD6" } : {}),
       size: mealFocusedQuery ? 30 : 15,
-      ...(origin
-        ? {
-            location: new window.kakao.maps.LatLng(origin.lat, origin.lng),
-            radius: 20000,
-            sort: window.kakao.maps.services.SortBy.DISTANCE,
-          }
-        : {}),
     };
 
     ps.keywordSearch(

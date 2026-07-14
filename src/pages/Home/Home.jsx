@@ -7070,14 +7070,16 @@ const handleClearSearch = () => {
       };
 
       setKakaoTypingPreviewPlaces([]);
+      setQuery("");
 
       const merged = mergePickedPlaceWithCuratorCatalog(
         formattedPlace,
         curatorPlaceCatalogForMerge
       );
+      /** 지도 핀·이동은 선택한 카카오 좌표 우선(동명이인 DB 병합이 좌표를 바꾸지 않게) */
       const wPick = resolvePlaceWgs84(formattedPlace);
       const wMerged = resolvePlaceWgs84(merged);
-      const w = wMerged || wPick;
+      const w = wPick || wMerged;
       const forMap =
         w != null
           ? {
@@ -7086,8 +7088,10 @@ const handleClearSearch = () => {
               lng: w.lng,
               x: String(w.lng),
               y: String(w.lat),
+              isKakaoPlace: true,
+              isLive: true,
             }
-          : merged;
+          : { ...merged, isKakaoPlace: true, isLive: true };
 
       setKakaoPlaces((prev) => {
         const kid = normalizeKakaoPlaceId(forMap);
@@ -7110,9 +7114,31 @@ const handleClearSearch = () => {
       });
 
       setSelectedPlaceWithAnalytics(forMap, "kakao_autocomplete");
-      /** 지도 이동은 MapView `selectedPlace` effect(카드 높이만큼 pan 보정)에 맡김 — 여기서 setCenter를 반복하면 보정이 깨짐 */
+
+      if (w) {
+        const moveMapToPick = () => {
+          const api = mapRef.current;
+          if (!api) return;
+          try {
+            api.relayout?.();
+          } catch {
+            /* ignore */
+          }
+          if (typeof api.panToAbovePreview === "function") {
+            api.panToAbovePreview(w.lat, w.lng);
+          } else if (typeof api.moveToLocation === "function") {
+            api.moveToLocation(w.lat, w.lng);
+          }
+        };
+        /** 전체화면 검색 오버레이가 덮인 채 이동하면 카카오맵이 성수에 남는 경우가 있어, 닫힌 뒤 재시도 */
+        requestAnimationFrame(() => {
+          moveMapToPick();
+          window.setTimeout(moveMapToPick, 120);
+          window.setTimeout(moveMapToPick, 320);
+        });
+      }
     },
-    /** setKakaoPlaces·setKakaoTypingPreviewPlaces는 useState setter — render 사이 stable */
+    /** setKakaoPlaces·setKakaoTypingPreviewPlaces·setQuery는 useState setter — render 사이 stable */
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       curatorPlaceCatalogForMerge,

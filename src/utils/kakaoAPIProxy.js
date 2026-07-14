@@ -232,10 +232,10 @@ export async function searchKakaoKeywordViaProxy(opts) {
     if (Number.isFinite(px) && Number.isFinite(py)) {
       body.x = px;
       body.y = py;
-      body.radius =
-        opts.radius != null && Number.isFinite(Number(opts.radius))
-          ? Number(opts.radius)
-          : 500;
+      /** radius는 호출부가 넘길 때만 — 기본 500m로 두면 성수 근처만 나와 동명이인 선택이 막힘 */
+      if (opts.radius != null && Number.isFinite(Number(opts.radius))) {
+        body.radius = Number(opts.radius);
+      }
     }
     const response = await fetch(url, {
       method: "POST",

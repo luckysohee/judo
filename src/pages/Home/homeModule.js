@@ -8,6 +8,7 @@ import { getMarkerTier, isCuratorListedPlace, placeIsOnlyLoggedInCuratorListing 
 import {
   resolvePlaceWgs84,
   isLikelyKoreaWgs84,
+  haversineMeters,
 } from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import { getPrimarySavedFolderColor } from "../../utils/storage";
@@ -576,9 +577,26 @@ function mergeDbPlaceDetailForPreview(prev, detail, enrichedFromJoin) {
     e.curatorPlaces.length > 0;
   const mergedKakaoId = normalizeKakaoPlaceId(detail) || normalizeKakaoPlaceId(prev);
 
+  /** 검색·카카오 픽 좌표를 DB 상세가 덮어쓰지 않게 — 어긋나면 기존(카카오) 유지 */
+  const wPrev = resolvePlaceWgs84(prev);
+  const wDetail = resolvePlaceWgs84(detail);
+  const keepPrevCoords =
+    Boolean(wPrev) &&
+    Boolean(prev?.isKakaoPlace || prev?.isLive) &&
+    (!wDetail ||
+      haversineMeters(wPrev.lat, wPrev.lng, wDetail.lat, wDetail.lng) > 40);
+
   return {
     ...prev,
     ...detail,
+    ...(keepPrevCoords && wPrev
+      ? {
+          lat: wPrev.lat,
+          lng: wPrev.lng,
+          x: String(wPrev.lng),
+          y: String(wPrev.lat),
+        }
+      : {}),
     kakao_place_id: mergedKakaoId,
     kakaoId: mergedKakaoId || prev.kakaoId,
     curatorPlaces: useEnriched ? e.curatorPlaces : prev.curatorPlaces ?? [],

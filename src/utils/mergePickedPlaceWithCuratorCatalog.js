@@ -90,6 +90,9 @@ export function findCuratorCatalogMatch(picked, catalog) {
   const n1 = normalizePlaceName(picked.name || picked.place_name);
   if (w1 && n1.length >= 2) {
     for (const c of catalog) {
+      const kidC = normalizeKakaoPlaceId(c);
+      /** 카카오 id가 둘 다 있는데 다르면 동명이인 — 근처라도 다른 점포 */
+      if (kid && kidC && kid !== kidC) continue;
       const w2 = resolvePlaceWgs84(c);
       if (!w2) continue;
       if (haversineM(w1, w2) > 55) continue;

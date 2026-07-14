@@ -12,6 +12,7 @@ import {
   resolvePlaceWgs84,
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
+import { placeAddressCoordsConsistent } from "../../utils/placeGeoConsistency";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
 import {
   densityClusterBubbleStyle,
@@ -414,6 +415,8 @@ function placePassesMapMarkerGeo(p, skipKoreaBBoxForCuratorPins) {
   const c = resolvePlaceCoords(p);
   if (!c) return false;
   if (p.isKakaoTypingPreview) return true;
+  /** 주소 시·도와 좌표가 명백히 어긋나면 숨김 (이태원 뷰에 인천·강원 핀 등) */
+  if (!placeAddressCoordsConsistent(p)) return false;
   const hasCuratorGeoBypass =
     (Array.isArray(p.curatorPlaces) && p.curatorPlaces.length > 0) ||
     (typeof p.curatorCount === "number" && p.curatorCount > 0);
@@ -1359,66 +1362,47 @@ const MapView = forwardRef(({
           );
         });
       },
-      /** 리스트·추천에서 지도로 볼 때 — setCenter 대신 하단 카드용 패딩 적용 */
+      /** 리스트·추천에서 지도로 볼 때 — setCenter로 즉시 이동(panTo는 오버레이/relayout에 종종 씹힘) */
       panToAbovePreview: (lat, lng) => {
         if (!mapRef.current || !Number.isFinite(lat) || !Number.isFinite(lng)) {
           return;
         }
         lockAutoMoveRef.current?.(800, "imperative-panToAbovePreview");
+        userInteractedRef.current = true;
         ignoreViewportEventRef.current = true;
         const map = mapRef.current;
+        try {
+          map.relayout?.();
+        } catch {
+          /* ignore */
+        }
         const px = bottomPreviewPanPixels();
         const offset = offsetLatLngForBottomPreview(map, lat, lng, px);
-        if (!offset) {
-          ignoreViewportEventRef.current = false;
-          return;
-        }
-        const desiredLevel = 4;
-        let currentLevel;
+        const target =
+          offset || new window.kakao.maps.LatLng(lat, lng);
         try {
-          currentLevel = map.getLevel?.();
+          map.setCenter(target);
+          map.setLevel(4);
         } catch {
-          currentLevel = undefined;
+          /* ignore */
         }
-        const finishPan = () => {
-          try {
-            map.panTo(offset);
-          } catch {
-            /* ignore */
-          }
-          try {
-            map.relayout?.();
-          } catch {
-            /* ignore */
-          }
-          setTimeout(() => {
-            ignoreViewportEventRef.current = false;
-          }, 520);
-        };
-        if (typeof currentLevel === "number" && currentLevel > desiredLevel) {
-          try {
-            map.setLevel(desiredLevel, { animate: true });
-          } catch {
-            /* ignore */
-          }
-          setTimeout(finishPan, 180);
-        } else {
-          finishPan();
+        try {
+          map.relayout?.();
+        } catch {
+          /* ignore */
         }
+        setTimeout(() => {
+          ignoreViewportEventRef.current = false;
+          notifyViewportAfterProgrammaticMoveRef.current?.();
+        }, 280);
         requestAnimationFrame(() => {
           try {
             map.relayout?.();
+            map.setCenter(target);
           } catch {
             /* ignore */
           }
         });
-        setTimeout(() => {
-          try {
-            map.relayout?.();
-          } catch {
-            /* ignore */
-          }
-        }, 160);
       },
       setLevel: (level, opts) => {
         if (!mapRef.current) return;
@@ -2310,6 +2294,7 @@ const MapView = forwardRef(({
     }
 
     lastMoveReasonRef.current = "place-click";
+    userInteractedRef.current = true;
     lockAutoMove(800, "place-click");
 
     ignoreViewportEventRef.current = true;
@@ -2329,12 +2314,16 @@ const MapView = forwardRef(({
 
     const moveToOffset = () => {
       const offsetLatLng = getOffsetLatLng();
-      if (offsetLatLng) {
-        try {
-          mapRef.current.panTo(offsetLatLng);
-        } catch {
-          /* ignore */
+      const target = offsetLatLng
+        ? offsetLatLng
+        : new window.kakao.maps.LatLng(lat, lng);
+      try {
+        mapRef.current.setCenter(target);
+        if (typeof currentLevel === "number" && currentLevel !== desiredLevel) {
+          mapRef.current.setLevel(desiredLevel);
         }
+      } catch {
+        /* ignore */
       }
       try {
         mapRef.current.relayout?.();
@@ -2355,16 +2344,11 @@ const MapView = forwardRef(({
       releaseIgnore();
     };
 
-    const needsZoomIn = typeof currentLevel === "number" && currentLevel > desiredLevel;
-    if (needsZoomIn) {
-      mapRef.current.setLevel(desiredLevel, { animate: true });
-      setTimeout(moveToOffset, 180);
-    } else {
-      moveToOffset();
-    }
+    moveToOffset();
     requestAnimationFrame(() => {
       try {
         mapRef.current?.relayout?.();
+        moveToOffset();
       } catch {
         /* ignore */
       }
@@ -2372,6 +2356,7 @@ const MapView = forwardRef(({
     setTimeout(() => {
       try {
         mapRef.current?.relayout?.();
+        moveToOffset();
       } catch {
         /* ignore */
       }
