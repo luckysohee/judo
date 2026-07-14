@@ -21,6 +21,16 @@ describe("placeGeoConsistency", () => {
     expect(inferSidoFromCoords(37.45, 126.7)).toBe("인천");
   });
 
+  it("drops Nogari beach category on Itaewon coords even without address", () => {
+    expect(
+      placeAddressCoordsConsistent({
+        ...ITAEWON,
+        name: "노가리",
+        category: "해수욕장, 해변",
+      })
+    ).toBe(false);
+  });
+
   it("drops reported bad Itaewon pins (Paju / Ongjin)", () => {
     expect(
       placeAddressCoordsConsistent({
@@ -33,7 +43,8 @@ describe("placeGeoConsistency", () => {
       placeAddressCoordsConsistent({
         ...ITAEWON,
         name: "노가리",
-        address: "인천 옹진군 외리",
+        address: "인천 옹진군 영흥면 외리",
+        category: "해수욕장, 해변",
       })
     ).toBe(false);
   });

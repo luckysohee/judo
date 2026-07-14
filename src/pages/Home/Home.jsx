@@ -177,7 +177,14 @@ import {
   isLikelyKoreaWgs84,
 } from "../../utils/placeCoords";
 import { buildFormattedPlacesFromJoin } from "../../utils/buildFormattedPlacesFromJoin";
-import { padLatLngBounds, filterJoinRowsToBounds } from "../../utils/fetchCuratorPlacesInBounds";
+import { padLatLngBounds, filterJoinRowsToBounds, filterPlacesByAddressCoordConsistency } from "../../utils/fetchCuratorPlacesInBounds";
+import {
+  rememberGeoMismatchPlaceId,
+  filterOutGeoMismatchPlaceIds,
+  readGeoMismatchPlaceIdSet,
+} from "../../utils/geoMismatchPlaceBan";
+import { placeAddressCoordsConsistent } from "../../utils/placeGeoConsistency";
+import { searchKakaoKeywordViaProxy } from "../../utils/kakaoAPIProxy";
 import {
   fetchMapPlacesInBounds,
   MAP_PLACES_FETCH_TIMEOUT_BOOT_MS,
@@ -1703,10 +1710,12 @@ export default function Home() {
       const extraPlain = (plainRows || []).filter(
         (r) => r?.id != null && !joinIdSet.has(String(r.id))
       );
-      const merged = [
-        ...fromJoin,
-        ...formatBoundsPlaceRowsForMap(extraPlain),
-      ];
+      const merged = filterOutGeoMismatchPlaceIds(
+        filterPlacesByAddressCoordConsistency([
+          ...fromJoin,
+          ...formatBoundsPlaceRowsForMap(extraPlain),
+        ])
+      );
       if (isBootViewport || silent) {
         setDbPlaces(merged);
       } else {
@@ -1767,10 +1776,14 @@ export default function Home() {
     const extraPlain = (cached.plainRows || []).filter(
       (r) => r?.id != null && !joinIdSet.has(String(r.id)),
     );
-    setDbPlaces([
-      ...fromJoin,
-      ...formatBoundsPlaceRowsForMap(extraPlain),
-    ]);
+    setDbPlaces(
+      filterOutGeoMismatchPlaceIds(
+        filterPlacesByAddressCoordConsistency([
+          ...fromJoin,
+          ...formatBoundsPlaceRowsForMap(extraPlain),
+        ])
+      )
+    );
   }, []);
 
   const loadMapDensityForViewport = useCallback(
@@ -4788,6 +4801,107 @@ export default function Home() {
 
   /** Supabase `places` 행 + 추천(curator_places) — 미리보기 열린 뒤 보강 (UUID 또는 카카오 ID로 DB 매칭) */
   usePlaceDetailEnrichment(selectedPlace, setSelectedPlace, curatorAttachRowsRef);
+
+  /**
+   * 주소 빈 DB 핀(노가리 등) — 카카오 키워드로 실주소·좌표 대조 후 불일치면 숨김.
+   * 카드 안 열어도 마커가 사라지게 백그라운드 검증.
+   */
+  const emptyAddrGeoVerifiedRef = useRef(new Set());
+  useEffect(() => {
+    if (!Array.isArray(dbPlaces) || dbPlaces.length === 0) return undefined;
+    let cancelled = false;
+    const ban = readGeoMismatchPlaceIdSet();
+    const candidates = dbPlaces
+      .filter((p) => {
+        const id = p?.id != null ? String(p.id) : "";
+        if (!id || ban.has(id) || emptyAddrGeoVerifiedRef.current.has(id)) {
+          return false;
+        }
+        return !String(p.address || p.road_address_name || "").trim();
+      })
+      .slice(0, 16);
+
+    if (candidates.length === 0) return undefined;
+
+    (async () => {
+      let removedAny = false;
+      for (const p of candidates) {
+        if (cancelled) return;
+        const id = String(p.id);
+        emptyAddrGeoVerifiedRef.current.add(id);
+        const name = String(p.name || p.place_name || "").trim();
+        if (name.length < 2) continue;
+        try {
+          const { documents } = await searchKakaoKeywordViaProxy({
+            query: name.slice(0, 40),
+            size: 5,
+          });
+          const docs = Array.isArray(documents) ? documents : [];
+          if (docs.length === 0) continue;
+          const nameNorm = name.replace(/\s+/g, "");
+          const hit =
+            docs.find((d) => {
+              const pn = String(d.place_name || "")
+                .replace(/\s+/g, "");
+              return pn === nameNorm || pn.includes(nameNorm) || nameNorm.includes(pn);
+            }) || docs[0];
+          const probe = {
+            ...p,
+            address: hit.road_address_name || hit.address_name || "",
+            road_address_name: hit.road_address_name || "",
+            address_name: hit.address_name || "",
+            category: hit.category_name || p.category,
+            category_name: hit.category_name || p.category_name,
+          };
+          let bad = !placeAddressCoordsConsistent(probe);
+          const wMap = resolvePlaceWgs84(p);
+          const kLat = parseFloat(hit.y);
+          const kLng = parseFloat(hit.x);
+          if (
+            !bad &&
+            wMap &&
+            Number.isFinite(kLat) &&
+            Number.isFinite(kLng)
+          ) {
+            if (haversineMeters(wMap.lat, wMap.lng, kLat, kLng) > 4000) {
+              bad = true;
+            }
+          }
+          if (bad) {
+            rememberGeoMismatchPlaceId(id);
+            removedAny = true;
+            if (import.meta.env.DEV) {
+              console.warn("[geo-mismatch] hide empty-addr pin", {
+                id,
+                name,
+                kakaoAddr: probe.address,
+              });
+            }
+          }
+        } catch {
+          /* ignore per-place */
+        }
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      if (!cancelled && removedAny) {
+        setDbPlaces((prev) =>
+          filterOutGeoMismatchPlaceIds(
+            Array.isArray(prev) ? prev : [],
+            readGeoMismatchPlaceIdSet()
+          )
+        );
+        setSelectedPlace((sel) => {
+          if (!sel?.id) return sel;
+          if (readGeoMismatchPlaceIdSet().has(String(sel.id))) return null;
+          return sel;
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dbPlaces]);
 
   const { checkinRanking, placeCheckinCounts } = useRealtimeCheckins();
   const rankingTop5 = useMemo(
@@ -10781,6 +10895,18 @@ const handleClearSearch = () => {
                 selectedCurators={selectedCurators}
                 onSavedToSupabase={loadUserSavedPlaces}
                 onClose={() => setSelectedPlace(null)}
+                onAddressCoordMismatch={(badPlace) => {
+                  const id =
+                    badPlace?.id != null ? String(badPlace.id) : "";
+                  if (id) rememberGeoMismatchPlaceId(id);
+                  setSelectedPlace(null);
+                  setDbPlaces((prev) =>
+                    filterOutGeoMismatchPlaceIds(
+                      Array.isArray(prev) ? prev : [],
+                      readGeoMismatchPlaceIdSet()
+                    )
+                  );
+                }}
                 getUserRole={getUserRole}
                 searchSessionIdRef={searchSessionIdRef}
                 searchFeedbackContextRef={searchFeedbackContextRef}

@@ -1,8 +1,8 @@
 import { resolvePlaceWgs84 } from "./placeCoords.js";
 
 /**
- * 주소(시·도/시·군) ↔ 좌표 불일치 마커 거르기.
- * DB lat/lng가 주소와 다른 지역인 경우(이태원 뷰에 파주·옹진 핀 등)를 숨긴다.
+ * 주소(시·도/시·군)·카테고리 ↔ 좌표 불일치 마커 거르기.
+ * DB lat/lng가 주소와 다른 지역인 경우(이태원 뷰에 옹진·파주 핀 등)를 숨긴다.
  */
 
 /** @typedef {{ key: string, re: RegExp, bbox: { minLat: number, maxLat: number, minLng: number, maxLng: number } }} SidoZone */
@@ -15,12 +15,12 @@ const SIDO_ZONES = /** @type {SidoZone[]} */ ([
   },
   {
     key: "인천",
-    re: /인천광역시|인천시|(?:^|[\s,])인천(?:[\s,]|$)|옹진군|강화군/,
+    re: /인천광역시|인천시|(?:^|[\s,])인천(?:[\s,]|$)|옹진군|강화군|영흥면|영흥도|덕적도|자월도|승봉도|장봉도|무의도/,
     bbox: { minLat: 37.0, maxLat: 37.7, minLng: 126.0, maxLng: 126.82 },
   },
   {
     key: "경기",
-    re: /경기도|(?:^|[\s,])경기(?:[\s,]|$)|파주시|고양시|김포시|의정부시|남양주시|하남시|광주시에|성남시|수원시|용인시|부천시|안양시|안산시|화성시|광명시|과천시|의왕시|군포시|시흥시|이천시|여주시|양평군|가평군|연천군|포천시|동두천시|오산시|평택시|안성시/,
+    re: /경기도|(?:^|[\s,])경기(?:[\s,]|$)|파주시|고양시|김포시|의정부시|남양주시|하남시|성남시|수원시|용인시|부천시|안양시|안산시|화성시|광명시|과천시|의왕시|군포시|시흥시|이천시|여주시|양평군|가평군|연천군|포천시|동두천시|오산시|평택시|안성시|연풍/,
     bbox: { minLat: 36.85, maxLat: 38.35, minLng: 126.35, maxLng: 127.95 },
   },
   {
@@ -95,13 +95,17 @@ const SIDO_ZONES = /** @type {SidoZone[]} */ ([
   },
 ]);
 
-/** 서울 시내(이태원·성수·강남 등) — 여기 찍힌 핀에 비서울 주소면 거름 */
+/** 서울 시내 — 여기 찍힌 핀에 비서울 주소·해변 카테고리면 거름 */
 const SEOUL_CORE = {
   minLat: 37.43,
   maxLat: 37.7,
   minLng: 126.8,
   maxLng: 127.18,
 };
+
+/** 서울 내륙에 있으면 안 되는 카카오 업종 */
+const NON_SEOUL_INLAND_CATEGORY_RE =
+  /해수욕장|해변|바닷가|해안|갯벌|섬\b|유원지|스키장|골프장|휴양림|국립공원/;
 
 function inBbox(lat, lng, b) {
   return (
@@ -110,6 +114,14 @@ function inBbox(lat, lng, b) {
     lng >= b.minLng &&
     lng <= b.maxLng
   );
+}
+
+function normalizeAddrText(s) {
+  return String(s || "")
+    .normalize("NFKC")
+    .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -123,10 +135,13 @@ export function placeAddressHaystack(place) {
     place.road_address_name,
     place.address_name,
     place.roadAddress,
+    place.place_address,
     place.name,
     place.place_name,
+    place.category,
+    place.category_name,
   ]
-    .map((s) => String(s || "").trim())
+    .map((s) => normalizeAddrText(s))
     .filter(Boolean)
     .join(" ");
 }
@@ -136,7 +151,7 @@ export function placeAddressHaystack(place) {
  * @returns {string | null}
  */
 export function inferSidoFromAddress(address) {
-  const s = String(address || "").trim();
+  const s = normalizeAddrText(address);
   if (!s) return null;
   for (const z of SIDO_ZONES) {
     if (z.re.test(s)) return z.key;
@@ -173,8 +188,6 @@ export function inferSidoFromCoords(lat, lng) {
 }
 
 /**
- * 주소 시·도와 좌표 시·도가 둘 다 확실한데 다르면 false.
- *
  * @param {object | null | undefined} place
  * @returns {boolean}
  */
@@ -185,17 +198,20 @@ export function placeAddressCoordsConsistent(place) {
   const wgs = resolvePlaceWgs84(place);
   if (!wgs) return false;
 
+  const inSeoulCore = inBbox(wgs.lat, wgs.lng, SEOUL_CORE);
   const hay = placeAddressHaystack(place);
+
+  /** 주소 없어도 카테고리로 거름 — 노가리(해수욕장)처럼 bounds에 주소가 비는 경우 */
+  if (inSeoulCore && hay && NON_SEOUL_INLAND_CATEGORY_RE.test(hay)) {
+    return false;
+  }
+
   if (!hay || hay.length < 2) return true;
 
   const addrSido = inferSidoFromAddress(hay);
   if (!addrSido) return true;
 
-  /**
-   * 좌표가 서울 시내인데 주소가 서울이 아니면 무조건 탈락.
-   * (예전 경기↔서울 45km 예외가 「파주 주소 + 이태원 좌표」를 통과시킴)
-   */
-  if (inBbox(wgs.lat, wgs.lng, SEOUL_CORE) && addrSido !== "서울") {
+  if (inSeoulCore && addrSido !== "서울") {
     return false;
   }
 

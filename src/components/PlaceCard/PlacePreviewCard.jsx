@@ -31,7 +31,8 @@ import {
   isAcceptableRasterImageFile,
   prepareImageFileForUpload,
 } from "../../utils/prepareImageFileForUpload";
-import { resolvePlaceWgs84, kakaoNumericPlaceId } from "../../utils/placeCoords";
+import { resolvePlaceWgs84, kakaoNumericPlaceId, haversineMeters } from "../../utils/placeCoords";
+import { placeAddressCoordsConsistent } from "../../utils/placeGeoConsistency";
 import { buildKakaoStaticMapUrl } from "../../utils/kakaoStaticMapUrl";
 import { filterPlaceTagsForDisplay } from "../../utils/placeUiTags";
 import { collectPlaceMenuHints } from "../../utils/placeMenuHints";
@@ -92,6 +93,11 @@ export default function PlacePreviewCard({
   /** 코스 따라가기 — 한잔 성공 시 도장 연동 */
   courseIdHint = "",
   onCourseStampProgress = null,
+  /**
+   * 카카오 상세 주소·좌표가 지도 핀과 어긋날 때(DB 주소 빈 채 이태원에 옹진 핀 등).
+   * 부모에서 선택 해제·마커 제거.
+   */
+  onAddressCoordMismatch = null,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -403,6 +409,54 @@ export default function PlacePreviewCard({
     checkinWgs?.lat,
     checkinWgs?.lng,
   ]);
+
+  /**
+   * DB에 주소가 비어 있어도 카카오 상세에 인천·해수욕장 등이 오면
+   * 지도 좌표와 대조해 어긋난 핀을 부모에서 제거한다.
+   */
+  const geoMismatchNotifiedRef = useRef("");
+  useEffect(() => {
+    if (!place || !kakaoDetails || typeof onAddressCoordMismatch !== "function") {
+      return;
+    }
+    const placeKey = String(place.id ?? place.kakao_place_id ?? "");
+    if (placeKey && geoMismatchNotifiedRef.current === placeKey) return;
+
+    const probe = {
+      ...place,
+      address:
+        kakaoDetails.address ||
+        kakaoDetails.road_address_name ||
+        kakaoDetails.address_name ||
+        place.address,
+      road_address_name:
+        kakaoDetails.road_address_name || place.road_address_name,
+      address_name: kakaoDetails.address_name || place.address_name,
+      category:
+        kakaoDetails.category_name || place.category_name || place.category,
+      category_name:
+        kakaoDetails.category_name || place.category_name || place.category,
+    };
+    let mismatch = !placeAddressCoordsConsistent(probe);
+
+    const wMap = resolvePlaceWgs84(place);
+    const kLat = parseFloat(kakaoDetails.y);
+    const kLng = parseFloat(kakaoDetails.x);
+    if (
+      !mismatch &&
+      wMap &&
+      Number.isFinite(kLat) &&
+      Number.isFinite(kLng)
+    ) {
+      const m = haversineMeters(wMap.lat, wMap.lng, kLat, kLng);
+      if (m > 4000) mismatch = true;
+    }
+
+    if (mismatch) {
+      geoMismatchNotifiedRef.current = placeKey || "1";
+      onAddressCoordMismatch(place, kakaoDetails);
+    }
+  }, [place, kakaoDetails, onAddressCoordMismatch]);
 
   /** 카카오 상세(프록시)에 썸네일이 있으면 og보다 먼저 히어로에 반영 */
   useEffect(() => {

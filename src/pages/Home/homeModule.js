@@ -11,6 +11,7 @@ import {
   haversineMeters,
 } from "../../utils/placeCoords";
 import { normalizeKakaoPlaceId } from "../../utils/mergePickedPlaceWithCuratorCatalog";
+import { placeAddressCoordsConsistent } from "../../utils/placeGeoConsistency";
 import { getPrimarySavedFolderColor } from "../../utils/storage";
 import { getAiApiBaseUrl } from "../../utils/apiBaseUrl.js";
 import {
@@ -545,6 +546,7 @@ function selectedVenuePinAlreadyOnMap(places, selectedPlace) {
 
 function appendSelectedPlacePinIfMissing(places, selectedPlace) {
   if (!selectedPlace || !Array.isArray(places)) return places;
+  if (!placeAddressCoordsConsistent(selectedPlace)) return places;
   const w = resolvePlaceWgs84(selectedPlace);
   if (!w) return places;
   const geoOk = isLikelyKoreaWgs84(w.lat, w.lng);

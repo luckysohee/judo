@@ -5,6 +5,7 @@ import {
 } from "./placeCoords";
 import { isHiddenInternalPlaceTag } from "./placeUiTags";
 import { liftCuratorCatalogMeta } from "./curatorPlaceMetaLift.js";
+import { placeAddressCoordsConsistent } from "./placeGeoConsistency.js";
 
 function curatorRowPublicKey(curatorPlace) {
   const nm = String(curatorPlace?.curators?.name ?? "").trim();
@@ -184,5 +185,5 @@ export function buildFormattedPlacesFromJoin(joinRows) {
   if (import.meta.env.DEV) {
     console.log("🔍 지도 집계 장소 수:", formattedPlaces.length);
   }
-  return formattedPlaces;
+  return formattedPlaces.filter((p) => placeAddressCoordsConsistent(p));
 }

@@ -11,6 +11,7 @@ import {
 } from "../homeModule.js";
 import { buildFormattedPlacesFromJoin } from "../../../utils/buildFormattedPlacesFromJoin";
 import { normalizeKakaoPlaceId } from "../../../utils/mergePickedPlaceWithCuratorCatalog";
+import { placeAddressCoordsConsistent } from "../../../utils/placeGeoConsistency";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,7 +89,12 @@ export function usePlaceDetailEnrichment(
             (prevKid && detailKid && prevKid === detailKid);
           if (!sameVenue) return prev;
 
-          return mergeDbPlaceDetailForPreview(prev, detail, enriched);
+          const merged = mergeDbPlaceDetailForPreview(prev, detail, enriched);
+          /** 상세 주소가 붙은 뒤 좌표·주소가 어긋나면 카드·선택 해제 (노가리 옹진 등) */
+          if (!placeAddressCoordsConsistent(merged)) {
+            return null;
+          }
+          return merged;
         });
       } catch (e) {
         if (import.meta.env.DEV) {
