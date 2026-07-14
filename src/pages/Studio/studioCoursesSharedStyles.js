@@ -1,7 +1,11 @@
 /** 스튜디오 코스 페이지 — StudioHome 다크 톤과 맞춤 */
 export const studioCoursesShell = {
   position: "fixed",
-  inset: 0,
+  top: 0,
+  left: 0,
+  right: 0,
+  height: "100dvh",
+  maxHeight: "100dvh",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -23,7 +27,7 @@ export const studioCoursesScrollMain = {
   WebkitOverflowScrolling: "touch",
   overscrollBehaviorY: "contain",
   touchAction: "pan-y",
-  padding: "12px 12px calc(28px + env(safe-area-inset-bottom, 0px))",
+  padding: "12px 12px 20px",
   boxSizing: "border-box",
 };
 
@@ -144,20 +148,23 @@ export const studioCoursesRowActions = {
 
 /** 모바일 코스 에디터 — 터치·safe area */
 export const studioCoursesMobileShell = {
-  paddingBottom: "calc(88px + env(safe-area-inset-bottom, 0px))",
+  paddingBottom: "12px",
 };
 
+/** 스크롤 셸 footer 슬롯용 — fixed 금지(뷰포트 밖으로 밀림 방지) */
 export const studioCoursesStickyFooter = {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  zIndex: 40,
+  position: "relative",
+  left: "auto",
+  right: "auto",
+  bottom: "auto",
+  zIndex: 2,
   display: "flex",
   gap: "8px",
-  padding: "10px 12px calc(10px + env(safe-area-inset-bottom, 0px))",
-  background:
-    "linear-gradient(180deg, rgba(17,17,17,0) 0%, rgba(17,17,17,0.92) 18%, #111 100%)",
+  width: "100%",
+  padding: "10px 12px max(12px, env(safe-area-inset-bottom, 0px))",
+  borderTop: "1px solid rgba(255,255,255,0.1)",
+  background: "#111111",
+  boxShadow: "0 -8px 24px rgba(0,0,0,0.35)",
   boxSizing: "border-box",
 };
 
@@ -416,9 +423,9 @@ export const studioMapSearchSuggestMeta = {
 /** @param {boolean} [isMobile] */
 export const studioMapSearchMapShell = (isMobile) => ({
   width: "100%",
-  height: isMobile ? "min(240px, 36vh)" : "min(320px, 52vh)",
-  minHeight: isMobile ? "200px" : "260px",
-  maxHeight: isMobile ? "36vh" : "52vh",
+  height: isMobile ? "min(180px, 28dvh)" : "min(320px, 52dvh)",
+  minHeight: isMobile ? "140px" : "260px",
+  maxHeight: isMobile ? "28dvh" : "52dvh",
   borderRadius: "10px",
   overflow: "hidden",
   border: "1px solid rgba(255,255,255,0.12)",

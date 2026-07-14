@@ -1095,15 +1095,7 @@ export default function StudioCourseEditor() {
       shellStyle={{
         ...studioCoursesShell,
       }}
-      mainStyle={{
-        ...studioCoursesScrollMain,
-        ...(isMobile
-          ? {
-              paddingBottom:
-                "calc(96px + env(safe-area-inset-bottom, 0px))",
-            }
-          : {}),
-      }}
+      mainStyle={studioCoursesScrollMain}
       footer={
         isMobile ? (
         <div style={studioCoursesStickyFooter}>
