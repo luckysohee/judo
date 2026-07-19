@@ -8,6 +8,7 @@ import {
   gradeFromPlaceCount,
   needsGradePromotion,
 } from "../utils/curatorGradeRules";
+import { countCuratorGradeContributions, CURATOR_COURSE_GRADE_WEIGHT } from "../utils/curatorGradeCount";
 import { useToast } from "../components/Toast/ToastProvider";
 import AdminConfirmDialog from "../components/AdminConfirmDialog";
 
@@ -159,7 +160,6 @@ export default function CuratorManagementPage() {
    */
   const loadCuratorActivity = async (userId) => {
     try {
-      let totalPlaces = 0;
       let lastEventAt = null;
 
       const { data: act, error: actErr } = await supabase.rpc(
@@ -167,13 +167,7 @@ export default function CuratorManagementPage() {
         { p_target_user_id: userId }
       );
 
-      let placeCountFromSummary = false;
       if (!actErr && act && typeof act === "object") {
-        const summary = act.summary;
-        if (summary && typeof summary.recommend_count === "number") {
-          totalPlaces = summary.recommend_count;
-          placeCountFromSummary = true;
-        }
         if (Array.isArray(act.items) && act.items.length > 0 && act.items[0]?.at) {
           lastEventAt = act.items[0].at;
         }
@@ -183,7 +177,6 @@ export default function CuratorManagementPage() {
           act.recommends[0]?.at
         ) {
           if (!lastEventAt) lastEventAt = act.recommends[0].at;
-          if (!placeCountFromSummary) totalPlaces = act.recommends.length;
         }
       }
 
@@ -191,15 +184,10 @@ export default function CuratorManagementPage() {
         console.warn("admin_applicant_activity RPC:", actErr.message || actErr);
       }
 
-      if (!placeCountFromSummary) {
-        const { count: cpCount, error: cpErr } = await supabase
-          .from("curator_places")
-          .select("*", { count: "exact", head: true })
-          .eq("curator_id", userId);
-        if (!cpErr && typeof cpCount === "number") {
-          totalPlaces = cpCount;
-        }
-      }
+      const gradeCounts = await countCuratorGradeContributions(userId, {
+        client: supabase,
+      });
+      const totalPlaces = gradeCounts.total;
 
       const { count: followCount, error: folErr } = await supabase
         .from("user_profile_follows")
@@ -227,6 +215,8 @@ export default function CuratorManagementPage() {
         total_places: totalPlaces,
         total_likes: typeof followCount === "number" ? followCount : 0,
         ...(lastActivityAt ? { last_activity_at: lastActivityAt } : {}),
+        placeCount: gradeCounts.placeCount,
+        courseCount: gradeCounts.courseCount,
       };
 
       const { error: upErr } = await supabase
@@ -288,7 +278,7 @@ export default function CuratorManagementPage() {
     const label = GRADE_LABELS_KO[sug] || sug;
     setConfirmCfg({
       title: "추천 등급 반영",
-      message: `등록 장소 ${curatorProfile.total_places}개 기준 추천 등급 「${label}」으로 올리시겠습니까?`,
+      message: `등급 기여 ${curatorProfile.total_places}점(장소 1 + 코스×${CURATOR_COURSE_GRADE_WEIGHT}) 기준 추천 등급 「${label}」으로 올리시겠습니까?`,
       onConfirm: async () => {
         try {
           await applyCuratorGrade(sug);
@@ -479,8 +469,8 @@ export default function CuratorManagementPage() {
             </div>
             <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.85)", lineHeight: 1.5 }}>
               현재{" "}
-              <strong>{currentGrade.label}</strong> · 등록 장소{" "}
-              <strong>{curatorProfile.total_places ?? 0}개</strong> 기준 추천{" "}
+              <strong>{currentGrade.label}</strong> · 등급 기여{" "}
+              <strong>{curatorProfile.total_places ?? 0}점</strong> 기준 추천{" "}
               <strong>
                 {GRADE_LABELS_KO[suggestedGradeValue] || suggestedGradeValue}
               </strong>
@@ -599,8 +589,8 @@ export default function CuratorManagementPage() {
                   </div>
                 </div>
                 <div style={styles.overviewItem}>
-                  <div style={styles.overviewLabel}>등록 장소</div>
-                  <div style={styles.overviewValue}>{curatorProfile.total_places || 0}개</div>
+                  <div style={styles.overviewLabel}>등급 기여</div>
+                  <div style={styles.overviewValue}>{curatorProfile.total_places || 0}점</div>
                 </div>
                 <div style={styles.overviewItem}>
                   <div style={styles.overviewLabel}>총 좋아요</div>
@@ -636,17 +626,17 @@ export default function CuratorManagementPage() {
                 color: "#ccc"
               }}>
                 <div style={{ marginBottom: "8px", fontWeight: "bold", color: "#fff" }}>
-                  🏆 등급 기준 (등록 장소 수)
+                  🏆 등급 기준 (장소 1점 + 코스 {CURATOR_COURSE_GRADE_WEIGHT}점)
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}>
-                  <div>🌱 브론즈: 100개 미만</div>
-                  <div>🌟 실버: 100–199개</div>
-                  <div>⭐ 골드: 200–499개</div>
-                  <div>🏆 플래티넘: 500–999개</div>
-                  <div>👑 다이아몬드: 1000개 이상</div>
+                  <div>🌱 브론즈: 100점 미만</div>
+                  <div>🌟 실버: 100–199점</div>
+                  <div>⭐ 골드: 200–499점</div>
+                  <div>🏆 플래티넘: 500–999점</div>
+                  <div>👑 다이아몬드: 1000점 이상</div>
                 </div>
                 <div style={{ marginTop: "8px", fontSize: "11px", color: "#999" }}>
-                  * 추천 등급은 등록 장소 수로만 계산됩니다. 승급 시 알림 큐에 쌓이며, Admin은 수동으로도 조정할 수 있습니다.
+                  * 코스 1개 = 장소 {CURATOR_COURSE_GRADE_WEIGHT}개분. 스크랩 코스 제외. 승급은 알림 큐·Admin 수동 조정 가능.
                 </div>
               </div>
               
@@ -719,8 +709,8 @@ export default function CuratorManagementPage() {
                   </div>
                 </div>
                 <div style={styles.activityItem}>
-                  <div style={styles.activityLabel}>등록 장소 수</div>
-                  <div style={styles.activityValue}>{curatorProfile.total_places || 0}개</div>
+                  <div style={styles.activityLabel}>등급 기여</div>
+                  <div style={styles.activityValue}>{curatorProfile.total_places || 0}점</div>
                 </div>
                 <div style={styles.activityItem}>
                   <div style={styles.activityLabel}>총 좋아요</div>

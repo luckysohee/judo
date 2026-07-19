@@ -85,7 +85,7 @@ export default function HomeFollowCuratorModal({
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 1000,
+    zIndex: 30000,
     backdropFilter: "blur(4px)",
     WebkitBackdropFilter: "blur(4px)",
     overflow: "auto",
@@ -347,7 +347,7 @@ export default function HomeFollowCuratorModal({
               >
                 마커를 누르면 이 프로필 안에서 장소 카드가 열려요.
               </p>
-              {placesLoading ? (
+              {placesLoading && mapPlaces.length === 0 ? (
                 <div
                   style={{
                     fontSize: 12,

@@ -633,7 +633,7 @@ export default function AdminApplicationsPage() {
                         {GRADE_LABELS_KO[row.suggested_grade] || row.suggested_grade}
                       </span>
                       {" "}
-                      · 장소 {row.total_places_at_trigger}개
+                      · 기여 {row.total_places_at_trigger}점
                     </span>
                   </button>
                 </li>

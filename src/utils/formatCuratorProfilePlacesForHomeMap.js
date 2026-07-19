@@ -42,6 +42,72 @@ export function formatCuratorProfilePlacesForHomeMap(places, curatorAuthUserId) 
     .filter(Boolean);
 }
 
+/**
+ * 홈 `dbPlaces`에 큐레이터 프로필 장소를 합친다.
+ * 이미 있는 장소는 `curatorPlaces`만 보강해 칩 필터가 걸리게 한다.
+ * @param {unknown[]} prev
+ * @param {unknown[]} mapPlaces
+ * @returns {unknown[]}
+ */
+export function mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces) {
+  const base = Array.isArray(prev) ? prev : [];
+  const incoming = Array.isArray(mapPlaces) ? mapPlaces.filter(Boolean) : [];
+  if (incoming.length === 0) return base;
+
+  const next = base.map((p) => ({ ...p }));
+  const indexById = new Map(
+    next.map((p, i) => [String(p?.id ?? "").trim(), i]).filter(([id]) => id)
+  );
+
+  for (const mp of incoming) {
+    const id = String(mp?.id ?? "").trim();
+    if (!id) continue;
+    const idx = indexById.get(id);
+    if (idx == null) {
+      indexById.set(id, next.length);
+      next.push(mp);
+      continue;
+    }
+    const existing = next[idx];
+    const existingCp = Array.isArray(existing.curatorPlaces)
+      ? existing.curatorPlaces
+      : [];
+    const newCp = Array.isArray(mp.curatorPlaces) ? mp.curatorPlaces : [];
+    const seen = new Set(
+      existingCp
+        .map((cp) => String(cp?.curator_id ?? "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const mergedCp = [...existingCp];
+    for (const cp of newCp) {
+      const cid = String(cp?.curator_id ?? "").trim().toLowerCase();
+      if (cid && seen.has(cid)) continue;
+      if (cid) seen.add(cid);
+      mergedCp.push(cp);
+    }
+    const existingW = resolvePlaceWgs84(existing);
+    const nextLat = existingW?.lat ?? mp.lat;
+    const nextLng = existingW?.lng ?? mp.lng;
+    next[idx] = {
+      ...existing,
+      ...mp,
+      ...existing,
+      lat: nextLat,
+      lng: nextLng,
+      x: nextLng != null ? String(nextLng) : existing.x ?? mp.x,
+      y: nextLat != null ? String(nextLat) : existing.y ?? mp.y,
+      curatorPlaces: mergedCp,
+      curatorCount: Math.max(
+        Number(existing.curatorCount) || 0,
+        Number(mp.curatorCount) || 0,
+        mergedCp.length
+      ),
+      comment: existing.comment || mp.comment || "",
+    };
+  }
+  return next;
+}
+
 /** 큐레이터 프로필 미니 지도(`MapView`)용 */
 export function formatCuratorProfilePlacesForMapView(
   places,

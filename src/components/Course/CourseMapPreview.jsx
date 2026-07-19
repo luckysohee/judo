@@ -63,6 +63,7 @@ const MAP_FILL = {
  *   searchHits?: { id: string, name?: string, lat?: number|null, lng?: number|null }[],
  *   selectedSearchId?: string | null,
  *   onSearchHitPress?: (hit: object) => void,
+ *   showRoute?: boolean,
  * }} props
  */
 export default function CourseMapPreview({
@@ -73,6 +74,8 @@ export default function CourseMapPreview({
   searchHits = [],
   selectedSearchId = null,
   onSearchHitPress,
+  /** false면 동선 폴리라인·도보 경로 없이 마커만 (맛집첩) */
+  showRoute = true,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -138,7 +141,7 @@ export default function CourseMapPreview({
   );
 
   useEffect(() => {
-    if (waypoints.length < 2) {
+    if (!showRoute || waypoints.length < 2) {
       setWalkingPath(null);
       return undefined;
     }
@@ -163,7 +166,7 @@ export default function CourseMapPreview({
     return () => {
       walkingFetchGenRef.current += 1;
     };
-  }, [pathSignature, waypoints]);
+  }, [pathSignature, waypoints, showRoute]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,10 +283,11 @@ export default function CourseMapPreview({
     const pts = model.points;
     const LatLng = window.kakao.maps.LatLng;
     const routePoints =
-      Array.isArray(walkingPath) && walkingPath.length >= 2
+      showRoute && Array.isArray(walkingPath) && walkingPath.length >= 2
         ? walkingPath
         : pts;
     const coursePath = routePoints.map((p) => new LatLng(p.lat, p.lng));
+    const markerFitPath = pts.map((p) => new LatLng(p.lat, p.lng));
 
     pts.forEach((p) => {
       const el = document.createElement("div");
@@ -315,7 +319,7 @@ export default function CourseMapPreview({
       overlaysRef.current.push(overlay);
     });
 
-    if (coursePath.length >= 2) {
+    if (showRoute && coursePath.length >= 2) {
       polylineRef.current = new window.kakao.maps.Polyline({
         path: coursePath,
         strokeWeight: 4,
@@ -384,7 +388,10 @@ export default function CourseMapPreview({
     });
 
     const searchPath = searchList.map((h) => new LatLng(h.lat, h.lng));
-    const allPoints = [...coursePath, ...searchPath];
+    const allPoints = [
+      ...(showRoute ? coursePath : markerFitPath),
+      ...searchPath,
+    ];
 
     if (allPoints.length === 0) {
       map.setCenter(
@@ -422,6 +429,7 @@ export default function CourseMapPreview({
     searchHits,
     selectedSearchId,
     onSearchHitPress,
+    showRoute,
   ]);
 
   useEffect(() => {

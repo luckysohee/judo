@@ -3,6 +3,10 @@ import { Link, useLocation } from "react-router-dom";
 import { ALPHA_GATE_PUBLIC_PATHS } from "../../config/alphaAccess";
 import { useAlphaAccess } from "../../hooks/useAlphaAccess";
 import { LEGAL } from "../../config/legal";
+import {
+  handleGoogleLoginInAppGuard,
+  isInAppGoogleAuthError,
+} from "../../utils/handleGoogleLoginInAppGuard";
 
 const shellStyle = {
   minHeight: "100dvh",
@@ -158,7 +162,16 @@ export default function AlphaAccessGate({ children }) {
     return (
       <AlphaAccessWall
         mode="login"
-        onGoogleLogin={() => access.signInWithProvider("google")}
+        onGoogleLogin={() => {
+          if (handleGoogleLoginInAppGuard()) return;
+          access.signInWithProvider("google").catch((error) => {
+            if (isInAppGoogleAuthError(error)) {
+              handleGoogleLoginInAppGuard();
+              return;
+            }
+            window.alert(error?.message || "구글 로그인에 실패했습니다.");
+          });
+        }}
         onKakaoLogin={() => access.signInWithProvider("kakao")}
       />
     );

@@ -119,6 +119,10 @@ import HomeCoursesDiscoveryPanel, {
   HomeCourseStampResumeChip,
   HomeCoursesEntryChip,
 } from "../../components/Home/HomeCoursesDiscovery";
+import HomeListsDiscoveryPanel, {
+  HomeListsEntryChip,
+} from "../../components/Home/HomeListsDiscovery";
+import { formatCuratorListPlacesForHomeMap } from "../../utils/formatCuratorListPlacesForHomeMap";
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import PouringDrinkLoader from "../../components/Home/PouringDrinkLoader";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
@@ -252,8 +256,13 @@ import {
 import {
   formatCuratorProfilePlaceForHomeMap,
   formatCuratorProfilePlacesForHomeMap,
+  mergeCuratorProfilePlacesIntoDbPlaces,
 } from "../../utils/formatCuratorProfilePlacesForHomeMap";
 import { fetchPlacesForCuratorPage } from "../../utils/supabasePlaces";
+import {
+  handleGoogleLoginInAppGuard,
+  isInAppGoogleAuthError,
+} from "../../utils/handleGoogleLoginInAppGuard";
 import { formatBoundsPlaceRowsForMap } from "../../utils/formatBoundsPlaceRowsForMap";
 import {
   getHomeViewportPrefetchCacheKey,
@@ -1498,6 +1507,18 @@ export default function Home() {
   const situationFolderFilterRef = useRef(null);
   /** 코스 2차 찾기·코스 경로 표시 중이면 true — 지도 이동 DB '불러오기' 차단용(요청·캐시 절약 + 마커 안정) */
   const courseMapActiveRef = useRef(false);
+  /** 큐레이터 칩 선택 — 뷰포트 fetch가 칩 로드 장소를 지우지 않게 */
+  const selectedCuratorsRef = useRef([]);
+  const curatorChipLatestPlacesRef = useRef([]);
+  /** 맛집첩 「지도에 펼치기」 — 뷰포트 fetch가 핀을 지우지 않게 */
+  const listSpreadLatestPlacesRef = useRef([]);
+  /** 칩 fit 직후 뷰포트 재조회 잠금(ms epoch) */
+  const curatorChipViewportLockUntilRef = useRef(0);
+  const dbCuratorsRef = useRef([]);
+  const curatorChipLoadKeyRef = useRef("");
+  const curatorChipFittedKeyRef = useRef("");
+  const curatorDetailsFetchedKeyRef = useRef("");
+  const modalCuratorPlacesUidRef = useRef("");
 
   const [query, setQuery] = useState("");
   const [mapViewportDbLoading, setMapViewportDbLoading] = useState(false);
@@ -1677,7 +1698,23 @@ export default function Home() {
       if (joinResult.error) {
         console.error("❌ 뷰포트 추천 로드 오류:", joinResult.error);
         const fallbackPlaces = formatBoundsPlaceRowsForMap(plainRows || []);
-        setDbPlaces(fallbackPlaces);
+        let keepChip = fallbackPlaces;
+        if (
+          curatorChipLatestPlacesRef.current?.length > 0 &&
+          selectedCuratorsRef.current?.length > 0
+        ) {
+          keepChip = mergeCuratorProfilePlacesIntoDbPlaces(
+            keepChip,
+            curatorChipLatestPlacesRef.current
+          );
+        }
+        if (listSpreadLatestPlacesRef.current?.length > 0) {
+          keepChip = mergeCuratorProfilePlacesIntoDbPlaces(
+            keepChip,
+            listSpreadLatestPlacesRef.current
+          );
+        }
+        setDbPlaces(keepChip);
         lastFetchedViewportRef.current = {
           cacheKey,
           padded,
@@ -1716,11 +1753,27 @@ export default function Home() {
           ...formatBoundsPlaceRowsForMap(extraPlain),
         ])
       );
+      let keepChip = merged;
+      if (
+        curatorChipLatestPlacesRef.current?.length > 0 &&
+        selectedCuratorsRef.current?.length > 0
+      ) {
+        keepChip = mergeCuratorProfilePlacesIntoDbPlaces(
+          keepChip,
+          curatorChipLatestPlacesRef.current
+        );
+      }
+      if (listSpreadLatestPlacesRef.current?.length > 0) {
+        keepChip = mergeCuratorProfilePlacesIntoDbPlaces(
+          keepChip,
+          listSpreadLatestPlacesRef.current
+        );
+      }
       if (isBootViewport || silent) {
-        setDbPlaces(merged);
+        setDbPlaces(keepChip);
       } else {
         startTransition(() => {
-          setDbPlaces(merged);
+          setDbPlaces(keepChip);
         });
       }
       mapMarkersBootstrappedRef.current = true;
@@ -1776,14 +1829,30 @@ export default function Home() {
     const extraPlain = (cached.plainRows || []).filter(
       (r) => r?.id != null && !joinIdSet.has(String(r.id)),
     );
-    setDbPlaces(
-      filterOutGeoMismatchPlaceIds(
+    setDbPlaces(() => {
+      let merged = filterOutGeoMismatchPlaceIds(
         filterPlacesByAddressCoordConsistency([
           ...fromJoin,
           ...formatBoundsPlaceRowsForMap(extraPlain),
         ])
-      )
-    );
+      );
+      if (
+        curatorChipLatestPlacesRef.current?.length > 0 &&
+        selectedCuratorsRef.current?.length > 0
+      ) {
+        merged = mergeCuratorProfilePlacesIntoDbPlaces(
+          merged,
+          curatorChipLatestPlacesRef.current
+        );
+      }
+      if (listSpreadLatestPlacesRef.current?.length > 0) {
+        merged = mergeCuratorProfilePlacesIntoDbPlaces(
+          merged,
+          listSpreadLatestPlacesRef.current
+        );
+      }
+      return merged;
+    });
   }, []);
 
   const loadMapDensityForViewport = useCallback(
@@ -1868,6 +1937,7 @@ export default function Home() {
       if (String(query || "").trim()) return;
       // 코스 2차 찾기·코스 경로 표시 중에는 뷰포트 DB 로드 금지(마커·깜빡임 보호)
       if (courseMapActiveRef.current) return;
+      if (Date.now() < curatorChipViewportLockUntilRef.current) return;
 
       /** mount 부트 로드 진행 중 — idle bbox로 2번째 places-in-bounds 방지 */
       if (
@@ -1971,7 +2041,6 @@ export default function Home() {
   const [blogReviews, setBlogReviews] = useState([]); // 네이버 블로그 리뷰 상태
   const [addPlaceOpen, setAddPlaceOpen] = useState(false);
   const [selectedCurators, setSelectedCurators] = useState([]);
-  const selectedCuratorsRef = useRef([]);
   selectedCuratorsRef.current = selectedCurators;
   const [showAll, setShowAll] = useState(true);
   const [aiSummary, setAiSummary] = useState("");
@@ -2257,6 +2326,10 @@ export default function Home() {
     useState(false);
   /** 코스 시트 드래그 스냅 — 접힘·최소일 때 지도 「코스」 칩 숨김 */
   const [homeCoursesSheetSnap, setHomeCoursesSheetSnap] = useState("closed");
+  /** 맛집첩 디스커버리 시트 (코스 패널과 상호 배타) */
+  const [homeListsPanelOpen, setHomeListsPanelOpen] = useState(false);
+  const [homeListsSheetSnap, setHomeListsSheetSnap] = useState("closed");
+  const [homeListsSheetResetKey, setHomeListsSheetResetKey] = useState(0);
   const [homeStudioFullscreen, setHomeStudioFullscreen] = useState(false);
   /** 패널 안 코스 상세(지도 전) */
   const [homeCourseBrowse, setHomeCourseBrowse] = useState(null);
@@ -2293,7 +2366,26 @@ export default function Home() {
     if (user?.id) void prefetchHomeCourseDiscoveryMy(user.id);
   }, [user?.id]);
 
+  const closeHomeListsPanel = useCallback(() => {
+    setHomeListsPanelOpen(false);
+    setHomeListsSheetSnap("closed");
+  }, []);
+
+  const openHomeListsPanel = useCallback(() => {
+    setHomeCoursesPanelOpen(false);
+    setHomeCourseBrowse(null);
+    setHomeCourseBrowseLoading(false);
+    setHomeCourseStampBackedToRail(false);
+    setHomeCoursesSheetSnap("closed");
+    setHomeStudioFullscreen(false);
+    setHomeListsPanelOpen(true);
+    setHomeListsSheetSnap("expanded");
+    setHomeListsSheetResetKey((n) => n + 1);
+  }, []);
+
   const openHomeCoursesListPanel = useCallback(() => {
+    setHomeListsPanelOpen(false);
+    setHomeListsSheetSnap("closed");
     setHomeCourseBrowse(null);
     setHomeCourseBrowseLoading(false);
     setHomeCourseStampBackedToRail(false);
@@ -3004,6 +3096,65 @@ export default function Home() {
     openHomeCoursesListPanel,
     dismissHomeCoursesDiscovery,
   ]);
+
+  const toggleHomeListsPanel = useCallback(() => {
+    if (!homeListsPanelOpen) {
+      openHomeListsPanel();
+      return;
+    }
+    closeHomeListsPanel();
+  }, [homeListsPanelOpen, openHomeListsPanel, closeHomeListsPanel]);
+
+  const handleSpreadCuratorList = useCallback(
+    (list, listPlaceRows) => {
+      const curatorId = String(list?.curator_id || "").trim();
+      const mapPlaces = formatCuratorListPlacesForHomeMap(
+        listPlaceRows,
+        curatorId
+      );
+      const pins = mapPlaces.filter((p) => {
+        const c = resolvePlaceWgs84(p);
+        return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
+      });
+      if (pins.length === 0) {
+        showToast("지도에 표시할 좌표가 있는 장소가 없어요.", "info", 2800);
+        return;
+      }
+      setSelectedPlace(null);
+      clearImportRecommendationOverlay();
+      listSpreadLatestPlacesRef.current = mapPlaces;
+      curatorChipViewportLockUntilRef.current = Date.now() + 1600;
+      setDbPlaces((prev) =>
+        mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces)
+      );
+      closeHomeListsPanel();
+      const bottom = searchMapBottomChromePx();
+      const title = String(list?.title || "맛집첩").trim();
+      showToast(`「${title}」 ${pins.length}곳 펼쳤어요`, "success", 2600);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            mapRef.current?.relayout?.();
+            mapRef.current?.fitToPlaces?.(pins, {
+              top: 120,
+              right: 40,
+              bottom: Math.max(160, bottom || 160),
+              left: 40,
+            });
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              console.warn("[맛집첩] fitToPlaces", e);
+            }
+          }
+        });
+      });
+    },
+    [
+      showToast,
+      clearImportRecommendationOverlay,
+      closeHomeListsPanel,
+    ]
+  );
 
   const handleOpenCourseFollowQuick = useCallback(async () => {
     let session = homeGlobalFollowSession || homeRailActiveSession;
@@ -3768,7 +3919,13 @@ export default function Home() {
     homeCoursesPanelOpen,
     selectedPlace,
   ]);
-  const hideHomeMapChromeForCourses = homeCoursesSheetOpen;
+  const homeListsSheetOpen = useMemo(() => {
+    if (selectedPlace) return false;
+    return homeListsPanelOpen && homeCoursesSheetChromeOk;
+  }, [selectedPlace, homeListsPanelOpen, homeCoursesSheetChromeOk]);
+
+  const hideHomeMapChromeForCourses =
+    homeCoursesSheetOpen || homeListsSheetOpen;
   /** 내 코스 Studio ver. 전체화면 — JUDO·큐레이터 칩·체크인 토스트 등 지도 크롬 가림 */
   const hideHomeMapChromeForStudioFullscreen =
     homeStudioFullscreen || homeCoursesSheetSnap === "fullscreen";
@@ -3783,10 +3940,16 @@ export default function Home() {
     !homeCoursesStampSheetActive;
   const homeCoursesEntryVisible =
     homeCoursesSheetChromeOk &&
+    !homeListsSheetOpen &&
     (!homeCoursesSheetOpen || homeCoursesStampSheetActive) &&
     (!homeCoursesSheetOpen ||
       homeCoursesSheetSnap === "expanded" ||
       homeCoursesSheetSnap === "fullscreen");
+  const homeListsEntryChipOpen = homeListsPanelOpen && homeListsSheetOpen;
+  const homeListsEntryVisible =
+    homeCoursesSheetChromeOk &&
+    !homeCoursesSheetOpen &&
+    (!homeListsSheetOpen || homeListsSheetSnap === "expanded");
 
   const showHomeCourseStampResume = useMemo(() => {
     if (!homeCourseFollowMinimized) return false;
@@ -3815,7 +3978,15 @@ export default function Home() {
     if (homeCoursesSheetOpen) {
       dismissHomeCoursesDiscovery();
     }
-  }, [homeCoursesSheetOpen, dismissHomeCoursesDiscovery]);
+    if (homeListsSheetOpen) {
+      closeHomeListsPanel();
+    }
+  }, [
+    homeCoursesSheetOpen,
+    dismissHomeCoursesDiscovery,
+    homeListsSheetOpen,
+    closeHomeListsPanel,
+  ]);
 
   useEffect(() => {
     if (!homeCoursesSheetOpen && homeCourseDiscoverySearchOpen) {
@@ -4931,13 +5102,14 @@ export default function Home() {
 
   const handleRisingCuratorPick = useCallback(
     (row) => {
+      /** username 우선 — RPC curator_id 는 curators.id(PK)라 user_id 조회에 쓰면 빈 목록이 됨 */
       const candidates = [
-        row?.curator_id,
         row?.user_id,
-        row?.slug,
         row?.username,
+        row?.slug,
         row?.display_name,
         row?.name,
+        row?.curator_id,
       ]
         .map((v) => String(v ?? "").trim())
         .filter(Boolean);
@@ -4951,7 +5123,6 @@ export default function Home() {
         }
       }
       if (!selectedToken) {
-        /** dbCurators 매칭 실패 시에도 RPC가 준 auth uid(curator_id)로 직접 필터 시도 */
         selectedToken = candidates[0];
       }
       setShowSavedOnly(false);
@@ -5922,47 +6093,154 @@ export default function Home() {
     dbCurators,
   ]);
 
-  /** 큐레이터 칩: 전환은 클라이언트 필터만. 마커 0건일 때만 widen(200) 1회 보강. */
-  const curatorChipWidenKeyRef = useRef("");
+  /** 큐레이터 칩 fit 직후 뷰포트 재조회로 마커가 통째로 다시 그려지는 깜빡임 방지 */
+  dbCuratorsRef.current = dbCurators;
+
+  /**
+   * 큐레이터 칩: 해당 큐레이터 추천 장소를 직접 불러 dbPlaces에 합친 뒤 지도에 맞춤.
+   * (뷰포트 bounds 필터만으로는 칩별 마커가 자주 비어 있음)
+   */
   useEffect(() => {
     if (String(query || "").trim()) return;
     if (selectedCurators.length === 0) {
-      curatorChipWidenKeyRef.current = "";
+      curatorChipLoadKeyRef.current = "";
+      curatorChipFittedKeyRef.current = "";
+      curatorChipLatestPlacesRef.current = [];
       return;
     }
 
-    const widenKey = selectedCurators.join("|");
-    if (curatorChipWidenKeyRef.current === widenKey) return;
-    if (curatorChipWidenKeyRef.current === `${widenKey}:fetching`) return;
+    const curatorsSnap = dbCuratorsRef.current;
+    const resolvedTokens = selectedCurators
+      .map((raw) => canonicalCuratorChipToken(raw, curatorsSnap) || String(raw).trim())
+      .filter(Boolean);
+    const loadKey = resolvedTokens.join("|");
+    if (!loadKey) return;
+    if (curatorChipLoadKeyRef.current === loadKey) return;
+    if (curatorChipLoadKeyRef.current === `${loadKey}:fetching`) return;
 
-    const visible = filteredByCuratorPlaces.filter((place) => {
-      const c = resolvePlaceWgs84(place);
-      return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
-    });
-    if (visible.length > 0) {
-      curatorChipWidenKeyRef.current = widenKey;
-      return;
-    }
+    let cancelled = false;
+    const fetchGen = loadKey;
+    curatorChipLoadKeyRef.current = `${loadKey}:fetching`;
 
-    const b = lastMapBoundsRef.current;
-    if (!b?.sw || !b?.ne) return;
-    curatorChipWidenKeyRef.current = `${widenKey}:fetching`;
-    void loadDbPlacesForViewport({
-      boundsRaw: b,
-      mapLevel: lastMapLevelRef.current,
-      silent: true,
-      widenLimit: true,
-    }).finally(() => {
-      if (curatorChipWidenKeyRef.current === `${widenKey}:fetching`) {
-        curatorChipWidenKeyRef.current = widenKey;
+    const resolveAuthUid = (rawToken) => {
+      const token = String(rawToken ?? "").trim();
+      if (!token) return "";
+      const row =
+        findDbCuratorRowForChip(token, curatorsSnap) ||
+        findDbCuratorRowForChip(
+          canonicalCuratorChipToken(token, curatorsSnap),
+          curatorsSnap
+        );
+      const fromRow = String(row?.userId ?? row?.user_id ?? "").trim();
+      if (fromRow) return fromRow;
+      const compact = token.toLowerCase().replace(/-/g, "");
+      if (/^[0-9a-f]{32}$/.test(compact)) return token;
+      return "";
+    };
+
+    void (async () => {
+      try {
+        const batches = await Promise.all(
+          resolvedTokens.map(async (token) => {
+            const row =
+              findDbCuratorRowForChip(token, curatorsSnap) ||
+              findDbCuratorRowForChip(
+                canonicalCuratorChipToken(token, curatorsSnap),
+                curatorsSnap
+              );
+            const authUid =
+              resolveAuthUid(token) ||
+              String(row?.userId ?? row?.user_id ?? "").trim();
+            const curatorPk = String(row?.id ?? "").trim();
+            let rows = [];
+            try {
+              if (authUid) {
+                rows = await fetchPlacesForCuratorPage({
+                  user_id: authUid,
+                  id: curatorPk || undefined,
+                });
+              } else if (curatorPk) {
+                rows = await fetchPlacesForCuratorPage({ id: curatorPk });
+              } else if (/^[0-9a-f-]{32,36}$/i.test(token)) {
+                rows = await fetchPlacesForCuratorPage({ user_id: token });
+                if (!rows.length) {
+                  rows = await fetchPlacesForCuratorPage({ id: token });
+                }
+              }
+            } catch (e) {
+              console.warn("[curator-chip] places fetch:", token, e);
+            }
+            const uidForMeta = authUid || token;
+            return formatCuratorProfilePlacesForHomeMap(rows, uidForMeta);
+          })
+        );
+        if (cancelled) return;
+
+        const mergedIncoming = [];
+        const seen = new Set();
+        for (const batch of batches) {
+          for (const p of batch) {
+            const id = String(p?.id ?? "").trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            mergedIncoming.push(p);
+          }
+        }
+
+        if (mergedIncoming.length > 0) {
+          curatorChipLatestPlacesRef.current = mergedIncoming;
+          setDbPlaces((prev) =>
+            mergeCuratorProfilePlacesIntoDbPlaces(prev, mergedIncoming)
+          );
+        }
+
+        const pins = mergedIncoming.filter((p) => {
+          const c = resolvePlaceWgs84(p);
+          return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
+        });
+        if (
+          pins.length > 0 &&
+          curatorChipFittedKeyRef.current !== fetchGen
+        ) {
+          curatorChipFittedKeyRef.current = fetchGen;
+          curatorChipViewportLockUntilRef.current = Date.now() + 1600;
+          const bottom = searchMapBottomChromePx();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (cancelled) return;
+              try {
+                mapRef.current?.relayout?.();
+                mapRef.current?.fitToPlaces?.(pins, {
+                  top: 120,
+                  right: 40,
+                  bottom: Math.max(160, bottom || 160),
+                  left: 40,
+                });
+              } catch (e) {
+                if (import.meta.env.DEV) {
+                  console.warn("[curator-chip] fitToPlaces", e);
+                }
+              }
+            });
+          });
+        }
+      } finally {
+        if (!cancelled && curatorChipLoadKeyRef.current === `${loadKey}:fetching`) {
+          curatorChipLoadKeyRef.current = loadKey;
+        }
       }
-    });
-  }, [
-    selectedCurators,
-    filteredByCuratorPlaces,
-    query,
-    loadDbPlacesForViewport,
-  ]);
+    })();
+
+    return () => {
+      cancelled = true;
+      /** StrictMode 재마운트만 키 리셋 — 완료된 loadKey는 유지해 중복 fetch·fit 방지 */
+      if (curatorChipLoadKeyRef.current === `${loadKey}:fetching`) {
+        curatorChipLoadKeyRef.current = "";
+      }
+    };
+    // dbCurators 는 ref로 읽어 배열 identity churn 으로 재fetch 하지 않음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCurators, query]);
 
   const curatorSpotlightPlaces = useMemo(() => {
     const salt = curatorSpotlightSaltRef.current >>> 0;
@@ -7073,18 +7351,13 @@ const handleClearSearch = () => {
       if (!focusPlace) return;
 
       if (mapPlaces.length > 0) {
-        setDbPlaces((prev) => {
-          const seen = new Set(prev.map((p) => String(p.id)));
-          const additions = mapPlaces.filter((p) => !seen.has(String(p.id)));
-          if (additions.length === 0) return prev;
-          return [...additions, ...prev];
-        });
+        setDbPlaces((prev) =>
+          mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces)
+        );
       } else {
-        setDbPlaces((prev) => {
-          const id = String(focusPlace.id);
-          if (prev.some((p) => String(p.id) === id)) return prev;
-          return [focusPlace, ...prev];
-        });
+        setDbPlaces((prev) =>
+          mergeCuratorProfilePlacesIntoDbPlaces(prev, [focusPlace])
+        );
       }
 
       const w = resolvePlaceWgs84(focusPlace);
@@ -9704,33 +9977,56 @@ const handleClearSearch = () => {
     }
   };
 
-  // 선택된 큐레이터 정보 업데이트
+  // 선택된 큐레이터 상세(장소수·팔로 등) — placeCount===0 이어도 재요청하지 않음(형광등 깜빡임 방지)
   useEffect(() => {
-    if (
-      selectedCurator &&
-      selectedCurator.isCurator !== false &&
-      !selectedCurator.placeCount
-    ) {
-      // 상세 정보가 없으면 가져오기
-      const loadDetails = async () => {
-        try {
-          const details = await fetchCuratorDetails(
-            selectedCurator.username || selectedCurator.name
-          );
-          if (details) {
-            setSelectedCurator(prev => ({
-              ...prev,
-              ...details
-            }));
-          }
-        } catch (error) {
-          console.error("❌ 큐레이터 상세 정보 로드 실패:", error);
-        }
-      };
-      
-      loadDetails();
+    if (!selectedCurator || selectedCurator.isCurator === false) {
+      if (!selectedCurator) curatorDetailsFetchedKeyRef.current = "";
+      return;
     }
+    if (selectedCurator.placeCount != null && selectedCurator.followerCount != null) {
+      return;
+    }
+    const key = String(
+      selectedCurator.userId ??
+        selectedCurator.user_id ??
+        selectedCurator.username ??
+        selectedCurator.name ??
+        ""
+    ).trim();
+    if (!key || curatorDetailsFetchedKeyRef.current === key) return;
+    curatorDetailsFetchedKeyRef.current = key;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const details = await fetchCuratorDetails(
+          selectedCurator.username || selectedCurator.name
+        );
+        if (cancelled || !details) return;
+        setSelectedCurator((prev) => {
+          if (!prev) return prev;
+          const prevKey = String(
+            prev.userId ?? prev.user_id ?? prev.username ?? prev.name ?? ""
+          ).trim();
+          if (prevKey !== key) return prev;
+          return { ...prev, ...details };
+        });
+      } catch (error) {
+        console.error("❌ 큐레이터 상세 정보 로드 실패:", error);
+        if (curatorDetailsFetchedKeyRef.current === key) {
+          curatorDetailsFetchedKeyRef.current = "";
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedCurator]);
+
+  const modalCuratorAuthUid = String(
+    selectedCurator?.userId ?? selectedCurator?.user_id ?? ""
+  ).trim();
 
   useEffect(() => {
     if (
@@ -9740,15 +10036,20 @@ const handleClearSearch = () => {
     ) {
       setModalCuratorPlaces([]);
       setModalCuratorPlacesLoading(false);
+      modalCuratorPlacesUidRef.current = "";
       return undefined;
     }
-    const authUid = String(
-      selectedCurator.userId ?? selectedCurator.user_id ?? ""
-    ).trim();
+    const authUid = modalCuratorAuthUid;
     if (!authUid) {
       setModalCuratorPlaces([]);
+      setModalCuratorPlacesLoading(false);
       return undefined;
     }
+    /** 같은 큐레이터면 상세 필드만 바뀌어도 지도 재마운트(로딩 화면)하지 않음 */
+    if (modalCuratorPlacesUidRef.current === authUid) {
+      return undefined;
+    }
+    modalCuratorPlacesUidRef.current = authUid;
     let cancelled = false;
     setModalCuratorPlacesLoading(true);
     void fetchPlacesForCuratorPage({
@@ -9768,7 +10069,7 @@ const handleClearSearch = () => {
     return () => {
       cancelled = true;
     };
-  }, [showFollowModal, selectedCurator]);
+  }, [showFollowModal, selectedCurator?.isCurator, modalCuratorAuthUid, selectedCurator?.id]);
 
   // 팔로우 모달에 표시할 큐레이터 정보
   const getModalCurator = () => {
@@ -9909,7 +10210,17 @@ const handleClearSearch = () => {
         open={showLoginPrompt}
         feature={requiredFeature}
         onClose={closeLoginPrompt}
-        onLoginRequest={() => signInWithProvider("google")}
+        onLoginRequest={() => {
+          if (handleGoogleLoginInAppGuard({ showToast })) return;
+          signInWithProvider("google").catch((error) => {
+            console.error("google login error:", error);
+            if (isInAppGoogleAuthError(error)) {
+              handleGoogleLoginInAppGuard({ showToast });
+              return;
+            }
+            showToast(error?.message || "구글 로그인에 실패했습니다.", "info", 3600);
+          });
+        }}
       />
 
       {isAiSearching ? (
@@ -10041,6 +10352,15 @@ const handleClearSearch = () => {
           resolveCuratorHandle={resolveCuratorHandleForUser}
           onEditCourse={handleEditMyCourseFromPanel}
           onDeleteCourse={handleDeleteMyCourseFromPanel}
+        />
+        <HomeListsDiscoveryPanel
+          open={homeListsSheetOpen}
+          onClose={closeHomeListsPanel}
+          user={user}
+          isCurator={isCurator}
+          onSpreadList={handleSpreadCuratorList}
+          onSheetSnapChange={setHomeListsSheetSnap}
+          sheetResetKey={homeListsSheetResetKey}
         />
         <HotCheckinStrip
           rankingTop5={hotStripPlaceRows}
@@ -10517,7 +10837,7 @@ const handleClearSearch = () => {
               JUDO
             </button>
 
-            {!hideHomeMapChromeForRecommendSheet ? (
+            {!hideHomeMapChromeForRecommendSheet && !showFollowModal ? (
             <HomeCuratorFilterRow
               wrapperStyle={styles.filterWrapper}
               curators={dbCurators}
@@ -10636,18 +10956,13 @@ const handleClearSearch = () => {
               activeButtonStyle={styles.legendCoursesEntryButtonActive}
               labelStyle={styles.legendCoursesEntryLabel}
             />
-            <HomeTodayTasteEntryChip
-              visible={todayTasteEntryChip.visible}
-              onOpen={todayTasteEntryChip.onOpen}
-              buttonStyle={styles.legendTodayTasteEntryButton}
-              labelStyle={styles.legendTodayTasteEntryLabel}
-            />
-            <HomeCourseStampResumeChip
-              visible={showHomeCourseStampResume}
-              title={homeCourseFollowQuickTitle}
-              onOpen={() => void handleOpenCourseFollowQuick()}
-              buttonStyle={styles.legendCourseStampResumeButton}
-              labelStyle={styles.legendCourseStampResumeLabel}
+            <HomeListsEntryChip
+              visible={homeListsEntryVisible}
+              open={homeListsEntryChipOpen}
+              onToggle={toggleHomeListsPanel}
+              buttonStyle={styles.legendListsEntryButton}
+              activeButtonStyle={styles.legendListsEntryButtonActive}
+              labelStyle={styles.legendListsEntryLabel}
             />
             <AlphaSurveyEntryChip
               visible={Boolean(user?.id)}
@@ -10661,6 +10976,19 @@ const handleClearSearch = () => {
               }}
               buttonStyle={styles.legendAlphaSurveyEntryButton}
               labelStyle={styles.legendAlphaSurveyEntryLabel}
+            />
+            <HomeTodayTasteEntryChip
+              visible={todayTasteEntryChip.visible}
+              onOpen={todayTasteEntryChip.onOpen}
+              buttonStyle={styles.legendTodayTasteEntryButton}
+              labelStyle={styles.legendTodayTasteEntryLabel}
+            />
+            <HomeCourseStampResumeChip
+              visible={showHomeCourseStampResume}
+              title={homeCourseFollowQuickTitle}
+              onOpen={() => void handleOpenCourseFollowQuick()}
+              buttonStyle={styles.legendCourseStampResumeButton}
+              labelStyle={styles.legendCourseStampResumeLabel}
             />
           </div>
           </div>
@@ -10829,8 +11157,13 @@ const handleClearSearch = () => {
                       });
                     }}
                     onGoogleLogin={() => {
+                      if (handleGoogleLoginInAppGuard({ showToast })) return;
                       signInWithProvider("google").catch((error) => {
                         console.error("google login error:", error);
+                        if (isInAppGoogleAuthError(error)) {
+                          handleGoogleLoginInAppGuard({ showToast });
+                          return;
+                        }
                         alert(error?.message || "구글 로그인에 실패했습니다.");
                       });
                     }}

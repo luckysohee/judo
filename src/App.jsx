@@ -30,6 +30,7 @@ const AdminAlphaSurveyPage = lazyWithRetry(() => import("./pages/AdminAlphaSurve
 const StudioHome = lazyWithRetry(() => import("./pages/Studio/StudioHome"));
 const StudioFollowersPage = lazyWithRetry(() => import("./pages/Studio/StudioFollowersPage"));
 const StudioCourseEditor = lazyWithRetry(() => import("./pages/Studio/StudioCourseEditor"));
+const StudioListEditor = lazyWithRetry(() => import("./pages/Studio/StudioListEditor"));
 const NewPlace = lazyWithRetry(() => import("./pages/Studio/NewPlace"));
 const EditPlace = lazyWithRetry(() => import("./pages/Studio/EditPlace"));
 
@@ -100,6 +101,17 @@ function App() {
       <Route
         path="/studio/courses/:courseId/edit"
         element={<Lazy><StudioCourseEditor /></Lazy>}
+      />
+      <Route
+        path="/studio/lists"
+        element={
+          <Navigate to="/studio" replace state={{ openStudioLists: true }} />
+        }
+      />
+      <Route path="/studio/lists/new" element={<Lazy><StudioListEditor /></Lazy>} />
+      <Route
+        path="/studio/lists/:listId/edit"
+        element={<Lazy><StudioListEditor /></Lazy>}
       />
       <Route path="/studio/followers" element={<Lazy><StudioFollowersPage /></Lazy>} />
       <Route

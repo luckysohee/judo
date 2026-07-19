@@ -104,6 +104,54 @@ export async function uploadCuratorCourseCoverFile(file, curatorUserId) {
   return curatorPhotoPublicUrl(path);
 }
 
+/**
+ * 맛집첩 장소 사진: `{userId}/list-places/...`
+ * @returns {Promise<string>} 공개 URL
+ */
+export async function uploadCuratorListPlaceImageFile(file, curatorUserId) {
+  if (!file || !curatorUserId) {
+    throw new Error("파일과 사용자 ID가 필요합니다.");
+  }
+  const prepared = await prepareImageFileForUpload(file);
+  if (prepared.size > 5 * 1024 * 1024) {
+    throw new Error("파일은 5MB 이하여야 합니다.");
+  }
+  const rawName = (prepared.name || "place").toLowerCase();
+  const ext = rawName.includes(".")
+    ? rawName.split(".").pop()
+    : (prepared.type || "").includes("png")
+      ? "png"
+      : (prepared.type || "").includes("webp")
+        ? "webp"
+        : (prepared.type || "").includes("gif")
+          ? "gif"
+          : "jpg";
+  const safeExt = ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)
+    ? ext
+    : "jpg";
+  const path = `${curatorUserId}/list-places/place-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 9)}.${safeExt}`;
+
+  const { error: upErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, prepared, { cacheControl: "3600", upsert: false });
+
+  if (upErr) {
+    const extra =
+      upErr.message?.includes("Bucket not found") ||
+      upErr.message?.includes("not found")
+        ? " Supabase에서 버킷 curator-place-photos(Public)와 Storage 정책을 확인하세요."
+        : upErr.message?.includes("new row violates") ||
+            upErr.message?.includes("policy")
+          ? " Storage RLS: 큐레이터 계정으로 로그인했는지, 경로가 '{본인 user id}/list-places/...' 인지 확인하세요."
+          : "";
+    throw new Error((upErr.message || "사진 업로드 실패") + extra);
+  }
+
+  return curatorPhotoPublicUrl(path);
+}
+
 function isUuid(s) {
   return (
     typeof s === "string" &&

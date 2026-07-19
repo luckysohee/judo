@@ -15,6 +15,7 @@ import {
 } from "../../api/places";
 import { supabase } from "../../lib/supabase";
 import { ensurePlaceUuidForPick } from "../../utils/resolvePlaceUuidForPick";
+import { syncCuratorGradeTotalPlaces } from "../../utils/curatorGradeCount";
 import {
   resolveCourseCoverFromFirstPlace,
 } from "../../utils/courseStepThumb";
@@ -604,6 +605,7 @@ export default function StudioCourseEditor() {
         await persistPlaces(cid);
       }
       markSavedSnapshot(snapshotAfterSave);
+      void syncCuratorGradeTotalPlaces(user.id);
       navigate("/studio/courses");
     } catch (e) {
       alert(e?.message || "저장에 실패했습니다.");
@@ -787,6 +789,7 @@ export default function StudioCourseEditor() {
     setSaving(true);
     try {
       await deleteCuratorCourse(courseId);
+      if (user?.id) void syncCuratorGradeTotalPlaces(user.id);
       navigate("/studio/courses");
     } catch (e) {
       alert(e?.message || "삭제에 실패했습니다.");

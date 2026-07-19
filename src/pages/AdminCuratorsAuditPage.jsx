@@ -635,7 +635,7 @@ export default function AdminCuratorsAuditPage() {
                     ) : null}
                     <div style={styles.rowMeta}>
                       등급 {GRADE_LABELS_KO[c.grade] || c.grade} · 상태 {c.status}{" "}
-                      · 장소 {c.total_places ?? 0}
+                      · 기여 {c.total_places ?? 0}점
                     </div>
                     <button
                       type="button"

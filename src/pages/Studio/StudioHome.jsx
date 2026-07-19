@@ -38,6 +38,12 @@ import {
 } from "../../utils/studioFollowersFetch";
 import { upsertUserSavedPlaceFolders } from "../../utils/upsertUserSavedPlaceFolders";
 import {
+  countCuratorGradeContributions,
+  gradeContributionTotal,
+  syncCuratorGradeTotalPlaces,
+} from "../../utils/curatorGradeCount";
+import { gradeFromPlaceCount } from "../../utils/curatorGradeRules";
+import {
   selectSystemFoldersOrdered,
   insertSystemFolderRow,
   deleteOwnCustomSystemFolder,
@@ -61,6 +67,7 @@ import {
   normalizeCuratorStyleBlock,
 } from "../../utils/curatorStyleFeatures";
 import { StudioCoursesPanel } from "./StudioCoursesPage";
+import { StudioListsPanel } from "./StudioListsPage";
 import {
   getCuratorArchiveStats,
   normalizeCuratorArchiveStats,
@@ -77,6 +84,7 @@ import {
 const STUDIO_TAB = {
   add: "잔 올리기",
   courses: "잔코스",
+  matjip: "맛집첩",
   list: "잔리스트",
   drafts: "잔 채우기",
   archive: "잔 아카이브",
@@ -2262,6 +2270,20 @@ export default function StudioHome() {
 
       const totalPlaces = placeCuratorsData?.length || 0;
 
+      let totalCourses = 0;
+      try {
+        const gradeCounts = await countCuratorGradeContributions(userId, {
+          client: supabase,
+        });
+        totalCourses = gradeCounts.courseCount;
+      } catch (e) {
+        console.warn("course grade count:", e);
+      }
+      const gradeContributionTotalPts = gradeContributionTotal(
+        totalPlaces,
+        totalCourses
+      );
+
       /** 큐레이터가 이 장소를 연결한 시각. 없으면 레거시 폴백으로 places.created_at */
       const linkCreatedAt = (pc) => {
         const a = pc?.created_at;
@@ -2291,13 +2313,14 @@ export default function StudioHome() {
       let thisWeekNewFollowers = 0;
       let lastWeekNewFollowers = 0;
 
-      // 등급 계산 (실제 장소 수 기반)
+      // 등급 계산 (장소 1점 + 코스 × 가중치)
       let level = 1;
-      if (totalPlaces >= 1000) level = 5;      // 다이아몬드
-      else if (totalPlaces >= 500) level = 4;  // 플래티넘
-      else if (totalPlaces >= 200) level = 3;  // 골드
-      else if (totalPlaces >= 100) level = 2;  // 실버
-      else if (totalPlaces >= 50) level = 1;   // 브론즈
+      const gradeKey = gradeFromPlaceCount(gradeContributionTotalPts);
+      if (gradeKey === "diamond") level = 5;
+      else if (gradeKey === "platinum") level = 4;
+      else if (gradeKey === "gold") level = 3;
+      else if (gradeKey === "silver") level = 2;
+      else level = 1;
 
       // 팔로워 수(성장 추이 picked = 주간 신규 팔로워 집계에도 동일 행 사용)
       const [{ data: followersData, error: followersError }, followingCount] =
@@ -2408,7 +2431,7 @@ export default function StudioHome() {
       setCourseArchiveStats(courseArchiveStatsResult ?? null);
 
       const stats = {
-        placeCount: totalPlaces,
+        placeCount: gradeContributionTotalPts,
         // 잔 아카이브 RPC followers.saves_on_picks(내 추천 장소 저장 횟수)와 동일 소스
         saveCount: extInsightsNormalized.followers.savesOnPicks,
         followerCount: followerCount, // 실제 팔로워 수
@@ -2524,6 +2547,13 @@ export default function StudioHome() {
   }, [location.state?.openStudioCourses, navigate]);
 
   useEffect(() => {
+    if (location.state?.openStudioLists) {
+      setActiveSection("matjip");
+      navigate("/studio", { replace: true, state: {} });
+    }
+  }, [location.state?.openStudioLists, navigate]);
+
+  useEffect(() => {
     if (!SHOW_STUDIO_LIVE_BUTTON || !liveStartConfirmOpen) return;
     const onKey = (e) => {
       if (e.key === "Escape") setLiveStartConfirmOpen(false);
@@ -2534,35 +2564,14 @@ export default function StudioHome() {
 
   const loadCuratorActivity = async (userId) => {
     try {
-      // 등록된 장소 수 (연결 테이블 통해 조회)
-      const { data: placeCuratorsData, error: placesError } = await supabase
-        .from("curator_places")
-        .select("place_id")
-        .eq("curator_id", userId);
+      const counts = await syncCuratorGradeTotalPlaces(userId, {
+        client: supabase,
+      });
+      if (!counts) return;
 
-      if (placesError) {
-        console.error("places load error:", placesError);
-        return;
-      }
-      
-      const totalPlaces = placeCuratorsData?.length || 0;
-      const totalLikes = 0; // likes 필드가 없으므로 0
-      
-      // 큐레이터 테이블 업데이트
-      await supabase
-        .from("curators")
-        .update({ 
-          total_places: totalPlaces,
-          total_likes: totalLikes,
-          last_activity_at: new Date().toISOString()
-        })
-        .eq("user_id", userId);
-      
-      // 로컬 상태 업데이트
-      setCuratorProfile(prev => ({
+      setCuratorProfile((prev) => ({
         ...prev,
-        total_places: totalPlaces,
-        total_likes: totalLikes
+        total_places: counts.total,
       }));
     } catch (error) {
       console.error("activity load error:", error);
@@ -3320,6 +3329,7 @@ export default function StudioHome() {
             console.warn("curator_places 정리(수정 저장):", cpMergeErr);
           } else if (user?.id) {
             void loadCuratorStats(user.id);
+            void loadCuratorActivity(user.id);
           }
 
           const folderRes = await persistUserSavedPlaceFolders(
@@ -3572,6 +3582,11 @@ export default function StudioHome() {
               console.log("✅ myPlaces 업데이트 완료:", updated.length, "개");
               return updated;
             });
+
+            if (user?.id) {
+              void loadCuratorStats(user.id);
+              void loadCuratorActivity(user.id);
+            }
 
             removePublishedDraft();
           }
@@ -4434,6 +4449,17 @@ export default function StudioHome() {
         </button>
         <button
           type="button"
+          title={`${STUDIO_TAB.matjip} — 동네·테마 묶음`}
+          onClick={() => setActiveSection("matjip")}
+          style={{
+            ...styles.topBarButton,
+            ...(activeSection === "matjip" ? styles.topBarButtonActive : {}),
+          }}
+        >
+          {STUDIO_TAB.matjip}
+        </button>
+        <button
+          type="button"
           title={STUDIO_TAB.list}
           onClick={() => setActiveSection("list")}
           style={{
@@ -5150,6 +5176,13 @@ export default function StudioHome() {
       {activeSection === "courses" && (
         <div style={styles.studioSectionInner}>
           <StudioCoursesPanel embedded active />
+        </div>
+      )}
+
+      {/* 맛집첩 섹션 */}
+      {activeSection === "matjip" && (
+        <div style={styles.studioSectionInner}>
+          <StudioListsPanel embedded active />
         </div>
       )}
 

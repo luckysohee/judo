@@ -98,9 +98,24 @@ export default function StudioMapSearchSuggestions({
               key={key}
               role="button"
               tabIndex={0}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
+              onMouseDown={(e) => {
+                /** 추가 버튼 클릭이 preventDefault 때문에 먹히지 않게 */
+                if (
+                  e.target instanceof Element &&
+                  e.target.closest("button, a, input, textarea, select")
+                ) {
+                  return;
+                }
+                e.preventDefault();
+              }}
+              onClick={(e) => {
                 if (dismissing) return;
+                if (
+                  e.target instanceof Element &&
+                  e.target.closest("button, a, input, textarea, select")
+                ) {
+                  return;
+                }
                 onSelect?.(item, index);
               }}
               onMouseEnter={() => onHoverIndex?.(index)}

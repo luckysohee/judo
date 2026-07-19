@@ -29,17 +29,20 @@ export function buildCourseMapPreviewModel(placeRows) {
 
   for (const row of rows) {
     const pid = String(row?.place_id ?? "").trim();
-    if (!pid || !UUID_RE.test(pid)) continue;
-    uuidRowCount += 1;
+    const allowNonUuid = row?.allowNonUuid === true;
+    const hasUuid = Boolean(pid && UUID_RE.test(pid));
+    if (!hasUuid && !allowNonUuid) continue;
+    if (hasUuid) uuidRowCount += 1;
     const lat = parseCoursePreviewCoord(row.place_lat);
     const lng = parseCoursePreviewCoord(row.place_lng);
     if (lat == null || lng == null) {
-      missingCoordCount += 1;
+      if (hasUuid) missingCoordCount += 1;
       continue;
     }
+    const key = String(row.key ?? pid ?? `pt-${points.length}`);
     points.push({
-      key: String(row.key ?? pid),
-      place_id: pid,
+      key,
+      place_id: hasUuid ? pid : key,
       lat,
       lng,
       order: points.length + 1,
@@ -50,7 +53,7 @@ export function buildCourseMapPreviewModel(placeRows) {
     points,
     uuidRowCount,
     missingCoordCount,
-    showEmptyCourseHint: uuidRowCount === 0,
+    showEmptyCourseHint: points.length === 0 && uuidRowCount === 0,
     showMissingCoordHint: uuidRowCount > 0 && missingCoordCount > 0,
   };
 }

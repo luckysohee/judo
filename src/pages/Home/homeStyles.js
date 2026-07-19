@@ -404,6 +404,52 @@ export const styles = {
     textShadow: "0 0 8px rgba(239, 68, 68, 0.55)",
   },
 
+  /** 지도 우측 — 코스 아래 「맛집첩」(리스트 · 그린) */
+  legendListsEntryButton: {
+    pointerEvents: "auto",
+    width: "100%",
+    minHeight: "38px",
+    padding: "5px 2px 4px",
+    gap: "3px",
+    borderRadius: "9px",
+    border: "1.5px solid rgba(46, 204, 113, 0.55)",
+    background:
+      "linear-gradient(165deg, rgba(12, 28, 18, 0.96) 0%, rgba(17, 17, 17, 0.94) 100%)",
+    backdropFilter: "blur(14px) saturate(160%)",
+    WebkitBackdropFilter: "blur(14px) saturate(160%)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.14), 0 0 10px rgba(46, 204, 113, 0.28), 0 4px 16px rgba(0,0,0,0.32)",
+    cursor: "pointer",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#f0fff5",
+    flexShrink: 0,
+    transition:
+      "background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
+  },
+
+  legendListsEntryButtonActive: {
+    animation: "none",
+    border: "1.5px solid rgba(134, 239, 172, 0.92)",
+    background: "rgba(8, 24, 14, 0.98)",
+    boxShadow:
+      "inset 0 1px 0 rgba(255,255,255,0.16), 0 0 16px rgba(46, 204, 113, 0.42), 0 6px 20px rgba(0,0,0,0.42)",
+    transform: "scale(1.05)",
+  },
+
+  legendListsEntryLabel: {
+    fontSize: "8px",
+    fontWeight: 900,
+    lineHeight: 1,
+    letterSpacing: "-0.02em",
+    whiteSpace: "nowrap",
+    marginTop: "1px",
+    color: "#bbf7d0",
+    textShadow: "0 0 8px rgba(46, 204, 113, 0.45)",
+  },
+
   /** 코스 칩 + 도장 이어찍기 칩 세로 묶음 */
   legendCoursesChipStack: {
     display: "flex",

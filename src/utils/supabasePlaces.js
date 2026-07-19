@@ -195,7 +195,9 @@ export async function fetchPlacesForCuratorPage(curatorRow) {
   const uid =
     curatorRow.user_id != null
       ? String(curatorRow.user_id).trim()
-      : "";
+      : curatorRow.userId != null
+        ? String(curatorRow.userId).trim()
+        : "";
   if (uid) {
     return fetchCuratorPlacesAsPlaceRowsByUserId(uid);
   }

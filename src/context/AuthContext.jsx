@@ -4,6 +4,11 @@ import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { getAuthOAuthRedirectUrl } from "../utils/authRedirectUrl";
 import { oauthQueryParamsForDevFreshLogin } from "../lib/authDevFreshLogin.js";
+import {
+  detectInAppBrowser,
+  googleLoginBlockedInAppMessage,
+  IN_APP_GOOGLE_AUTH_ERROR_CODE,
+} from "../utils/inAppBrowser";
 
 const AuthContext = createContext(null);
 
@@ -60,6 +65,17 @@ export function AuthProvider({ children }) {
       user,
       loading,
       signInWithProvider: async (provider) => {
+        const p = String(provider || "").trim().toLowerCase();
+        if (p === "google") {
+          const inApp = detectInAppBrowser();
+          if (inApp?.inApp) {
+            const err = new Error(googleLoginBlockedInAppMessage(inApp.label));
+            err.code = IN_APP_GOOGLE_AUTH_ERROR_CODE;
+            err.inAppLabel = inApp.label;
+            throw err;
+          }
+        }
+
         const redirectTo = getAuthOAuthRedirectUrl();
         if (import.meta.env.DEV) {
           console.log("[auth] OAuth redirectTo:", redirectTo);
