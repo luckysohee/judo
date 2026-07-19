@@ -614,8 +614,10 @@ export default function HomeListDiscoveryDetail({
   places,
   curatorLabel = "",
   user = null,
+  sheetSnap = "expanded",
   onBack,
   onSheetCollapse,
+  onSheetExpand,
   onFocusPlace,
   focusPlaceId = "",
   onOpenCurator,
@@ -810,20 +812,29 @@ export default function HomeListDiscoveryDetail({
     rows.length > 0 ? `${rows.length}곳` : null,
   ].filter(Boolean);
 
+  const sheetCollapsed = sheetSnap === "collapsed";
+  const canToggleSheet =
+    sheetCollapsed
+      ? typeof onSheetExpand === "function"
+      : typeof onSheetCollapse === "function";
+
   return (
     <div style={styles.root}>
       <div style={styles.navBar}>
         <button type="button" style={styles.backBtn} onClick={() => onBack?.()}>
           ← 목록
         </button>
-        {typeof onSheetCollapse === "function" ? (
+        {canToggleSheet ? (
           <button
             type="button"
             style={styles.collapseBtn}
-            onClick={() => onSheetCollapse()}
-            aria-label="시트 접기"
+            onClick={() => {
+              if (sheetCollapsed) onSheetExpand?.();
+              else onSheetCollapse?.();
+            }}
+            aria-label={sheetCollapsed ? "시트 펼치기" : "시트 접기"}
           >
-            ∨ 접기
+            {sheetCollapsed ? "∧ 펼치기" : "∨ 접기"}
           </button>
         ) : (
           <span />

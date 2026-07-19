@@ -375,6 +375,7 @@ export default function HomeListsDiscoveryPanel({
     isDragging,
     onDragHandlePointerDown,
     setSnapCollapsed,
+    setSnapExpanded,
   } = useVerticalSnapSheet({
     enabled: open,
     expandedPx,
@@ -672,12 +673,14 @@ export default function HomeListsDiscoveryPanel({
             places={browsePlaces}
             curatorLabel={browseCuratorLabel}
             user={user}
+            sheetSnap={snap}
             onBack={() => {
               setSelected(null);
               setDetailPlaces([]);
               onBrowseBack?.();
             }}
             onSheetCollapse={setSnapCollapsed}
+            onSheetExpand={setSnapExpanded}
             onFocusPlace={onFocusPlace}
             focusPlaceId={focusPlaceId}
             onOpenCurator={onOpenCurator}
