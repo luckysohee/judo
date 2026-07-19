@@ -26,6 +26,18 @@ describe("mapPhotoCircleMarker", () => {
     ).toBe(true);
   });
 
+  it("맛집첩 펼침 핀은 줌과 무관하게 사진 마커", () => {
+    expect(
+      shouldUsePhotoCircleMarker(
+        {
+          isListSpreadPin: true,
+          image_url: "https://cdn.example/list.jpg",
+        },
+        { mapZoomLevel: 8 }
+      )
+    ).toBe(true);
+  });
+
   it("큐레이터 픽은 줌 인(level<=6) 또는 선택 시에만 사진 마커", () => {
     const place = {
       curatorCount: 1,

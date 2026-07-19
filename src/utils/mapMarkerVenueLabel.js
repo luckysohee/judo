@@ -1,6 +1,10 @@
-/** 코스 1·2·쩜오차 확정 핀 + 2차 찾기 깜빡임 후보 — 마커 아래 상호 */
+/** 코스 1·2·쩜오차 확정 핀 + 2차 찾기 깜빡임 후보 + 맛집첩 펼침 핀 — 마커 아래 상호 */
 export function shouldShowCourseVenueNameLabel(place) {
-  return Boolean(place?.isCoursePin) || Boolean(place?.courseMarkerPulse);
+  return (
+    Boolean(place?.isCoursePin) ||
+    Boolean(place?.courseMarkerPulse) ||
+    Boolean(place?.isListSpreadPin)
+  );
 }
 
 /** 코스 1차 핀 — 상호 라벨 강조색 */

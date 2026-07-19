@@ -44,6 +44,9 @@ export function shouldUsePhotoCircleMarker(
 
   if (place?.isCoursePin && !isCourseBridgeMapPin(place)) return true;
 
+  /** 맛집첩 「지도에 펼치기」 핀 — 줌과 무관하게 사진 원형 */
+  if (place?.isListSpreadPin) return true;
+
   if (isCuratorListedPlace(place)) {
     if (isSelected) return true;
     const lv = Number(mapZoomLevel);
@@ -224,7 +227,7 @@ export function createPhotoCircleMarker({
     root.appendChild(capEl);
   }
 
-  if (place?.isCoursePin) {
+  if (place?.isCoursePin || place?.isListSpreadPin) {
     const venueLabel = buildCourseVenueNameLabelForPhotoOverlay(size, place);
     const labelSvg = wrapVenueLabelSvgForHtml(venueLabel);
     if (labelSvg) {
@@ -244,7 +247,7 @@ export function createPhotoCircleMarker({
     ? 22
     : meta.showHotFlame || meta.checkinCount > 0
       ? 20
-      : place?.isCoursePin
+      : place?.isCoursePin || place?.isListSpreadPin
         ? 14
         : 12;
 
@@ -257,11 +260,18 @@ export function createPhotoCircleMarker({
     zIndex,
   });
 
-  root.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (typeof onClick === "function") onClick(place);
-  });
+  root.addEventListener(
+    "click",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") {
+        e.stopImmediatePropagation();
+      }
+      if (typeof onClick === "function") onClick(place);
+    },
+    { capture: true }
+  );
 
   const placeName = String(place?.name || place?.place_name || "장소").trim();
   root.title = placeName;

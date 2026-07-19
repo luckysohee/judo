@@ -66,23 +66,23 @@ function haversineM(a, b) {
 export function findCuratorCatalogMatch(picked, catalog) {
   if (!picked || !Array.isArray(catalog) || catalog.length === 0) return null;
 
+  /**
+   * UUID를 카카오 id보다 먼저 — 맛집첩 등에서 카카오 id가 비거나
+   * 카탈로그에 동일 카카오 id가 여러 줄이면 첫 매칭이 다른 가게로 새는 문제 방지.
+   */
+  const uuidCandidates = [picked.id, picked.place_id];
+  for (const raw of uuidCandidates) {
+    if (raw == null || typeof raw !== "string") continue;
+    if (!isUuidLike(raw)) continue;
+    for (const c of catalog) {
+      if (String(c?.id) === String(raw)) return c;
+    }
+  }
+
   const kid = normalizeKakaoPlaceId(picked);
   if (kid) {
     for (const c of catalog) {
       if (normalizeKakaoPlaceId(c) === kid) return c;
-    }
-  }
-
-  const pid = picked.id;
-  if (
-    pid != null &&
-    typeof pid === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      pid
-    )
-  ) {
-    for (const c of catalog) {
-      if (String(c.id) === String(pid)) return c;
     }
   }
 

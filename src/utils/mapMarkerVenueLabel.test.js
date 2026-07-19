@@ -28,6 +28,12 @@ describe("mapMarkerVenueLabel", () => {
         name: "펄스만",
       })
     ).toBe(true);
+    expect(
+      shouldShowCourseVenueNameLabel({
+        isListSpreadPin: true,
+        name: "맛집첩",
+      })
+    ).toBe(true);
   });
 
   it("centers wide venue labels inside marker svg", () => {

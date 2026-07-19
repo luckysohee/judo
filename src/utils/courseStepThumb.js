@@ -28,12 +28,10 @@ export async function resolveCourseStepThumbUrl(step, opts = {}) {
   if (uploaded) return uploaded;
 
   const kakaoId = String(step?.kakao_place_id || "").trim();
-  if (!kakaoId) return null;
-
   const lat = Number(step?.lat);
   const lng = Number(step?.lng);
-  const name = String(step?.name || "").trim();
-  const address = String(step?.address || "").trim();
+  const name = String(step?.name || step?.place_name || "").trim();
+  const address = String(step?.address || step?.place_address || "").trim();
 
   if (kakaoId) {
     try {
@@ -50,6 +48,10 @@ export async function resolveCourseStepThumbUrl(step, opts = {}) {
   }
 
   if (opts.skipGoogleFallback) return null;
+
+  if (!name && !(Number.isFinite(lat) && Number.isFinite(lng))) {
+    return null;
+  }
 
   const googleThumb = await fetchGooglePlacePhotoThumb({
     name,

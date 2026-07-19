@@ -86,26 +86,59 @@ export function mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces) {
       mergedCp.push(cp);
     }
     const existingW = resolvePlaceWgs84(existing);
-    const nextLat = existingW?.lat ?? mp.lat;
-    const nextLng = existingW?.lng ?? mp.lng;
+    const mpW = resolvePlaceWgs84(mp);
+    const listPin =
+      Boolean(existing.isListSpreadPin) || Boolean(mp.isListSpreadPin);
+    /** 맛집첩 펼침이면 리스트 쪽 좌표·사진·이름을 우선 (기존 뷰포트 행에 덮이지 않게) */
+    const nextLat = listPin
+      ? (mpW?.lat ?? existingW?.lat ?? mp.lat)
+      : (existingW?.lat ?? mp.lat);
+    const nextLng = listPin
+      ? (mpW?.lng ?? existingW?.lng ?? mp.lng)
+      : (existingW?.lng ?? mp.lng);
     next[idx] = {
       ...existing,
       ...mp,
-      ...existing,
+      ...(listPin ? mp : existing),
       lat: nextLat,
       lng: nextLng,
       x: nextLng != null ? String(nextLng) : existing.x ?? mp.x,
       y: nextLat != null ? String(nextLat) : existing.y ?? mp.y,
+      name: listPin
+        ? mp.name || existing.name
+        : existing.name || mp.name,
       curatorPlaces: mergedCp,
       curatorCount: Math.max(
         Number(existing.curatorCount) || 0,
         Number(mp.curatorCount) || 0,
         mergedCp.length
       ),
-      comment: existing.comment || mp.comment || "",
+      comment: listPin
+        ? mp.comment || existing.comment || ""
+        : existing.comment || mp.comment || "",
+      isListSpreadPin: listPin,
+      listOrderIndex:
+        mp.listOrderIndex ?? existing.listOrderIndex ?? undefined,
+      courseStepThumbUrl: listPin
+        ? mp.courseStepThumbUrl || existing.courseStepThumbUrl || null
+        : existing.courseStepThumbUrl || mp.courseStepThumbUrl || null,
+      image_url: listPin
+        ? mp.image_url || existing.image_url || null
+        : existing.image_url || mp.image_url || null,
     };
   }
   return next;
+}
+
+/**
+ * 맛집첩 「지도에 펼치기」로 붙인 핀만 제거한다.
+ * (닫기 시 마커 소거 — 뷰포트 재조회로 일반 추천 핀은 복구)
+ * @param {unknown[]} prev
+ * @returns {unknown[]}
+ */
+export function removeListSpreadPinsFromDbPlaces(prev) {
+  const base = Array.isArray(prev) ? prev : [];
+  return base.filter((p) => !p?.isListSpreadPin);
 }
 
 /** 큐레이터 프로필 미니 지도(`MapView`)용 */

@@ -1993,6 +1993,7 @@ const MapView = forwardRef(({
         }) &&
         !p.isKakaoTypingPreview &&
         !p.isCoursePin &&
+        !p.isListSpreadPin &&
         !isEphemeralSearchMapMarker(p);
 
       const checkinMeta = markerCheckinMeta(
@@ -2039,50 +2040,76 @@ const MapView = forwardRef(({
               : Number(rawLng);
 
           const numericKakaoId = normalizeKakaoPlaceId(cp);
-
-          // API 결과를 PlacePreviewCard 형식으로 변환 (y/x만 있어도 lat·lng 채움)
-          const formattedPlace = {
-            id: cp.id || `api_${cp.name?.replace(/\s+/g, '_')}`,
-            name: cp.name || cp.title || cp.place_name,
-            address: cp.address || cp.road_address_name || cp.address_name,
-            region: cp.address || '',
-            category: cp.category || cp.category_name || '',
-            primaryCurator: cp.source === 'kakao' ? '카카오 지도' : '네이버 지도',
-            curators: cp.source === 'kakao' ? ['카카오 지도'] : ['네이버 지도'],
-            tags: cp.category ? [cp.category] : [],
-            comment: '',
-            savedCount: 0,
-            lat: Number.isFinite(latNum) ? latNum : wgs?.lat ?? cp.lat,
-            lng: Number.isFinite(lngNum) ? lngNum : wgs?.lng ?? cp.lng,
-            ...(Number.isFinite(latNum) && Number.isFinite(lngNum)
+          const coordPatch = Number.isFinite(latNum) && Number.isFinite(lngNum)
+            ? {
+                lat: latNum,
+                lng: lngNum,
+                x: String(lngNum),
+                y: String(latNum),
+              }
+            : wgs
               ? {
-                  x: String(lngNum),
-                  y: String(latNum),
+                  lat: wgs.lat,
+                  lng: wgs.lng,
+                  x: String(wgs.lng),
+                  y: String(wgs.lat),
                 }
-              : wgs
-                ? {
-                    x: String(wgs.lng),
-                    y: String(wgs.lat),
-                  }
-                : {}),
-            image: cp.image,
-            curatorPlaces: cp.curatorPlaces || [],
-            // 네이버/카카오 API 추가 필드
-            source: cp.source || 'naver',
-            link: cp.link || cp.place_url,
-            place_url: cp.place_url || cp.link || '',
-            phone: cp.phone || cp.telephone || '',
-            place_id: numericKakaoId || cp.place_id || null,
-            kakao_place_id: numericKakaoId,
-            kakaoId: numericKakaoId || cp.kakaoId || null,
-            isKakaoPlace: Boolean(cp.isKakaoPlace || cp.source === 'kakao' || cp.place_url),
-            category_name: cp.category_name || cp.category || '',
-            road_address_name: cp.road_address_name || '',
-            address_name: cp.address_name || cp.address || '',
-            distance: cp.distance,
-            walkingTime: cp.walkingTime,
-            blogInsight: cp.blogInsight,
-          };
+              : {};
+
+          /**
+           * DB/맛집첩 핀은 카카오 API 형으로 재조립하지 않음.
+           * (place_id를 카카오 숫자로 덮어쓰면 카탈로그 매칭이 다른 가게로 샐 수 있음)
+           */
+          const cpId = cp?.id != null ? String(cp.id) : "";
+          const isDbOrListPin =
+            Boolean(cp?.isListSpreadPin) ||
+            Boolean(cp?.isCoursePin) ||
+            (Array.isArray(cp?.curatorPlaces) && cp.curatorPlaces.length > 0) ||
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+              cpId
+            );
+
+          let formattedPlace;
+          if (isDbOrListPin) {
+            formattedPlace = {
+              ...cp,
+              ...coordPatch,
+              name: cp.name || cp.title || cp.place_name,
+              kakao_place_id: numericKakaoId || cp.kakao_place_id || null,
+              kakaoId: numericKakaoId || cp.kakaoId || null,
+            };
+          } else {
+            // API 결과를 PlacePreviewCard 형식으로 변환 (y/x만 있어도 lat·lng 채움)
+            formattedPlace = {
+              id: cp.id || `api_${cp.name?.replace(/\s+/g, '_')}`,
+              name: cp.name || cp.title || cp.place_name,
+              address: cp.address || cp.road_address_name || cp.address_name,
+              region: cp.address || '',
+              category: cp.category || cp.category_name || '',
+              primaryCurator: cp.source === 'kakao' ? '카카오 지도' : '네이버 지도',
+              curators: cp.source === 'kakao' ? ['카카오 지도'] : ['네이버 지도'],
+              tags: cp.category ? [cp.category] : [],
+              comment: '',
+              savedCount: 0,
+              ...coordPatch,
+              image: cp.image,
+              curatorPlaces: cp.curatorPlaces || [],
+              source: cp.source || 'naver',
+              link: cp.link || cp.place_url,
+              place_url: cp.place_url || cp.link || '',
+              phone: cp.phone || cp.telephone || '',
+              place_id: numericKakaoId || cp.place_id || null,
+              kakao_place_id: numericKakaoId,
+              kakaoId: numericKakaoId || cp.kakaoId || null,
+              isKakaoPlace: Boolean(cp.isKakaoPlace || cp.source === 'kakao' || cp.place_url),
+              category_name: cp.category_name || cp.category || '',
+              road_address_name: cp.road_address_name || '',
+              address_name: cp.address_name || cp.address || '',
+              distance: cp.distance,
+              walkingTime: cp.walkingTime,
+              blogInsight: cp.blogInsight,
+            };
+          }
 
           if (courseSecondPickMode && cp.courseMarkerPulse) {
             formattedPlace.courseSecondCandidatePick = true;

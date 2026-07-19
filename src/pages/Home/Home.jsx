@@ -123,6 +123,10 @@ import HomeListsDiscoveryPanel, {
   HomeListsEntryChip,
 } from "../../components/Home/HomeListsDiscovery";
 import { formatCuratorListPlacesForHomeMap } from "../../utils/formatCuratorListPlacesForHomeMap";
+import {
+  fetchCuratorListById,
+  fetchCuratorListPlaces,
+} from "../../api/curatorLists";
 import HomeCourseFollowStampDock from "../../components/Home/HomeCourseFollowStampDock";
 import PouringDrinkLoader from "../../components/Home/PouringDrinkLoader";
 import HomeDesktopSocialStack from "../../components/Home/HomeDesktopSocialStack";
@@ -243,6 +247,7 @@ import {
 } from "../../utils/homeRailCourseUi";
 import {
   homeCourseRouteMapFitBottomPaddingPx,
+  homeCoursesDiscoverySheetExpandedPx,
   homeCoursesDiscoverySheetHeightPxForSnap,
   homeCoursesDiscoveryStampSheetHeightPx,
   HOME_RECOMMEND_SHEET_PEEK_SEARCH_GAP_PX,
@@ -257,6 +262,7 @@ import {
   formatCuratorProfilePlaceForHomeMap,
   formatCuratorProfilePlacesForHomeMap,
   mergeCuratorProfilePlacesIntoDbPlaces,
+  removeListSpreadPinsFromDbPlaces,
 } from "../../utils/formatCuratorProfilePlacesForHomeMap";
 import { fetchPlacesForCuratorPage } from "../../utils/supabasePlaces";
 import {
@@ -2330,6 +2336,10 @@ export default function Home() {
   const [homeListsPanelOpen, setHomeListsPanelOpen] = useState(false);
   const [homeListsSheetSnap, setHomeListsSheetSnap] = useState("closed");
   const [homeListsSheetResetKey, setHomeListsSheetResetKey] = useState(0);
+  /** 지도에 펼친 맛집첩 — 시트에 제목·장소 메모 미리보기 */
+  const [homeListBrowse, setHomeListBrowse] = useState(null);
+  /** 맛집첩 시트에서 고른 장소 — 마커 강조(장소 카드는 열지 않음) */
+  const [homeListFocusPlaceId, setHomeListFocusPlaceId] = useState("");
   const [homeStudioFullscreen, setHomeStudioFullscreen] = useState(false);
   /** 패널 안 코스 상세(지도 전) */
   const [homeCourseBrowse, setHomeCourseBrowse] = useState(null);
@@ -2366,9 +2376,35 @@ export default function Home() {
     if (user?.id) void prefetchHomeCourseDiscoveryMy(user.id);
   }, [user?.id]);
 
+  const clearListSpreadMapPins = useCallback(() => {
+    const hadSpread = (listSpreadLatestPlacesRef.current?.length ?? 0) > 0;
+    listSpreadLatestPlacesRef.current = [];
+    setHomeListFocusPlaceId("");
+    setDbPlaces((prev) => removeListSpreadPinsFromDbPlaces(prev));
+    if (!hadSpread) return;
+    lastFetchedViewportRef.current = null;
+    const b = lastMapBoundsRef.current;
+    if (b?.sw && b?.ne) {
+      void loadDbPlacesForViewport({
+        boundsRaw: b,
+        mapLevel: lastMapLevelRef.current,
+      });
+    }
+  }, [loadDbPlacesForViewport]);
+
   const closeHomeListsPanel = useCallback(() => {
     setHomeListsPanelOpen(false);
     setHomeListsSheetSnap("closed");
+    setHomeListBrowse(null);
+    clearListSpreadMapPins();
+  }, [clearListSpreadMapPins]);
+
+  const clearHomeListBrowse = useCallback(() => {
+    setHomeListBrowse(null);
+    setHomeListFocusPlaceId("");
+    setHomeListsPanelOpen(true);
+    setHomeListsSheetSnap("expanded");
+    setHomeListsSheetResetKey((n) => n + 1);
   }, []);
 
   const openHomeListsPanel = useCallback(() => {
@@ -2378,6 +2414,8 @@ export default function Home() {
     setHomeCourseStampBackedToRail(false);
     setHomeCoursesSheetSnap("closed");
     setHomeStudioFullscreen(false);
+    setHomeListBrowse(null);
+    setHomeListFocusPlaceId("");
     setHomeListsPanelOpen(true);
     setHomeListsSheetSnap("expanded");
     setHomeListsSheetResetKey((n) => n + 1);
@@ -2386,13 +2424,15 @@ export default function Home() {
   const openHomeCoursesListPanel = useCallback(() => {
     setHomeListsPanelOpen(false);
     setHomeListsSheetSnap("closed");
+    setHomeListBrowse(null);
+    clearListSpreadMapPins();
     setHomeCourseBrowse(null);
     setHomeCourseBrowseLoading(false);
     setHomeCourseStampBackedToRail(false);
     setHomeCoursesPanelOpen(true);
     setHomeCoursesSheetSnap("expanded");
     setHomeCoursesSheetResetKey((n) => n + 1);
-  }, []);
+  }, [clearListSpreadMapPins]);
   const homeViewportH = useLayoutViewportHeight();
   const kakaoPlacesBeforeHomeRailRef = useRef(null);
   /** 지도 「2차 찾기」시작 직전 홈 마커 — 경로 × / 2차 취소 시 복구 */
@@ -3106,12 +3146,17 @@ export default function Home() {
   }, [homeListsPanelOpen, openHomeListsPanel, closeHomeListsPanel]);
 
   const handleSpreadCuratorList = useCallback(
-    (list, listPlaceRows) => {
+    async (list, listPlaceRows) => {
       const curatorId = String(list?.curator_id || "").trim();
-      const mapPlaces = formatCuratorListPlacesForHomeMap(
-        listPlaceRows,
-        curatorId
-      );
+      const places = Array.isArray(listPlaceRows) ? listPlaceRows : [];
+      let mapPlaces = formatCuratorListPlacesForHomeMap(places, curatorId);
+      try {
+        mapPlaces = await enrichMapPlacesWithStepThumbs(mapPlaces);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[맛집첩] step thumbs", e);
+        }
+      }
       const pins = mapPlaces.filter((p) => {
         const c = resolvePlaceWgs84(p);
         return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
@@ -3127,20 +3172,22 @@ export default function Home() {
       setDbPlaces((prev) =>
         mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces)
       );
-      closeHomeListsPanel();
-      const bottom = searchMapBottomChromePx();
+      setHomeListFocusPlaceId("");
+      setHomeListBrowse({ list: list || null, places });
+      setHomeListsPanelOpen(true);
+      setHomeListsSheetSnap("expanded");
+      setHomeListsSheetResetKey((n) => n + 1);
       const title = String(list?.title || "맛집첩").trim();
-      showToast(`「${title}」 ${pins.length}곳 펼쳤어요`, "success", 2600);
+      showToast(`「${title}」 ${pins.length}곳 펼쳤어요`, "success", 2200);
+      const sheetPx = homeCoursesDiscoverySheetExpandedPx(
+        typeof window !== "undefined" ? window.innerHeight : 700
+      );
+      const padding = homeRailCourseMapFitPadding(sheetPx);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
             mapRef.current?.relayout?.();
-            mapRef.current?.fitToPlaces?.(pins, {
-              top: 120,
-              right: 40,
-              bottom: Math.max(160, bottom || 160),
-              left: 40,
-            });
+            mapRef.current?.fitToPlaces?.(pins, padding);
           } catch (e) {
             if (import.meta.env.DEV) {
               console.warn("[맛집첩] fitToPlaces", e);
@@ -3149,12 +3196,92 @@ export default function Home() {
         });
       });
     },
-    [
-      showToast,
-      clearImportRecommendationOverlay,
-      closeHomeListsPanel,
-    ]
+    [showToast, clearImportRecommendationOverlay]
   );
+
+  const handleFocusListPlace = useCallback((listPlaceRow) => {
+    const pid = String(
+      listPlaceRow?.place_id || listPlaceRow?.id || ""
+    ).trim();
+    if (!pid) return;
+
+    const fromSpread = (listSpreadLatestPlacesRef.current || []).find(
+      (p) => String(p?.id || "").trim() === pid
+    );
+    const target = fromSpread || {
+      id: pid,
+      name: listPlaceRow?.place_name,
+      place_name: listPlaceRow?.place_name,
+      lat: listPlaceRow?.lat,
+      lng: listPlaceRow?.lng,
+      address: listPlaceRow?.place_address,
+      kakao_place_id: listPlaceRow?.kakao_place_id,
+    };
+    const w = resolvePlaceWgs84(target);
+    if (!w) {
+      showToast("이 장소의 지도 좌표가 없어요.", "info", 2200);
+      return;
+    }
+    setHomeListFocusPlaceId(pid);
+    setSelectedPlace(null);
+    if (mapRef.current?.panToAbovePreview) {
+      mapRef.current.panToAbovePreview(w.lat, w.lng);
+    } else {
+      mapRef.current?.moveToLocation?.(w.lat, w.lng);
+    }
+  }, [showToast]);
+
+  /** 공유 링크 `/?list=<uuid>` → 맛집첩 펼치기 */
+  const listDeepLinkHandledRef = useRef(false);
+  useEffect(() => {
+    if (listDeepLinkHandledRef.current) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const listId = String(params.get("list") || "").trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        listId
+      )
+    ) {
+      return;
+    }
+    listDeepLinkHandledRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [meta, places] = await Promise.all([
+          fetchCuratorListById(listId),
+          fetchCuratorListPlaces(listId),
+        ]);
+        if (cancelled || !meta) {
+          if (!cancelled) {
+            showToast("맛집첩을 찾을 수 없어요.", "info", 2800);
+          }
+          return;
+        }
+        await handleSpreadCuratorList(meta, places);
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("list");
+          const next = `${u.pathname}${u.search}${u.hash}`;
+          window.history.replaceState({}, "", next);
+        } catch {
+          /* ignore */
+        }
+      } catch (e) {
+        if (!cancelled) {
+          showToast(
+            e?.message || "맛집첩을 열지 못했어요.",
+            "warning",
+            3200
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [handleSpreadCuratorList, showToast]);
 
   const handleOpenCourseFollowQuick = useCallback(async () => {
     let session = homeGlobalFollowSession || homeRailActiveSession;
@@ -7053,8 +7180,19 @@ export default function Home() {
 
   const mapPlacesForMapView = useMemo(() => {
     if (mapDensityLayerActive) return [];
-    return mapDisplayedPlacesWithLegend;
-  }, [mapDensityLayerActive, mapDisplayedPlacesWithLegend]);
+    const base = mapDisplayedPlacesWithLegend;
+    const focusId = String(homeListFocusPlaceId || "").trim();
+    if (!focusId) return base;
+    return base.map((p) => {
+      const id = String(p?.id || "").trim();
+      if (id !== focusId) return p;
+      return { ...p, courseMarkerSolid: true };
+    });
+  }, [
+    mapDensityLayerActive,
+    mapDisplayedPlacesWithLegend,
+    homeListFocusPlaceId,
+  ]);
 
   const hotStripPlaceRows = useMemo(() => {
     const byId = new Map();
@@ -10358,7 +10496,13 @@ const handleClearSearch = () => {
           onClose={closeHomeListsPanel}
           user={user}
           isCurator={isCurator}
+          browseList={homeListBrowse}
+          onBrowseBack={clearHomeListBrowse}
           onSpreadList={handleSpreadCuratorList}
+          onFocusPlace={handleFocusListPlace}
+          focusPlaceId={homeListFocusPlaceId}
+          onOpenCurator={handleCourseBrowseCuratorOpen}
+          resolveCuratorHandle={resolveCuratorHandleForUser}
           onSheetSnapChange={setHomeListsSheetSnap}
           sheetResetKey={homeListsSheetResetKey}
         />

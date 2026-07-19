@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCuratorProfilePlaceForHomeMap,
   mergeCuratorProfilePlacesIntoDbPlaces,
+  removeListSpreadPinsFromDbPlaces,
 } from "./formatCuratorProfilePlacesForHomeMap";
 
 describe("mergeCuratorProfilePlacesIntoDbPlaces", () => {
@@ -46,5 +47,16 @@ describe("mergeCuratorProfilePlacesIntoDbPlaces", () => {
       "uid-b",
     ]);
     expect(merged.some((p) => p.id === "p2")).toBe(true);
+  });
+});
+
+describe("removeListSpreadPinsFromDbPlaces", () => {
+  it("drops only list-spread pins", () => {
+    const next = removeListSpreadPinsFromDbPlaces([
+      { id: "a", name: "Keep" },
+      { id: "b", name: "Spread", isListSpreadPin: true },
+      { id: "c", name: "Also", isListSpreadPin: true },
+    ]);
+    expect(next.map((p) => p.id)).toEqual(["a"]);
   });
 });

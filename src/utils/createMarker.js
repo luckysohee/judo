@@ -513,6 +513,7 @@ function createMarkerImage(
   const useKakaoGenericPin =
     !curatorListed &&
     !place.isCoursePin &&
+    !place.isListSpreadPin &&
     (Boolean(place.isKakaoPlace) || Boolean(place.courseMarkerPulse));
 
   if (useKakaoGenericPin) {

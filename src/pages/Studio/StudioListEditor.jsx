@@ -73,6 +73,14 @@ function extractKakaoId(hit) {
   return "";
 }
 
+function parseThemeTagsInput(raw) {
+  return String(raw || "")
+    .split(/[,#\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 function formatSaveError(err) {
   if (!err) return "저장에 실패했어요.";
   if (typeof err === "string") return err;
@@ -157,6 +165,7 @@ export default function StudioListEditor() {
 
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("");
+  const [themeTagsText, setThemeTagsText] = useState("");
   const [description, setDescription] = useState("");
   const [placeRows, setPlaceRows] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -176,11 +185,13 @@ export default function StudioListEditor() {
   const listSectionRef = useRef(null);
   const titleRef = useRef(title);
   const areaRef = useRef(area);
+  const themeTagsTextRef = useRef(themeTagsText);
   const descriptionRef = useRef(description);
   const listIdRef = useRef(listId);
   placeRowsRef.current = placeRows;
   titleRef.current = title;
   areaRef.current = area;
+  themeTagsTextRef.current = themeTagsText;
   descriptionRef.current = description;
   listIdRef.current = listId;
 
@@ -208,6 +219,11 @@ export default function StudioListEditor() {
         setListId(String(meta.id));
         setTitle(String(meta.title || ""));
         setArea(String(meta.area || ""));
+        setThemeTagsText(
+          Array.isArray(meta.theme_tags)
+            ? meta.theme_tags.map((t) => String(t || "").trim()).filter(Boolean).join(", ")
+            : ""
+        );
         setDescription(String(meta.description || ""));
         setPlaceRows(
           (places || []).map((p, i) => ({
@@ -541,6 +557,7 @@ export default function StudioListEditor() {
           title: t,
           area: String(areaRef.current || "").trim() || null,
           description: String(descriptionRef.current || "").trim() || null,
+          theme_tags: parseThemeTagsInput(themeTagsTextRef.current),
         };
         let id = String(listIdRef.current || "").trim();
         if (!id) {
@@ -759,6 +776,19 @@ export default function StudioListEditor() {
               maxLength={40}
             />
           </label>
+          <label style={studioCoursesLabel}>
+            해시태그
+            <input
+              style={fieldStyle}
+              value={themeTagsText}
+              onChange={(e) => setThemeTagsText(e.target.value)}
+              placeholder="예: 혼술, 성수, 이자카야 (쉼표로 구분)"
+              maxLength={120}
+            />
+          </label>
+          <p style={{ ...studioCoursesHint, marginTop: -6, marginBottom: 12 }}>
+            # 없이 입력해도 미리보기에 #태그로 보여요. 최대 12개.
+          </p>
           <label style={studioCoursesLabel}>
             한 줄 소개
             <textarea
