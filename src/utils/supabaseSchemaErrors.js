@@ -12,13 +12,21 @@ export function isSupabaseSchemaMissingError(error) {
   const status = Number(
     error.status ?? error.statusCode ?? error.status_code ?? 0
   );
-  if (status === 404 && (code === "PGRST202" || code === "PGRST205")) {
-    return true;
-  }
   const msg = String(error.message || "").toLowerCase();
   if (
     msg.includes("could not find the function") ||
-    msg.includes("could not find the table")
+    msg.includes("could not find the table") ||
+    msg.includes("could not find the relationship")
+  ) {
+    return true;
+  }
+  /** PostgREST missing RPC/table — HTTP 404 + schema hint */
+  if (
+    status === 404 &&
+    (code.startsWith("PGRST") ||
+      msg.includes("schema cache") ||
+      msg.includes("function") ||
+      msg.includes("table"))
   ) {
     return true;
   }

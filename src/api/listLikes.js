@@ -5,6 +5,9 @@ import { isSupabaseSchemaMissingError } from "../utils/supabaseSchemaErrors";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** RPC 미적용 시 세션 동안 재호출·404 스팸 방지 */
+let listLikeStatsRpcMissing = false;
+
 function parseUuid(id) {
   const s = String(id ?? "").trim().toLowerCase();
   if (!s || !UUID_RE.test(s)) return null;
@@ -17,13 +20,21 @@ function parseUuid(id) {
 export async function fetchListLikeCount(listId) {
   const id = parseUuid(listId);
   if (!id) return 0;
+  if (listLikeStatsRpcMissing) return 0;
   const { data, error } = await supabase.rpc("get_list_like_stats", {
     p_list_id: id,
   });
   if (error) {
-    if (!isSupabaseSchemaMissingError(error)) {
-      console.warn("[fetchListLikeCount]", error);
+    if (isSupabaseSchemaMissingError(error)) {
+      listLikeStatsRpcMissing = true;
+      if (import.meta.env.DEV) {
+        console.warn(
+          "[fetchListLikeCount] get_list_like_stats 없음 — RUN_curator_list_engagement.sql 적용 필요"
+        );
+      }
+      return 0;
     }
+    console.warn("[fetchListLikeCount]", error);
     return 0;
   }
   return Math.max(0, Math.floor(Number(data?.like_count) || 0));

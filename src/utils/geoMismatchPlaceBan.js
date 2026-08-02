@@ -1,4 +1,5 @@
-const STORAGE_KEY = "judo_geo_mismatch_place_ids_v1";
+/** v2: 전국 이름검색 동명이인·전남광주 표기 오탐 밴 무효화 */
+const STORAGE_KEY = "judo_geo_mismatch_place_ids_v2";
 
 /**
  * 주소 공란·카카오 id 없음인데 서울 좌표만 있는 것으로 확인된 불량 행.

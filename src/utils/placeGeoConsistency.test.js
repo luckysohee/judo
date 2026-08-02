@@ -14,6 +14,21 @@ describe("placeGeoConsistency", () => {
     expect(inferSidoFromAddress("서울 용산구 이태원로")).toBe("서울");
     expect(inferSidoFromAddress("경기 파주시 연풍초교길81")).toBe("경기");
     expect(inferSidoFromAddress("인천 옹진군 외리")).toBe("인천");
+    expect(
+      inferSidoFromAddress("전남광주통합특별시 광산구 하남대로54번안길 8-13")
+    ).toBe("광주");
+    expect(inferSidoFromAddress("광주광역시 동구 중앙로")).toBe("광주");
+  });
+
+  it("keeps Gwangju pin with 전남광주통합특별시 address", () => {
+    expect(
+      placeAddressCoordsConsistent({
+        lat: 35.139,
+        lng: 126.793,
+        address: "전남광주통합특별시 광산구 하남대로54번안길 8-13",
+        name: "개미포차",
+      })
+    ).toBe(true);
   });
 
   it("infers sido from coords", () => {

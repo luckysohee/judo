@@ -11,6 +11,8 @@ export default function HomeMapLegendBar({
   activeCategory,
   closeSignal,
   onSelectCategory,
+  mapStartMode,
+  onMapStartModeChange,
   onRequestMyLocation,
   mapLocationLoading,
   myLocationButtonStyle,
@@ -26,6 +28,8 @@ export default function HomeMapLegendBar({
         activeCategory={activeCategory}
         closeSignal={closeSignal}
         onSelectCategory={onSelectCategory}
+        mapStartMode={mapStartMode}
+        onMapStartModeChange={onMapStartModeChange}
       />
       <button
         type="button"

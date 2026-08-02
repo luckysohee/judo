@@ -1,4 +1,7 @@
-import { getKakaoPlaceBasicInfoViaProxy } from "./kakaoAPIProxy";
+import {
+  getKakaoPlaceBasicInfoViaProxy,
+  searchKakaoKeywordViaProxy,
+} from "./kakaoAPIProxy";
 import { fetchGooglePlacePhotoThumb } from "./googlePlacePhotoThumb";
 import { mapPlaceRowForCourse } from "../api/places";
 import { supabase } from "../lib/supabase";
@@ -18,6 +21,63 @@ export function pickStepUploadedThumb(step) {
   return isResolvableCourseStepThumbUrl(u) ? u : null;
 }
 
+async function thumbFromKakaoPlaceId(kakaoId, name, lat, lng) {
+  const id = String(kakaoId || "").trim();
+  if (!/^\d+$/.test(id)) return null;
+  try {
+    const info = await getKakaoPlaceBasicInfoViaProxy(id, {
+      query: name,
+      x: Number.isFinite(lng) ? lng : undefined,
+      y: Number.isFinite(lat) ? lat : undefined,
+    });
+    const thumb = info?.thumbnail_url || info?.photo_urls?.[0];
+    return isResolvableCourseStepThumbUrl(thumb) ? thumb : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 카카오 id 없거나 썸네일 비었을 때 — 좌표 근처 키워드로 동일 상호 찾기 */
+async function thumbFromKakaoKeyword(name, lat, lng) {
+  const q = String(name || "").trim();
+  if (q.length < 2) return null;
+  try {
+    const { documents, status } = await searchKakaoKeywordViaProxy({
+      query: q.slice(0, 40),
+      size: 5,
+      x: Number.isFinite(lng) ? lng : undefined,
+      y: Number.isFinite(lat) ? lat : undefined,
+      radius:
+        Number.isFinite(lat) && Number.isFinite(lng) ? 3000 : undefined,
+    });
+    if (status === 429) return null;
+    const docs = Array.isArray(documents) ? documents : [];
+    if (docs.length === 0) return null;
+    const nameNorm = q.replace(/\s+/g, "");
+    const hit =
+      docs.find((d) => {
+        const pn = String(d.place_name || "").replace(/\s+/g, "");
+        return (
+          pn === nameNorm ||
+          pn.includes(nameNorm) ||
+          nameNorm.includes(pn)
+        );
+      }) || docs[0];
+    const kid = String(hit?.id || "").trim();
+    if (/^\d+$/.test(kid)) {
+      return thumbFromKakaoPlaceId(
+        kid,
+        hit.place_name || q,
+        Number(hit.y),
+        Number(hit.x)
+      );
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * @param {object} step
  * @param {{ skipGoogleFallback?: boolean }} [opts]
@@ -27,24 +87,21 @@ export async function resolveCourseStepThumbUrl(step, opts = {}) {
   const uploaded = pickStepUploadedThumb(step);
   if (uploaded) return uploaded;
 
-  const kakaoId = String(step?.kakao_place_id || "").trim();
+  const rawKakao = String(step?.kakao_place_id || "").trim();
+  const kakaoId = /^\d+$/.test(rawKakao) ? rawKakao : "";
   const lat = Number(step?.lat);
   const lng = Number(step?.lng);
   const name = String(step?.name || step?.place_name || "").trim();
   const address = String(step?.address || step?.place_address || "").trim();
 
   if (kakaoId) {
-    try {
-      const info = await getKakaoPlaceBasicInfoViaProxy(kakaoId, {
-        query: name,
-        x: Number.isFinite(lng) ? lng : undefined,
-        y: Number.isFinite(lat) ? lat : undefined,
-      });
-      const thumb = info?.thumbnail_url || info?.photo_urls?.[0];
-      if (isResolvableCourseStepThumbUrl(thumb)) return thumb;
-    } catch {
-      /* fall through */
-    }
+    const byId = await thumbFromKakaoPlaceId(kakaoId, name, lat, lng);
+    if (byId) return byId;
+  }
+
+  if (name) {
+    const byKeyword = await thumbFromKakaoKeyword(name, lat, lng);
+    if (byKeyword) return byKeyword;
   }
 
   if (opts.skipGoogleFallback) return null;
@@ -326,16 +383,26 @@ export async function enrichDrivingMapWithStepThumbs(drive) {
 }
 
 /**
- * 지도 핀(2차 찾기 펄스·확정 코스)에 카카오 og 썸네일 부착
+ * 지도 핀(2차 찾기 펄스·확정 코스·맛집첩)에 카카오/구글 썸네일 부착
  * @param {object[]} places
+ * @param {{ skipGoogleFallback?: boolean }} [opts]
+ *   맛집첩 펼침은 사진 원형이 핵심이라 기본 false(구글 폴백 ON) 권장.
+ *   코스 펄스 등 대량 호출은 skipGoogleFallback: true.
  */
-export async function enrichMapPlacesWithStepThumbs(places = []) {
+export async function enrichMapPlacesWithStepThumbs(places = [], opts = {}) {
   if (!Array.isArray(places) || places.length === 0) return places;
+  /** 기본 true(코스 대량). 맛집첩만 `{ skipGoogleFallback: false }` */
+  const skipGoogleFallback = opts.skipGoogleFallback !== false;
 
   return Promise.all(
     places.map(async (p) => {
       const existing = pickStepUploadedThumb({
-        step_image_url: p.courseStepThumbUrl || p.step_image_url || p.image_url,
+        step_image_url:
+          p.courseStepThumbUrl ||
+          p.step_image_url ||
+          p.image_url ||
+          p.image ||
+          p.thumbnail_url,
       });
       if (existing) {
         return { ...p, courseStepThumbUrl: existing };
@@ -348,13 +415,13 @@ export async function enrichMapPlacesWithStepThumbs(places = []) {
         {
           place_id: p.id,
           name: p.name || p.place_name,
-          step_image_url: p.step_image_url || p.image_url,
+          step_image_url: p.step_image_url || p.image_url || p.image,
           lat: p.lat,
           lng: p.lng,
           address: p.address_name || p.address || "",
           kakao_place_id: /^\d+$/.test(kakaoId) ? kakaoId : null,
         },
-        { skipGoogleFallback: true }
+        { skipGoogleFallback }
       );
 
       return thumb ? { ...p, courseStepThumbUrl: thumb } : p;

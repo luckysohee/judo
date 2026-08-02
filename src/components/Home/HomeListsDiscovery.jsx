@@ -13,6 +13,7 @@ import {
   HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX,
   HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX,
   homeCoursesDiscoverySheetExpandedPx,
+  homeListsDiscoveryBrowseExpandedPx,
   homeCoursesDiscoverySheetMaxHeightCss,
   homeHotStripCoursesWrapBottomCss,
 } from "../../utils/homeHotStripLayout";
@@ -347,25 +348,23 @@ export default function HomeListsDiscoveryPanel({
   focusPlaceId = "",
   onOpenCurator,
   resolveCuratorHandle,
+  onPlaceThumb,
   onSheetSnapChange,
   sheetResetKey = 0,
 }) {
   const navigate = useNavigate();
   const { visibleHeightPx, layoutHeightPx, open: keyboardOpen } =
     useVisualViewportBottomInset();
-  const baseExpandedPx = homeCoursesDiscoverySheetExpandedPx(layoutHeightPx, {
-    visibleH: visibleHeightPx,
-    keyboardOpen,
-  });
   const browsingPreview = Boolean(browseList?.list);
   const expandedPx = browsingPreview
-    ? Math.round(
-        Math.min(
-          layoutHeightPx * 0.68,
-          Math.max(baseExpandedPx, layoutHeightPx * 0.62)
-        )
-      )
-    : baseExpandedPx;
+    ? homeListsDiscoveryBrowseExpandedPx(layoutHeightPx, {
+        visibleH: visibleHeightPx,
+        keyboardOpen,
+      })
+    : homeCoursesDiscoverySheetExpandedPx(layoutHeightPx, {
+        visibleH: visibleHeightPx,
+        keyboardOpen,
+      });
   const collapsedPx = HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX;
   const minimizedPx = HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX;
 
@@ -685,6 +684,7 @@ export default function HomeListsDiscoveryPanel({
             focusPlaceId={focusPlaceId}
             onOpenCurator={onOpenCurator}
             resolveCuratorHandle={resolveCuratorHandle}
+            onPlaceThumb={onPlaceThumb}
           />
         </div>
       ) : (
@@ -880,7 +880,10 @@ export default function HomeListsDiscoveryPanel({
               flex: 1,
               minHeight: 0,
               overflowY: "auto",
+              overflowX: "hidden",
               WebkitOverflowScrolling: "touch",
+              overscrollBehaviorY: "contain",
+              touchAction: "pan-y",
               padding: "0 14px 18px",
             }}
           >

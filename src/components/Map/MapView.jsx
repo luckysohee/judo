@@ -2140,7 +2140,8 @@ const MapView = forwardRef(({
 
       if (isLive) {
         liveMarkers.push(marker);
-      } else {
+      } else if (shouldCluster) {
+        /** CustomOverlay(사진 원형 등)는 getPosition 없어 MarkerClusterer가 터짐 */
         clusterMarkers.push(marker);
       }
 

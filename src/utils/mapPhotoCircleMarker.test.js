@@ -26,13 +26,19 @@ describe("mapPhotoCircleMarker", () => {
     ).toBe(true);
   });
 
-  it("맛집첩 펼침 핀은 줌과 무관하게 사진 마커", () => {
+  it("맛집첩 펼침 핀은 줌·사진 유무와 무관하게 원형 마커", () => {
     expect(
       shouldUsePhotoCircleMarker(
         {
           isListSpreadPin: true,
           image_url: "https://cdn.example/list.jpg",
         },
+        { mapZoomLevel: 8 }
+      )
+    ).toBe(true);
+    expect(
+      shouldUsePhotoCircleMarker(
+        { isListSpreadPin: true, name: "금목" },
         { mapZoomLevel: 8 }
       )
     ).toBe(true);

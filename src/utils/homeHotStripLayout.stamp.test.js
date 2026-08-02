@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   homeCoursesDiscoverySheetHeightPxForSnap,
   homeCoursesDiscoveryStampSheetHeightPx,
+  homeListsDiscoveryBrowseExpandedPx,
+  homeListsDiscoverySheetHeightPxForSnap,
 } from "./homeHotStripLayout";
 
 describe("homeCoursesDiscoveryStampSheetHeightPx", () => {
@@ -37,5 +39,19 @@ describe("homeCoursesDiscoverySheetHeightPxForSnap", () => {
         layoutHeightPx: 800,
       })
     ).toBe(400);
+  });
+});
+
+describe("homeListsDiscoveryBrowseExpandedPx", () => {
+  it("is taller than course discovery expanded (~50%) so fit padding matches sheet", () => {
+    const listExpanded = homeListsDiscoveryBrowseExpandedPx(800);
+    expect(listExpanded).toBeGreaterThanOrEqual(Math.round(800 * 0.62));
+    expect(listExpanded).toBeLessThanOrEqual(Math.round(800 * 0.68));
+    expect(
+      homeListsDiscoverySheetHeightPxForSnap("expanded", {
+        browseMode: true,
+        layoutHeightPx: 800,
+      })
+    ).toBe(listExpanded);
   });
 });

@@ -10,6 +10,9 @@ export default function MarkerLegend({
   closeSignal,
   /** Home에서 지도 빈 곳 클릭 시 증가 → 패널 닫기(0이면 초기 마운트에서 무시) */
   mapCloseTick = 0,
+  /** "seongsu" | "my_location" — 재방문 시 홈 지도 시작점 */
+  mapStartMode = "seongsu",
+  onMapStartModeChange,
 }) {
   const [open, setOpen] = useState(false);
 
@@ -100,7 +103,7 @@ export default function MarkerLegend({
             </button>
           </div>
 
-          {items.map((item, index) => (
+          {items.map((item) => (
             <button
               key={item.key}
               type="button"
@@ -113,7 +116,6 @@ export default function MarkerLegend({
               }
               style={{
                 ...styles.rowButton,
-                ...(index === items.length - 1 ? { marginBottom: 0 } : null),
                 ...(activeCategory === item.key ? styles.rowButtonActive : null),
               }}
               onClick={() => onSelectCategory?.(item.key)}
@@ -122,6 +124,39 @@ export default function MarkerLegend({
               <span style={styles.label}>{item.label}</span>
             </button>
           ))}
+
+          {typeof onMapStartModeChange === "function" ? (
+            <div style={styles.startSection}>
+              <div style={styles.startTitle}>시작 지도</div>
+              <button
+                type="button"
+                style={{
+                  ...styles.rowButton,
+                  ...(mapStartMode === "seongsu"
+                    ? styles.rowButtonActive
+                    : null),
+                }}
+                title="앱을 열면 성수 지도를 보여줍니다"
+                onClick={() => onMapStartModeChange("seongsu")}
+              >
+                <span style={styles.label}>성수</span>
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.rowButton,
+                  marginBottom: 0,
+                  ...(mapStartMode === "my_location"
+                    ? styles.rowButtonActive
+                    : null),
+                }}
+                title="두 번째 방문부터 내 위치 지도를 기본으로 엽니다"
+                onClick={() => onMapStartModeChange("my_location")}
+              >
+                <span style={styles.label}>내 위치</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -232,10 +267,25 @@ const styles = {
     borderRadius: "12px",
     color: MARKER_LEGEND_GLASS.ink,
     fontSize: "10px",
-    width: "96px",
-    maxWidth: "min(96px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)))",
+    width: "104px",
+    maxWidth:
+      "min(104px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)))",
     boxSizing: "border-box",
     boxShadow: MARKER_LEGEND_GLASS.shadow,
+  },
+  startSection: {
+    marginTop: "6px",
+    paddingTop: "6px",
+    borderTop: "1px solid rgba(255,255,255,0.36)",
+  },
+  startTitle: {
+    fontWeight: 700,
+    fontSize: "9px",
+    color: MARKER_LEGEND_GLASS.inkMuted,
+    letterSpacing: "-0.02em",
+    marginBottom: "2px",
+    paddingLeft: "2px",
+    textShadow: "0 1px 0 rgba(255,255,255,0.55)",
   },
   headerRow: {
     display: "flex",

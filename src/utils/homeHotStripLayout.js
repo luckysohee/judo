@@ -239,6 +239,56 @@ export function homeCourseRouteMapFitBottomPaddingPx() {
 }
 
 /**
+ * 맛집첩 미리보기(browse) 펼침 높이 — 시트 UI와 지도 fit padding이 동일 값을 쓰도록
+ * @param {number} [layoutHeightPx]
+ * @param {{ visibleH?: number, keyboardOpen?: boolean }} [opts]
+ */
+export function homeListsDiscoveryBrowseExpandedPx(
+  layoutHeightPx,
+  { visibleH, keyboardOpen = false } = {}
+) {
+  const h =
+    Number.isFinite(layoutHeightPx) && layoutHeightPx > 0
+      ? layoutHeightPx
+      : readLayoutViewportHeight();
+  const base = homeCoursesDiscoverySheetExpandedPx(h, {
+    visibleH,
+    keyboardOpen,
+  });
+  return Math.round(Math.min(h * 0.68, Math.max(base, h * 0.62)));
+}
+
+/**
+ * 맛집첩 바텀시트 스냅별 높이(px)
+ * @param {'expanded'|'collapsed'|'minimized'|'closed'} snap
+ */
+export function homeListsDiscoverySheetHeightPxForSnap(
+  snap,
+  {
+    browseMode = false,
+    layoutHeightPx,
+    visibleHeightPx,
+    keyboardOpen = false,
+  } = {}
+) {
+  if (snap === "closed") return 0;
+  const expandedPx = browseMode
+    ? homeListsDiscoveryBrowseExpandedPx(layoutHeightPx, {
+        visibleH: visibleHeightPx,
+        keyboardOpen,
+      })
+    : homeCoursesDiscoverySheetExpandedPx(layoutHeightPx, {
+        visibleH: visibleHeightPx,
+        keyboardOpen,
+      });
+  return verticalSnapSheetHeightFor(snap, {
+    expandedPx,
+    collapsedPx: HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX,
+    minimizedPx: HOME_COURSES_DISCOVERY_SHEET_MINIMIZED_PX,
+  });
+}
+
+/**
  * 코스 바텀시트 스냅별 높이(px) — 지도 fit padding·레이아웃 계산용
  * @param {'expanded'|'collapsed'|'minimized'|'closed'|'fullscreen'} snap
  */

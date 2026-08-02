@@ -213,9 +213,16 @@ export async function fetchCuratorListPlaces(listId) {
   return (Array.isArray(res.data) ? res.data : []).map((row) => {
     const pl = row?.places && typeof row.places === "object" ? row.places : {};
     const mapped = mapPlaceRowForCourse(pl) || {};
+    const listImg = row.image_url != null ? String(row.image_url).trim() : "";
+    const placeImg =
+      pl.image_url != null
+        ? String(pl.image_url).trim()
+        : mapped.image_url != null
+          ? String(mapped.image_url).trim()
+          : "";
     return {
       ...row,
-      image_url: row.image_url ?? null,
+      image_url: listImg || placeImg || null,
       place_name: mapped.name || pl.name || pl.place_name || "",
       place_address: mapped.address || pl.address || "",
       lat: mapped.lat ?? pl.lat,

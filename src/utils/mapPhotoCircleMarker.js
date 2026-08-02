@@ -40,12 +40,12 @@ export function shouldUsePhotoCircleMarker(
   place,
   { isSelected = false, mapZoomLevel = 8 } = {}
 ) {
+  /** 맛집첩 펼침 — 사진 없어도 원형(플레이스홀더). 클러스터·초록 핀 금지 */
+  if (place?.isListSpreadPin) return true;
+
   if (!resolvePlaceMarkerPhotoUrl(place)) return false;
 
   if (place?.isCoursePin && !isCourseBridgeMapPin(place)) return true;
-
-  /** 맛집첩 「지도에 펼치기」 핀 — 줌과 무관하게 사진 원형 */
-  if (place?.isListSpreadPin) return true;
 
   if (isCuratorListedPlace(place)) {
     if (isSelected) return true;
@@ -159,7 +159,8 @@ export function createPhotoCircleMarker({
   }
 
   const photoUrl = resolvePlaceMarkerPhotoUrl(place);
-  if (!photoUrl) return null;
+  const allowEmptyPhoto = Boolean(place?.isListSpreadPin);
+  if (!photoUrl && !allowEmptyPhoto) return null;
 
   const wgs = resolvePlaceWgs84(place);
   const lat = wgs?.lat ?? Number(place?.lat);
@@ -167,9 +168,11 @@ export function createPhotoCircleMarker({
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
   const tier = getMarkerTier(place);
-  const size = isSelected ? 48 : 40;
+  const listPin = Boolean(place?.isListSpreadPin);
+  /** 맛집첩 — 사진이 보이도록 한 단계 크게 */
+  const size = listPin ? (isSelected ? 56 : 50) : isSelected ? 48 : 40;
   const borderW = isSelected ? 3 : 2.5;
-  const ringColor = tier?.fill || "#16a34a";
+  const ringColor = listPin ? "#22c55e" : tier?.fill || "#16a34a";
 
   const root = document.createElement("div");
   root.style.cssText =
@@ -179,19 +182,45 @@ export function createPhotoCircleMarker({
   circleWrap.style.cssText = "position:relative;";
 
   const circle = document.createElement("div");
+  const orderIdx = Number(place?.listOrderIndex);
+  const orderLabel =
+    listPin && Number.isFinite(orderIdx)
+      ? String(Math.floor(orderIdx) + 1)
+      : "";
+  const nameInitial = String(place?.name || place?.place_name || "")
+    .trim()
+    .slice(0, 1);
+  const circleBg = photoUrl
+    ? [
+        `background-image:url("${photoUrl.replace(/"/g, '\\"')}")`,
+        "background-size:cover",
+        "background-position:center",
+        "background-color:#e2e8f0",
+      ]
+    : [
+        /** 숫자 클러스터처럼 보이지 않게 — 연한 회색 + 작은 순번 */
+        "background:linear-gradient(145deg,#334155 0%,#475569 100%)",
+        "display:flex",
+        "align-items:center",
+        "justify-content:center",
+        "color:rgba(255,255,255,0.92)",
+        "font-weight:800",
+        `font-size:${Math.max(11, Math.round(size * 0.28))}px`,
+        "font-family:system-ui,Apple SD Gothic Neo,sans-serif",
+      ];
   circle.style.cssText = [
     `width:${size}px`,
     `height:${size}px`,
     "border-radius:50%",
-    `background-image:url("${photoUrl.replace(/"/g, '\\"')}")`,
-    "background-size:cover",
-    "background-position:center",
-    "background-color:#e2e8f0",
+    ...circleBg,
     `border:${borderW}px solid ${ringColor}`,
     "box-shadow:0 2px 10px rgba(15,23,42,0.22), inset 0 0 0 1.5px rgba(255,255,255,0.88)",
     isLive ? "outline:2px solid rgba(225,29,72,0.92);outline-offset:1px;" : "",
     isSelected ? "transform:scale(1.04);" : "",
   ].join(";");
+  if (!photoUrl) {
+    circle.textContent = orderLabel || nameInitial || "·";
+  }
 
   if (savedColor) {
     const dot = document.createElement("span");
@@ -200,13 +229,15 @@ export function createPhotoCircleMarker({
   }
 
   circleWrap.appendChild(circle);
-  appendTierBadge(circleWrap, tier, size);
+  if (!place?.isListSpreadPin) {
+    appendTierBadge(circleWrap, tier, size);
+  }
   appendCourseStepBadge(circleWrap, place, size);
   appendCheckinBadges(circleWrap, checkinMeta, size);
   root.appendChild(circleWrap);
 
   const cap = String(mapShortCaption || "").trim().slice(0, 8);
-  if (cap && !place?.isCoursePin) {
+  if (cap && !place?.isCoursePin && !place?.isListSpreadPin) {
     const capEl = document.createElement("span");
     capEl.textContent = cap;
     capEl.style.cssText = [
@@ -279,6 +310,12 @@ export function createPhotoCircleMarker({
   return {
     setMap(nextMap) {
       overlay.setMap(nextMap);
+    },
+    getPosition() {
+      if (typeof overlay.getPosition === "function") {
+        return overlay.getPosition();
+      }
+      return new window.kakao.maps.LatLng(lat, lng);
     },
     setOpacity(op) {
       root.style.opacity = String(op);

@@ -242,14 +242,17 @@ import {
   enrichMapPlacesWithStepThumbs,
 } from "../../utils/courseStepThumb";
 import {
+  homeListsMapFitPadding,
   homeRailCourseMapFitPadding,
   homeRailCourseSheetHeightPx,
+  measureHomeListsSheetObscuredBottomPx,
 } from "../../utils/homeRailCourseUi";
 import {
   homeCourseRouteMapFitBottomPaddingPx,
   homeCoursesDiscoverySheetExpandedPx,
   homeCoursesDiscoverySheetHeightPxForSnap,
   homeCoursesDiscoveryStampSheetHeightPx,
+  homeListsDiscoverySheetHeightPxForSnap,
   HOME_RECOMMEND_SHEET_PEEK_SEARCH_GAP_PX,
 } from "../../utils/homeHotStripLayout";
 import { useLayoutViewportHeight } from "../../hooks/useLayoutViewportHeight";
@@ -340,7 +343,15 @@ import {
 } from "../../utils/situationPlaceFilter";
 import { getJudoOperationMode } from "../../utils/judoOperationMode";
 
-import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey, getSeongsuBootViewportCacheKey } from "../../utils/homeMapViewportBounds";
+import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey, getSeongsuBootViewportCacheKey, getDeviceLocation } from "../../utils/homeMapViewportBounds";
+import {
+  getHomeMapReturnVisitFlag,
+  HOME_MAP_START_MY_LOCATION,
+  HOME_MAP_START_SEONGSU,
+  readHomeMapStartMode,
+  shouldBootHomeMapAtMyLocation,
+  writeHomeMapStartMode,
+} from "../../utils/homeMapStartPreference";
 import {
   AI_API_BASE,
   appendSelectedPlacePinIfMissing,
@@ -2402,10 +2413,11 @@ export default function Home() {
   const clearHomeListBrowse = useCallback(() => {
     setHomeListBrowse(null);
     setHomeListFocusPlaceId("");
+    clearListSpreadMapPins();
     setHomeListsPanelOpen(true);
     setHomeListsSheetSnap("expanded");
     setHomeListsSheetResetKey((n) => n + 1);
-  }, []);
+  }, [clearListSpreadMapPins]);
 
   const openHomeListsPanel = useCallback(() => {
     setHomeCoursesPanelOpen(false);
@@ -3149,14 +3161,7 @@ export default function Home() {
     async (list, listPlaceRows) => {
       const curatorId = String(list?.curator_id || "").trim();
       const places = Array.isArray(listPlaceRows) ? listPlaceRows : [];
-      let mapPlaces = formatCuratorListPlacesForHomeMap(places, curatorId);
-      try {
-        mapPlaces = await enrichMapPlacesWithStepThumbs(mapPlaces);
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("[맛집첩] step thumbs", e);
-        }
-      }
+      const mapPlaces = formatCuratorListPlacesForHomeMap(places, curatorId);
       const pins = mapPlaces.filter((p) => {
         const c = resolvePlaceWgs84(p);
         return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
@@ -3167,10 +3172,15 @@ export default function Home() {
       }
       setSelectedPlace(null);
       clearImportRecommendationOverlay();
+      /** 원형 핀 먼저 올리고, 사진은 카카오→구글 폴백으로 채운 뒤 갱신.
+       * 이전 맛집첩 핀만 교체 — 지도 표시는 homeListBrowse 중 list 핀만 노출 */
       listSpreadLatestPlacesRef.current = mapPlaces;
       curatorChipViewportLockUntilRef.current = Date.now() + 1600;
       setDbPlaces((prev) =>
-        mergeCuratorProfilePlacesIntoDbPlaces(prev, mapPlaces)
+        mergeCuratorProfilePlacesIntoDbPlaces(
+          removeListSpreadPinsFromDbPlaces(prev),
+          mapPlaces
+        )
       );
       setHomeListFocusPlaceId("");
       setHomeListBrowse({ list: list || null, places });
@@ -3179,25 +3189,70 @@ export default function Home() {
       setHomeListsSheetResetKey((n) => n + 1);
       const title = String(list?.title || "맛집첩").trim();
       showToast(`「${title}」 ${pins.length}곳 펼쳤어요`, "success", 2200);
-      const sheetPx = homeCoursesDiscoverySheetExpandedPx(
-        typeof window !== "undefined" ? window.innerHeight : 700
-      );
-      const padding = homeRailCourseMapFitPadding(sheetPx);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          try {
-            mapRef.current?.relayout?.();
-            mapRef.current?.fitToPlaces?.(pins, padding);
-          } catch (e) {
-            if (import.meta.env.DEV) {
-              console.warn("[맛집첩] fitToPlaces", e);
-            }
+      void enrichMapPlacesWithStepThumbs(mapPlaces, {
+        skipGoogleFallback: false,
+      })
+        .then((enriched) => {
+          if (!Array.isArray(enriched) || enriched.length === 0) return;
+          const stillOpen =
+            (listSpreadLatestPlacesRef.current?.length ?? 0) > 0;
+          if (!stillOpen) return;
+          listSpreadLatestPlacesRef.current = enriched;
+          setDbPlaces((prev) =>
+            mergeCuratorProfilePlacesIntoDbPlaces(
+              removeListSpreadPinsFromDbPlaces(prev),
+              enriched
+            )
+          );
+        })
+        .catch((e) => {
+          if (import.meta.env.DEV) {
+            console.warn("[맛집첩] step thumbs", e);
           }
         });
-      });
     },
     [showToast, clearImportRecommendationOverlay]
   );
+
+  /** 시트에서 받은 썸네일 → 지도 원형 핀에도 반영 */
+  const handleListPlaceThumb = useCallback((placeKey, thumbUrl, listPlaceRow) => {
+    const url = String(thumbUrl || "").trim();
+    if (!url) return;
+    const key = String(placeKey || "").trim();
+    const rowId = String(
+      listPlaceRow?.place_id || listPlaceRow?.id || key || ""
+    ).trim();
+    if (!rowId && !key) return;
+
+    const patch = (rows) => {
+      if (!Array.isArray(rows)) return rows;
+      let changed = false;
+      const next = rows.map((p) => {
+        const id = String(p?.id || "").trim();
+        const pid = String(p?.place_id || "").trim();
+        if (id !== rowId && id !== key && pid !== rowId && pid !== key) {
+          return p;
+        }
+        if (p.courseStepThumbUrl === url || p.image_url === url) return p;
+        changed = true;
+        return {
+          ...p,
+          courseStepThumbUrl: url,
+          image_url: p.image_url || url,
+        };
+      });
+      return changed ? next : rows;
+    };
+
+    const spread = patch(listSpreadLatestPlacesRef.current);
+    if (spread !== listSpreadLatestPlacesRef.current) {
+      listSpreadLatestPlacesRef.current = spread;
+    }
+    setDbPlaces((prev) => {
+      const next = patch(prev);
+      return next === prev ? prev : next;
+    });
+  }, []);
 
   const handleFocusListPlace = useCallback((listPlaceRow) => {
     const pid = String(
@@ -3380,6 +3435,75 @@ export default function Home() {
     homeCourseFollowMinimized,
     homeRailCourseCompleted,
     homeCoursesSheetSnap,
+  ]);
+
+  /** 맛집첩 펼침 — 시트 위 가시 영역에 핀을 꽉 채움(추가 줌인 금지) */
+  useEffect(() => {
+    const list = homeListBrowse?.list;
+    const listId = String(list?.id || "").trim();
+    if (!listId) return undefined;
+
+    const withCoords = (rows) =>
+      (Array.isArray(rows) ? rows : []).filter((p) => {
+        const c = resolvePlaceWgs84(p);
+        return c && Number.isFinite(c.lat) && Number.isFinite(c.lng);
+      });
+
+    let pins = withCoords(listSpreadLatestPlacesRef.current);
+    if (pins.length === 0) {
+      pins = withCoords(
+        formatCuratorListPlacesForHomeMap(
+          homeListBrowse?.places,
+          String(list?.curator_id || "").trim()
+        )
+      );
+    }
+    if (pins.length === 0) return undefined;
+
+    const sheetPxFallback = homeListsDiscoverySheetHeightPxForSnap(
+      homeListsSheetSnap === "closed" ? "expanded" : homeListsSheetSnap,
+      {
+        browseMode: true,
+        layoutHeightPx: homeViewportH,
+      }
+    );
+
+    const run = () => {
+      try {
+        const panel = document.getElementById("home-lists-discovery-panel");
+        const obscured = measureHomeListsSheetObscuredBottomPx(
+          panel,
+          homeViewportH
+        );
+        const padding = homeListsMapFitPadding(sheetPxFallback, {
+          obscuredBottomPx: obscured,
+          gapAboveSheetPx: 10,
+          sidePx: 18,
+        });
+        mapRef.current?.relayout?.();
+        mapRef.current?.fitToPlaces?.(pins, padding);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[맛집첩] fitToPlaces", e);
+        }
+      }
+    };
+
+    /** 시트 height 트랜지션(0.28s) 끝난 뒤·한 박자 더 — DOM top 기준 패딩이 맞아짐 */
+    const t0 = window.setTimeout(run, 50);
+    const t1 = window.setTimeout(run, 320);
+    const t2 = window.setTimeout(run, 560);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [
+    homeListBrowse?.list?.id,
+    homeListBrowse?.list?.curator_id,
+    homeListBrowse?.places,
+    homeListsSheetSnap,
+    homeViewportH,
   ]);
 
   /** OSRM 기반 — 길·도보가 길 때 카드에만 표시(지도 커스텀오버레이는 가독성 낮음) */
@@ -4121,8 +4245,15 @@ export default function Home() {
     }
   }, [homeCoursesSheetOpen, homeCourseDiscoverySearchOpen]);
 
-  /** 일반 검색 마커 setBounds — 헤더·하단 검색바에 가리지 않게 */
+  /** 일반 검색·맛집첩 펼침 마커 setBounds — 하단 시트/검색바에 가리지 않게 */
   const mapSearchPlacesFitPadding = useMemo(() => {
+    if (homeListBrowse?.list) {
+      const sheetPx = homeListsDiscoverySheetHeightPxForSnap(
+        homeListsSheetSnap === "closed" ? "expanded" : homeListsSheetSnap,
+        { browseMode: true, layoutHeightPx: homeViewportH }
+      );
+      return homeListsMapFitPadding(sheetPx, { gapAboveSheetPx: 10, sidePx: 18 });
+    }
     if (isCourseMode || !String(query || "").trim()) return null;
     return {
       top: 88,
@@ -4130,7 +4261,13 @@ export default function Home() {
       bottom: searchMapBottomChromePx(),
       left: 18,
     };
-  }, [isCourseMode, query]);
+  }, [
+    homeListBrowse?.list,
+    homeListsSheetSnap,
+    homeViewportH,
+    isCourseMode,
+    query,
+  ]);
 
   /** 코스 카드 가로 스와이프 — 스크롤이 멈춘 뒤에만 선택·지도 반영 (스크롤 중 휙휙 변경 방지) */
   const courseSwipeRowRef = useRef(null);
@@ -4702,6 +4839,11 @@ export default function Home() {
   const [mapLocationLoading, setMapLocationLoading] = useState(false);
   const [mapViewportCenterFromUser, setMapViewportCenterFromUser] =
     useState(null);
+  const [mapStartMode, setMapStartMode] = useState(() => readHomeMapStartMode());
+  const homeMapReturnVisitRef = useRef(getHomeMapReturnVisitFlag());
+  const homeMapBootMyLocationDoneRef = useRef(false);
+  const currentLocationRef = useRef(null);
+  currentLocationRef.current = currentLocation;
 
   /**
    * 로그인 전에도 첫 입장 시 1회 브라우저 위치 권한·좌표 확보(주변 검색·코스 기준점 보조).
@@ -4740,6 +4882,65 @@ export default function Home() {
         maximumAge: 120000,
       }
     );
+  }, []);
+
+  /**
+   * 재방문 + 「시작 지도: 내 위치」이면 성수 부트 후 GPS로 지도 이동(로그인 불필요).
+   * 첫 방문은 항상 성수 level 5.
+   */
+  useEffect(() => {
+    if (!shouldBootHomeMapAtMyLocation(homeMapReturnVisitRef.current)) return;
+    if (homeMapBootMyLocationDoneRef.current) return;
+
+    let cancelled = false;
+
+    const applyBootLocation = (lat, lng) => {
+      if (cancelled || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      setCurrentLocation({ lat, lng });
+      mapRef.current?.applyMyLocation?.(lat, lng);
+    };
+
+    const runBootMyLocation = () => {
+      if (cancelled || homeMapBootMyLocationDoneRef.current) return;
+      if (!mapRef.current?.applyMyLocation) return;
+      homeMapBootMyLocationDoneRef.current = true;
+
+      const cached = currentLocationRef.current;
+      if (
+        cached &&
+        Number.isFinite(cached.lat) &&
+        Number.isFinite(cached.lng)
+      ) {
+        applyBootLocation(cached.lat, cached.lng);
+      }
+
+      getDeviceLocation({
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 180000,
+        highAccuracyRetry: true,
+        watchFallback: true,
+      })
+        .then(({ lat, lng }) => {
+          if (cancelled) return;
+          applyBootLocation(lat, lng);
+        })
+        .catch(() => {
+          /* 거부·실패 — 캐시 없으면 성수 화면 유지 */
+        });
+    };
+
+    const onMapReady = () => {
+      runBootMyLocation();
+    };
+    window.addEventListener("judo:map-ready", onMapReady);
+    const retryTimer = window.setTimeout(runBootMyLocation, 600);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("judo:map-ready", onMapReady);
+      window.clearTimeout(retryTimer);
+    };
   }, []);
 
   const handleCourseGpsRadiusChange = useCallback(
@@ -5047,6 +5248,25 @@ export default function Home() {
     mapRef.current?.requestMyLocation?.();
   }, []);
 
+  const handleMapStartModeChange = useCallback(
+    (mode) => {
+      const next =
+        mode === HOME_MAP_START_MY_LOCATION
+          ? HOME_MAP_START_MY_LOCATION
+          : HOME_MAP_START_SEONGSU;
+      writeHomeMapStartMode(next);
+      setMapStartMode(next);
+      showToast(
+        next === HOME_MAP_START_MY_LOCATION
+          ? "다음 방문부터 내 위치 지도로 시작해요."
+          : "다음 방문부터 성수 지도로 시작해요.",
+        "info",
+        2600,
+      );
+    },
+    [showToast],
+  );
+
   useEffect(() => {
     if (String(query || "").trim()) {
       mapViewportLoadSeqRef.current += 1;
@@ -5101,8 +5321,8 @@ export default function Home() {
   usePlaceDetailEnrichment(selectedPlace, setSelectedPlace, curatorAttachRowsRef);
 
   /**
-   * 주소 빈 DB 핀(노가리 등) — 카카오 키워드로 실주소·좌표 대조 후 불일치면 숨김.
-   * 카드 안 열어도 마커가 사라지게 백그라운드 검증.
+   * 주소 빈 DB 핀(노가리 등) — 핀 좌표 근처 카카오로 실주소·업종 대조 후 불일치면 숨김.
+   * 전국 이름 검색 동명이인(금목·쿠시무라 등)으로 오탐하지 않도록 근처 hit만 사용.
    */
   const emptyAddrGeoVerifiedRef = useRef(new Set());
   useEffect(() => {
@@ -5121,6 +5341,8 @@ export default function Home() {
 
     if (candidates.length === 0) return undefined;
 
+    const NEAR_M = 2500;
+
     (async () => {
       let removedAny = false;
       for (const p of candidates) {
@@ -5129,20 +5351,44 @@ export default function Home() {
         emptyAddrGeoVerifiedRef.current.add(id);
         const name = String(p.name || p.place_name || "").trim();
         if (name.length < 2) continue;
+        const wMap = resolvePlaceWgs84(p);
+        if (!wMap) continue;
         try {
           const { documents } = await searchKakaoKeywordViaProxy({
             query: name.slice(0, 40),
-            size: 5,
+            size: 8,
+            x: wMap.lng,
+            y: wMap.lat,
+            radius: 5000,
           });
           const docs = Array.isArray(documents) ? documents : [];
           if (docs.length === 0) continue;
           const nameNorm = name.replace(/\s+/g, "");
-          const hit =
-            docs.find((d) => {
-              const pn = String(d.place_name || "")
-                .replace(/\s+/g, "");
-              return pn === nameNorm || pn.includes(nameNorm) || nameNorm.includes(pn);
-            }) || docs[0];
+          const named = docs.filter((d) => {
+            const pn = String(d.place_name || "").replace(/\s+/g, "");
+            if (!pn) return false;
+            return (
+              pn === nameNorm ||
+              pn.includes(nameNorm) ||
+              nameNorm.includes(pn)
+            );
+          });
+          const pool = named.length > 0 ? named : docs;
+          let hit = null;
+          let hitDist = Infinity;
+          for (const d of pool) {
+            const kLat = parseFloat(d.y);
+            const kLng = parseFloat(d.x);
+            if (!Number.isFinite(kLat) || !Number.isFinite(kLng)) continue;
+            const m = haversineMeters(wMap.lat, wMap.lng, kLat, kLng);
+            if (m < hitDist) {
+              hitDist = m;
+              hit = d;
+            }
+          }
+          /** 근처 동명 매장이 없으면 판단 보류 — 먼 동명이인으로 숨기지 않음 */
+          if (!hit || hitDist > NEAR_M) continue;
+
           const probe = {
             ...p,
             address: hit.road_address_name || hit.address_name || "",
@@ -5151,20 +5397,7 @@ export default function Home() {
             category: hit.category_name || p.category,
             category_name: hit.category_name || p.category_name,
           };
-          let bad = !placeAddressCoordsConsistent(probe);
-          const wMap = resolvePlaceWgs84(p);
-          const kLat = parseFloat(hit.y);
-          const kLng = parseFloat(hit.x);
-          if (
-            !bad &&
-            wMap &&
-            Number.isFinite(kLat) &&
-            Number.isFinite(kLng)
-          ) {
-            if (haversineMeters(wMap.lat, wMap.lng, kLat, kLng) > 4000) {
-              bad = true;
-            }
-          }
+          const bad = !placeAddressCoordsConsistent(probe);
           if (bad) {
             rememberGeoMismatchPlaceId(id);
             removedAny = true;
@@ -5173,6 +5406,7 @@ export default function Home() {
                 id,
                 name,
                 kakaoAddr: probe.address,
+                nearM: Math.round(hitDist),
               });
             }
           }
@@ -5974,13 +6208,6 @@ export default function Home() {
   useEffect(() => {
     refreshCustomPlaces();
 
-    // 최초 방문 확인
-    const hasVisitedBefore = localStorage.getItem("judo_has_visited");
-    const isFirstVisit = !hasVisitedBefore;
-    
-    if (isFirstVisit) {
-      localStorage.setItem("judo_has_visited", "true");
-    }
     setShowAll(true);
     setSelectedCurators([]);
     /** mount-only — refreshCustomPlaces는 hook이 안정화한 reference라 deps 누락 무관 */
@@ -6938,6 +7165,17 @@ export default function Home() {
       );
     }
 
+    /** 맛집첩 미리보기 — 해당 첩 장소만 (기존 뷰포트·검색 마커와 섞지 않음) */
+    if (homeListBrowse?.list) {
+      const listPins = (Array.isArray(dbPlaces) ? dbPlaces : []).filter(
+        (p) => p?.isListSpreadPin
+      );
+      return appendSelectedPlacePinIfMissing(
+        dedupeMapPlacesByKakaoId(listPins),
+        selectedPlace
+      );
+    }
+
     const mergePlaces = (basePlaces, extraPlaces) => {
       const merged = [...basePlaces, ...extraPlaces];
       const seen = new Set();
@@ -7144,6 +7382,7 @@ export default function Home() {
     searchExpandUX,
     preserveMapViewportSituationChip,
     homeRailCourseDrive,
+    homeListBrowse,
   ]);
 
   /**
@@ -7153,6 +7392,7 @@ export default function Home() {
   const mapDensityLayerActive = useMemo(() => {
     if (isCourseMode) return false;
     if (courseSecondPickMode) return false;
+    if (homeListBrowse?.list) return false;
     if (String(query || "").trim()) return false;
     if (preserveMapViewportSituationChip && situationFolderFilter) return false;
     if (showSavedOnly && !showAll) return false;
@@ -7166,6 +7406,7 @@ export default function Home() {
   }, [
     isCourseMode,
     courseSecondPickMode,
+    homeListBrowse,
     query,
     preserveMapViewportSituationChip,
     situationFolderFilter,
@@ -10503,6 +10744,7 @@ const handleClearSearch = () => {
           focusPlaceId={homeListFocusPlaceId}
           onOpenCurator={handleCourseBrowseCuratorOpen}
           resolveCuratorHandle={resolveCuratorHandleForUser}
+          onPlaceThumb={handleListPlaceThumb}
           onSheetSnapChange={setHomeListsSheetSnap}
           sheetResetKey={homeListsSheetResetKey}
         />
@@ -10746,6 +10988,7 @@ const handleClearSearch = () => {
             onMapBackgroundClick={handleHomeMapBackgroundClick}
             onMapBlankClick={handleMapBlankPick}
             preserveViewportOnPlacesChange={
+              Boolean(homeListBrowse?.list) ||
               showMapSearchHereButton ||
               mapViewportSearchLock ||
               preserveMapViewportSituationChip ||
@@ -10753,6 +10996,7 @@ const handleClearSearch = () => {
                 kakaoTypingPreviewPlaces.length > 0)
             }
             lockHomeDefaultViewport={
+              !homeListBrowse?.list &&
               !isCourseMode &&
               !homeRailCourseDrive &&
               !preserveMapViewportSituationChip &&
@@ -11084,6 +11328,8 @@ const handleClearSearch = () => {
               if (selectedPlace) setSelectedPlace(null);
             }}
             onRequestMyLocation={handleRequestMyLocation}
+            mapStartMode={mapStartMode}
+            onMapStartModeChange={handleMapStartModeChange}
             mapLocationLoading={mapLocationLoading}
             myLocationButtonStyle={styles.legendMyLocationButton}
             myLocationSpinnerStyle={styles.legendMyLocationSpinner}

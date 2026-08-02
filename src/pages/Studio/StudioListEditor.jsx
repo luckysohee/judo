@@ -73,12 +73,33 @@ function extractKakaoId(hit) {
   return "";
 }
 
-function parseThemeTagsInput(raw) {
-  return String(raw || "")
-    .split(/[,#\n]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .slice(0, 12);
+/** 저장용 — `#` 없이 본문만 (홈 미리보기가 #을 붙임) */
+function normalizeListThemeTag(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return "";
+  const body = t.startsWith("#") ? t.slice(1).trim() : t;
+  return body;
+}
+
+function normalizeListThemeTags(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : String(raw || "")
+        .split(/[,，#\n]+/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const tag = normalizeListThemeTag(item);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 12) break;
+  }
+  return out;
 }
 
 function formatSaveError(err) {
@@ -165,7 +186,8 @@ export default function StudioListEditor() {
 
   const [title, setTitle] = useState("");
   const [area, setArea] = useState("");
-  const [themeTagsText, setThemeTagsText] = useState("");
+  const [themeTags, setThemeTags] = useState([]);
+  const [tagInputValue, setTagInputValue] = useState("");
   const [description, setDescription] = useState("");
   const [placeRows, setPlaceRows] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -185,15 +207,38 @@ export default function StudioListEditor() {
   const listSectionRef = useRef(null);
   const titleRef = useRef(title);
   const areaRef = useRef(area);
-  const themeTagsTextRef = useRef(themeTagsText);
+  const themeTagsRef = useRef(themeTags);
   const descriptionRef = useRef(description);
   const listIdRef = useRef(listId);
   placeRowsRef.current = placeRows;
   titleRef.current = title;
   areaRef.current = area;
-  themeTagsTextRef.current = themeTagsText;
+  themeTagsRef.current = themeTags;
   descriptionRef.current = description;
   listIdRef.current = listId;
+
+  const addThemeTag = useCallback((raw) => {
+    const tag = normalizeListThemeTag(raw);
+    if (!tag) return;
+    setThemeTags((prev) => {
+      const key = tag.toLowerCase();
+      if (prev.some((t) => t.toLowerCase() === key)) return prev;
+      if (prev.length >= 12) return prev;
+      return [...prev, tag];
+    });
+    setTagInputValue("");
+  }, []);
+
+  const removeThemeTag = useCallback((tagToRemove) => {
+    setThemeTags((prev) => prev.filter((t) => t !== tagToRemove));
+  }, []);
+
+  const handleThemeTagKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    addThemeTag(e.currentTarget.value);
+  };
 
   useEffect(() => {
     savingRef.current = false;
@@ -219,11 +264,8 @@ export default function StudioListEditor() {
         setListId(String(meta.id));
         setTitle(String(meta.title || ""));
         setArea(String(meta.area || ""));
-        setThemeTagsText(
-          Array.isArray(meta.theme_tags)
-            ? meta.theme_tags.map((t) => String(t || "").trim()).filter(Boolean).join(", ")
-            : ""
-        );
+        setThemeTags(normalizeListThemeTags(meta.theme_tags));
+        setTagInputValue("");
         setDescription(String(meta.description || ""));
         setPlaceRows(
           (places || []).map((p, i) => ({
@@ -557,7 +599,7 @@ export default function StudioListEditor() {
           title: t,
           area: String(areaRef.current || "").trim() || null,
           description: String(descriptionRef.current || "").trim() || null,
-          theme_tags: parseThemeTagsInput(themeTagsTextRef.current),
+          theme_tags: normalizeListThemeTags(themeTagsRef.current),
         };
         let id = String(listIdRef.current || "").trim();
         if (!id) {
@@ -776,18 +818,67 @@ export default function StudioListEditor() {
               maxLength={40}
             />
           </label>
-          <label style={studioCoursesLabel}>
-            해시태그
-            <input
-              style={fieldStyle}
-              value={themeTagsText}
-              onChange={(e) => setThemeTagsText(e.target.value)}
-              placeholder="예: 혼술, 성수, 이자카야 (쉼표로 구분)"
-              maxLength={120}
-            />
-          </label>
+          <label style={studioCoursesLabel}>해시태그</label>
+          {themeTags.length > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                marginTop: 6,
+                marginBottom: 8,
+              }}
+            >
+              {themeTags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 8px",
+                    borderRadius: "999px",
+                    backgroundColor: "rgba(52,152,219,0.18)",
+                    border: "1px solid rgba(52,152,219,0.35)",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "rgba(255,255,255,0.92)",
+                  }}
+                >
+                  #{tag}
+                  <button
+                    type="button"
+                    onClick={() => removeThemeTag(tag)}
+                    disabled={saving}
+                    aria-label={`${tag} 태그 삭제`}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "rgba(255,255,255,0.65)",
+                      cursor: "pointer",
+                      padding: 0,
+                      lineHeight: 1,
+                      fontSize: "14px",
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <input
+            style={{ ...fieldStyle, marginTop: themeTags.length > 0 ? 0 : 6 }}
+            value={tagInputValue}
+            onChange={(e) => setTagInputValue(e.target.value)}
+            onKeyDown={handleThemeTagKeyDown}
+            placeholder="태그 입력 후 Enter"
+            enterKeyHint="done"
+            maxLength={40}
+            disabled={saving || themeTags.length >= 12}
+          />
           <p style={{ ...studioCoursesHint, marginTop: -6, marginBottom: 12 }}>
-            # 없이 입력해도 미리보기에 #태그로 보여요. 최대 12개.
+            Enter로 추가 · ×로 삭제. # 없이도 돼요. 최대 12개.
           </p>
           <label style={studioCoursesLabel}>
             한 줄 소개
