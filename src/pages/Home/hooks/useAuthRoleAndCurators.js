@@ -224,12 +224,38 @@ export function useAuthRoleAndCurators({
 
     const loadCurators = async () => {
       try {
-        const { data, error } = await supabase
+        const selectCols =
+          "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade, home_chip_order, home_chip_hidden, created_at";
+        let { data, error } = await supabase
           .from("curators")
-          .select(
-            "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade",
-          )
+          .select(selectCols)
+          .order("home_chip_order", { ascending: true })
           .order("created_at", { ascending: false });
+
+        /** 마이그레이션 전 DB — 컬럼 없는 경우 단계적 폴백 */
+        if (
+          error &&
+          /home_chip_hidden/i.test(String(error.message || error.details || ""))
+        ) {
+          ({ data, error } = await supabase
+            .from("curators")
+            .select(
+              "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade, home_chip_order, created_at",
+            )
+            .order("home_chip_order", { ascending: true })
+            .order("created_at", { ascending: false }));
+        }
+        if (
+          error &&
+          /home_chip_order/i.test(String(error.message || error.details || ""))
+        ) {
+          ({ data, error } = await supabase
+            .from("curators")
+            .select(
+              "id, user_id, username, slug, name, display_name, bio, image, avatar_url, grade, created_at",
+            )
+            .order("created_at", { ascending: false }));
+        }
 
         if (error) {
           console.error("큐레이터 로드 오류:", error);
@@ -241,7 +267,11 @@ export function useAuthRoleAndCurators({
         if (curatorAttachRowsRef) curatorAttachRowsRef.current = data || [];
 
         // CuratorFilterBar: 칩 키는 slug(@핸들) → name(별명) → username → display_name → id 순
-        const formattedCurators = (data || []).map((curator) => {
+        // 순서는 home_chip_order ASC → created_at DESC. home_chip_hidden 은 칩에서만 제외(장소 매칭용 attach는 전체 유지)
+        const chipRows = (data || []).filter(
+          (c) => c?.home_chip_hidden !== true,
+        );
+        const formattedCurators = chipRows.map((curator) => {
           const slug =
             curator.slug != null ? String(curator.slug).trim() : "";
           const u =

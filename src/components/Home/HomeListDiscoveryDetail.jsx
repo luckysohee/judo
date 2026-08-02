@@ -221,7 +221,11 @@ const styles = {
     WebkitOverflowScrolling: "touch",
     scrollbarWidth: "none",
     msOverflowStyle: "none",
-    touchAction: "pan-x",
+    /**
+     * none: 세로 제스처를 부모 시트 스크롤러로 직접 넘기기 위해 JS에서 처리.
+     * (pan-x만 두면 카드 영역에서 시트 세로 스크롤이 막힘)
+     */
+    touchAction: "none",
   },
   placeCard: (focused) => ({
     flex: "0 0 min(94%, 380px)",
@@ -244,6 +248,7 @@ const styles = {
     padding: 0,
     textAlign: "left",
     WebkitTapHighlightColor: "transparent",
+    touchAction: "none",
   }),
   placePhoto: {
     minHeight: 0,
@@ -296,8 +301,14 @@ function placeRowId(place, index) {
 /**
  * 가로 스와이프 — 장소 사진 + 설명. 스냅된 카드로 지도 핀 포커스.
  * 사진: 업로드 → 카카오 → 구글 순.
+ * @param {{ places: unknown[], focusPlaceId?: string, onFocusPlace?: Function, verticalScrollRef?: React.RefObject<HTMLElement|null> }} props
  */
-function ListPlaceSwipeRail({ places, focusPlaceId, onFocusPlace }) {
+function ListPlaceSwipeRail({
+  places,
+  focusPlaceId,
+  onFocusPlace,
+  verticalScrollRef,
+}) {
   const railRef = useRef(null);
   const cardRefs = useRef([]);
   const rows = Array.isArray(places) ? places : [];
@@ -309,8 +320,71 @@ function ListPlaceSwipeRail({ places, focusPlaceId, onFocusPlace }) {
   const focusFromScrollRef = useRef(false);
   const settleTimerRef = useRef(null);
   const resolvingRef = useRef(new Set());
+  const touchGestureRef = useRef({
+    mode: /** @type {null | 'x' | 'y'} */ (null),
+    lastX: 0,
+    lastY: 0,
+  });
   thumbsByKeyRef.current = thumbsByKey;
   failedThumbKeysRef.current = failedThumbKeys;
+
+  /** 카드 위 세로 드래그 → 시트 scroller, 가로 → 장소 레일 */
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return undefined;
+    const gesture = touchGestureRef.current;
+
+    const resolveScroller = () =>
+      verticalScrollRef?.current ||
+      rail.closest?.('[aria-label="맛집첩 미리보기"]') ||
+      null;
+
+    const onTouchStart = (e) => {
+      const t = e.touches?.[0];
+      if (!t) return;
+      gesture.mode = null;
+      gesture.lastX = t.clientX;
+      gesture.lastY = t.clientY;
+    };
+
+    const onTouchMove = (e) => {
+      const t = e.touches?.[0];
+      if (!t) return;
+      const dx = t.clientX - gesture.lastX;
+      const dy = t.clientY - gesture.lastY;
+      if (gesture.mode == null) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        gesture.mode = Math.abs(dy) > Math.abs(dx) ? "y" : "x";
+      }
+      if (gesture.mode === "y") {
+        const scroller = resolveScroller();
+        if (scroller) {
+          e.preventDefault();
+          scroller.scrollTop -= dy;
+        }
+      } else if (gesture.mode === "x") {
+        e.preventDefault();
+        rail.scrollLeft -= dx;
+      }
+      gesture.lastX = t.clientX;
+      gesture.lastY = t.clientY;
+    };
+
+    const onTouchEnd = () => {
+      gesture.mode = null;
+    };
+
+    rail.addEventListener("touchstart", onTouchStart, { passive: true });
+    rail.addEventListener("touchmove", onTouchMove, { passive: false });
+    rail.addEventListener("touchend", onTouchEnd, { passive: true });
+    rail.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    return () => {
+      rail.removeEventListener("touchstart", onTouchStart);
+      rail.removeEventListener("touchmove", onTouchMove);
+      rail.removeEventListener("touchend", onTouchEnd);
+      rail.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [verticalScrollRef]);
 
   const resolveIndexFromScroll = useCallback(() => {
     const rail = railRef.current;
@@ -817,6 +891,7 @@ export default function HomeListDiscoveryDetail({
     sheetCollapsed
       ? typeof onSheetExpand === "function"
       : typeof onSheetCollapse === "function";
+  const scrollerRef = useRef(null);
 
   return (
     <div style={styles.root}>
@@ -841,7 +916,11 @@ export default function HomeListDiscoveryDetail({
         )}
       </div>
 
-      <div style={styles.scroller} aria-label="맛집첩 미리보기">
+      <div
+        ref={scrollerRef}
+        style={styles.scroller}
+        aria-label="맛집첩 미리보기"
+      >
         <style>{`
           [aria-label="맛집첩 미리보기"]::-webkit-scrollbar { display: none; }
         `}</style>
@@ -932,6 +1011,7 @@ export default function HomeListDiscoveryDetail({
               places={rows}
               focusPlaceId={focusPlaceId}
               onFocusPlace={onFocusPlace}
+              verticalScrollRef={scrollerRef}
             />
           ) : (
             <div

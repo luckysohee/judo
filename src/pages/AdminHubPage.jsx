@@ -317,6 +317,38 @@ export default function AdminHubPage() {
         <button
           type="button"
           style={styles.card}
+          onClick={() => navigate("/admin/curator-chips")}
+          onMouseOver={(e) => {
+            e.currentTarget.style.borderColor = "rgba(46, 204, 113, 0.35)";
+            e.currentTarget.style.backgroundColor = "#1a221c";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.borderColor = "#2a2a2a";
+            e.currentTarget.style.backgroundColor = "#171717";
+          }}
+        >
+          <div style={styles.cardMain}>
+            <div style={styles.cardTitle}>홈 큐레이터 칩 순서·숨김</div>
+            <div style={styles.cardDesc}>
+              홈 필터 칩 순서(↑↓)와 숨김을 바로 저장
+            </div>
+          </div>
+          <span
+            style={{
+              ...styles.badge,
+              ...(typeof stats.curatorCount === "number" && stats.curatorCount > 0
+                ? styles.badgeOk
+                : styles.badgeMuted),
+            }}
+            title="등록 큐레이터 수"
+          >
+            {formatBadge(stats.curatorCount)}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          style={styles.card}
           onClick={() => navigate("/admin/curators")}
           onMouseOver={(e) => {
             e.currentTarget.style.borderColor = "rgba(241, 196, 15, 0.35)";

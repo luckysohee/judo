@@ -26,6 +26,9 @@ const AdminApplicationsPage = lazyWithRetry(() => import("./pages/AdminApplicati
 const SearchInsightsPage = lazyWithRetry(() => import("./pages/SearchInsightsPage"));
 const CuratorManagementPage = lazyWithRetry(() => import("./pages/CuratorManagementPage"));
 const AdminCuratorsAuditPage = lazyWithRetry(() => import("./pages/AdminCuratorsAuditPage"));
+const AdminCuratorChipsOrderPage = lazyWithRetry(
+  () => import("./pages/AdminCuratorChipsOrderPage")
+);
 const AdminAlphaSurveyPage = lazyWithRetry(() => import("./pages/AdminAlphaSurveyPage"));
 const StudioHome = lazyWithRetry(() => import("./pages/Studio/StudioHome"));
 const StudioFollowersPage = lazyWithRetry(() => import("./pages/Studio/StudioFollowersPage"));
@@ -85,6 +88,14 @@ function App() {
         <Route path="applications" element={<Lazy><AdminApplicationsPage /></Lazy>} />
         <Route path="search-insights" element={<Lazy><SearchInsightsPage /></Lazy>} />
         <Route path="curators" element={<Lazy><AdminCuratorsAuditPage /></Lazy>} />
+        <Route
+          path="curator-chips"
+          element={
+            <Lazy>
+              <AdminCuratorChipsOrderPage />
+            </Lazy>
+          }
+        />
         <Route path="alpha-survey" element={<Lazy><AdminAlphaSurveyPage /></Lazy>} />
         <Route path="curator/:userId" element={<Lazy><CuratorManagementPage /></Lazy>} />
       </Route>
