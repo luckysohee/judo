@@ -417,7 +417,6 @@ function ListPlaceSwipeRail({
       if (!t || t.clientX == null) return;
       const dxTotal = t.clientX - g.startX;
       const dyTotal = t.clientY - g.startY;
-      const dx = t.clientX - g.lastX;
       const dy = t.clientY - g.lastY;
       if (g.mode == null) {
         if (Math.abs(dxTotal) < 8 && Math.abs(dyTotal) < 8) return;
@@ -749,6 +748,9 @@ export default function HomeListDiscoveryDetail({
   onOpenCurator,
   resolveCuratorHandle,
   onPlaceThumb,
+  /** 목록에서 연 상세 — 지도에 핀 펼치기 */
+  onSpread = null,
+  spreadBusy = false,
 }) {
   const { showToast } = useToast();
   const listId = String(list?.id || "").trim();
@@ -1076,6 +1078,31 @@ export default function HomeListDiscoveryDetail({
                   : LIST_SCRAP_LABEL_SHORT}
             </button>
           </div>
+          {typeof onSpread === "function" ? (
+            <button
+              type="button"
+              disabled={spreadBusy || rows.length === 0}
+              onClick={() => onSpread()}
+              style={{
+                marginTop: 2,
+                border: "none",
+                borderRadius: 12,
+                minHeight: 42,
+                background:
+                  "linear-gradient(180deg, #3ad47f 0%, #27ae60 100%)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 800,
+                cursor:
+                  spreadBusy || rows.length === 0 ? "default" : "pointer",
+                opacity: spreadBusy || rows.length === 0 ? 0.65 : 1,
+              }}
+            >
+              {spreadBusy
+                ? "펼치는 중…"
+                : `지도에 펼치기 · ${rows.length}곳`}
+            </button>
+          ) : null}
         </div>
 
         <div

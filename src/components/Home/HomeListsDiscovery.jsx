@@ -8,6 +8,12 @@ import {
 import { searchPublicCuratorLists } from "../../api/searchPublicLists";
 import { fetchCuratorMapsForUserIds } from "../../utils/curatorCourseDiscoveryLabels";
 import { filterListsForDiscoverySearch } from "../../utils/listDiscoverySearch";
+import {
+  enrichListsWithAutoCover,
+  pickListDisplayCoverUrl,
+} from "../../utils/listCoverThumb";
+import { buildHomeListDiscoveryUnifiedList } from "../../utils/homeListDiscoveryLists";
+import { getListLikeStatsBatch } from "../../api/listLikes";
 import { HOME_COURSE_SHEET as T } from "../../utils/homeCourseSheetTheme";
 import {
   HOME_COURSES_DISCOVERY_SHEET_COLLAPSED_PX,
@@ -19,17 +25,9 @@ import {
 } from "../../utils/homeHotStripLayout";
 import { useVerticalSnapSheet } from "../../hooks/useVerticalSnapSheet";
 import { useVisualViewportBottomInset } from "../../hooks/useVisualViewportBottomInset";
-import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import HomeListDiscoveryDetail from "./HomeListDiscoveryDetail";
 
 const SHEET_HEIGHT_TRANSITION = "height 0.28s cubic-bezier(0.32, 0.72, 0, 1)";
-
-function normalizeThemeTags(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((t) => String(t || "").replace(/^#/, "").trim())
-    .filter(Boolean);
-}
 
 /**
  * 홈 지도 우측 — 「맛집첩」 엔트리 칩 (코스 칩 자매)
@@ -85,250 +83,116 @@ export function HomeListsEntryChip({
   );
 }
 
-function ListCard({ list, curatorLabel, onOpen, onSpread }) {
-  const n = Number(list?.place_count) || 0;
-  const area = String(list?.area || "").trim();
-  const tags = normalizeThemeTags(list?.theme_tags).slice(0, 4);
-  return (
-    <article
-      style={{
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.12)",
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.07) 0%, rgba(15,15,18,0.96) 100%)",
-        padding: "12px 12px 10px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen?.(list)}
-        style={{
-          border: "none",
-          background: "transparent",
-          padding: 0,
-          textAlign: "left",
-          cursor: "pointer",
-          color: "inherit",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 800,
-            letterSpacing: "-0.03em",
-            color: T.text,
-            marginBottom: 4,
-          }}
-        >
-          {list?.title || "제목 없음"}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: "rgba(255,255,255,0.55)",
-            lineHeight: 1.4,
-          }}
-        >
-          {[area || null, n > 0 ? `${n}곳` : null, curatorLabel || null]
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
-        {tags.length > 0 ? (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 4,
-              marginTop: 8,
-            }}
-          >
-            {tags.map((t) => (
-              <span
-                key={t}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: "3px 7px",
-                  borderRadius: 999,
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  color: "rgba(255,255,255,0.65)",
-                }}
-              >
-                #{t}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </button>
-      <button
-        type="button"
-        onClick={() => onSpread?.(list)}
-        style={{
-          marginTop: 2,
-          border: "1px solid rgba(46,204,113,0.45)",
-          background: "rgba(46,204,113,0.16)",
-          color: "#d6ffe6",
-          borderRadius: 10,
-          minHeight: 40,
-          fontSize: 13,
-          fontWeight: 800,
-          cursor: "pointer",
-        }}
-      >
-        지도에 펼치기
-      </button>
-    </article>
-  );
-}
-
-function placeImageUrl(place) {
-  const direct = String(place?.image_url || "").trim();
-  if (direct) return direct;
-  const embedded =
-    place?.places && typeof place.places === "object" ? place.places : null;
-  return String(embedded?.image_url || "").trim();
-}
-
-function ListPlacePreviewCard({
-  place,
-  index,
-  focused = false,
-  onFocus,
-}) {
-  const name = String(place?.place_name || "이름 없음").trim() || "이름 없음";
-  const address = String(place?.place_address || "").trim();
-  const memo = String(place?.memo || "").trim();
-  const img = placeImageUrl(place);
-  const w = resolvePlaceWgs84(place);
-  const addrLine =
-    address ||
-    (w ? `${w.lat.toFixed(4)}, ${w.lng.toFixed(4)}` : "");
-  const clickable = typeof onFocus === "function";
-
-  const body = (
-    <>
-      <div
-        style={{
-          flexShrink: 0,
-          width: 28,
-          height: 28,
-          borderRadius: 999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 12,
-          fontWeight: 900,
-          color: "#d6ffe6",
-          background: "rgba(46,204,113,0.18)",
-          border: "1px solid rgba(46,204,113,0.35)",
-        }}
-      >
-        {index + 1}
-      </div>
-      <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 800,
-            letterSpacing: "-0.02em",
-            color: T.text,
-            lineHeight: 1.3,
-          }}
-        >
-          {name}
-        </div>
-        {addrLine ? (
-          <div
-            style={{
-              fontSize: 11,
-              color: T.textMuted,
-              marginTop: 3,
-              lineHeight: 1.4,
-            }}
-          >
-            {addrLine}
-          </div>
-        ) : null}
-        {memo ? (
-          <p
-            style={{
-              margin: "8px 0 0",
-              fontSize: 13,
-              fontWeight: 600,
-              lineHeight: 1.5,
-              color: "rgba(255,255,255,0.82)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {memo}
-          </p>
-        ) : (
-          <p
-            style={{
-              margin: "8px 0 0",
-              fontSize: 12,
-              fontWeight: 600,
-              color: T.textFaint,
-            }}
-          >
-            작성한 이유가 없어요
-          </p>
-        )}
-      </div>
-      {img ? (
-        <img
-          src={img}
-          alt=""
-          loading="lazy"
-          style={{
-            flexShrink: 0,
-            width: 64,
-            height: 64,
-            borderRadius: 12,
-            objectFit: "cover",
-            background: T.thumbBg,
-          }}
-        />
-      ) : null}
-    </>
-  );
-
-  const shellStyle = {
-    borderRadius: 14,
-    border: focused ? T.cardActiveBorder : T.cardBorder,
-    background: focused ? T.cardActiveBg : T.cardBg,
-    padding: "12px 12px 11px",
-    display: "flex",
-    gap: 10,
-    width: "100%",
-    boxSizing: "border-box",
-    color: "inherit",
-    font: "inherit",
-  };
-
-  if (!clickable) {
-    return <div style={shellStyle}>{body}</div>;
-  }
+function ListCard({ list, curatorLabel = "", badge = null, onOpen }) {
+  const title = String(list?.title || "").trim() || "제목 없음";
+  const cover = pickListDisplayCoverUrl(list);
+  const n = Number(list?.place_count);
+  const placeTxt = Number.isFinite(n) && n > 0 ? `${Math.floor(n)}곳` : "";
+  const metaBits = [curatorLabel || null, placeTxt || null].filter(Boolean);
 
   return (
     <button
       type="button"
-      onClick={() => onFocus?.(place)}
-      aria-pressed={focused}
-      aria-label={`${name} 지도에서 보기`}
+      onClick={() => onOpen?.(list)}
+      aria-label={title}
       style={{
-        ...shellStyle,
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "stretch",
+        gap: 8,
+        width: "100%",
+        padding: 6,
+        borderRadius: 10,
+        border: T.cardBorder,
+        background: T.cardBg,
         cursor: "pointer",
         textAlign: "left",
+        font: "inherit",
+        color: "inherit",
+        boxSizing: "border-box",
+        WebkitTapHighlightColor: "transparent",
       }}
     >
-      {body}
+      {cover ? (
+        <img
+          src={cover}
+          alt=""
+          loading="lazy"
+          style={{
+            width: 52,
+            height: 52,
+            flexShrink: 0,
+            borderRadius: 8,
+            objectFit: "cover",
+            display: "block",
+            background: T.thumbBg,
+          }}
+        />
+      ) : (
+        <div
+          aria-hidden
+          style={{
+            width: 52,
+            height: 52,
+            flexShrink: 0,
+            borderRadius: 8,
+            background: T.thumbBg,
+          }}
+        />
+      )}
+      <div
+        style={{
+          flex: "1 1 auto",
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 2,
+        }}
+      >
+        <h4
+          style={{
+            margin: 0,
+            fontSize: 12,
+            fontWeight: 800,
+            lineHeight: 1.3,
+            letterSpacing: "-0.03em",
+            color: T.text,
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+          }}
+        >
+          {title}
+        </h4>
+        {badge ? (
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: T.textSub,
+              lineHeight: 1.3,
+            }}
+          >
+            {badge.emoji} {badge.text}
+          </div>
+        ) : null}
+        {metaBits.length > 0 ? (
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: T.textMuted,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {metaBits.join(" · ")}
+          </div>
+        ) : null}
+      </div>
     </button>
   );
 }
@@ -396,10 +260,8 @@ export default function HomeListsDiscoveryPanel({
   const [tab, setTab] = useState("trending");
   const [loading, setLoading] = useState(false);
   const [lists, setLists] = useState([]);
-  const [curatorMap, setCuratorMap] = useState({});
-  const [selected, setSelected] = useState(null);
-  const [detailPlaces, setDetailPlaces] = useState([]);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [nameByCurator, setNameByCurator] = useState(() => new Map());
+  const [statsByListId, setStatsByListId] = useState(() => new Map());
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchBusy, setSearchBusy] = useState(false);
@@ -421,8 +283,6 @@ export default function HomeListsDiscoveryPanel({
 
   useEffect(() => {
     if (!open) {
-      setSelected(null);
-      setDetailPlaces([]);
       setSearchQuery("");
       setDebouncedSearch("");
       setSearchResults(null);
@@ -440,17 +300,40 @@ export default function HomeListsDiscoveryPanel({
           rows = await fetchPublicCuratorLists({ limit: 48 });
         }
         if (cancelled) return;
-        setLists(rows);
+        const withCovers = await enrichListsWithAutoCover(rows);
+        if (cancelled) return;
+        setLists(withCovers);
         const uids = [
           ...new Set(
-            rows.map((r) => String(r.curator_id || "").trim()).filter(Boolean)
+            withCovers
+              .map((r) => String(r.curator_id || "").trim())
+              .filter(Boolean)
           ),
         ];
-        const map = await fetchCuratorMapsForUserIds(uids);
-        if (!cancelled) setCuratorMap(map || {});
+        const listIds = withCovers
+          .map((r) => String(r.id || "").trim())
+          .filter(Boolean);
+        const [map, stats] = await Promise.all([
+          fetchCuratorMapsForUserIds(uids),
+          tab === "trending"
+            ? getListLikeStatsBatch(listIds)
+            : Promise.resolve(new Map()),
+        ]);
+        if (cancelled) return;
+        if (map?.nameByCurator) {
+          setNameByCurator((prev) => {
+            const next = new Map(prev);
+            for (const [k, v] of map.nameByCurator) next.set(k, v);
+            return next;
+          });
+        }
+        setStatsByListId(stats instanceof Map ? stats : new Map());
       } catch (e) {
         console.warn("[맛집첩] load:", e);
-        if (!cancelled) setLists([]);
+        if (!cancelled) {
+          setLists([]);
+          setStatsByListId(new Map());
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -463,17 +346,15 @@ export default function HomeListsDiscoveryPanel({
   const curatorLabelFor = useCallback(
     (list) => {
       const uid = String(list?.curator_id || "").trim();
-      const c = curatorMap[uid];
-      if (!c) return "";
-      const handle = String(c.username || c.slug || "").trim();
-      return handle ? `@${handle}` : String(c.displayName || c.name || "").trim();
+      if (!uid) return "";
+      return nameByCurator.get(uid) || "";
     },
-    [curatorMap]
+    [nameByCurator]
   );
 
   /** 검색 — 공개 RPC/폴백, 내 맛집첩은 장소명까지 붙여 로컬 필터 */
   useEffect(() => {
-    if (!open || browsing || selected) return;
+    if (!open || browsing) return;
     if (!isSearching) {
       setSearchResults(null);
       setSearchBusy(false);
@@ -515,18 +396,24 @@ export default function HomeListsDiscoveryPanel({
             { limit: 48 }
           );
           if (cancelled) return;
-          setSearchResults(found);
+          const withCovers = await enrichListsWithAutoCover(found || []);
+          if (cancelled) return;
+          setSearchResults(withCovers);
           const uids = [
             ...new Set(
-              (found || [])
+              withCovers
                 .map((r) => String(r.curator_id || "").trim())
                 .filter(Boolean)
             ),
           ];
           if (uids.length) {
             const map = await fetchCuratorMapsForUserIds(uids);
-            if (!cancelled && map) {
-              setCuratorMap((prev) => ({ ...prev, ...map }));
+            if (!cancelled && map?.nameByCurator) {
+              setNameByCurator((prev) => {
+                const next = new Map(prev);
+                for (const [k, v] of map.nameByCurator) next.set(k, v);
+                return next;
+              });
             }
           }
         }
@@ -549,7 +436,6 @@ export default function HomeListsDiscoveryPanel({
   }, [
     open,
     browsing,
-    selected,
     isSearching,
     searchTrimmed,
     tab,
@@ -558,24 +444,32 @@ export default function HomeListsDiscoveryPanel({
     lists,
   ]);
 
-  const openDetail = useCallback(async (list) => {
-    setSelected(list);
-    setDetailLoading(true);
-    try {
-      const places = await fetchCuratorListPlaces(list.id);
-      setDetailPlaces(places);
-    } catch (e) {
-      console.warn("[맛집첩] detail:", e);
-      setDetailPlaces([]);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+  /** 목록 탭 → 바로 지도에 핀 펼치기(+ 스와이프 상세) */
+  const openListOnMap = useCallback(
+    async (list) => {
+      if (!list?.id || typeof onSpreadList !== "function") return;
+      try {
+        const places = await fetchCuratorListPlaces(list.id);
+        onSpreadList(list, places);
+      } catch (e) {
+        console.warn("[맛집첩] spread:", e);
+      }
+    },
+    [onSpreadList]
+  );
 
-  const displayedLists = useMemo(() => {
-    if (isSearching && Array.isArray(searchResults)) return searchResults;
-    return lists;
-  }, [isSearching, searchResults, lists]);
+  const displayedEntries = useMemo(() => {
+    if (isSearching && Array.isArray(searchResults)) {
+      return searchResults.map((list) => ({ list, badge: null }));
+    }
+    if (tab === "trending") {
+      return buildHomeListDiscoveryUnifiedList(lists, statsByListId);
+    }
+    return (Array.isArray(lists) ? lists : []).map((list) => ({
+      list,
+      badge: null,
+    }));
+  }, [isSearching, searchResults, lists, tab, statsByListId]);
 
   const browseCuratorLabel = useMemo(() => {
     if (!browseList?.list) return "";
@@ -591,8 +485,12 @@ export default function HomeListsDiscoveryPanel({
     void (async () => {
       try {
         const map = await fetchCuratorMapsForUserIds([uid]);
-        if (!cancelled && map) {
-          setCuratorMap((prev) => ({ ...prev, ...map }));
+        if (!cancelled && map?.nameByCurator) {
+          setNameByCurator((prev) => {
+            const next = new Map(prev);
+            for (const [k, v] of map.nameByCurator) next.set(k, v);
+            return next;
+          });
         }
       } catch {
         /* ignore */
@@ -673,11 +571,7 @@ export default function HomeListsDiscoveryPanel({
             curatorLabel={browseCuratorLabel}
             user={user}
             sheetSnap={snap}
-            onBack={() => {
-              setSelected(null);
-              setDetailPlaces([]);
-              onBrowseBack?.();
-            }}
+            onBack={() => onBrowseBack?.()}
             onSheetCollapse={setSnapCollapsed}
             onSheetExpand={setSnapExpanded}
             onFocusPlace={onFocusPlace}
@@ -708,7 +602,7 @@ export default function HomeListsDiscoveryPanel({
                   color: T.text,
                 }}
               >
-                {selected ? selected.title : "맛집첩"}
+                맛집첩
               </div>
               <div
                 style={{
@@ -718,21 +612,12 @@ export default function HomeListsDiscoveryPanel({
                   marginTop: 2,
                 }}
               >
-                {selected
-                  ? "동선 없이 핀으로 펼쳐 보는 묶음"
-                  : "동네·테마로 묶은 큐레이터 픽"}
+                동네·테마로 묶은 큐레이터 픽
               </div>
             </div>
             <button
               type="button"
-              onClick={() => {
-                if (selected) {
-                  setSelected(null);
-                  setDetailPlaces([]);
-                  return;
-                }
-                onClose?.();
-              }}
+              onClick={() => onClose?.()}
               style={{
                 border: "1px solid rgba(255,255,255,0.14)",
                 background: "rgba(255,255,255,0.06)",
@@ -744,13 +629,11 @@ export default function HomeListsDiscoveryPanel({
                 cursor: "pointer",
               }}
             >
-              {selected ? "목록" : "닫기"}
+              닫기
             </button>
           </div>
 
-          {!selected ? (
-            <>
-              <div style={{ flexShrink: 0, padding: "0 14px 8px" }}>
+          <div style={{ flexShrink: 0, padding: "0 14px 8px" }}>
                 <div
                   style={{
                     display: "flex",
@@ -872,8 +755,6 @@ export default function HomeListsDiscoveryPanel({
                   </button>
                 ) : null}
               </div>
-            </>
-          ) : null}
 
           <div
             style={{
@@ -887,90 +768,7 @@ export default function HomeListsDiscoveryPanel({
               padding: "0 14px 18px",
             }}
           >
-            {selected ? (
-              detailLoading ? (
-                <div
-                  style={{
-                    color: "rgba(255,255,255,0.5)",
-                    fontSize: 13,
-                    padding: 20,
-                  }}
-                >
-                  불러오는 중…
-                </div>
-              ) : (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
-                >
-                  {String(selected.description || "").trim() ? (
-                    <p
-                      style={{
-                        margin: "0 0 4px",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        lineHeight: 1.55,
-                        color: "rgba(255,255,255,0.78)",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {String(selected.description).trim()}
-                    </p>
-                  ) : null}
-                  {normalizeThemeTags(selected.theme_tags).length > 0 ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 6,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {normalizeThemeTags(selected.theme_tags).map((t) => (
-                        <span
-                          key={t}
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: "4px 8px",
-                            borderRadius: 999,
-                            background: T.chipBg,
-                            color: T.textSub,
-                            border: T.chipBorder,
-                          }}
-                        >
-                          #{t}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => onSpreadList?.(selected, detailPlaces)}
-                    style={{
-                      border: "none",
-                      borderRadius: 12,
-                      minHeight: 46,
-                      background:
-                        "linear-gradient(180deg, #3ad47f 0%, #27ae60 100%)",
-                      color: "#fff",
-                      fontSize: 14,
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    지도에 펼치기 · {detailPlaces.length}곳
-                  </button>
-                  {detailPlaces.map((p, i) => (
-                    <ListPlacePreviewCard
-                      key={String(p.place_id || p.id || i)}
-                      place={p}
-                      index={i}
-                    />
-                  ))}
-                </div>
-              )
-            ) : searchBusy && isSearching ? (
+            {searchBusy && isSearching ? (
               <div
                 style={{
                   color: "rgba(255,255,255,0.5)",
@@ -990,7 +788,7 @@ export default function HomeListsDiscoveryPanel({
               >
                 불러오는 중…
               </div>
-            ) : displayedLists.length === 0 ? (
+            ) : displayedEntries.length === 0 ? (
               <div
                 style={{
                   color: "rgba(255,255,255,0.55)",
@@ -1007,7 +805,7 @@ export default function HomeListsDiscoveryPanel({
                     : "아직 공개된 맛집첩이 없어요. 큐레이터가 올리면 여기에 뜹니다."}
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {isSearching ? (
                   <div
                     style={{
@@ -1017,23 +815,16 @@ export default function HomeListsDiscoveryPanel({
                       padding: "0 2px 2px",
                     }}
                   >
-                    검색 결과 {displayedLists.length}개
+                    검색 결과 {displayedEntries.length}개
                   </div>
                 ) : null}
-                {displayedLists.map((list) => (
+                {displayedEntries.map(({ list, badge }) => (
                   <ListCard
                     key={list.id}
                     list={list}
+                    badge={badge}
                     curatorLabel={curatorLabelFor(list)}
-                    onOpen={openDetail}
-                    onSpread={async (l) => {
-                      try {
-                        const places = await fetchCuratorListPlaces(l.id);
-                        onSpreadList?.(l, places);
-                      } catch (e) {
-                        console.warn("[맛집첩] spread:", e);
-                      }
-                    }}
+                    onOpen={openListOnMap}
                   />
                 ))}
               </div>

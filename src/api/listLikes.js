@@ -14,13 +14,33 @@ function parseUuid(id) {
   return s;
 }
 
+const LIKE_STATS_ZEROS = Object.freeze({
+  like_count: 0,
+  recent_like_count_7d: 0,
+});
+
 /**
- * @returns {Promise<number>}
+ * @param {unknown} data
+ * @returns {{ like_count: number, recent_like_count_7d: number }}
  */
-export async function fetchListLikeCount(listId) {
+function normalizeListLikeStats(data) {
+  const row = data && typeof data === "object" ? data : {};
+  return {
+    like_count: Math.max(0, Math.floor(Number(row.like_count) || 0)),
+    recent_like_count_7d: Math.max(
+      0,
+      Math.floor(Number(row.recent_like_count_7d) || 0)
+    ),
+  };
+}
+
+/**
+ * @param {string} listId
+ * @returns {Promise<{ like_count: number, recent_like_count_7d: number }>}
+ */
+export async function fetchListLikeStats(listId) {
   const id = parseUuid(listId);
-  if (!id) return 0;
-  if (listLikeStatsRpcMissing) return 0;
+  if (!id || listLikeStatsRpcMissing) return { ...LIKE_STATS_ZEROS };
   const { data, error } = await supabase.rpc("get_list_like_stats", {
     p_list_id: id,
   });
@@ -29,15 +49,60 @@ export async function fetchListLikeCount(listId) {
       listLikeStatsRpcMissing = true;
       if (import.meta.env.DEV) {
         console.warn(
-          "[fetchListLikeCount] get_list_like_stats 없음 — RUN_curator_list_engagement.sql 적용 필요"
+          "[fetchListLikeStats] get_list_like_stats 없음 — RUN_curator_list_engagement.sql 적용 필요"
         );
       }
-      return 0;
+      return { ...LIKE_STATS_ZEROS };
     }
-    console.warn("[fetchListLikeCount]", error);
-    return 0;
+    console.warn("[fetchListLikeStats]", error);
+    return { ...LIKE_STATS_ZEROS };
   }
-  return Math.max(0, Math.floor(Number(data?.like_count) || 0));
+  return normalizeListLikeStats(data);
+}
+
+/**
+ * @returns {Promise<number>}
+ */
+export async function fetchListLikeCount(listId) {
+  const stats = await fetchListLikeStats(listId);
+  return stats.like_count;
+}
+
+/**
+ * 홈 맛집첩 목록용 — listId(lowercase) → stats Map
+ * @param {string[]} listIds
+ * @returns {Promise<Map<string, { like_count: number, recent_like_count_7d: number }>>}
+ */
+export async function getListLikeStatsBatch(listIds) {
+  const out = new Map();
+  if (listLikeStatsRpcMissing) return out;
+
+  const uniq = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(listIds) ? listIds : []) {
+    const id = parseUuid(raw);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    uniq.push(id);
+    if (uniq.length >= 60) break;
+  }
+  if (uniq.length === 0) return out;
+
+  const CHUNK = 8;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const slice = uniq.slice(i, i + CHUNK);
+    const rows = await Promise.all(
+      slice.map(async (id) => {
+        const stats = await fetchListLikeStats(id);
+        return [id, stats];
+      })
+    );
+    for (const [id, stats] of rows) {
+      out.set(id, stats);
+    }
+    if (listLikeStatsRpcMissing) break;
+  }
+  return out;
 }
 
 /**

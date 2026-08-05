@@ -3,7 +3,10 @@ import {
   COURSE_SECOND_VIBE_OPTIONS,
   STUDIO_LIQUOR_TYPE_OPTIONS,
 } from "../../utils/placeTaxonomy.js";
-import { COURSE_SECOND_FIND_DISTANCE_OPTIONS } from "../../pages/Home/homeModule.js";
+import {
+  COURSE_SECOND_FIND_DEFAULT_DISTANCE_M,
+  COURSE_SECOND_FIND_DISTANCE_OPTIONS,
+} from "../../utils/courseSecondFindPrefs.js";
 
 /**
  * 코스 2차 후보 조건 모달.
@@ -184,15 +187,29 @@ export default function CourseSecondFindModal({
         />
 
         <div style={SECTION_LABEL_STYLE}>1차에서 거리</div>
-        <div style={{ ...CHIP_ROW_STYLE, flexWrap: "nowrap" }}>
+        <div style={{ ...CHIP_ROW_STYLE, flexWrap: "wrap" }}>
           {COURSE_SECOND_FIND_DISTANCE_OPTIONS.map(({ m, label }) => {
-            const on = maxDistanceM === m;
+            const effective =
+              maxDistanceM == null
+                ? COURSE_SECOND_FIND_DEFAULT_DISTANCE_M
+                : Number(maxDistanceM);
+            const on = effective === m;
             return (
               <button
                 key={`2fd-${m}`}
                 type="button"
+                aria-pressed={on}
+                title={
+                  m === COURSE_SECOND_FIND_DEFAULT_DISTANCE_M
+                    ? "선택 안 하면 기본값"
+                    : undefined
+                }
                 onClick={() => onChangeMaxDistanceM(m)}
-                style={chipStyle(on)}
+                style={{
+                  ...chipStyle(on),
+                  flex: "1 1 calc(50% - 3px)",
+                  minWidth: "calc(50% - 3px)",
+                }}
               >
                 {label}
               </button>

@@ -421,12 +421,6 @@ function getHomeSearchPlaceholderKst(homeSearchChannel) {
   return core;
 }
 
-/** 지도 「2차 찾기」— 1차 기준 후보·카카오 검색 반경 상한 */
-const COURSE_SECOND_FIND_DISTANCE_OPTIONS = [
-  { m: 1000, label: "1km 안쪽" },
-  { m: 3000, label: "3km 안" },
-  { m: 5000, label: "5km 안" },
-];
 // 비우면 `/api/*` 상대 경로 → Vite proxy → server:4000
 const AI_API_BASE = getAiApiBaseUrl();
 
@@ -1222,7 +1216,6 @@ export {
   defaultHomeMapViewportBounds,
   searchMapBottomChromePx,
   getHomeSearchPlaceholderKst,
-  COURSE_SECOND_FIND_DISTANCE_OPTIONS,
   AI_API_BASE,
   COURSE_GPS_RADIUS_OPTIONS,
   COURSE_GPS_DEFAULT_RADIUS_M,

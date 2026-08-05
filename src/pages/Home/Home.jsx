@@ -343,7 +343,8 @@ import {
 } from "../../utils/situationPlaceFilter";
 import { getJudoOperationMode } from "../../utils/judoOperationMode";
 
-import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey, getSeongsuBootViewportCacheKey, getDeviceLocation } from "../../utils/homeMapViewportBounds";
+import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey, getSeongsuBootViewportCacheKey } from "../../utils/homeMapViewportBounds";
+import { getDeviceLocation } from "../../utils/mapViewportBounds";
 import {
   getHomeMapReturnVisitFlag,
   HOME_MAP_START_MY_LOCATION,
@@ -352,6 +353,7 @@ import {
   shouldBootHomeMapAtMyLocation,
   writeHomeMapStartMode,
 } from "../../utils/homeMapStartPreference";
+import { COURSE_SECOND_FIND_DEFAULT_DISTANCE_M } from "../../utils/courseSecondFindPrefs";
 import {
   AI_API_BASE,
   appendSelectedPlacePinIfMissing,
@@ -3555,7 +3557,7 @@ export default function Home() {
     useState(null);
   /** 2차 찾기: 1차 좌표 기준 최대 거리(m) — 후보 스코어·카카오 주변 검색 반경 */
   const [courseSecondFindMaxDistanceM, setCourseSecondFindMaxDistanceM] =
-    useState(3000);
+    useState(COURSE_SECOND_FIND_DEFAULT_DISTANCE_M);
   /** 코스 카드에서 스텝 단위로 담는 조합 — 1차 칸 비면 거기, 차면 2차 칸(원래 코스의 몇 차인지 무관) */
   const [courseComposeSlotFirst, setCourseComposeSlotFirst] =
     useState(null);
@@ -5775,7 +5777,7 @@ export default function Home() {
         ? Boolean(courseQueryParsed.walkable)
         : tasteDefaults.preferCloser;
     setCourseSecondFindSortPriority(preferCloserDefault ? "closer" : null);
-    setCourseSecondFindMaxDistanceM(3000);
+    setCourseSecondFindMaxDistanceM(COURSE_SECOND_FIND_DEFAULT_DISTANCE_M);
     setCourseSecondFindModalOpen(true);
   }, [selectedPlace, mapCourseFirstBusy, courseQueryParsed?.walkable, tasteProfile]);
 
@@ -5956,7 +5958,10 @@ export default function Home() {
       anjuHints: [...courseSecondFindAnju],
       preferCloser: courseSecondFindSortPriority === "closer",
       prioritizeCurators: courseSecondFindSortPriority === "curator",
-      maxSecondDistanceM: courseSecondFindMaxDistanceM,
+      maxSecondDistanceM:
+        courseSecondFindMaxDistanceM == null
+          ? COURSE_SECOND_FIND_DEFAULT_DISTANCE_M
+          : courseSecondFindMaxDistanceM,
     };
     void runMapCourseSecondFind(prefs);
   }, [
