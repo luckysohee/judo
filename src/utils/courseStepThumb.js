@@ -2,10 +2,13 @@ import {
   getKakaoPlaceBasicInfoViaProxy,
   searchKakaoKeywordViaProxy,
 } from "./kakaoAPIProxy";
+import { fetchKakaoPlaceOg } from "../api/kakaoPlaceOg";
 import { fetchGooglePlacePhotoThumb } from "./googlePlacePhotoThumb";
 import { mapPlaceRowForCourse } from "../api/places";
 import { supabase } from "../lib/supabase";
 import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl";
+import { buildKakaoPlaceOgStaticMapUrl } from "./kakaoStaticMapUrl";
+import { resolvePlaceWgs84 } from "./placeCoords";
 
 export function isResolvableCourseStepThumbUrl(url) {
   const u = rewriteLegacySupabaseStorageUrl(String(url || "").trim());
@@ -94,17 +97,37 @@ export async function resolveCourseStepThumbUrl(step, opts = {}) {
   const name = String(step?.name || step?.place_name || "").trim();
   const address = String(step?.address || step?.place_address || "").trim();
 
-  if (kakaoId) {
+  /** 서버 OG 캐시 — /api/kakao/search 429를 피함 */
+  if (kakaoId && opts.preferOg !== false) {
+    try {
+      const og = await fetchKakaoPlaceOg(kakaoId);
+      if (isResolvableCourseStepThumbUrl(og)) {
+        return rewriteLegacySupabaseStorageUrl(og);
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (kakaoId && opts.skipKakaoDetail !== true) {
     const byId = await thumbFromKakaoPlaceId(kakaoId, name, lat, lng);
     if (byId) return byId;
   }
 
-  if (name) {
+  if (name && opts.skipKakaoKeyword !== true) {
     const byKeyword = await thumbFromKakaoKeyword(name, lat, lng);
     if (byKeyword) return byKeyword;
   }
 
-  if (opts.skipGoogleFallback) return null;
+  if (opts.skipGoogleFallback) {
+    if (opts.allowStaticMapFallback !== false) {
+      const staticUrl = buildKakaoPlaceOgStaticMapUrl(lat, lng, 200);
+      if (isResolvableCourseStepThumbUrl(staticUrl)) {
+        return rewriteLegacySupabaseStorageUrl(staticUrl);
+      }
+    }
+    return null;
+  }
 
   if (!name && !(Number.isFinite(lat) && Number.isFinite(lng))) {
     return null;
@@ -116,7 +139,118 @@ export async function resolveCourseStepThumbUrl(step, opts = {}) {
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null,
   });
-  return isResolvableCourseStepThumbUrl(googleThumb) ? googleThumb : null;
+  if (isResolvableCourseStepThumbUrl(googleThumb)) return googleThumb;
+
+  const staticUrl = buildKakaoPlaceOgStaticMapUrl(lat, lng, 200);
+  return isResolvableCourseStepThumbUrl(staticUrl)
+    ? rewriteLegacySupabaseStorageUrl(staticUrl)
+    : null;
+}
+
+async function mapPool(items, concurrency, fn) {
+  const list = Array.isArray(items) ? items : [];
+  if (list.length === 0) return [];
+  const out = new Array(list.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), list.length) },
+    async () => {
+      while (cursor < list.length) {
+        const idx = cursor;
+        cursor += 1;
+        out[idx] = await fn(list[idx], idx);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return out;
+}
+
+/** 업로드 사진 없으면 좌표 staticmap으로 즉시 채워 번호 플레이스홀더를 피함 */
+export function seedListSpreadStaticThumbs(places = []) {
+  if (!Array.isArray(places) || places.length === 0) return places;
+  return places.map((p) => {
+    const existing = pickStepUploadedThumb({
+      step_image_url:
+        p.courseStepThumbUrl ||
+        p.step_image_url ||
+        p.image_url ||
+        p.image ||
+        p.thumbnail_url,
+    });
+    if (existing) {
+      return { ...p, courseStepThumbUrl: existing };
+    }
+    const w = resolvePlaceWgs84(p);
+    const staticUrl = buildKakaoPlaceOgStaticMapUrl(
+      w?.lat ?? p.lat,
+      w?.lng ?? p.lng,
+      200
+    );
+    if (!isResolvableCourseStepThumbUrl(staticUrl)) return p;
+    return {
+      ...p,
+      courseStepThumbUrl: rewriteLegacySupabaseStorageUrl(staticUrl),
+    };
+  });
+}
+
+/**
+ * 맛집첩 지도 핀 — OG를 병렬로 받아 **한 번에** courseStepThumbUrl 을 채운다.
+ * 키워드 검색(/api/kakao/search)은 쓰지 않아 429를 피한다.
+ * @param {object[]} places
+ * @param {{ concurrency?: number }} [opts]
+ */
+export async function enrichListSpreadMapThumbs(places = [], opts = {}) {
+  if (!Array.isArray(places) || places.length === 0) return places;
+  const concurrency = Math.min(
+    8,
+    Math.max(2, Number(opts.concurrency) || 6)
+  );
+
+  return mapPool(places, concurrency, async (p) => {
+    const existing = pickStepUploadedThumb({
+      step_image_url:
+        p.courseStepThumbUrl ||
+        p.step_image_url ||
+        p.image_url ||
+        p.image ||
+        p.thumbnail_url,
+    });
+    if (existing) {
+      return { ...p, courseStepThumbUrl: existing };
+    }
+
+    const w = resolvePlaceWgs84(p);
+    const kakaoId = String(
+      p.kakao_place_id || p.kakaoId || ""
+    ).trim();
+    const thumb = await resolveCourseStepThumbUrl(
+      {
+        place_id: p.id,
+        name: p.name || p.place_name,
+        step_image_url: p.step_image_url || p.image_url || p.image,
+        lat: w?.lat ?? p.lat,
+        lng: w?.lng ?? p.lng,
+        address: p.address_name || p.address || "",
+        kakao_place_id: /^\d+$/.test(kakaoId) ? kakaoId : null,
+      },
+      {
+        skipGoogleFallback: true,
+        skipKakaoKeyword: true,
+        skipKakaoDetail: true,
+        preferOg: true,
+        allowStaticMapFallback: true,
+      }
+    );
+
+    return thumb
+      ? {
+          ...p,
+          courseStepThumbUrl: rewriteLegacySupabaseStorageUrl(thumb),
+        }
+      : p;
+  });
 }
 
 /**

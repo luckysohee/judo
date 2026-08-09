@@ -433,7 +433,14 @@ function placesViewportSignature(places) {
   for (const p of places) {
     const c = resolvePlaceCoords(p);
     const id = p?.id != null ? String(p.id) : "";
-    parts.push(c ? `${id}:${c.lat},${c.lng}` : `${id}:none`);
+    /** 맛집첩 등 사진 원형 — thumb URL이 바뀌면 마커를 다시 그려야 함 */
+    const thumb = String(
+      p?.courseStepThumbUrl || p?.image_url || p?.image || ""
+    ).trim();
+    const thumbKey = thumb ? thumb.slice(-48) : "";
+    parts.push(
+      c ? `${id}:${c.lat},${c.lng}:${thumbKey}` : `${id}:none:${thumbKey}`
+    );
   }
   return `${places.length}|${parts.join(";")}`;
 }

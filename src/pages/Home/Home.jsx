@@ -240,7 +240,9 @@ import {
 import { sheetStepsFromDrivingMap } from "../../utils/courseStepThumb";
 import {
   enrichDrivingMapWithStepThumbs,
+  enrichListSpreadMapThumbs,
   enrichMapPlacesWithStepThumbs,
+  seedListSpreadStaticThumbs,
 } from "../../utils/courseStepThumb";
 import {
   homeListsMapFitPadding,
@@ -3179,12 +3181,13 @@ export default function Home() {
       }
       setSelectedPlace(null);
       clearImportRecommendationOverlay();
-      /** 홈 뷰포트 마커는 치우고, 이 첩 장소(사진 원형)만 지도에 올린다 */
-      listSpreadLatestPlacesRef.current = mapPlaces;
+      /** 홈 마커 치우고 첩 핀만 — staticmap으로 원형 즉시 채운 뒤 OG 사진으로 일괄 교체 */
+      const seeded = seedListSpreadStaticThumbs(mapPlaces);
+      listSpreadLatestPlacesRef.current = seeded;
       curatorChipViewportLockUntilRef.current = Date.now() + 12_000;
       setKakaoPlaces([]);
       setKakaoTypingPreviewPlaces([]);
-      setDbPlaces(mapPlaces);
+      setDbPlaces(seeded);
       setHomeListFocusPlaceId("");
       setHomeListBrowse({ list: list || null, places });
       setHomeListsPanelOpen(true);
@@ -3192,9 +3195,7 @@ export default function Home() {
       setHomeListsSheetResetKey((n) => n + 1);
       const title = String(list?.title || "맛집첩").trim();
       showToast(`「${title}」 ${pins.length}곳 펼쳤어요`, "success", 2200);
-      void enrichMapPlacesWithStepThumbs(mapPlaces, {
-        skipGoogleFallback: false,
-      })
+      void enrichListSpreadMapThumbs(mapPlaces, { concurrency: 6 })
         .then((enriched) => {
           if (!Array.isArray(enriched) || enriched.length === 0) return;
           const stillOpen =
@@ -3205,7 +3206,7 @@ export default function Home() {
         })
         .catch((e) => {
           if (import.meta.env.DEV) {
-            console.warn("[맛집첩] step thumbs", e);
+            console.warn("[맛집첩] list spread thumbs", e);
           }
         });
     },
