@@ -118,22 +118,24 @@ const styles = {
     flexShrink: 0,
     lineHeight: 1,
   },
-  /** 제목·액션 고정 + 장소 레일이 남은 높이를 먹음 — 스크롤 조상이 가로 스와이프를 막지 않게 */
+  /** 제목·장소 카드까지 세로 스크롤 (overflow:hidden 이면 아래로 못 내림) */
   body: {
     flex: "1 1 auto",
     minHeight: 0,
     minWidth: 0,
     width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
+    overflowX: "hidden",
+    overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorY: "contain",
+    touchAction: "pan-y",
+    paddingBottom: 12,
   },
   chrome: {
-    flexShrink: 0,
     display: "flex",
     flexDirection: "column",
     gap: 5,
-    padding: "0 0 8px",
+    padding: "0 0 10px",
   },
   h1: {
     margin: 0,
@@ -197,60 +199,80 @@ const styles = {
   },
   placeFill: {
     boxSizing: "border-box",
-    flex: "1 1 auto",
-    minHeight: 220,
-    minWidth: 0,
     width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
+    minWidth: 0,
   },
   placeRailWrap: {
-    flex: "1 1 auto",
-    minHeight: 0,
-    minWidth: 0,
     width: "100%",
-    height: "100%",
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
+    gap: 8,
   },
-  /** transform 페이지 캐러셀 — touch-action:none 으로 브라우저 제스처에 안 뺏김 */
-  placeRailViewport: {
-    flex: "1 1 auto",
-    minHeight: 180,
+  placeRailNav: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  placeRailNavBtn: {
+    border: T.chipBorder,
+    background: T.chipBg,
+    color: T.textSub,
+    borderRadius: 999,
+    width: 36,
+    height: 32,
+    fontSize: 16,
+    fontWeight: 900,
+    lineHeight: 1,
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  },
+  placeRailNavLabel: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: 800,
+    color: T.textMuted,
+  },
+  /** 고정 높이 + 네이티브 가로 스크롤(snap). minWidth:0 없으면 스크롤 안 생김 */
+  placeRail: {
+    height: 300,
+    minHeight: 300,
     minWidth: 0,
     width: "100%",
     maxWidth: "100%",
-    overflow: "hidden",
-    position: "relative",
-    touchAction: "none",
-    cursor: "grab",
-    boxSizing: "border-box",
-    WebkitUserSelect: "none",
-    userSelect: "none",
-  },
-  placeRailTrack: {
+    overflowX: "auto",
+    overflowY: "hidden",
     display: "flex",
     flexDirection: "row",
     alignItems: "stretch",
-    height: "100%",
-    willChange: "transform",
+    gap: PLACE_CARD_GAP_PX,
+    scrollSnapType: "x mandatory",
+    scrollPaddingInline: 2,
+    WebkitOverflowScrolling: "touch",
+    overscrollBehaviorX: "contain",
+    touchAction: "pan-x",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
+    boxSizing: "border-box",
   },
   placeCard: (focused, widthPx) => ({
     flex: `0 0 ${widthPx}px`,
     width: widthPx,
     maxWidth: widthPx,
     minWidth: widthPx,
-    marginRight: PLACE_CARD_GAP_PX,
-    alignSelf: "stretch",
     height: "100%",
+    scrollSnapAlign: "center",
+    scrollSnapStop: "always",
     borderRadius: 14,
     border: focused ? T.cardActiveBorder : T.cardBorder,
     background: focused ? T.cardActiveBg : T.cardBg,
     overflow: "hidden",
     display: "grid",
-    gridTemplateRows: "minmax(120px, 1fr) auto",
+    gridTemplateRows: "1fr auto",
     boxSizing: "border-box",
     color: "inherit",
     font: "inherit",
@@ -259,7 +281,6 @@ const styles = {
     WebkitTapHighlightColor: "transparent",
     userSelect: "none",
     WebkitUserSelect: "none",
-    pointerEvents: "none",
   }),
   placePhoto: {
     minHeight: 0,
@@ -290,19 +311,23 @@ const styles = {
     flexDirection: "column",
     gap: 2,
     minWidth: 0,
+    background: "rgba(0,0,0,0.22)",
   },
   placeDots: {
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 5,
-    padding: "5px 0 0",
-    flexShrink: 0,
+    padding: "2px 0 4px",
   },
   placeDot: (on) => ({
     width: on ? 12 : 5,
     height: 5,
     borderRadius: 999,
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
     background: on ? "rgba(46,204,113,0.9)" : "rgba(255,255,255,0.22)",
     transition: "width 0.18s ease, background 0.18s ease",
   }),
@@ -313,8 +338,8 @@ function placeRowId(place, index) {
 }
 
 /**
- * 가로 스와이프 — transform 페이지 + pointer capture.
- * 사진: 업로드 → 카카오 → 구글 순.
+ * 가로 스와이프 — 네이티브 overflow-x + scroll-snap + 이전/다음 버튼.
+ * (transform/touch-action:none 은 세로 스크롤까지 막아 제거)
  */
 function ListPlaceSwipeRail({
   places,
@@ -322,62 +347,99 @@ function ListPlaceSwipeRail({
   onFocusPlace,
   onPlaceThumb,
 }) {
-  const viewportRef = useRef(null);
+  const railRef = useRef(null);
+  const cardRefs = useRef([]);
   const rows = useMemo(
     () => (Array.isArray(places) ? places : []),
     [places]
   );
   const [activeIndex, setActiveIndex] = useState(0);
-  const [cardWidthPx, setCardWidthPx] = useState(300);
-  const [dragOffsetPx, setDragOffsetPx] = useState(0);
-  const [dragging, setDragging] = useState(false);
+  const [cardWidthPx, setCardWidthPx] = useState(280);
   const [thumbsByKey, setThumbsByKey] = useState({});
   const [failedThumbKeys, setFailedThumbKeys] = useState(() => new Set());
   const thumbsByKeyRef = useRef({});
   const failedThumbKeysRef = useRef(new Set());
   const focusFromRailRef = useRef(false);
+  const scrollFromFocusRef = useRef(false);
   const resolvingRef = useRef(new Set());
   const activeIndexRef = useRef(0);
-  const dragRef = useRef(null);
   thumbsByKeyRef.current = thumbsByKey;
   failedThumbKeysRef.current = failedThumbKeys;
   activeIndexRef.current = activeIndex;
 
   const measureCardWidth = useCallback(() => {
-    const vp = viewportRef.current;
-    if (!vp?.clientWidth) return;
-    const next = Math.max(200, vp.clientWidth);
+    const rail = railRef.current;
+    if (!rail?.clientWidth) return;
+    const next = Math.max(220, Math.min(360, rail.clientWidth - 28));
     setCardWidthPx((prev) => (prev === next ? prev : next));
   }, []);
 
   useEffect(() => {
     measureCardWidth();
-    const vp = viewportRef.current;
-    if (!vp || typeof ResizeObserver === "undefined") {
+    const rail = railRef.current;
+    if (!rail || typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", measureCardWidth);
       return () => window.removeEventListener("resize", measureCardWidth);
     }
     const ro = new ResizeObserver(measureCardWidth);
-    ro.observe(vp);
+    ro.observe(rail);
     return () => ro.disconnect();
   }, [measureCardWidth, rows.length]);
 
+  const scrollToIndex = useCallback((idx, behavior = "smooth") => {
+    const el = cardRefs.current[idx];
+    const rail = railRef.current;
+    if (!el || !rail) return;
+    scrollFromFocusRef.current = true;
+    const left =
+      el.offsetLeft - Math.max(0, (rail.clientWidth - el.offsetWidth) / 2);
+    rail.scrollTo({ left, behavior });
+  }, []);
+
   const commitActive = useCallback(
-    (idx) => {
+    (idx, { scroll = false, behavior = "smooth" } = {}) => {
       const i = Math.max(0, Math.min(rows.length - 1, idx));
       setActiveIndex(i);
       activeIndexRef.current = i;
-      setDragOffsetPx(0);
+      if (scroll) scrollToIndex(i, behavior);
       const place = rows[i];
       if (place && typeof onFocusPlace === "function") {
         focusFromRailRef.current = true;
         onFocusPlace(place);
       }
     },
-    [rows, onFocusPlace]
+    [rows, onFocusPlace, scrollToIndex]
   );
 
-  /** 지도 핀 탭 → 해당 카드로 */
+  const onRailScroll = useCallback(() => {
+    const rail = railRef.current;
+    if (!rail || rows.length === 0) return;
+    if (scrollFromFocusRef.current) {
+      scrollFromFocusRef.current = false;
+    }
+    const center = rail.scrollLeft + rail.clientWidth / 2;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < rows.length; i += 1) {
+      const el = cardRefs.current[i];
+      if (!el) continue;
+      const mid = el.offsetLeft + el.offsetWidth / 2;
+      const d = Math.abs(mid - center);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    if (best === activeIndexRef.current) return;
+    setActiveIndex(best);
+    activeIndexRef.current = best;
+    const place = rows[best];
+    if (place && typeof onFocusPlace === "function") {
+      focusFromRailRef.current = true;
+      onFocusPlace(place);
+    }
+  }, [rows, onFocusPlace]);
+
   useEffect(() => {
     if (focusFromRailRef.current) {
       focusFromRailRef.current = false;
@@ -387,7 +449,7 @@ function ListPlaceSwipeRail({
     if (!fid || rows.length === 0) return;
     const idx = rows.findIndex((p, i) => placeRowId(p, i) === fid);
     if (idx < 0 || idx === activeIndexRef.current) return;
-    commitActive(idx);
+    commitActive(idx, { scroll: true });
   }, [focusPlaceId, rows, commitActive]);
 
   const firstPlaceKey = placeRowId(rows[0], 0);
@@ -397,82 +459,11 @@ function ListPlaceSwipeRail({
     const key = `${firstPlaceKey}|${rows.length}`;
     if (initKeyRef.current === key) return;
     initKeyRef.current = key;
-    commitActive(0);
+    const rail = railRef.current;
+    if (rail) rail.scrollLeft = 0;
+    commitActive(0, { scroll: true, behavior: "auto" });
   }, [rows.length, firstPlaceKey, commitActive]);
 
-  const onPointerDown = useCallback((e) => {
-    if (e.button != null && e.button !== 0) return;
-    if (rows.length <= 1) return;
-    const el = viewportRef.current;
-    if (!el) return;
-    dragRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      lastX: e.clientX,
-      moved: false,
-    };
-    setDragging(true);
-    try {
-      el.setPointerCapture?.(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-  }, [rows.length]);
-
-  const onPointerMove = useCallback((e) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    const dx = e.clientX - d.startX;
-    if (Math.abs(dx) > 4) d.moved = true;
-    d.lastX = e.clientX;
-    const i = activeIndexRef.current;
-    const max = rows.length - 1;
-    let offset = dx;
-    if ((i <= 0 && offset > 0) || (i >= max && offset < 0)) {
-      offset *= 0.35;
-    }
-    setDragOffsetPx(offset);
-  }, [rows.length]);
-
-  const endPointer = useCallback(
-    (e) => {
-      const d = dragRef.current;
-      if (!d || (e.pointerId != null && d.pointerId !== e.pointerId)) return;
-      dragRef.current = null;
-      setDragging(false);
-      try {
-        viewportRef.current?.releasePointerCapture?.(d.pointerId);
-      } catch {
-        /* ignore */
-      }
-      if (!d.moved) {
-        setDragOffsetPx(0);
-        return;
-      }
-      const dx = d.lastX - d.startX;
-      const step = cardWidthPx + PLACE_CARD_GAP_PX;
-      const threshold = Math.min(56, Math.max(36, step * 0.18));
-      let next = activeIndexRef.current;
-      if (dx <= -threshold) next += 1;
-      else if (dx >= threshold) next -= 1;
-      commitActive(next);
-    },
-    [cardWidthPx, commitActive]
-  );
-
-  /** iOS Safari: passive touchmove 기본값 때문에 preventDefault가 무시될 수 있어 네이티브로 보완 */
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el || rows.length <= 1) return undefined;
-    const onTouchMove = (ev) => {
-      if (!dragRef.current) return;
-      ev.preventDefault();
-    };
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onTouchMove);
-  }, [rows.length]);
-
-  /** 활성·이웃 우선, 병렬(최대 3)로 썸네일 */
   useEffect(() => {
     if (rows.length === 0) return;
     let cancelled = false;
@@ -568,136 +559,158 @@ function ListPlaceSwipeRail({
     );
   }
 
-  const stepPx = cardWidthPx + PLACE_CARD_GAP_PX;
-  const trackX = -activeIndex * stepPx + dragOffsetPx;
-
   return (
     <div style={styles.placeRailWrap}>
-      <div
-        ref={viewportRef}
-        style={{
-          ...styles.placeRailViewport,
-          cursor: dragging ? "grabbing" : "grab",
-        }}
-        aria-label="맛집첩 장소"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endPointer}
-        onPointerCancel={endPointer}
-        onLostPointerCapture={endPointer}
-      >
-        <div
-          style={{
-            ...styles.placeRailTrack,
-            width: rows.length * stepPx,
-            transform: `translate3d(${trackX}px, 0, 0)`,
-            transition: dragging
-              ? "none"
-              : "transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)",
-          }}
-        >
-          {rows.map((p, i) => {
-            const pid = placeRowId(p, i);
-            const name =
-              String(p?.place_name || "이름 없음").trim() || "이름 없음";
-            const memo = String(p?.memo || "").trim();
-            const img = placeImageUrl(p) || thumbsByKey[pid] || "";
-            const focused =
-              i === activeIndex ||
-              (Boolean(focusPlaceId) && pid === String(focusPlaceId));
-
-            return (
-              <div
-                key={`${pid}-${i}`}
-                style={styles.placeCard(focused, cardWidthPx)}
-                aria-label={`${i + 1}번째 ${name}`}
-                aria-current={focused ? "true" : undefined}
-              >
-                {img ? (
-                  <img
-                    src={img}
-                    alt=""
-                    draggable={false}
-                    style={styles.placePhoto}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div style={styles.placePhotoEmpty}>
-                    {failedThumbKeys.has(pid)
-                      ? "사진 없음"
-                      : "사진 불러오는 중…"}
-                  </div>
-                )}
-                <div style={styles.placeBody} aria-hidden>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      minWidth: 0,
-                    }}
-                  >
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        width: 20,
-                        height: 20,
-                        borderRadius: 999,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 10,
-                        fontWeight: 900,
-                        color: "#d6ffe6",
-                        background: "rgba(46,204,113,0.18)",
-                        border: "1px solid rgba(46,204,113,0.35)",
-                      }}
-                    >
-                      {i + 1}
-                    </span>
-                    <span
-                      style={{
-                        minWidth: 0,
-                        fontSize: 14,
-                        fontWeight: 800,
-                        letterSpacing: "-0.02em",
-                        color: T.text,
-                        lineHeight: 1.25,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {name}
-                    </span>
-                  </div>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      lineHeight: 1.35,
-                      color: memo ? "rgba(255,255,255,0.86)" : T.textFaint,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {memo || "작성한 이유가 없어요"}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
+      <style>{`
+        [aria-label="맛집첩 장소"]::-webkit-scrollbar { display: none; }
+      `}</style>
+      {rows.length > 1 ? (
+        <div style={styles.placeRailNav}>
+          <button
+            type="button"
+            style={{
+              ...styles.placeRailNavBtn,
+              opacity: activeIndex <= 0 ? 0.35 : 1,
+            }}
+            disabled={activeIndex <= 0}
+            aria-label="이전 장소"
+            onClick={() => commitActive(activeIndex - 1, { scroll: true })}
+          >
+            ‹
+          </button>
+          <div style={styles.placeRailNavLabel}>
+            {activeIndex + 1} / {rows.length}
+          </div>
+          <button
+            type="button"
+            style={{
+              ...styles.placeRailNavBtn,
+              opacity: activeIndex >= rows.length - 1 ? 0.35 : 1,
+            }}
+            disabled={activeIndex >= rows.length - 1}
+            aria-label="다음 장소"
+            onClick={() => commitActive(activeIndex + 1, { scroll: true })}
+          >
+            ›
+          </button>
         </div>
+      ) : null}
+      <div
+        ref={railRef}
+        style={styles.placeRail}
+        aria-label="맛집첩 장소"
+        onScroll={onRailScroll}
+      >
+        {rows.map((p, i) => {
+          const pid = placeRowId(p, i);
+          const name =
+            String(p?.place_name || "이름 없음").trim() || "이름 없음";
+          const memo = String(p?.memo || "").trim();
+          const img = placeImageUrl(p) || thumbsByKey[pid] || "";
+          const focused =
+            i === activeIndex ||
+            (Boolean(focusPlaceId) && pid === String(focusPlaceId));
+
+          return (
+            <div
+              key={`${pid}-${i}`}
+              ref={(el) => {
+                cardRefs.current[i] = el;
+              }}
+              style={styles.placeCard(focused, cardWidthPx)}
+              aria-label={`${i + 1}번째 ${name}`}
+              aria-current={focused ? "true" : undefined}
+            >
+              {img ? (
+                <img
+                  src={img}
+                  alt=""
+                  draggable={false}
+                  style={styles.placePhoto}
+                  loading="lazy"
+                />
+              ) : (
+                <div style={styles.placePhotoEmpty}>
+                  {failedThumbKeys.has(pid)
+                    ? "사진 없음"
+                    : "사진 불러오는 중…"}
+                </div>
+              )}
+              <div style={styles.placeBody}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      width: 20,
+                      height: 20,
+                      borderRadius: 999,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 10,
+                      fontWeight: 900,
+                      color: "#d6ffe6",
+                      background: "rgba(46,204,113,0.18)",
+                      border: "1px solid rgba(46,204,113,0.35)",
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span
+                    style={{
+                      minWidth: 0,
+                      fontSize: 14,
+                      fontWeight: 800,
+                      letterSpacing: "-0.02em",
+                      color: T.text,
+                      lineHeight: 1.25,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {name}
+                  </span>
+                </div>
+                <p
+                  style={{
+                    margin: "2px 0 0",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    lineHeight: 1.35,
+                    color: memo ? "rgba(255,255,255,0.86)" : T.textFaint,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {memo || "작성한 이유가 없어요"}
+                </p>
+              </div>
+            </div>
+          );
+        })}
       </div>
       {rows.length > 1 ? (
-        <div style={styles.placeDots} aria-hidden>
+        <div style={styles.placeDots}>
           {rows.map((_, i) => (
-            <span key={i} style={styles.placeDot(i === activeIndex)} />
+            <button
+              key={i}
+              type="button"
+              aria-label={`${i + 1}번째 장소`}
+              style={styles.placeDot(i === activeIndex)}
+              onClick={() => commitActive(i, { scroll: true })}
+            />
           ))}
         </div>
       ) : null}

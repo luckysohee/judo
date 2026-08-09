@@ -569,6 +569,7 @@ export default function HomeListsDiscoveryPanel({
             flexDirection: "column",
             padding: "2px 12px 6px",
             overflow: "hidden",
+            touchAction: "manipulation",
           }}
         >
           <HomeListDiscoveryDetail
