@@ -124,6 +124,7 @@ import HomeListsDiscoveryPanel, {
   HomeListsEntryChip,
 } from "../../components/Home/HomeListsDiscovery";
 import { formatCuratorListPlacesForHomeMap } from "../../utils/formatCuratorListPlacesForHomeMap";
+import { pickMainClusterPlacesForMapFit } from "../../utils/listSpreadMapFit";
 import {
   fetchCuratorListById,
   fetchCuratorListPlaces,
@@ -1534,6 +1535,8 @@ export default function Home() {
   const curatorChipLatestPlacesRef = useRef([]);
   /** 맛집첩 「지도에 펼치기」 — 뷰포트 fetch가 핀을 지우지 않게 */
   const listSpreadLatestPlacesRef = useRef([]);
+  /** fitBounds 직후 카드 초기 포커스가 pan으로 뷰를 깨지 않게 */
+  const listSpreadFitLockUntilRef = useRef(0);
   /** 칩 fit 직후 뷰포트 재조회 잠금(ms epoch) */
   const curatorChipViewportLockUntilRef = useRef(0);
   const dbCuratorsRef = useRef([]);
@@ -3293,6 +3296,8 @@ export default function Home() {
     }
     setHomeListFocusPlaceId(pid);
     setSelectedPlace(null);
+    /** 전체 fit 직후 카드 초기 포커스가 pan으로 줌을 깨지 않게 */
+    if (Date.now() < listSpreadFitLockUntilRef.current) return;
     const panUp = listSheetPanUpPx();
     if (mapRef.current?.panToAbovePreview) {
       mapRef.current.panToAbovePreview(w.lat, w.lng, panUp);
@@ -3452,7 +3457,7 @@ export default function Home() {
     homeCoursesSheetSnap,
   ]);
 
-  /** 맛집첩 펼침 — 시트 위 가시 영역에 핀을 꽉 채움(추가 줌인 금지) */
+  /** 맛집첩 펼침 — 시트 위 가시 영역에 첩 핀 전체를 한 번에 맞춤 */
   useEffect(() => {
     const list = homeListBrowse?.list;
     const listId = String(list?.id || "").trim();
@@ -3475,32 +3480,62 @@ export default function Home() {
     }
     if (pins.length === 0) return undefined;
 
-    const focusFirst = () => {
-      const first = pins[0];
-      const w = resolvePlaceWgs84(first);
-      if (!w || !mapRef.current?.panToAbovePreview) return;
-      const panel = document.getElementById("home-lists-discovery-panel");
-      const obscured = measureHomeListsSheetObscuredBottomPx(
-        panel,
-        homeViewportH
-      );
-      const panUp =
-        obscured > 80
-          ? Math.round(obscured * 0.5)
-          : Math.min(
-              400,
-              Math.max(168, Math.round((homeViewportH || 800) * 0.21) + 72)
-            );
-      mapRef.current.relayout?.();
-      mapRef.current.panToAbovePreview(w.lat, w.lng, panUp);
-      const pid = String(first?.id || "").trim();
-      if (pid) setHomeListFocusPlaceId(pid);
+    const fitPins = pickMainClusterPlacesForMapFit(pins, {
+      maxRadiusM: 4000,
+    });
+    const sheetPxFallback = homeListsDiscoverySheetHeightPxForSnap(
+      homeListsSheetSnap === "closed" ? "expanded" : homeListsSheetSnap,
+      {
+        browseMode: true,
+        layoutHeightPx: homeViewportH,
+      }
+    );
+
+    const run = () => {
+      try {
+        const panel = document.getElementById("home-lists-discovery-panel");
+        const obscured = measureHomeListsSheetObscuredBottomPx(
+          panel,
+          homeViewportH
+        );
+        const padding = homeListsMapFitPadding(sheetPxFallback, {
+          obscuredBottomPx: obscured,
+          gapAboveSheetPx: 12,
+          sidePx: 22,
+        });
+        mapRef.current?.relayout?.();
+        listSpreadFitLockUntilRef.current = Date.now() + 2000;
+        if (fitPins.length === 1) {
+          const w = resolvePlaceWgs84(fitPins[0]);
+          if (w && mapRef.current?.panToAbovePreview) {
+            const panUp =
+              obscured > 80
+                ? Math.round(obscured * 0.5)
+                : Math.min(
+                    400,
+                    Math.max(
+                      168,
+                      Math.round((homeViewportH || 800) * 0.21) + 72
+                    )
+                  );
+            mapRef.current.panToAbovePreview(w.lat, w.lng, panUp);
+          }
+        } else {
+          mapRef.current?.fitToPlaces?.(fitPins, padding);
+        }
+        const pid = String(fitPins[0]?.id || pins[0]?.id || "").trim();
+        if (pid) setHomeListFocusPlaceId(pid);
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[맛집첩] fitToPlaces", e);
+        }
+      }
     };
 
-    /** 시트 height 트랜지션 후 카메라만 1번에 — fitBounds는 이상치에 뷰가 끌려감 */
-    const t0 = window.setTimeout(focusFirst, 50);
-    const t1 = window.setTimeout(focusFirst, 320);
-    const t2 = window.setTimeout(focusFirst, 560);
+    /** 시트 height 트랜지션 후 DOM 패딩이 맞아질 때 맞춤 */
+    const t0 = window.setTimeout(run, 80);
+    const t1 = window.setTimeout(run, 340);
+    const t2 = window.setTimeout(run, 600);
     return () => {
       window.clearTimeout(t0);
       window.clearTimeout(t1);
