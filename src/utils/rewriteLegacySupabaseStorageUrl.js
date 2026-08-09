@@ -2,15 +2,37 @@ const LEGACY_MUMBAI_HOST = "juordxxsjecjmgmbnzox.supabase.co";
 
 /**
  * Mumbai → Seoul 마이그레이션 후 DB에 남은 스토리지 URL 호스트를 현재 프로젝트로 맞춤.
+ * HTTPS 페이지에서 깨지는 http 미디어(카카오 staticmap 등)도 https로 승격.
  * @param {string|null|undefined} url
  * @returns {string}
  */
 export function rewriteLegacySupabaseStorageUrl(url) {
-  const u = String(url || "").trim();
+  let u = String(url || "").trim();
   if (!u) return "";
+
   const currentHost = String(import.meta.env.VITE_SUPABASE_URL || "")
     .replace(/^https?:\/\//, "")
     .replace(/\/$/, "");
-  if (!currentHost || !u.includes(LEGACY_MUMBAI_HOST)) return u;
-  return u.replace(LEGACY_MUMBAI_HOST, currentHost);
+  if (currentHost && u.includes(LEGACY_MUMBAI_HOST)) {
+    u = u.replace(LEGACY_MUMBAI_HOST, currentHost);
+  }
+
+  // Mixed Content: Kakao staticmap·일부 CDN이 http 로 옴
+  if (/^http:\/\//i.test(u)) {
+    try {
+      const host = new URL(u).hostname.toLowerCase();
+      if (
+        host.endsWith("kakao.com") ||
+        host.endsWith("kakaocdn.net") ||
+        host.endsWith("supabase.co") ||
+        host.endsWith("supabase.in")
+      ) {
+        u = `https://${u.slice("http://".length)}`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return u;
 }

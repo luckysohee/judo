@@ -19,6 +19,7 @@ import {
   subscribeCuratorLiveStatus,
 } from "../utils/supabaseLive";
 import { fetchUserPickedPlaces } from "../api/placePicks";
+import { rewriteLegacySupabaseStorageUrl } from "../utils/rewriteLegacySupabaseStorageUrl";
 
 export default function CuratorPageScreen() {
   const { name } = useParams();
@@ -106,7 +107,9 @@ export default function CuratorPageScreen() {
           displayName: curatorRow.display_name,
           subtitle: curatorRow.subtitle,
           bio: curatorRow.bio,
-          avatar: curatorRow.avatar_url,
+          avatar: rewriteLegacySupabaseStorageUrl(
+            String(curatorRow.avatar_url || "").trim()
+          ),
           color: curatorRow.color,
         };
 

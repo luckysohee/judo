@@ -450,6 +450,9 @@ export default function HomeListsDiscoveryPanel({
       if (!list?.id || typeof onSpreadList !== "function") return;
       try {
         const places = await fetchCuratorListPlaces(list.id);
+        if (!Array.isArray(places) || places.length === 0) {
+          console.warn("[맛집첩] spread: empty places", list.id);
+        }
         onSpreadList(list, places);
       } catch (e) {
         console.warn("[맛집첩] spread:", e);
@@ -526,6 +529,7 @@ export default function HomeListsDiscoveryPanel({
           "linear-gradient(180deg, rgba(22,22,26,0.98) 0%, rgba(10,10,12,0.98) 100%)",
         boxShadow: "0 -12px 40px rgba(0,0,0,0.45)",
         overflow: "hidden",
+        minWidth: 0,
         pointerEvents: "auto",
       }}
     >
@@ -559,6 +563,8 @@ export default function HomeListsDiscoveryPanel({
           style={{
             flex: 1,
             minHeight: 0,
+            minWidth: 0,
+            width: "100%",
             display: "flex",
             flexDirection: "column",
             padding: "2px 12px 6px",

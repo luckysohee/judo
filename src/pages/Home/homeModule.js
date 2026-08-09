@@ -26,6 +26,7 @@ import {
   SEONGSU_MAP_CENTER,
   defaultHomeMapViewportBounds,
 } from "../../utils/homeMapViewportBounds";
+import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 
 /** 낮 모드에서 지도 LIVE 펄스용으로 빈 Set 재사용 */
 const EMPTY_LIVE_PLACE_IDS = new Set();
@@ -117,7 +118,7 @@ function curatorRowProfileImage(row) {
   for (const key of ["image", "avatar_url", "avatar"]) {
     const v = row[key];
     if (typeof v === "string") {
-      const t = v.trim();
+      const t = rewriteLegacySupabaseStorageUrl(v.trim());
       if (t) return t;
     }
   }

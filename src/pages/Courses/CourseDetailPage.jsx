@@ -628,6 +628,9 @@ export default function CourseDetailPage() {
   const coverUrl = rewriteLegacySupabaseStorageUrl(
     String(course.cover_image_url || "").trim()
   );
+  const curatorAvatarUrl = rewriteLegacySupabaseStorageUrl(
+    String(curatorProfile?.avatar_url || "").trim()
+  );
   const tags = Array.isArray(course.theme_tags) ? course.theme_tags : [];
 
   return (
@@ -855,9 +858,9 @@ export default function CourseDetailPage() {
             marginBottom: "14px",
           }}
         >
-          {curatorProfile?.avatar_url ? (
+          {curatorAvatarUrl ? (
             <img
-              src={curatorProfile.avatar_url}
+              src={curatorAvatarUrl}
               alt=""
               style={{
                 width: "48px",

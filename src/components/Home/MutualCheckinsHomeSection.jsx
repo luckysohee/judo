@@ -10,6 +10,7 @@ import {
 } from "../../utils/checkinDisplayName";
 import { HOME_HOT_STRIP_CONTENT_SLOT_PX } from "../../utils/homeHotStripLayout";
 import PickUserButton from "../PickUserButton/PickUserButton";
+import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 
 const THREE_H_MS = 3 * 60 * 60 * 1000;
 const POLL_MS = 90_000;
@@ -258,7 +259,13 @@ export default function MutualCheckinsHomeSection({
         if (pe) console.warn("mutual checkins profiles:", pe.message || pe);
         if (ce) console.warn("mutual checkins curators:", ce.message || ce);
         for (const p of profs || []) {
-          if (p?.id) pmap[String(p.id)] = { ...p };
+          if (!p?.id) continue;
+          pmap[String(p.id)] = {
+            ...p,
+            avatar_url: rewriteLegacySupabaseStorageUrl(
+              String(p.avatar_url || "").trim()
+            ),
+          };
         }
         for (const c of curs || []) {
           const uid = c?.user_id != null ? String(c.user_id) : "";
@@ -271,7 +278,14 @@ export default function MutualCheckinsHomeSection({
               id: uid,
               display_name: prev.display_name,
               username: handle || prev.username,
-              avatar_url: String(c.avatar_url || "").trim() || prev.avatar_url,
+              avatar_url:
+                rewriteLegacySupabaseStorageUrl(
+                  String(c.avatar_url || "").trim()
+                ) ||
+                rewriteLegacySupabaseStorageUrl(
+                  String(prev.avatar_url || "").trim()
+                ) ||
+                prev.avatar_url,
             },
             c,
           );
@@ -347,7 +361,10 @@ export default function MutualCheckinsHomeSection({
           name: displayName || username || "사용자",
           username,
           displayName: displayName || username || "사용자",
-          avatarUrl: String(p?.avatar_url || "").trim() || null,
+          avatarUrl:
+            rewriteLegacySupabaseStorageUrl(
+              String(p?.avatar_url || "").trim()
+            ) || null,
           isCurator: false,
         });
       }
@@ -363,7 +380,12 @@ export default function MutualCheckinsHomeSection({
           name: displayName || prev?.name || username || "사용자",
           username: prev?.username || username,
           displayName: displayName || prev?.displayName || username || "사용자",
-          avatarUrl: String(c?.avatar_url || "").trim() || prev?.avatarUrl || null,
+          avatarUrl:
+            rewriteLegacySupabaseStorageUrl(
+              String(c?.avatar_url || "").trim()
+            ) ||
+            prev?.avatarUrl ||
+            null,
           isCurator: true,
         });
       }

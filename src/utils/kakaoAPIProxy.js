@@ -5,6 +5,7 @@ import {
   readKakaoPlaceDetailCache,
   writeKakaoPlaceDetailCache,
 } from "./kakaoPlaceDetailCache.js";
+import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl.js";
 
 // 서버 프록시를 통한 카카오 API 호출 (비우면 동일 출처 `/api/*`)
 const API_BASE_URL = getAiApiBaseUrl();
@@ -120,7 +121,10 @@ function collectPhotoUrlsFromKakaoDetail(details) {
   if (!details || typeof details !== "object") return [];
   const out = [];
   const push = (u) => {
-    if (typeof u === "string" && u.trim() && !out.includes(u)) out.push(u);
+    const next = rewriteLegacySupabaseStorageUrl(
+      typeof u === "string" ? u.trim() : ""
+    );
+    if (next && !out.includes(next)) out.push(next);
   };
   push(
     details.thumbnail_url ||

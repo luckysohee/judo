@@ -37,16 +37,6 @@ function isMissingImageUrlColumnError(error) {
   );
 }
 
-function isMissingPlaceNameColumnError(error) {
-  const msg = String(error?.message || error?.details || "");
-  const code = String(error?.code || "");
-  return (
-    code === "42703" ||
-    (/place_name/i.test(msg) &&
-      (/column/i.test(msg) || /schema cache/i.test(msg)))
-  );
-}
-
 function normalizeListRow(row) {
   if (!row || typeof row !== "object") return row;
   const nested = row.curator_list_places;
@@ -149,12 +139,13 @@ export async function fetchCuratorListById(listId) {
 
 /**
  * 맛집첩 장소 (+ places 메타)
+ * places.place_name / places.image_url / category_name 은 스키마에 없어 400 → 쓰지 않음.
  * @param {string} listId
  */
 export async function fetchCuratorListPlaces(listId) {
   const id = assertUuid(listId, "fetchCuratorListPlaces.listId");
 
-  const selectWithImage = `
+  const selectWithListImage = `
       id,
       list_id,
       place_id,
@@ -164,14 +155,11 @@ export async function fetchCuratorListPlaces(listId) {
       places (
         id,
         name,
-        place_name,
         address,
         category,
-        category_name,
         lat,
         lng,
-        kakao_place_id,
-        image_url
+        kakao_place_id
       )
     `;
   const selectBasic = `
@@ -193,15 +181,11 @@ export async function fetchCuratorListPlaces(listId) {
 
   let res = await supabase
     .from("curator_list_places")
-    .select(selectWithImage)
+    .select(selectWithListImage)
     .eq("list_id", id)
     .order("order_index", { ascending: true });
 
-  if (
-    res.error &&
-    (isMissingImageUrlColumnError(res.error) ||
-      isMissingPlaceNameColumnError(res.error))
-  ) {
+  if (res.error) {
     res = await supabase
       .from("curator_list_places")
       .select(selectBasic)
@@ -215,15 +199,11 @@ export async function fetchCuratorListPlaces(listId) {
     const mapped = mapPlaceRowForCourse(pl) || {};
     const listImg = row.image_url != null ? String(row.image_url).trim() : "";
     const placeImg =
-      pl.image_url != null
-        ? String(pl.image_url).trim()
-        : mapped.image_url != null
-          ? String(mapped.image_url).trim()
-          : "";
+      mapped.image_url != null ? String(mapped.image_url).trim() : "";
     return {
       ...row,
       image_url: listImg || placeImg || null,
-      place_name: mapped.name || pl.name || pl.place_name || "",
+      place_name: mapped.name || pl.name || "",
       place_address: mapped.address || pl.address || "",
       lat: mapped.lat ?? pl.lat,
       lng: mapped.lng ?? pl.lng,

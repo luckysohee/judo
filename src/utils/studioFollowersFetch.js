@@ -1,4 +1,5 @@
 import { formatAuthProviderForUi } from "../lib/syncAuthProviderToProfile";
+import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl";
 
 function normalizeHandle(raw) {
   return String(raw || "")
@@ -62,9 +63,9 @@ export function resolveFollowerPresentation(profile, curatorRow) {
   const lines = followerDisplayLines(nick, handle, p.auth_provider);
 
   const avatarUrl =
-    String(
-      c?.avatar_url || c?.image || p.avatar_url || ""
-    ).trim() || null;
+    rewriteLegacySupabaseStorageUrl(
+      String(c?.avatar_url || c?.image || p.avatar_url || "").trim()
+    ) || null;
 
   return {
     ...lines,
@@ -88,7 +89,9 @@ function mapFollowerRpcRows(raw) {
       user_id: row.user_id,
       created_at: row.created_at,
       ...lines,
-      avatarUrl: row.avatar_url || null,
+      avatarUrl:
+        rewriteLegacySupabaseStorageUrl(String(row.avatar_url || "").trim()) ||
+        null,
       isCurator: Boolean(row.is_curator),
       curatorGrade: row.curator_grade || null,
     };
@@ -346,7 +349,9 @@ function resolveCuratorForFollowingId(raw, maps) {
 
 function mapFollowingRpcRow(row, createdAt) {
   const lines = followerDisplayLines(row.display_nick, row.handle_raw, null);
-  const avatarUrl = String(row.avatar_url || "").trim() || null;
+  const avatarUrl =
+    rewriteLegacySupabaseStorageUrl(String(row.avatar_url || "").trim()) ||
+    null;
   const targetUserId =
     row.following_user_id ??
     row.curator_user_id ??
@@ -494,9 +499,9 @@ async function fetchStudioFollowingEnrichedBatch(supabase, follows) {
         null
       );
       const avatarUrl =
-        String(
-          curator.avatar_url || curator.image || ""
-        ).trim() || null;
+        rewriteLegacySupabaseStorageUrl(
+          String(curator.avatar_url || curator.image || "").trim()
+        ) || null;
       return {
         user_id: curator.user_id,
         following_user_id: curator.user_id,
@@ -526,7 +531,10 @@ async function fetchStudioFollowingEnrichedBatch(supabase, follows) {
           curator_id: prof.id,
           created_at: follow.created_at,
           ...lines,
-          avatarUrl: prof.avatar_url || null,
+          avatarUrl:
+            rewriteLegacySupabaseStorageUrl(
+              String(prof.avatar_url || "").trim()
+            ) || null,
           isCurator: false,
           curatorGrade: null,
         };

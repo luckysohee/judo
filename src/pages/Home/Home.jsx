@@ -37,6 +37,7 @@ import { runWhenIdle } from "../../utils/runWhenIdle";
 import { createRandomUuid } from "../../utils/createRandomUuid";
 import { createPerfTrace } from "../../utils/devPerfTrace";
 import { prefetchPlacePhotos } from "../../utils/placePhotoPrefetch.js";
+import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 
 import {
   getPlaceFolderIds,
@@ -1572,6 +1573,8 @@ export default function Home() {
   const loadDbPlacesForViewport = useCallback(
     async ({ boundsRaw, mapLevel, silent = false, widenLimit = false }) => {
       if (String(query || "").trim()) return;
+      /** 맛집첩 펼침 중에는 홈 뷰포트 장소를 다시 불러와 섞지 않음 */
+      if ((listSpreadLatestPlacesRef.current?.length ?? 0) > 0) return;
 
       const seq = ++mapViewportLoadSeqRef.current;
       const snap = curatorAttachRowsRef.current || [];
@@ -1956,6 +1959,8 @@ export default function Home() {
       if (String(query || "").trim()) return;
       // 코스 2차 찾기·코스 경로 표시 중에는 뷰포트 DB 로드 금지(마커·깜빡임 보호)
       if (courseMapActiveRef.current) return;
+      /** 맛집첩 펼침 중 — 홈 뷰포트 마커가 다시 섞이지 않게 */
+      if ((listSpreadLatestPlacesRef.current?.length ?? 0) > 0) return;
       if (Date.now() < curatorChipViewportLockUntilRef.current) return;
 
       /** mount 부트 로드 진행 중 — idle bbox로 2번째 places-in-bounds 방지 */
@@ -3174,16 +3179,12 @@ export default function Home() {
       }
       setSelectedPlace(null);
       clearImportRecommendationOverlay();
-      /** 원형 핀 먼저 올리고, 사진은 카카오→구글 폴백으로 채운 뒤 갱신.
-       * 이전 맛집첩 핀만 교체 — 지도 표시는 homeListBrowse 중 list 핀만 노출 */
+      /** 홈 뷰포트 마커는 치우고, 이 첩 장소(사진 원형)만 지도에 올린다 */
       listSpreadLatestPlacesRef.current = mapPlaces;
-      curatorChipViewportLockUntilRef.current = Date.now() + 1600;
-      setDbPlaces((prev) =>
-        mergeCuratorProfilePlacesIntoDbPlaces(
-          removeListSpreadPinsFromDbPlaces(prev),
-          mapPlaces
-        )
-      );
+      curatorChipViewportLockUntilRef.current = Date.now() + 12_000;
+      setKakaoPlaces([]);
+      setKakaoTypingPreviewPlaces([]);
+      setDbPlaces(mapPlaces);
       setHomeListFocusPlaceId("");
       setHomeListBrowse({ list: list || null, places });
       setHomeListsPanelOpen(true);
@@ -3200,12 +3201,7 @@ export default function Home() {
             (listSpreadLatestPlacesRef.current?.length ?? 0) > 0;
           if (!stillOpen) return;
           listSpreadLatestPlacesRef.current = enriched;
-          setDbPlaces((prev) =>
-            mergeCuratorProfilePlacesIntoDbPlaces(
-              removeListSpreadPinsFromDbPlaces(prev),
-              enriched
-            )
-          );
+          setDbPlaces(enriched);
         })
         .catch((e) => {
           if (import.meta.env.DEV) {
@@ -3216,7 +3212,7 @@ export default function Home() {
     [showToast, clearImportRecommendationOverlay]
   );
 
-  /** 시트에서 받은 썸네일 → 지도 원형 핀에도 반영 */
+  /** 시트에서 받은 썸네일 → 지도 원형 핀에도 반영 (맛집첩 펼침 중 dbPlaces = 첩 핀만) */
   const handleListPlaceThumb = useCallback((placeKey, thumbUrl, listPlaceRow) => {
     const url = String(thumbUrl || "").trim();
     if (!url) return;
@@ -3256,6 +3252,16 @@ export default function Home() {
     });
   }, []);
 
+  const listSheetPanUpPx = useCallback(() => {
+    if (typeof window === "undefined") return 232;
+    const panel = document.getElementById("home-lists-discovery-panel");
+    const vh = homeViewportH || window.innerHeight;
+    const obscured = measureHomeListsSheetObscuredBottomPx(panel, vh);
+    /** 시트에 가린 하단의 절반만큼 올려, 핀이 시트 위 가시 영역 중앙에 오게 */
+    if (obscured > 80) return Math.round(obscured * 0.5);
+    return Math.min(400, Math.max(168, Math.round(vh * 0.21) + 72));
+  }, [homeViewportH]);
+
   const handleFocusListPlace = useCallback((listPlaceRow) => {
     const pid = String(
       listPlaceRow?.place_id || listPlaceRow?.id || ""
@@ -3265,14 +3271,19 @@ export default function Home() {
     const fromSpread = (listSpreadLatestPlacesRef.current || []).find(
       (p) => String(p?.id || "").trim() === pid
     );
+    const embedded =
+      listPlaceRow?.places && typeof listPlaceRow.places === "object"
+        ? listPlaceRow.places
+        : null;
     const target = fromSpread || {
       id: pid,
-      name: listPlaceRow?.place_name,
-      place_name: listPlaceRow?.place_name,
-      lat: listPlaceRow?.lat,
-      lng: listPlaceRow?.lng,
-      address: listPlaceRow?.place_address,
-      kakao_place_id: listPlaceRow?.kakao_place_id,
+      name: listPlaceRow?.place_name || embedded?.name,
+      place_name: listPlaceRow?.place_name || embedded?.name,
+      lat: listPlaceRow?.lat ?? embedded?.lat,
+      lng: listPlaceRow?.lng ?? embedded?.lng,
+      address: listPlaceRow?.place_address || embedded?.address,
+      kakao_place_id:
+        listPlaceRow?.kakao_place_id || embedded?.kakao_place_id,
     };
     const w = resolvePlaceWgs84(target);
     if (!w) {
@@ -3281,12 +3292,13 @@ export default function Home() {
     }
     setHomeListFocusPlaceId(pid);
     setSelectedPlace(null);
+    const panUp = listSheetPanUpPx();
     if (mapRef.current?.panToAbovePreview) {
-      mapRef.current.panToAbovePreview(w.lat, w.lng);
+      mapRef.current.panToAbovePreview(w.lat, w.lng, panUp);
     } else {
       mapRef.current?.moveToLocation?.(w.lat, w.lng);
     }
-  }, [showToast]);
+  }, [showToast, listSheetPanUpPx]);
 
   /** 공유 링크 `/?list=<uuid>` → 맛집첩 펼치기 */
   const listDeepLinkHandledRef = useRef(false);
@@ -3462,39 +3474,32 @@ export default function Home() {
     }
     if (pins.length === 0) return undefined;
 
-    const sheetPxFallback = homeListsDiscoverySheetHeightPxForSnap(
-      homeListsSheetSnap === "closed" ? "expanded" : homeListsSheetSnap,
-      {
-        browseMode: true,
-        layoutHeightPx: homeViewportH,
-      }
-    );
-
-    const run = () => {
-      try {
-        const panel = document.getElementById("home-lists-discovery-panel");
-        const obscured = measureHomeListsSheetObscuredBottomPx(
-          panel,
-          homeViewportH
-        );
-        const padding = homeListsMapFitPadding(sheetPxFallback, {
-          obscuredBottomPx: obscured,
-          gapAboveSheetPx: 10,
-          sidePx: 18,
-        });
-        mapRef.current?.relayout?.();
-        mapRef.current?.fitToPlaces?.(pins, padding);
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          console.warn("[맛집첩] fitToPlaces", e);
-        }
-      }
+    const focusFirst = () => {
+      const first = pins[0];
+      const w = resolvePlaceWgs84(first);
+      if (!w || !mapRef.current?.panToAbovePreview) return;
+      const panel = document.getElementById("home-lists-discovery-panel");
+      const obscured = measureHomeListsSheetObscuredBottomPx(
+        panel,
+        homeViewportH
+      );
+      const panUp =
+        obscured > 80
+          ? Math.round(obscured * 0.5)
+          : Math.min(
+              400,
+              Math.max(168, Math.round((homeViewportH || 800) * 0.21) + 72)
+            );
+      mapRef.current.relayout?.();
+      mapRef.current.panToAbovePreview(w.lat, w.lng, panUp);
+      const pid = String(first?.id || "").trim();
+      if (pid) setHomeListFocusPlaceId(pid);
     };
 
-    /** 시트 height 트랜지션(0.28s) 끝난 뒤·한 박자 더 — DOM top 기준 패딩이 맞아짐 */
-    const t0 = window.setTimeout(run, 50);
-    const t1 = window.setTimeout(run, 320);
-    const t2 = window.setTimeout(run, 560);
+    /** 시트 height 트랜지션 후 카메라만 1번에 — fitBounds는 이상치에 뷰가 끌려감 */
+    const t0 = window.setTimeout(focusFirst, 50);
+    const t1 = window.setTimeout(focusFirst, 320);
+    const t2 = window.setTimeout(focusFirst, 560);
     return () => {
       window.clearTimeout(t0);
       window.clearTimeout(t1);
@@ -6186,13 +6191,20 @@ export default function Home() {
   const searchBarProfilePhotoUrl = useMemo(() => {
     if (!user) return null;
     if (isCurator && curatorProfile?.image) {
-      return String(curatorProfile.image).trim() || null;
+      return (
+        rewriteLegacySupabaseStorageUrl(String(curatorProfile.image).trim()) ||
+        null
+      );
     }
-    const fromProfile = String(mapUserProfile?.avatar_url || "").trim();
+    const fromProfile = rewriteLegacySupabaseStorageUrl(
+      String(mapUserProfile?.avatar_url || "").trim()
+    );
     if (fromProfile) return fromProfile;
     const m = user.user_metadata || {};
     const raw = m.avatar_url || m.picture || m.image;
-    return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+    return typeof raw === "string" && raw.trim()
+      ? rewriteLegacySupabaseStorageUrl(raw.trim()) || null
+      : null;
   }, [user, isCurator, curatorProfile?.image, mapUserProfile?.avatar_url]);
 
   useEffect(() => {
@@ -7170,15 +7182,27 @@ export default function Home() {
       );
     }
 
-    /** 맛집첩 미리보기 — 해당 첩 장소만 (기존 뷰포트·검색 마커와 섞지 않음) */
+    /** 맛집첩 미리보기 — 첩에 등록된 장소만 (홈·검색·카카오 핀 전부 숨김) */
     if (homeListBrowse?.list) {
-      const listPins = (Array.isArray(dbPlaces) ? dbPlaces : []).filter(
+      const curatorId = String(homeListBrowse.list?.curator_id || "").trim();
+      const fromDb = (Array.isArray(dbPlaces) ? dbPlaces : []).filter(
         (p) => p?.isListSpreadPin
       );
-      return appendSelectedPlacePinIfMissing(
-        dedupeMapPlacesByKakaoId(listPins),
-        selectedPlace
-      );
+      const listPins =
+        fromDb.length > 0
+          ? fromDb
+          : formatCuratorListPlacesForHomeMap(
+              homeListBrowse.places,
+              curatorId
+            );
+      const deduped = dedupeMapPlacesByKakaoId(listPins);
+      const selId = String(selectedPlace?.id || "").trim();
+      const selectedIsListPin =
+        Boolean(selId) &&
+        deduped.some((p) => String(p?.id || "").trim() === selId);
+      return selectedIsListPin
+        ? appendSelectedPlacePinIfMissing(deduped, selectedPlace)
+        : deduped;
     }
 
     const mergePlaces = (basePlaces, extraPlaces) => {
@@ -11051,6 +11075,7 @@ const handleClearSearch = () => {
           ) : null}
           <RecommendationMapOverlay
             recommendation={
+              !homeListBrowse?.list &&
               !isCourseMode &&
               curatorImportRecommendation?.ok &&
               !aiSheetUsesDisplayedPlaces

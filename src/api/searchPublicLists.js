@@ -56,7 +56,7 @@ async function searchPublicCuratorListsClient(rawQuery, opts = {}) {
       created_at,
       updated_at,
       curator_list_places (
-        places ( name, place_name, address )
+        places ( name, address )
       )
     `
     )

@@ -15,6 +15,7 @@ import {
   studioCoursesCard,
   studioCoursesShell,
 } from "./Studio/studioCoursesSharedStyles";
+import { rewriteLegacySupabaseStorageUrl } from "../utils/rewriteLegacySupabaseStorageUrl";
 
 const STUDIO = {
   shell: "#111111",
@@ -149,7 +150,9 @@ export default function UserProfilePage() {
         setDisplayName(nick);
         setHandle(rawHandle);
         setAvatarUrl(
-          String(cur?.avatar_url || prof?.avatar_url || "").trim() || null
+          rewriteLegacySupabaseStorageUrl(
+            String(cur?.avatar_url || prof?.avatar_url || "").trim()
+          ) || null
         );
         setIsCurator(Boolean(cur));
 

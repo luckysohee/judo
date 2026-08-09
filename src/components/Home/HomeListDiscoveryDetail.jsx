@@ -24,6 +24,7 @@ import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { useToast } from "../Toast/ToastProvider";
 
 const PAGE_TITLE_APP = "주도";
+const PLACE_CARD_GAP_PX = 10;
 
 function formatCuratorAtHandle(raw) {
   const s = String(raw || "").trim();
@@ -80,6 +81,8 @@ const styles = {
     flexDirection: "column",
     flex: "1 1 auto",
     minHeight: 0,
+    minWidth: 0,
+    width: "100%",
     height: "100%",
     overflow: "hidden",
   },
@@ -115,15 +118,15 @@ const styles = {
     flexShrink: 0,
     lineHeight: 1,
   },
-  scroller: {
+  /** 제목·액션 고정 + 장소 레일이 남은 높이를 먹음 — 스크롤 조상이 가로 스와이프를 막지 않게 */
+  body: {
     flex: "1 1 auto",
     minHeight: 0,
-    overflowX: "hidden",
-    overflowY: "auto",
-    WebkitOverflowScrolling: "touch",
-    overscrollBehaviorY: "contain",
-    scrollbarWidth: "none",
-    msOverflowStyle: "none",
+    minWidth: 0,
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   chrome: {
     flexShrink: 0,
@@ -131,7 +134,6 @@ const styles = {
     flexDirection: "column",
     gap: 5,
     padding: "0 0 8px",
-    touchAction: "pan-y",
   },
   h1: {
     margin: 0,
@@ -193,45 +195,54 @@ const styles = {
     opacity: 0.45,
     cursor: "not-allowed",
   },
-  /** minHeight는 scroller clientHeight(px)로 주입 — % 높이 순환 참조로 스크롤 불가 방지 */
   placeFill: {
     boxSizing: "border-box",
-    flexShrink: 0,
+    flex: "1 1 auto",
+    minHeight: 220,
+    minWidth: 0,
+    width: "100%",
     display: "flex",
     flexDirection: "column",
-    paddingBottom: 2,
-    /** pan-y 조상이 가로 스와이프를 삼킴 → 여기서 none 후 JS로 축 분기 */
-    touchAction: "none",
+    overflow: "hidden",
   },
   placeRailWrap: {
     flex: "1 1 auto",
     minHeight: 0,
+    minWidth: 0,
+    width: "100%",
     height: "100%",
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    touchAction: "none",
   },
-  /** overflow-x 스크롤 금지 — transform 페이징 */
-  placeRail: {
+  /** transform 페이지 캐러셀 — touch-action:none 으로 브라우저 제스처에 안 뺏김 */
+  placeRailViewport: {
     flex: "1 1 auto",
-    minHeight: 200,
+    minHeight: 180,
+    minWidth: 0,
+    width: "100%",
+    maxWidth: "100%",
     overflow: "hidden",
-    margin: "0 -12px",
-    padding: "0 12px",
+    position: "relative",
     touchAction: "none",
+    cursor: "grab",
+    boxSizing: "border-box",
+    WebkitUserSelect: "none",
+    userSelect: "none",
   },
-  placeTrack: {
+  placeRailTrack: {
     display: "flex",
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 10,
     height: "100%",
     willChange: "transform",
   },
   placeCard: (focused, widthPx) => ({
     flex: `0 0 ${widthPx}px`,
     width: widthPx,
+    maxWidth: widthPx,
+    minWidth: widthPx,
+    marginRight: PLACE_CARD_GAP_PX,
     alignSelf: "stretch",
     height: "100%",
     borderRadius: 14,
@@ -239,9 +250,8 @@ const styles = {
     background: focused ? T.cardActiveBg : T.cardBg,
     overflow: "hidden",
     display: "grid",
-    gridTemplateRows: "minmax(0, 1fr) auto",
+    gridTemplateRows: "minmax(120px, 1fr) auto",
     boxSizing: "border-box",
-    cursor: "pointer",
     color: "inherit",
     font: "inherit",
     padding: 0,
@@ -249,6 +259,7 @@ const styles = {
     WebkitTapHighlightColor: "transparent",
     userSelect: "none",
     WebkitUserSelect: "none",
+    pointerEvents: "none",
   }),
   placePhoto: {
     minHeight: 0,
@@ -257,6 +268,8 @@ const styles = {
     objectFit: "cover",
     display: "block",
     background: T.thumbBg,
+    pointerEvents: "none",
+    WebkitUserDrag: "none",
   },
   placePhotoEmpty: {
     minHeight: 0,
@@ -269,6 +282,7 @@ const styles = {
     fontWeight: 700,
     color: T.textFaint,
     background: T.thumbBg,
+    pointerEvents: "none",
   },
   placeBody: {
     padding: "8px 10px 10px",
@@ -298,27 +312,25 @@ function placeRowId(place, index) {
   return String(place?.place_id || place?.id || index).trim();
 }
 
-const PLACE_CARD_GAP_PX = 10;
-
 /**
- * 가로 스와이프 — 장소 사진 + 설명. transform 페이징(overflow-x 없음).
- * 세로 제스처는 verticalScrollRef(시트 scroller)로 전달.
+ * 가로 스와이프 — transform 페이지 + pointer capture.
  * 사진: 업로드 → 카카오 → 구글 순.
  */
 function ListPlaceSwipeRail({
   places,
   focusPlaceId,
   onFocusPlace,
-  verticalScrollRef,
   onPlaceThumb,
 }) {
-  const railRef = useRef(null);
-  const cardRefs = useRef([]);
-  const rows = Array.isArray(places) ? places : [];
+  const viewportRef = useRef(null);
+  const rows = useMemo(
+    () => (Array.isArray(places) ? places : []),
+    [places]
+  );
   const [activeIndex, setActiveIndex] = useState(0);
-  const [dragPx, setDragPx] = useState(0);
-  const [draggingX, setDraggingX] = useState(false);
   const [cardWidthPx, setCardWidthPx] = useState(300);
+  const [dragOffsetPx, setDragOffsetPx] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [thumbsByKey, setThumbsByKey] = useState({});
   const [failedThumbKeys, setFailedThumbKeys] = useState(() => new Set());
   const thumbsByKeyRef = useRef({});
@@ -326,41 +338,27 @@ function ListPlaceSwipeRail({
   const focusFromRailRef = useRef(false);
   const resolvingRef = useRef(new Set());
   const activeIndexRef = useRef(0);
-  const cardWidthRef = useRef(300);
-  const gestureRef = useRef({
-    mode: /** @type {null | 'x' | 'y'} */ (null),
-    active: false,
-    startX: 0,
-    startY: 0,
-    lastX: 0,
-    lastY: 0,
-    lastDrag: 0,
-  });
+  const dragRef = useRef(null);
   thumbsByKeyRef.current = thumbsByKey;
   failedThumbKeysRef.current = failedThumbKeys;
   activeIndexRef.current = activeIndex;
-  cardWidthRef.current = cardWidthPx;
-  const step = cardWidthPx + PLACE_CARD_GAP_PX;
 
   const measureCardWidth = useCallback(() => {
-    const rail = railRef.current;
-    if (!rail?.clientWidth) return;
-    const next = Math.max(
-      200,
-      Math.min(380, rail.clientWidth - 28)
-    );
-    if (next !== cardWidthRef.current) setCardWidthPx(next);
+    const vp = viewportRef.current;
+    if (!vp?.clientWidth) return;
+    const next = Math.max(200, vp.clientWidth);
+    setCardWidthPx((prev) => (prev === next ? prev : next));
   }, []);
 
   useEffect(() => {
     measureCardWidth();
-    const rail = railRef.current;
-    if (!rail || typeof ResizeObserver === "undefined") {
+    const vp = viewportRef.current;
+    if (!vp || typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", measureCardWidth);
       return () => window.removeEventListener("resize", measureCardWidth);
     }
     const ro = new ResizeObserver(measureCardWidth);
-    ro.observe(rail);
+    ro.observe(vp);
     return () => ro.disconnect();
   }, [measureCardWidth, rows.length]);
 
@@ -368,7 +366,8 @@ function ListPlaceSwipeRail({
     (idx) => {
       const i = Math.max(0, Math.min(rows.length - 1, idx));
       setActiveIndex(i);
-      setDragPx(0);
+      activeIndexRef.current = i;
+      setDragOffsetPx(0);
       const place = rows[i];
       if (place && typeof onFocusPlace === "function") {
         focusFromRailRef.current = true;
@@ -377,100 +376,6 @@ function ListPlaceSwipeRail({
     },
     [rows, onFocusPlace]
   );
-
-  /** 가로=카드 넘김, 세로=시트 scroller — touchAction:none 이라 둘 다 JS */
-  useEffect(() => {
-    const rail = railRef.current;
-    if (!rail || rows.length === 0) return undefined;
-    const g = gestureRef.current;
-
-    const point = (e) => {
-      if (e.touches?.[0]) return e.touches[0];
-      if (e.changedTouches?.[0]) return e.changedTouches[0];
-      return e;
-    };
-
-    const onStart = (e) => {
-      const t = point(e);
-      if (!t || t.clientX == null) return;
-      g.active = true;
-      g.mode = null;
-      g.startX = t.clientX;
-      g.startY = t.clientY;
-      g.lastX = t.clientX;
-      g.lastY = t.clientY;
-      g.lastDrag = 0;
-      setDraggingX(false);
-      setDragPx(0);
-      if (e.pointerId != null && typeof rail.setPointerCapture === "function") {
-        try {
-          rail.setPointerCapture(e.pointerId);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-
-    const onMove = (e) => {
-      if (!g.active && e.type === "pointermove") return;
-      const t = point(e);
-      if (!t || t.clientX == null) return;
-      const dxTotal = t.clientX - g.startX;
-      const dyTotal = t.clientY - g.startY;
-      const dy = t.clientY - g.lastY;
-      if (g.mode == null) {
-        if (Math.abs(dxTotal) < 8 && Math.abs(dyTotal) < 8) return;
-        g.mode = Math.abs(dxTotal) > Math.abs(dyTotal) ? "x" : "y";
-        if (g.mode === "x") setDraggingX(true);
-      }
-      if (g.mode === "x") {
-        if (e.cancelable) e.preventDefault();
-        const idx = activeIndexRef.current;
-        let next = dxTotal;
-        if (idx <= 0 && next > 0) next *= 0.35;
-        if (idx >= rows.length - 1 && next < 0) next *= 0.35;
-        g.lastDrag = next;
-        setDragPx(next);
-      } else {
-        const scroller = verticalScrollRef?.current;
-        if (scroller) {
-          if (e.cancelable) e.preventDefault();
-          scroller.scrollTop -= dy;
-        }
-      }
-      g.lastX = t.clientX;
-      g.lastY = t.clientY;
-    };
-
-    const onEnd = () => {
-      if (!g.active) return;
-      if (g.mode === "x") {
-        const s = cardWidthRef.current + PLACE_CARD_GAP_PX;
-        const delta = g.lastDrag;
-        let next = activeIndexRef.current;
-        if (delta <= -Math.min(40, s * 0.18)) next += 1;
-        else if (delta >= Math.min(40, s * 0.18)) next -= 1;
-        commitActive(next);
-      }
-      g.active = false;
-      g.mode = null;
-      g.lastDrag = 0;
-      setDraggingX(false);
-      setDragPx(0);
-    };
-
-    /** Pointer Events만 — touch+pointer 중복 방지. CSS touch-action:none 과 함께 사용 */
-    rail.addEventListener("pointerdown", onStart);
-    rail.addEventListener("pointermove", onMove);
-    rail.addEventListener("pointerup", onEnd);
-    rail.addEventListener("pointercancel", onEnd);
-    return () => {
-      rail.removeEventListener("pointerdown", onStart);
-      rail.removeEventListener("pointermove", onMove);
-      rail.removeEventListener("pointerup", onEnd);
-      rail.removeEventListener("pointercancel", onEnd);
-    };
-  }, [rows.length, commitActive, verticalScrollRef]);
 
   /** 지도 핀 탭 → 해당 카드로 */
   useEffect(() => {
@@ -481,10 +386,9 @@ function ListPlaceSwipeRail({
     const fid = String(focusPlaceId || "").trim();
     if (!fid || rows.length === 0) return;
     const idx = rows.findIndex((p, i) => placeRowId(p, i) === fid);
-    if (idx < 0) return;
-    setActiveIndex(idx);
-    setDragPx(0);
-  }, [focusPlaceId, rows]);
+    if (idx < 0 || idx === activeIndexRef.current) return;
+    commitActive(idx);
+  }, [focusPlaceId, rows, commitActive]);
 
   const firstPlaceKey = placeRowId(rows[0], 0);
   const initKeyRef = useRef("");
@@ -496,7 +400,79 @@ function ListPlaceSwipeRail({
     commitActive(0);
   }, [rows.length, firstPlaceKey, commitActive]);
 
-  /** 활성·이웃 우선, 병렬(최대 3)로 썸네일 — 순차 await가 첫 장만 멈춘 것처럼 보이던 문제 */
+  const onPointerDown = useCallback((e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (rows.length <= 1) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      lastX: e.clientX,
+      moved: false,
+    };
+    setDragging(true);
+    try {
+      el.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, [rows.length]);
+
+  const onPointerMove = useCallback((e) => {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const dx = e.clientX - d.startX;
+    if (Math.abs(dx) > 4) d.moved = true;
+    d.lastX = e.clientX;
+    const i = activeIndexRef.current;
+    const max = rows.length - 1;
+    let offset = dx;
+    if ((i <= 0 && offset > 0) || (i >= max && offset < 0)) {
+      offset *= 0.35;
+    }
+    setDragOffsetPx(offset);
+  }, [rows.length]);
+
+  const endPointer = useCallback(
+    (e) => {
+      const d = dragRef.current;
+      if (!d || (e.pointerId != null && d.pointerId !== e.pointerId)) return;
+      dragRef.current = null;
+      setDragging(false);
+      try {
+        viewportRef.current?.releasePointerCapture?.(d.pointerId);
+      } catch {
+        /* ignore */
+      }
+      if (!d.moved) {
+        setDragOffsetPx(0);
+        return;
+      }
+      const dx = d.lastX - d.startX;
+      const step = cardWidthPx + PLACE_CARD_GAP_PX;
+      const threshold = Math.min(56, Math.max(36, step * 0.18));
+      let next = activeIndexRef.current;
+      if (dx <= -threshold) next += 1;
+      else if (dx >= threshold) next -= 1;
+      commitActive(next);
+    },
+    [cardWidthPx, commitActive]
+  );
+
+  /** iOS Safari: passive touchmove 기본값 때문에 preventDefault가 무시될 수 있어 네이티브로 보완 */
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || rows.length <= 1) return undefined;
+    const onTouchMove = (ev) => {
+      if (!dragRef.current) return;
+      ev.preventDefault();
+    };
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
+  }, [rows.length]);
+
+  /** 활성·이웃 우선, 병렬(최대 3)로 썸네일 */
   useEffect(() => {
     if (rows.length === 0) return;
     let cancelled = false;
@@ -592,20 +568,32 @@ function ListPlaceSwipeRail({
     );
   }
 
-  const trackTransform = `translate3d(${-(activeIndex * step) + dragPx}px, 0, 0)`;
+  const stepPx = cardWidthPx + PLACE_CARD_GAP_PX;
+  const trackX = -activeIndex * stepPx + dragOffsetPx;
 
   return (
     <div style={styles.placeRailWrap}>
       <div
-        ref={railRef}
-        style={styles.placeRail}
+        ref={viewportRef}
+        style={{
+          ...styles.placeRailViewport,
+          cursor: dragging ? "grabbing" : "grab",
+        }}
         aria-label="맛집첩 장소"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
+        onLostPointerCapture={endPointer}
       >
         <div
           style={{
-            ...styles.placeTrack,
-            transform: trackTransform,
-            transition: draggingX ? "none" : "transform 0.22s ease",
+            ...styles.placeRailTrack,
+            width: rows.length * stepPx,
+            transform: `translate3d(${trackX}px, 0, 0)`,
+            transition: dragging
+              ? "none"
+              : "transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)",
           }}
         >
           {rows.map((p, i) => {
@@ -620,22 +608,10 @@ function ListPlaceSwipeRail({
 
             return (
               <div
-                key={pid || String(i)}
-                role="button"
-                tabIndex={0}
-                ref={(el) => {
-                  cardRefs.current[i] = el;
-                }}
+                key={`${pid}-${i}`}
                 style={styles.placeCard(focused, cardWidthPx)}
                 aria-label={`${i + 1}번째 ${name}`}
                 aria-current={focused ? "true" : undefined}
-                onClick={() => commitActive(i)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    commitActive(i);
-                  }
-                }}
               >
                 {img ? (
                   <img
@@ -652,7 +628,7 @@ function ListPlaceSwipeRail({
                       : "사진 불러오는 중…"}
                   </div>
                 )}
-                <div style={styles.placeBody}>
+                <div style={styles.placeBody} aria-hidden>
                   <div
                     style={{
                       display: "flex",
@@ -701,9 +677,7 @@ function ListPlaceSwipeRail({
                       fontSize: 12,
                       fontWeight: 600,
                       lineHeight: 1.35,
-                      color: memo
-                        ? "rgba(255,255,255,0.86)"
-                        : T.textFaint,
+                      color: memo ? "rgba(255,255,255,0.86)" : T.textFaint,
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
                       display: "-webkit-box",
@@ -769,28 +743,6 @@ export default function HomeListDiscoveryDetail({
   const [likeBusy, setLikeBusy] = useState(false);
   const [scrappedByMe, setScrappedByMe] = useState(false);
   const [scrapBusy, setScrapBusy] = useState(false);
-  const scrollerRef = useRef(null);
-  const placePaneRef = useRef(null);
-  const [placePaneMinPx, setPlacePaneMinPx] = useState(280);
-
-  /** 스크롤러 실제 높이(px) → 장소 패널 높이. % 높이 쓰면 overflow가 0이 되어 스크롤 불가 */
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return undefined;
-    const apply = () => {
-      const h = Math.round(el.clientHeight || 0);
-      if (h > 0) setPlacePaneMinPx(h);
-    };
-    apply();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", apply);
-      return () => window.removeEventListener("resize", apply);
-    }
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [listId, rows.length, sheetSnap]);
-
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined" || !listId) return "";
     const u = new URL(window.location.href);
@@ -991,15 +943,7 @@ export default function HomeListDiscoveryDetail({
         )}
       </div>
 
-      <div
-        ref={scrollerRef}
-        style={styles.scroller}
-        aria-label="맛집첩 미리보기"
-      >
-        <style>{`
-          [aria-label="맛집첩 미리보기"]::-webkit-scrollbar { display: none; }
-        `}</style>
-
+      <div style={styles.body} aria-label="맛집첩 미리보기">
         <div style={styles.chrome}>
           <h2 style={styles.h1} title={description || title}>
             {title}
@@ -1105,21 +1049,12 @@ export default function HomeListDiscoveryDetail({
           ) : null}
         </div>
 
-        <div
-          ref={placePaneRef}
-          style={{
-            ...styles.placeFill,
-            minHeight: placePaneMinPx,
-            height: placePaneMinPx,
-          }}
-          aria-label="담은 장소"
-        >
+        <div style={styles.placeFill} aria-label="담은 장소">
           {rows.length > 0 ? (
             <ListPlaceSwipeRail
               places={rows}
               focusPlaceId={focusPlaceId}
               onFocusPlace={onFocusPlace}
-              verticalScrollRef={scrollerRef}
               onPlaceThumb={onPlaceThumb}
             />
           ) : (

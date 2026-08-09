@@ -18,12 +18,29 @@ function parseCoordField(v) {
 
 /**
  * 카카오 로컬 API 및 DB 장소 공통: y=위도, x=경도.
- * DB lat/lng가 오래됐을 수 있으므로 y/x를 우선한다.
+ * y/x 가 빈 문자열이거나 NaN이면 lat/lng 로 폴백 (?? 는 "" 를 건너뛰지 않음).
  */
 export function resolvePlaceWgs84(place) {
   if (!place || typeof place !== "object") return null;
-  const lat = parseCoordField(place.y ?? place.lat ?? place.latitude);
-  const lng = parseCoordField(place.x ?? place.lng ?? place.longitude);
+
+  const latCandidates = [place.y, place.lat, place.latitude];
+  const lngCandidates = [place.x, place.lng, place.longitude];
+  let lat = NaN;
+  let lng = NaN;
+  for (const c of latCandidates) {
+    const n = parseCoordField(c);
+    if (Number.isFinite(n)) {
+      lat = n;
+      break;
+    }
+  }
+  for (const c of lngCandidates) {
+    const n = parseCoordField(c);
+    if (Number.isFinite(n)) {
+      lng = n;
+      break;
+    }
+  }
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
     if (lat === 0 && lng === 0) return null;
     return { lat, lng };

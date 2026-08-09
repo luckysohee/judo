@@ -1362,8 +1362,13 @@ const MapView = forwardRef(({
           );
         });
       },
-      /** 리스트·추천에서 지도로 볼 때 — setCenter로 즉시 이동(panTo는 오버레이/relayout에 종종 씹힘) */
-      panToAbovePreview: (lat, lng) => {
+      /**
+       * 리스트·추천에서 지도로 볼 때 — setCenter로 즉시 이동(panTo는 오버레이/relayout에 종종 씹힘)
+       * @param {number} lat
+       * @param {number} lng
+       * @param {number} [panUpPx] 하단 시트에 가려진 만큼 핀을 위로 (미지정 시 기본 미리보기 오프셋)
+       */
+      panToAbovePreview: (lat, lng, panUpPx) => {
         if (!mapRef.current || !Number.isFinite(lat) || !Number.isFinite(lng)) {
           return;
         }
@@ -1376,7 +1381,10 @@ const MapView = forwardRef(({
         } catch {
           /* ignore */
         }
-        const px = bottomPreviewPanPixels();
+        const px =
+          typeof panUpPx === "number" && Number.isFinite(panUpPx) && panUpPx > 0
+            ? Math.round(panUpPx)
+            : bottomPreviewPanPixels();
         const offset = offsetLatLngForBottomPreview(map, lat, lng, px);
         const target =
           offset || new window.kakao.maps.LatLng(lat, lng);

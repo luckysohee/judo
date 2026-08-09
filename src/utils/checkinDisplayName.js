@@ -1,3 +1,5 @@
+import { rewriteLegacySupabaseStorageUrl } from "./rewriteLegacySupabaseStorageUrl";
+
 /** 이메일 로컬파트 (체크인 히스토리와의 OR 매칭용) */
 export function legacyEmailLocalPart(email) {
   if (!email || typeof email !== "string") return "";
@@ -58,7 +60,9 @@ export function mergeCheckinProfileLabelRow(profileRow, curatorRow) {
     username: String(
       c?.slug || c?.username || p.username || ""
     ).trim(),
-    avatar_url: String(c?.avatar_url || p.avatar_url || "").trim(),
+    avatar_url: rewriteLegacySupabaseStorageUrl(
+      String(c?.avatar_url || p.avatar_url || "").trim()
+    ),
   };
 }
 
@@ -141,7 +145,7 @@ export function seedAvatarUrlFromAuthUser(user) {
   const m = user.user_metadata || {};
   const raw = m.avatar_url || m.picture || m.image;
   if (typeof raw !== "string") return "";
-  const t = raw.trim();
+  const t = rewriteLegacySupabaseStorageUrl(raw.trim());
   if (!t || !/^https?:\/\//i.test(t)) return "";
   return t.slice(0, 2000);
 }

@@ -8,6 +8,7 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import { supabase } from '../../lib/supabase';
 import { uploadUserProfileAvatarFile } from "../../utils/curatorPlacePhotos";
+import { rewriteLegacySupabaseStorageUrl } from "../../utils/rewriteLegacySupabaseStorageUrl";
 import { isAcceptableRasterImageFile } from "../../utils/prepareImageFileForUpload";
 import {
   formatAuthProviderForUi,
@@ -499,9 +500,9 @@ function savedItemToPickPlace(item) {
 /** curators 행: Studio·DB와 동일하게 avatar_url → avatar → image */
 function curatorProfileImageUrl(curator) {
   if (!curator || typeof curator !== "object") return "";
-  return String(
-    curator.avatar_url || curator.avatar || curator.image || ""
-  ).trim();
+  return rewriteLegacySupabaseStorageUrl(
+    String(curator.avatar_url || curator.avatar || curator.image || "").trim()
+  );
 }
 
 function CuratorFollowAvatar({ curator, sizePx, fontSizePx: fontSizePxProp }) {
@@ -1728,14 +1729,15 @@ const UserCard = ({
       ""
     ).trim() || null;
   const cardAvatarUrl =
-    String(publicProfileRow?.avatar_url || "").trim() ||
-    String(
-      user?.user_metadata?.avatar_url ||
-        user?.user_metadata?.picture ||
-        user?.user_metadata?.image ||
-        ""
-    ).trim() ||
-    null;
+    rewriteLegacySupabaseStorageUrl(
+      String(publicProfileRow?.avatar_url || "").trim() ||
+        String(
+          user?.user_metadata?.avatar_url ||
+            user?.user_metadata?.picture ||
+            user?.user_metadata?.image ||
+            ""
+        ).trim()
+    ) || null;
   const loginProviderLabel = formatAuthProviderForUi(
     publicProfileRow?.auth_provider || getAuthProviderLabel(user)
   );
