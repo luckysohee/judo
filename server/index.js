@@ -180,6 +180,7 @@ import {
 import { handleCourseComposeAssist } from "./courseComposeAssist.js";
 import { handleCourseDraftAssist } from "./courseDraftAssist.js";
 import { createCorsMiddleware, setupApiSecurity } from "./apiSecurity.js";
+import { handleDeleteAccount } from "./accountDelete.js";
 import { createSupabaseServiceClient } from "./supabaseServiceRole.js";
 
 const kakaoPlaceDetailsCache = createTtlCache(800, 6 * 60 * 60 * 1000);
@@ -630,6 +631,8 @@ app.post("/api/search/curator-places", async (req, res) => {
     res.status(500).json({ error: e?.message || String(e) });
   }
 });
+
+app.post("/api/account/delete", handleDeleteAccount);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

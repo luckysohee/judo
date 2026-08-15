@@ -1,7 +1,16 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { createFolder, deleteFolder, updateFolder } from "../../utils/storage";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
+
+const COLOR_OPTIONS = [
+  "#2ECC71",
+  "#FF5A5F",
+  "#8E44AD",
+  "#3498DB",
+  "#F39C12",
+  "#1ABC9C",
+];
 
 export default function SavedPlaces({
   open,
@@ -10,15 +19,6 @@ export default function SavedPlaces({
   onClose,
   onOpenPlaceDetail,
 }) {
-  if (!open) return null;
-
-  const safeFolders = Array.isArray(folders) ? folders : [];
-
-  const COLOR_OPTIONS = useMemo(
-    () => ["#2ECC71", "#FF5A5F", "#8E44AD", "#3498DB", "#F39C12", "#1ABC9C"],
-    []
-  );
-
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState(COLOR_OPTIONS[0]);
   const [errorMessage, setErrorMessage] = useState("");
@@ -26,6 +26,10 @@ export default function SavedPlaces({
   const [editingFolderId, setEditingFolderId] = useState(null);
   const [editFolderName, setEditFolderName] = useState("");
   const [editFolderColor, setEditFolderColor] = useState(COLOR_OPTIONS[0]);
+
+  if (!open) return null;
+
+  const safeFolders = Array.isArray(folders) ? folders : [];
 
   const startEdit = (folder) => {
     setEditingFolderId(folder.id);

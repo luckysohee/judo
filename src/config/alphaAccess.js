@@ -7,4 +7,4 @@ export function isAlphaAllowlistEnabled() {
 }
 
 /** 약관 등 비로그인에서도 열어 둘 경로 */
-export const ALPHA_GATE_PUBLIC_PATHS = ["/terms"];
+export const ALPHA_GATE_PUBLIC_PATHS = ["/terms", "/privacy"];

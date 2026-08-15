@@ -103,6 +103,8 @@ const styles = {
  *   effectiveDate?: string,
  *   operatorName?: string,
  *   sections: { title: string, body?: string[], list?: string[] }[],
+ *   relatedLinks?: { to: string, label: string }[],
+ *   footerNote?: string,
  * }} props
  */
 export default function LegalDocumentLayout({
@@ -111,6 +113,8 @@ export default function LegalDocumentLayout({
   effectiveDate,
   operatorName,
   sections,
+  relatedLinks = [{ to: "/privacy", label: "개인정보 처리방침" }],
+  footerNote = "본 문서는 서비스 이용을 위한 기본 약관입니다.",
 }) {
   const navigate = useNavigate();
 
@@ -160,8 +164,23 @@ export default function LegalDocumentLayout({
         ))}
 
         <footer style={styles.footer}>
-          본 문서는 서비스 이용을 위한 기본 약관입니다. 개인정보 처리방침은 별도
-          공지 시 서비스 내에서 확인할 수 있습니다.
+          <div>{footerNote}</div>
+          {Array.isArray(relatedLinks) && relatedLinks.length > 0 ? (
+            <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {relatedLinks.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  style={{
+                    color: "rgba(255,255,255,0.62)",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
         </footer>
       </main>
     </div>

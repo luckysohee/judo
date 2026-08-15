@@ -543,6 +543,16 @@ export default function MutualCheckinsHomeSection({
     navigate(`/u/${row.userId}`);
   };
 
+  const handleSearchClearClick = useCallback(() => {
+    if (trimmedSearchQuery) {
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchError("");
+      return;
+    }
+    setSearchOpen(false);
+  }, [trimmedSearchQuery]);
+
   if (!user?.id) return null;
 
   const styles = {
@@ -888,16 +898,6 @@ export default function MutualCheckinsHomeSection({
       };
     },
   };
-
-  const handleSearchClearClick = useCallback(() => {
-    if (trimmedSearchQuery) {
-      setSearchQuery("");
-      setSearchResults([]);
-      setSearchError("");
-      return;
-    }
-    setSearchOpen(false);
-  }, [trimmedSearchQuery]);
 
   const renderSearchField = (inputStyle = {}) => (
     <div style={styles.searchInputWrap}>

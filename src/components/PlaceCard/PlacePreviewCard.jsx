@@ -1356,6 +1356,16 @@ export default function PlacePreviewCard({
     }
   };
 
+  useEffect(() => {
+    if (showSaveModal) return;
+    const el = cardRef.current;
+    if (!el) return;
+    // SaveModal에서 돌아온 직후 카드 스크롤이 잠기는 케이스 방지
+    el.style.overflowX = "hidden";
+    el.style.overflowY = "auto";
+    el.style.touchAction = "auto";
+  }, [showSaveModal]);
+
   if (!place) return null;
 
   const cardBaseStyle = {
@@ -1376,16 +1386,6 @@ export default function PlacePreviewCard({
     (sheetSwipeEnabled || arrivalWalkingRouteShown) &&
     !showSaveModal &&
     typeof onClose === "function";
-
-  useEffect(() => {
-    if (showSaveModal) return;
-    const el = cardRef.current;
-    if (!el) return;
-    // SaveModal에서 돌아온 직후 카드 스크롤이 잠기는 케이스 방지
-    el.style.overflowX = "hidden";
-    el.style.overflowY = "auto";
-    el.style.touchAction = "auto";
-  }, [showSaveModal]);
 
   return (
     <div style={styles.wrap}>

@@ -15,6 +15,7 @@ const DEFAULT_DEV_ORIGINS = [
 
 /** OpenAI·크롤러 등 — 로그인 JWT 필수 */
 export const API_AUTH_REQUIRED_PREFIXES = [
+  "/api/account/delete",
   "/api/ai-search",
   "/api/search-intent-assist",
   "/api/course-compose-assist",

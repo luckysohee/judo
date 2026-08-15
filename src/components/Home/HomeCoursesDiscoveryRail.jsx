@@ -1344,6 +1344,16 @@ export default function HomeCoursesDiscoveryRail({
     }
   }, [refreshKey, visible, activeTab, loadMyCourses]);
 
+  useEffect(() => {
+    onSearchModeChange?.(courseSearchOpen);
+  }, [courseSearchOpen, onSearchModeChange]);
+
+  useEffect(() => {
+    if (!visible || layout !== "full") {
+      if (courseSearchOpen) closeCourseSearchMode();
+    }
+  }, [visible, layout, courseSearchOpen, closeCourseSearchMode]);
+
   if (!visible) return null;
 
   if (layout === "peek") {
@@ -1842,16 +1852,6 @@ export default function HomeCoursesDiscoveryRail({
       </div>
     );
   };
-
-  useEffect(() => {
-    onSearchModeChange?.(courseSearchOpen);
-  }, [courseSearchOpen, onSearchModeChange]);
-
-  useEffect(() => {
-    if (!visible || layout !== "full") {
-      if (courseSearchOpen) closeCourseSearchMode();
-    }
-  }, [visible, layout, courseSearchOpen, closeCourseSearchMode]);
 
   return (
     <>

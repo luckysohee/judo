@@ -28,30 +28,6 @@ export function SelectedRecommendedPlaceDetailCard({
   onViewOnMap,
   canCheckIn = true,
 }) {
-  if (!selectedRecommendedPlace && !matchedMapPlace) return null;
-
-  const name =
-    selectedRecommendedPlace?.name ??
-    matchedMapPlace?.name ??
-    "";
-  const score = selectedRecommendedPlace?.score;
-  const reasonLine = recommendPlaceSubtitle(selectedRecommendedPlace, {
-    summary: importSummaryText,
-    query: String(searchQuery || "").trim(),
-    siblingNames: siblingPlaceNamesFromBatch(
-      Array.isArray(recommendationBatchPlaces)
-        ? recommendationBatchPlaces
-        : [],
-      selectedRecommendedPlace,
-    ),
-  });
-  const signalTags = Array.isArray(selectedRecommendedPlace?.signals)
-    ? selectedRecommendedPlace.signals.filter(Boolean)
-    : [];
-  const address = matchedMapPlace?.address ?? matchedMapPlace?.road_address_name;
-  const category =
-    matchedMapPlace?.category ?? matchedMapPlace?.category_name;
-
   const mergedPlaceForPick = useMemo(() => {
     if (mergedPlaceProp && typeof mergedPlaceProp === "object") {
       return mergedPlaceProp;
@@ -103,6 +79,30 @@ export function SelectedRecommendedPlaceDetailCard({
         if (!error) setHanjanStatsNorm(normalizeHanjanStats(data));
       });
   }, [checkinKey]);
+
+  if (!selectedRecommendedPlace && !matchedMapPlace) return null;
+
+  const name =
+    selectedRecommendedPlace?.name ??
+    matchedMapPlace?.name ??
+    "";
+  const score = selectedRecommendedPlace?.score;
+  const reasonLine = recommendPlaceSubtitle(selectedRecommendedPlace, {
+    summary: importSummaryText,
+    query: String(searchQuery || "").trim(),
+    siblingNames: siblingPlaceNamesFromBatch(
+      Array.isArray(recommendationBatchPlaces)
+        ? recommendationBatchPlaces
+        : [],
+      selectedRecommendedPlace,
+    ),
+  });
+  const signalTags = Array.isArray(selectedRecommendedPlace?.signals)
+    ? selectedRecommendedPlace.signals.filter(Boolean)
+    : [];
+  const address = matchedMapPlace?.address ?? matchedMapPlace?.road_address_name;
+  const category =
+    matchedMapPlace?.category ?? matchedMapPlace?.category_name;
 
   return (
     <div

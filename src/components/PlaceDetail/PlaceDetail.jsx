@@ -61,12 +61,6 @@ const getPlaceComments = (place) => {
 };
 
 export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: isLiveProp, liveCuratorNameSet }) {
-  if (!place) return null;
-
-  const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
-  const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
-  const displayTags = filterPlaceTagsForDisplay(place.tags || []);
-
   // 이미지 로딩 상태
   const [imageLoaded, setImageLoaded] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -88,12 +82,21 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
   const [hanjanStatsNorm, setHanjanStatsNorm] = useState(null);
 
   useEffect(() => {
-    const placeComments = getPlaceComments(place);
-    setComments(placeComments);
+    if (!place) {
+      setComments([]);
+      return;
+    }
+    setComments(getPlaceComments(place));
   }, [place]);
 
-  const checkinKey = useMemo(() => checkinPlaceKeyFromPlace(place), [place]);
-  const checkinWgs = useMemo(() => resolvePlaceWgs84(place), [place]);
+  const checkinKey = useMemo(
+    () => (place ? checkinPlaceKeyFromPlace(place) : null),
+    [place]
+  );
+  const checkinWgs = useMemo(
+    () => (place ? resolvePlaceWgs84(place) : null),
+    [place]
+  );
 
   useEffect(() => {
     if (!checkinKey) {
@@ -132,6 +135,12 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
     void judoScheduleTick;
     return getJudoOperationMode().canCheckIn;
   }, [judoScheduleTick]);
+
+  if (!place) return null;
+
+  const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
+  const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
+  const displayTags = filterPlaceTagsForDisplay(place.tags || []);
 
   // 임시 체크인 버튼
   const handleTempCheckin = () => {

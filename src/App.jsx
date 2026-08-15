@@ -12,6 +12,8 @@ import CuratorPageScreen from "./pages/CuratorPageScreen";
 import CuratorProfilePage from "./pages/CuratorProfilePage";
 import UserProfilePage from "./pages/UserProfilePage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import AccountSettingsPage from "./pages/AccountSettingsPage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
@@ -82,6 +84,8 @@ function App() {
       <Route path="/curator-profile/:slug" element={<CuratorProfilePage />} />
       <Route path="/u/:userId" element={<UserProfilePage />} />
       <Route path="/terms" element={<TermsOfServicePage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/account" element={<AccountSettingsPage />} />
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin" element={<AdminRoute />}>
         <Route index element={<Lazy><AdminHubPage /></Lazy>} />

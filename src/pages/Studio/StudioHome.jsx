@@ -4411,7 +4411,17 @@ export default function StudioHome() {
             스튜디오
           </h1>
         </header>
-        <div style={styles.studioTopRowSpacer} aria-hidden />
+        <button
+          type="button"
+          onClick={() => navigate("/account")}
+          style={{
+            ...studioCornerButtonStyle,
+            backgroundColor: "rgba(255,255,255,0.12)",
+            flexShrink: 0,
+          }}
+        >
+          계정
+        </button>
       </div>
       
       {/* 섹션 탭 — 5개 한 줄 고정 (가로 스크롤 없음) */}

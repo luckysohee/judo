@@ -2203,6 +2203,24 @@ const UserCard = ({
             </div>
           ) : null}
 
+          {showSavedFoldersTab && !embeddedAdminReadOnly ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                navigate("/account");
+              }}
+              style={{
+                ...studioCoursesBtnGhost,
+                width: "100%",
+                marginBottom: "8px",
+                fontSize: "12px",
+              }}
+            >
+              계정 · 약관 · 탈퇴
+            </button>
+          ) : null}
+
           {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → picked / pick */}
           <div style={profileTabRail}>
             <button
