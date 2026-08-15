@@ -20,6 +20,7 @@
     "@capacitor/cli": "^8.2.0",
     "@capacitor/ios": "^8.2.0",
     "@supabase/supabase-js": "^2.103.1",
+    "@vercel/analytics": "^2.0.1",
     "axios": "^1.14.0",
     "csv-writer": "^1.6.0",
     "framer-motion": "^12.38.0",
