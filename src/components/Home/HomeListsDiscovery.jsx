@@ -239,6 +239,7 @@ export default function HomeListsDiscoveryPanel({
     onDragHandlePointerDown,
     setSnapCollapsed,
     setSnapExpanded,
+    setSnapMinimized,
   } = useVerticalSnapSheet({
     enabled: open,
     expandedPx,
@@ -247,11 +248,6 @@ export default function HomeListsDiscoveryPanel({
     initialSnap: "expanded",
     resetKey: open ? sheetResetKey : 0,
   });
-
-  useEffect(() => {
-    if (!open || isDragging || snap !== "minimized") return;
-    onClose?.();
-  }, [open, snap, isDragging, onClose]);
 
   useEffect(() => {
     onSheetSnapChange?.(open ? snap : "closed");
@@ -505,6 +501,10 @@ export default function HomeListsDiscoveryPanel({
   }, [open, browsing, browseList?.list?.curator_id]);
 
   const bottomCss = useMemo(() => homeHotStripCoursesWrapBottomCss(), []);
+  const sheetMinimized = snap === "minimized";
+  const peekTitle = browsing
+    ? String(browseList?.list?.title || "").trim() || "맛집첩"
+    : "맛집첩";
 
   if (!open) return null;
 
@@ -538,10 +538,14 @@ export default function HomeListsDiscoveryPanel({
         style={{
           flexShrink: 0,
           display: "flex",
-          flexDirection: "column",
+          flexDirection: sheetMinimized ? "row" : "column",
           alignItems: "center",
-          paddingTop: 8,
-          paddingBottom: 4,
+          justifyContent: sheetMinimized ? "flex-start" : "center",
+          gap: sheetMinimized ? 8 : 0,
+          paddingTop: sheetMinimized ? 6 : 8,
+          paddingBottom: sheetMinimized ? 6 : 4,
+          paddingLeft: sheetMinimized ? 12 : 0,
+          paddingRight: sheetMinimized ? 10 : 0,
           cursor: isDragging ? "grabbing" : "grab",
           touchAction: "none",
           userSelect: "none",
@@ -554,11 +558,74 @@ export default function HomeListsDiscoveryPanel({
             height: 4,
             borderRadius: 999,
             background: "rgba(255,255,255,0.28)",
+            flexShrink: 0,
           }}
         />
+        {sheetMinimized ? (
+          <>
+            <span
+              style={{
+                flex: "1 1 auto",
+                minWidth: 0,
+                fontSize: 12,
+                fontWeight: 800,
+                color: "rgba(255,255,255,0.92)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {peekTitle}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSnapExpanded();
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label="맛집첩 시트 펼치기"
+              style={{
+                flexShrink: 0,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "rgba(255,255,255,0.08)",
+                color: "#fff",
+                borderRadius: 999,
+                padding: "5px 10px",
+                fontSize: 11,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              ↑ 펼치기
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose?.();
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label="맛집첩 닫기"
+              style={{
+                flexShrink: 0,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "transparent",
+                color: "rgba(255,255,255,0.7)",
+                borderRadius: 999,
+                padding: "5px 10px",
+                fontSize: 11,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              닫기
+            </button>
+          </>
+        ) : null}
       </div>
 
-      {browsing ? (
+      {sheetMinimized ? null : browsing ? (
         <div
           style={{
             flex: 1,
@@ -581,6 +648,7 @@ export default function HomeListsDiscoveryPanel({
             onBack={() => onBrowseBack?.()}
             onSheetCollapse={setSnapCollapsed}
             onSheetExpand={setSnapExpanded}
+            onSheetMinimize={setSnapMinimized}
             onFocusPlace={onFocusPlace}
             focusPlaceId={focusPlaceId}
             onOpenCurator={onOpenCurator}

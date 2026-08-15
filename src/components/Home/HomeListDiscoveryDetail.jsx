@@ -730,6 +730,7 @@ export default function HomeListDiscoveryDetail({
   onBack,
   onSheetCollapse,
   onSheetExpand,
+  onSheetMinimize,
   onFocusPlace,
   focusPlaceId = "",
   onOpenCurator,
@@ -928,10 +929,9 @@ export default function HomeListDiscoveryDetail({
   ].filter(Boolean);
 
   const sheetCollapsed = sheetSnap === "collapsed";
-  const canToggleSheet =
-    sheetCollapsed
-      ? typeof onSheetExpand === "function"
-      : typeof onSheetCollapse === "function";
+  const canExpand = typeof onSheetExpand === "function";
+  const canCollapse = typeof onSheetCollapse === "function";
+  const canMinimize = typeof onSheetMinimize === "function";
 
   return (
     <div style={styles.root}>
@@ -939,21 +939,38 @@ export default function HomeListDiscoveryDetail({
         <button type="button" style={styles.backBtn} onClick={() => onBack?.()}>
           ← 목록
         </button>
-        {canToggleSheet ? (
-          <button
-            type="button"
-            style={styles.collapseBtn}
-            onClick={() => {
-              if (sheetCollapsed) onSheetExpand?.();
-              else onSheetCollapse?.();
-            }}
-            aria-label={sheetCollapsed ? "시트 펼치기" : "시트 접기"}
-          >
-            {sheetCollapsed ? "∧ 펼치기" : "∨ 접기"}
-          </button>
-        ) : (
-          <span />
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {sheetCollapsed && canExpand ? (
+            <button
+              type="button"
+              style={styles.collapseBtn}
+              onClick={() => onSheetExpand?.()}
+              aria-label="시트 펼치기"
+            >
+              ∧ 펼치기
+            </button>
+          ) : null}
+          {sheetCollapsed && canMinimize ? (
+            <button
+              type="button"
+              style={styles.collapseBtn}
+              onClick={() => onSheetMinimize?.()}
+              aria-label="시트를 아래로 넣기"
+            >
+              ∨ 아래 넣기
+            </button>
+          ) : null}
+          {!sheetCollapsed && canCollapse ? (
+            <button
+              type="button"
+              style={styles.collapseBtn}
+              onClick={() => onSheetCollapse?.()}
+              aria-label="시트 접기"
+            >
+              ∨ 접기
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div style={styles.body} aria-label="맛집첩 미리보기">
