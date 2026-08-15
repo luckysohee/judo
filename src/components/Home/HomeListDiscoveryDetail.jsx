@@ -509,7 +509,13 @@ function ListPlaceSwipeRail({
               p.kakao_place_id || embedded?.kakao_place_id || null,
             image_url: p.image_url || embedded?.image_url,
           },
-          { skipGoogleFallback: false }
+          {
+            skipGoogleFallback: true,
+            skipKakaoKeyword: true,
+            skipKakaoDetail: true,
+            preferOg: true,
+            allowStaticMapFallback: true,
+          }
         );
         if (cancelled) return;
         if (url) {

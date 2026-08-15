@@ -625,7 +625,17 @@ export default function HomeListsDiscoveryPanel({
         ) : null}
       </div>
 
-      {sheetMinimized ? null : browsing ? (
+      <div
+        style={{
+          display: sheetMinimized ? "none" : "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+          minWidth: 0,
+          width: "100%",
+        }}
+      >
+      {browsing ? (
         <div
           style={{
             flex: 1,
@@ -907,6 +917,7 @@ export default function HomeListsDiscoveryPanel({
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

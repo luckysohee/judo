@@ -8013,14 +8013,8 @@ const handleClearSearch = () => {
     [curatorPlaceCatalogForMerge, setSelectedPlaceWithAnalytics]
   );
 
-  // 쾌속 잔 채우기 핸들러 (커스텀 오버레이에서 호출)
   const handleQuickSave = (place) => {
-    devLog('📍 쾌속 잔 채우기 요청:', place);
-    
-    // PlacePreviewCard의 로직과 동일하게 처리
-    // localStorage에 저장하는 로직을 구현해야 함
-    // 임시로 alert로 처리
-    alert('쾌속 잔 채우기 기능은 개발 중입니다.');
+    if (place) setSaveTargetPlace(place);
   };
 
   const handleSearchSubmit = async (value, options = {}) => {

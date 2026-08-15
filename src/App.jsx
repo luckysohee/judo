@@ -16,7 +16,6 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import AccountSettingsPage from "./pages/AccountSettingsPage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
-import CheckinTest from "./pages/CheckinTest";
 import CourseDetailPage from "./pages/Courses/CourseDetailPage";
 import CompletedCoursesPage from "./pages/CompletedCoursesPage";
 import CourseCompletionOverlay from "./components/Course/CourseCompletionOverlay";
@@ -104,7 +103,6 @@ function App() {
         <Route path="curator/:userId" element={<Lazy><CuratorManagementPage /></Lazy>} />
       </Route>
       <Route path="/curator-apply" element={<CuratorApplyForm />} />
-      <Route path="/test-checkin" element={<CheckinTest />} />
       <Route path="/studio" element={<Lazy><StudioHome /></Lazy>} />
       <Route
         path="/studio/courses"

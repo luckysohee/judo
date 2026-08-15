@@ -142,12 +142,6 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
   const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
   const displayTags = filterPlaceTagsForDisplay(place.tags || []);
 
-  // 임시 체크인 버튼
-  const handleTempCheckin = () => {
-    console.log('🎯 체크인 테스트:', place.id, place.name);
-    alert(`체크인: ${place.name}`);
-  };
-
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.backdrop} />

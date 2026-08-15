@@ -25,13 +25,6 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
     }
   };
 
-  const handleQuickSaveClick = () => {
-    if (isTarget) {
-      onQuickSave(place);
-    }
-    onClose();
-  };
-
   const handleSaveClick = () => {
     // 일반 사용자용 저장 로직
     if (onSave) {
@@ -180,45 +173,26 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
         marginTop: '12px'
       }}>
         {isCurator ? (
-          /* 큐레이터용 UI */
-          <>
-            {/* 쾌속 잔 채우기 버튼 - 가장 강조 */}
-            <button
-              onClick={handleQuickSaveClick}
-              style={{
-                flex: 1,
-                backgroundColor: '#2ecc71',
-                color: '#fff',
-                border: 'none',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                fontSize: '11px',
-                fontWeight: '700',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: '0 4px 12px rgba(46, 204, 113, 0.3)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '2px',
-                lineHeight: 1.15,
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.backgroundColor = '#27ae60';
-                e.target.style.transform = 'translateY(-1px)';
-                e.target.style.boxShadow = '0 6px 16px rgba(46, 204, 113, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.backgroundColor = '#2ecc71';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 4px 12px rgba(46, 204, 113, 0.3)';
-              }}
-            >
-              <span style={{ fontWeight: 800 }}>⚡쾌속⚡</span>
-              <span>잔채우기</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => {
+              if (onSave) onSave(place);
+              onClose();
+            }}
+            style={{
+              flex: 1,
+              backgroundColor: '#2ecc71',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: '700',
+              cursor: 'pointer',
+            }}
+          >
+            저장
+          </button>
         ) : (
           /* 일반 사용자용 UI */
           <div style={{
