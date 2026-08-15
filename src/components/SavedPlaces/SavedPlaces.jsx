@@ -18,6 +18,11 @@ export default function SavedPlaces({
   savedPlacesByFolder = {},
   onClose,
   onOpenPlaceDetail,
+  onCreateFolder,
+  onUpdateFolder,
+  onDeleteFolder,
+  loading = false,
+  emptyHint = "",
 }) {
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState(COLOR_OPTIONS[0]);
@@ -44,9 +49,13 @@ export default function SavedPlaces({
     setErrorMessage("");
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     try {
-      createFolder(newFolderName, newFolderColor);
+      if (typeof onCreateFolder === "function") {
+        await onCreateFolder(newFolderName, newFolderColor);
+      } else {
+        createFolder(newFolderName, newFolderColor);
+      }
       setNewFolderName("");
       setErrorMessage("");
     } catch (e) {
@@ -54,20 +63,36 @@ export default function SavedPlaces({
     }
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     try {
-      updateFolder(editingFolderId, { name: editFolderName, color: editFolderColor });
+      if (typeof onUpdateFolder === "function") {
+        await onUpdateFolder(editingFolderId, {
+          name: editFolderName,
+          color: editFolderColor,
+        });
+      } else {
+        updateFolder(editingFolderId, {
+          name: editFolderName,
+          color: editFolderColor,
+        });
+      }
       cancelEdit();
     } catch (e) {
       setErrorMessage(e?.message || "폴더 수정에 실패했습니다.");
     }
   };
 
-  const handleDelete = (folder) => {
-    const ok = window.confirm(`'${folder.name}' 폴더를 삭제할까요?\n(이 폴더에 저장된 항목 연결도 함께 제거됩니다.)`);
+  const handleDelete = async (folder) => {
+    const ok = window.confirm(
+      `'${folder.name}' 폴더를 삭제할까요?\n(이 폴더에 저장된 항목 연결도 함께 제거됩니다.)`
+    );
     if (!ok) return;
     try {
-      deleteFolder(folder.id);
+      if (typeof onDeleteFolder === "function") {
+        await onDeleteFolder(folder.id);
+      } else {
+        deleteFolder(folder.id);
+      }
       if (editingFolderId === folder.id) cancelEdit();
       setErrorMessage("");
     } catch (e) {
@@ -169,8 +194,12 @@ export default function SavedPlaces({
           ) : null}
 
           {errorMessage ? <div style={styles.errorText}>{errorMessage}</div> : null}
+          {emptyHint ? <div style={styles.emptyText}>{emptyHint}</div> : null}
+          {loading ? (
+            <div style={styles.emptyText}>저장 목록을 불러오는 중…</div>
+          ) : null}
 
-          {safeFolders.length === 0 ? (
+          {!loading && safeFolders.length === 0 ? (
             <div style={styles.emptyText}>아직 만든 저장 폴더가 없습니다.</div>
           ) : (
             safeFolders.map((folder) => {

@@ -411,6 +411,7 @@ import { useKakaoSearchPlaces } from "./hooks/useKakaoSearchPlaces";
 import { usePlaceDetailEnrichment } from "./hooks/usePlaceDetailEnrichment";
 import { useSearchStatusMeta } from "./hooks/useSearchStatusMeta";
 import { useUserSavedPlacesAndFolders } from "./hooks/useUserSavedPlacesAndFolders";
+import { useSupabaseSavedFolderSheet } from "../../hooks/useSupabaseSavedFolderSheet";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { findMatchedMapPlace } from "../../utils/findMatchedMapPlace";
 import { getHighlightedPlaces } from "../../utils/getHighlightedPlaces";
@@ -458,6 +459,7 @@ export default function Home() {
     refreshCustomPlaces,
     loadUserSavedPlaces,
   } = useUserSavedPlacesAndFolders({ user, authLoading });
+  const supabaseSavedSheet = useSupabaseSavedFolderSheet(user?.id);
 
   /** attachCuratorsToCuratorPlaceRows 용 Supabase 원본 행 — useAuthRoleAndCurators에서 채움 */
   const curatorAttachRowsRef = useRef([]);
@@ -11871,8 +11873,22 @@ const handleClearSearch = () => {
       <HomeBottomModalStack
         user={user}
         savedPlacesOpen={savedPlacesOpen}
-        folders={folders}
-        savedPlacesByFolder={savedPlacesByFolder}
+        folders={user?.id ? supabaseSavedSheet.folders : folders}
+        savedPlacesByFolder={
+          user?.id
+            ? supabaseSavedSheet.savedPlacesByFolder
+            : savedPlacesByFolder
+        }
+        onCreateSavedFolder={
+          user?.id ? supabaseSavedSheet.createFolder : undefined
+        }
+        onUpdateSavedFolder={
+          user?.id ? supabaseSavedSheet.updateFolder : undefined
+        }
+        onDeleteSavedFolder={
+          user?.id ? supabaseSavedSheet.deleteFolder : undefined
+        }
+        savedPlacesLoading={Boolean(user?.id && supabaseSavedSheet.loading)}
         onCloseSavedPlaces={() => setSavedPlacesOpen(false)}
         getUserRole={getUserRole}
         addPlaceOpen={addPlaceOpen}
@@ -11886,10 +11902,12 @@ const handleClearSearch = () => {
         onCloseSaveFolder={() => {
           setSaveTargetPlace(null);
           loadUserSavedPlaces();
+          void supabaseSavedSheet.reload();
         }}
         onFoldersUpdated={() => {
           refreshStorage();
           loadUserSavedPlaces();
+          void supabaseSavedSheet.reload();
         }}
         onSaveToFolder={(pId, fId) => {
           savePlaceToFolder(pId, fId);

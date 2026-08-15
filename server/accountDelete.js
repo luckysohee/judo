@@ -46,6 +46,12 @@ export async function handleDeleteAccount(req, res) {
     console.warn("account delete profile wipe:", e?.message || e);
   }
 
+  try {
+    await client.from("curators").delete().eq("user_id", uid);
+  } catch (e) {
+    console.warn("account delete curator wipe:", e?.message || e);
+  }
+
   const { error } = await client.auth.admin.deleteUser(uid);
   if (error) {
     console.error("account delete auth.admin.deleteUser:", error.message || error);

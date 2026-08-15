@@ -15,6 +15,10 @@ export default function HomeBottomModalStack({
   savedPlacesOpen,
   folders,
   savedPlacesByFolder,
+  onCreateSavedFolder,
+  onUpdateSavedFolder,
+  onDeleteSavedFolder,
+  savedPlacesLoading = false,
   onCloseSavedPlaces,
   getUserRole,
   addPlaceOpen,
@@ -37,6 +41,10 @@ export default function HomeBottomModalStack({
         open={savedPlacesOpen}
         folders={folders}
         savedPlacesByFolder={savedPlacesByFolder}
+        onCreateFolder={onCreateSavedFolder}
+        onUpdateFolder={onUpdateSavedFolder}
+        onDeleteFolder={onDeleteSavedFolder}
+        loading={savedPlacesLoading}
         onClose={onCloseSavedPlaces}
         getUserRole={getUserRole}
       />

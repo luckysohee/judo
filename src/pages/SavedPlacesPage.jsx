@@ -1,50 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SavedPlaces from "../components/SavedPlaces/SavedPlaces";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
-import { places } from "../data/places";
-import { getCustomPlaces } from "../utils/customPlacesStorage";
-import {
-  getFolders,
-  getSavedPlacesMap,
-  isPlaceSaved,
-} from "../utils/storage";
+import { useAuth } from "../context/AuthContext";
+import { useSupabaseSavedFolderSheet } from "../hooks/useSupabaseSavedFolderSheet";
 
 export default function SavedPlacesPage() {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [detailPlace, setDetailPlace] = useState(null);
+  const sheet = useSupabaseSavedFolderSheet(user?.id);
 
-  const [folders, setFolders] = useState(() => getFolders());
-  const [savedMap, setSavedMap] = useState(() => getSavedPlacesMap());
-
-  const allPlaces = useMemo(() => [...getCustomPlaces(), ...places], []);
-
-  useEffect(() => {
-    const refresh = () => {
-      setFolders(getFolders());
-      setSavedMap(getSavedPlacesMap());
-    };
-
-    window.addEventListener("storage", refresh);
-    window.addEventListener("judo_storage_updated", refresh);
-    return () => {
-      window.removeEventListener("storage", refresh);
-      window.removeEventListener("judo_storage_updated", refresh);
-    };
-  }, []);
-
-  const savedPlacesByFolder = useMemo(() => {
-    const result = {};
-
-    folders.forEach((folder) => {
-      result[folder.id] = allPlaces.filter((place) => {
-        const ids = savedMap[place.id] || [];
-        return ids.includes(folder.id);
-      });
-    });
-
-    return result;
-  }, [folders, savedMap, allPlaces]);
+  const emptyHint = authLoading
+    ? ""
+    : user
+      ? sheet.error
+      : "로그인하면 홈에서 저장한 장소가 여기에 보여요.";
 
   return (
     <div style={styles.page}>
@@ -56,15 +27,20 @@ export default function SavedPlacesPage() {
 
       <SavedPlaces
         open={true}
-        folders={folders}
-        savedPlacesByFolder={savedPlacesByFolder}
+        folders={sheet.folders}
+        savedPlacesByFolder={sheet.savedPlacesByFolder}
         onClose={() => navigate(-1)}
         onOpenPlaceDetail={setDetailPlace}
+        onCreateFolder={user ? sheet.createFolder : undefined}
+        onUpdateFolder={user ? sheet.updateFolder : undefined}
+        onDeleteFolder={user ? sheet.deleteFolder : undefined}
+        loading={authLoading || sheet.loading}
+        emptyHint={emptyHint}
       />
 
       <PlaceDetail
         place={detailPlace}
-        isSaved={detailPlace ? isPlaceSaved(detailPlace.id) : false}
+        isSaved={Boolean(detailPlace)}
         onClose={() => setDetailPlace(null)}
         onSave={() => {}}
       />
