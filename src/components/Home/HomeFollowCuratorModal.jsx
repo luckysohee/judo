@@ -22,6 +22,7 @@ export default function HomeFollowCuratorModal({
   getUserRole,
   canCheckIn = true,
   onSavedToSupabase,
+  onRequireLogin = null,
 }) {
   const [previewPlace, setPreviewPlace] = useState(null);
 
@@ -487,6 +488,7 @@ export default function HomeFollowCuratorModal({
               onClose={() => setPreviewPlace(null)}
               getUserRole={getUserRole}
               onSavedToSupabase={onSavedToSupabase}
+              onRequireLogin={onRequireLogin}
             />
           </div>
         </div>

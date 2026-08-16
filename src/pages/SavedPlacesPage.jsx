@@ -11,11 +11,7 @@ export default function SavedPlacesPage() {
   const [detailPlace, setDetailPlace] = useState(null);
   const sheet = useSupabaseSavedFolderSheet(user?.id);
 
-  const emptyHint = authLoading
-    ? ""
-    : user
-      ? sheet.error
-      : "로그인하면 홈에서 저장한 장소가 여기에 보여요.";
+  const requiresLogin = !authLoading && !user;
 
   return (
     <div style={styles.page}>
@@ -27,15 +23,17 @@ export default function SavedPlacesPage() {
 
       <SavedPlaces
         open={true}
-        folders={sheet.folders}
-        savedPlacesByFolder={sheet.savedPlacesByFolder}
+        folders={requiresLogin ? [] : sheet.folders}
+        savedPlacesByFolder={requiresLogin ? {} : sheet.savedPlacesByFolder}
         onClose={() => navigate(-1)}
         onOpenPlaceDetail={setDetailPlace}
         onCreateFolder={user ? sheet.createFolder : undefined}
         onUpdateFolder={user ? sheet.updateFolder : undefined}
         onDeleteFolder={user ? sheet.deleteFolder : undefined}
-        loading={authLoading || sheet.loading}
-        emptyHint={emptyHint}
+        loading={authLoading || (!requiresLogin && sheet.loading)}
+        emptyHint={user ? sheet.error : ""}
+        requiresLogin={requiresLogin}
+        onLoginRequest={() => navigate("/")}
       />
 
       <PlaceDetail

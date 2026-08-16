@@ -639,7 +639,6 @@ const UserCard = ({
   const [savedTabNewFolderSaving, setSavedTabNewFolderSaving] = useState(false);
 
   const [publicProfileRow, setPublicProfileRow] = useState(null);
-  const [profileFormOpen, setProfileFormOpen] = useState(false);
   const [pfDisplayName, setPfDisplayName] = useState("");
   const [pfUsername, setPfUsername] = useState("");
   const [pfSaving, setPfSaving] = useState(false);
@@ -868,7 +867,7 @@ const UserCard = ({
   useEffect(() => {
     if (!isVisible || !user?.id || embeddedAdminReadOnly) {
       setPublicProfileRow(null);
-      setProfileFormOpen(false);
+      setProfileSubView(null);
       setPfError("");
       return undefined;
     }
@@ -1696,7 +1695,7 @@ const UserCard = ({
         username: raw,
       });
       onPublicProfileSaved?.();
-      setProfileFormOpen(false);
+      setProfileSubView(null);
     } catch (e) {
       if (isUsernameChangeCooldownError(e)) {
         window.alert(
@@ -1790,7 +1789,18 @@ const UserCard = ({
             ...userCardGlass.sheet,
           }}
         >
-          <div>
+          <div
+            style={
+              profileSubView === "profile"
+                ? {
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }
+                : undefined
+            }
+          >
             {/* 드래그 핸들 — 위로 당겨 탭 영역 확장 (맵: 로고 줄까지) */}
             <div
               ref={dragHandleRef}
@@ -1831,6 +1841,8 @@ const UserCard = ({
               </div>
             ) : null}
 
+            {profileSubView !== "profile" ? (
+            <>
             {/* 프로필 정보 */}
             <div
             style={{
@@ -1914,7 +1926,7 @@ const UserCard = ({
               <button
                 type="button"
                 onClick={() => {
-                  setProfileFormOpen((o) => !o);
+                  setProfileSubView("profile");
                   setPfError("");
                 }}
                 style={{
@@ -1922,156 +1934,14 @@ const UserCard = ({
                   width: "100%",
                 }}
               >
-                {profileFormOpen ? "접기" : "닉네임 · @핸들 설정"}
+                닉네임 · @핸들 설정
               </button>
-              {profileFormOpen ? (
-                <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                  <div>
-                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "6px" }}>
-                      프로필 사진
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "56px",
-                          height: "56px",
-                          borderRadius: "50%",
-                          overflow: "hidden",
-                          flexShrink: 0,
-                          background:
-                            "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          border: "1px solid rgba(255,255,255,0.2)",
-                        }}
-                      >
-                        {cardAvatarUrl ? (
-                          <img
-                            src={cardAvatarUrl}
-                            alt=""
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                          />
-                        ) : (
-                          <span style={{ fontSize: "22px" }}>👤</span>
-                        )}
-                      </div>
-                      <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-                        <input
-                          ref={profileAvatarInputRef}
-                          type="file"
-                          accept="image/*"
-                          style={{ display: "none" }}
-                          onChange={onProfileAvatarFile}
-                        />
-                        <button
-                          type="button"
-                          disabled={pfAvatarUploading}
-                          onClick={() => profileAvatarInputRef.current?.click()}
-                          style={{
-                            ...studioCoursesBtnGhost,
-                            cursor: pfAvatarUploading ? "wait" : "pointer",
-                            opacity: pfAvatarUploading ? 0.7 : 1,
-                          }}
-                        >
-                          {pfAvatarUploading ? "올리는 중…" : "사진 올리기 · 바꾸기"}
-                        </button>
-                        <div
-                          style={{
-                            fontSize: "10px",
-                            color: "rgba(255,255,255,0.42)",
-                            marginTop: "6px",
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          5MB 이하 · JPG·PNG·WebP 등
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
-                      닉네임 (다른 사람에게 보이는 이름)
-                    </div>
-                    <input
-                      type="text"
-                      value={pfDisplayName}
-                      onChange={(e) => setPfDisplayName(e.target.value)}
-                      placeholder="예: 을지로호프"
-                      maxLength={40}
-                      style={studioCoursesInput}
-                    />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "11px", color: STUDIO_PROFILE.textSoft, marginBottom: "4px" }}>
-                      핸들 (앱 전용 ID, @ 없이 영문·숫자·_ 최소 3자~20자)
-                    </div>
-                    <input
-                      type="text"
-                      lang="en"
-                      inputMode="text"
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      value={pfUsername}
-                      onChange={(e) => {
-                        if (e.nativeEvent?.isComposing) {
-                          setPfUsername(e.target.value);
-                          return;
-                        }
-                        setPfUsername(normalizePublicHandleInput(e.target.value));
-                      }}
-                      onCompositionEnd={(e) => {
-                        setPfUsername(normalizePublicHandleInput(e.currentTarget.value));
-                      }}
-                      placeholder="예: judo_sips"
-                      maxLength={20}
-                      style={studioCoursesInput}
-                    />
-                    <div
-                      style={{
-                        fontSize: "10px",
-                        color: "rgba(255,255,255,0.45)",
-                        marginTop: "4px",
-                        lineHeight: 1.35,
-                      }}
-                    >
-                      한글 키보드면 <span style={{ color: "rgba(255,200,120,0.95)" }}>한/영</span> 전환 후 입력.
-                    </div>
-                  </div>
-                  {pfError ? (
-                    <div style={{ fontSize: "11px", color: "#ff8a8a" }}>{pfError}</div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={savePublicProfile}
-                    disabled={pfSaving}
-                    style={{
-                      ...studioCoursesBtnPrimary,
-                      width: "100%",
-                      cursor: pfSaving ? "wait" : "pointer",
-                      opacity: pfSaving ? 0.7 : 1,
-                    }}
-                  >
-                    {pfSaving ? "저장 중…" : "저장"}
-                  </button>
-                </div>
-              ) : null}
             </div>
           ) : null}
+            </>
+            ) : null}
 
-          {showTastePreferencesSection && profileSubView !== "taste" ? (
+          {showTastePreferencesSection && !profileSubView ? (
             <UserTastePreferencesSection
               userId={user?.id}
               authLoading={authLoading}
@@ -2109,6 +1979,229 @@ const UserCard = ({
             </div>
           ) : null}
 
+          {profileSubView === "profile" && !embeddedAdminReadOnly ? (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+                maxHeight: `calc(100dvh - ${PROFILE_MAP_TOP_RESERVE_PX}px - 72px)`,
+                padding: "0 14px 28px",
+                boxSizing: "border-box",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileSubView(null);
+                  setPfError("");
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  alignSelf: "flex-start",
+                  marginBottom: 10,
+                  padding: "4px 0",
+                  border: "none",
+                  background: "transparent",
+                  color: "#3498DB",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ← 프로필
+              </button>
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color: "#fff",
+                  marginBottom: 12,
+                  letterSpacing: "-0.03em",
+                }}
+              >
+                닉네임 · @핸들
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  paddingBottom: 8,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "6px" }}>
+                    프로필 사진
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "56px",
+                        height: "56px",
+                        borderRadius: "50%",
+                        overflow: "hidden",
+                        flexShrink: 0,
+                        background:
+                          "linear-gradient(145deg, rgba(36,36,42,0.95), rgba(20,20,24,0.85))",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                      }}
+                    >
+                      {cardAvatarUrl ? (
+                        <img
+                          src={cardAvatarUrl}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: "22px" }}>👤</span>
+                      )}
+                    </div>
+                    <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+                      <input
+                        ref={profileAvatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={onProfileAvatarFile}
+                      />
+                      <button
+                        type="button"
+                        disabled={pfAvatarUploading}
+                        onClick={() => profileAvatarInputRef.current?.click()}
+                        style={{
+                          ...studioCoursesBtnGhost,
+                          cursor: pfAvatarUploading ? "wait" : "pointer",
+                          opacity: pfAvatarUploading ? 0.7 : 1,
+                        }}
+                      >
+                        {pfAvatarUploading ? "올리는 중…" : "사진 올리기 · 바꾸기"}
+                      </button>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: "rgba(255,255,255,0.42)",
+                          marginTop: "6px",
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        5MB 이하 · JPG·PNG·WebP 등
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#bbb", marginBottom: "4px" }}>
+                    닉네임 (다른 사람에게 보이는 이름)
+                  </div>
+                  <input
+                    type="text"
+                    value={pfDisplayName}
+                    onChange={(e) => setPfDisplayName(e.target.value)}
+                    placeholder="예: 을지로호프"
+                    maxLength={40}
+                    style={studioCoursesInput}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", color: STUDIO_PROFILE.textSoft, marginBottom: "4px" }}>
+                    핸들 (앱 전용 ID, @ 없이 영문·숫자·_ 최소 3자~20자)
+                  </div>
+                  <input
+                    type="text"
+                    lang="en"
+                    inputMode="text"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={pfUsername}
+                    onChange={(e) => {
+                      if (e.nativeEvent?.isComposing) {
+                        setPfUsername(e.target.value);
+                        return;
+                      }
+                      setPfUsername(normalizePublicHandleInput(e.target.value));
+                    }}
+                    onCompositionEnd={(e) => {
+                      setPfUsername(normalizePublicHandleInput(e.currentTarget.value));
+                    }}
+                    placeholder="예: judo_sips"
+                    maxLength={20}
+                    style={studioCoursesInput}
+                  />
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "rgba(255,255,255,0.45)",
+                      marginTop: "4px",
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    한글 키보드면 <span style={{ color: "rgba(255,200,120,0.95)" }}>한/영</span> 전환 후 입력.
+                  </div>
+                </div>
+                {pfError ? (
+                  <div style={{ fontSize: "11px", color: "#ff8a8a" }}>{pfError}</div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={savePublicProfile}
+                  disabled={pfSaving}
+                  style={{
+                    ...studioCoursesBtnPrimary,
+                    width: "100%",
+                    cursor: pfSaving ? "wait" : "pointer",
+                    opacity: pfSaving ? 0.7 : 1,
+                  }}
+                >
+                  {pfSaving ? "저장 중…" : "저장"}
+                </button>
+                {showSavedFoldersTab ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose?.();
+                      navigate("/account");
+                    }}
+                    style={{
+                      marginTop: 8,
+                      padding: "10px 0 4px",
+                      border: "none",
+                      background: "none",
+                      color: "rgba(255,255,255,0.38)",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      textAlign: "center",
+                      textDecoration: "underline",
+                      textUnderlineOffset: "3px",
+                    }}
+                  >
+                    계정 · 약관 · 탈퇴
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {/* 닫기 버튼 — 스와이프 영역 밖 (탭·검색 클릭과 분리) */}
           <button
             type="button"
@@ -2133,7 +2226,7 @@ const UserCard = ({
             ×
           </button>
 
-          {profileSubView !== "taste" ? (
+          {!profileSubView ? (
           <>
           {Array.isArray(adminRecommends) && adminRecommends.length > 0 ? (
             <div
@@ -2201,24 +2294,6 @@ const UserCard = ({
                 ))}
               </div>
             </div>
-          ) : null}
-
-          {showSavedFoldersTab && !embeddedAdminReadOnly ? (
-            <button
-              type="button"
-              onClick={() => {
-                onClose?.();
-                navigate("/account");
-              }}
-              style={{
-                ...studioCoursesBtnGhost,
-                width: "100%",
-                marginBottom: "8px",
-                fontSize: "12px",
-              }}
-            >
-              계정 · 약관 · 탈퇴
-            </button>
           ) : null}
 
           {/* 탭: 픽한 가게 → 한잔함 → 저장 폴더 → picked / pick */}

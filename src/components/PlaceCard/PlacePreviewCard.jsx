@@ -98,6 +98,8 @@ export default function PlacePreviewCard({
    * 부모에서 선택 해제·마커 제거.
    */
   onAddressCoordMismatch = null,
+  /** 비로그인 저장 — 홈 FeatureLoginPrompt */
+  onRequireLogin = null,
 }) {
   const { user } = useAuth();
   const curatorPhotoInputRef = useRef(null);
@@ -1088,6 +1090,22 @@ export default function PlacePreviewCard({
   const featuredOneLineReason = oneLineTrim(featuredCuratorCommentPlace);
   const showFeaturedCuratorCommentBox = featuredOneLineReason.length > 0;
 
+  const requestSaveLogin = () => {
+    if (typeof onRequireLogin === "function") {
+      onRequireLogin("save");
+      return;
+    }
+    showToast("로그인이 필요해요.", "error", 2800);
+  };
+
+  const openSaveModal = () => {
+    if (!user?.id) {
+      requestSaveLogin();
+      return;
+    }
+    setShowSaveModal(true);
+  };
+
   // 빠른저장 버튼 핸들러
   const handleQuickSaveClick = async () => {
     const userRole = getUserRole?.() || "user";
@@ -1101,7 +1119,7 @@ export default function PlacePreviewCard({
     } else {
       console.log('👥 일반 사용자 - 저장 모달 열기');
       // 일반 사용자는 저장 모달 열기
-      setShowSaveModal(true);
+      openSaveModal();
     }
   };
 
@@ -1166,7 +1184,7 @@ export default function PlacePreviewCard({
     }
     
     // 일반 사용자일 경우 기존 저장 모달 표시
-    setShowSaveModal(true);
+    openSaveModal();
     return false;
   };
 
@@ -1418,6 +1436,7 @@ export default function PlacePreviewCard({
               firstSavedFrom="home"
               searchSessionIdRef={searchSessionIdRef}
               searchFeedbackContextRef={searchFeedbackContextRef}
+              onRequireLogin={onRequireLogin}
             />
           </div>
         ) : (
@@ -2179,7 +2198,7 @@ export default function PlacePreviewCard({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setShowSaveModal(true)}
+                  onClick={openSaveModal}
                   style={styles.saveOutlineButton}
                   title="내 저장 폴더에만 넣습니다. 공개 픽과 무관합니다."
                   aria-label="내 폴더에 저장"

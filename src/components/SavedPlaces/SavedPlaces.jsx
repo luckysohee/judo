@@ -23,6 +23,8 @@ export default function SavedPlaces({
   onDeleteFolder,
   loading = false,
   emptyHint = "",
+  requiresLogin = false,
+  onLoginRequest,
 }) {
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState(COLOR_OPTIONS[0]);
@@ -124,6 +126,24 @@ export default function SavedPlaces({
         </div>
 
         <div style={styles.content}>
+          {requiresLogin ? (
+            <div style={styles.loginGate}>
+              <div style={styles.loginTitle}>로그인이 필요해요</div>
+              <div style={styles.loginBody}>
+                로그인하면 홈에서 저장한 장소가 여기에 보여요.
+              </div>
+              {typeof onLoginRequest === "function" ? (
+                <button
+                  type="button"
+                  onClick={onLoginRequest}
+                  style={styles.loginButton}
+                >
+                  홈에서 로그인
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div>
           <div style={styles.manageSection}>
             <div style={styles.manageTitle}>폴더 만들기</div>
             <div style={styles.createRow}>
@@ -285,6 +305,8 @@ export default function SavedPlaces({
               );
             })
           )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -437,6 +459,32 @@ const styles = {
     color: "#bdbdbd",
     fontSize: "14px",
     padding: "12px 0",
+  },
+  loginGate: {
+    padding: "28px 12px 20px",
+    textAlign: "center",
+  },
+  loginTitle: {
+    fontSize: 17,
+    fontWeight: 800,
+    color: "#ffffff",
+    marginBottom: 8,
+  },
+  loginBody: {
+    fontSize: 14,
+    lineHeight: 1.55,
+    color: "rgba(255,255,255,0.72)",
+    marginBottom: 16,
+  },
+  loginButton: {
+    border: "none",
+    backgroundColor: "#2ECC71",
+    color: "#111",
+    borderRadius: 999,
+    padding: "10px 18px",
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: "pointer",
   },
   folderSection: {
     marginBottom: "18px",

@@ -10738,6 +10738,7 @@ const handleClearSearch = () => {
         getUserRole={getUserRole}
         canCheckIn={judoMode.canCheckIn}
         onSavedToSupabase={loadUserSavedPlaces}
+        onRequireLogin={requireLogin}
       />
 
       <div style={styles.page}>
@@ -11706,6 +11707,7 @@ const handleClearSearch = () => {
                 userLocation={currentLocation}
                 onShowArrivalWalkingOnMap={handleShowArrivalWalkingOnMap}
                 arrivalWalkingRouteShown={Boolean(arrivalWalkingOverlay)}
+                onRequireLogin={requireLogin}
                 courseIdHint={homeCheckinCourseIdHint}
                 onCourseStampProgress={handleHomeCheckinCourseStampProgress}
               />

@@ -33,6 +33,8 @@ export default function SaveModal({
   searchFeedbackContextRef = null,
   /** true: 장소 미리보기 카드 안에만 채움(전체 화면 X) */
   embeddedInPlaceCard = false,
+  /** 비로그인 저장 시 — alert 대신 홈 로그인 유도 */
+  onRequireLogin = null,
 }) {
   const [selectedFolders, setSelectedFolders] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -138,19 +140,29 @@ export default function SaveModal({
     });
   };
 
+  const requestLogin = () => {
+    if (typeof onRequireLogin === "function") {
+      onRequireLogin("save");
+      onClose?.();
+      return;
+    }
+    alert("로그인이 필요합니다.");
+  };
+
   const handleSave = async () => {
     if (selectedFolders.length === 0) {
       alert('최소 1개 폴더를 선택해주세요.');
       return;
     }
 
+    if (!user?.id) {
+      requestLogin();
+      return;
+    }
+
     setIsLoading(true);
     
     try {
-      if (!user?.id) {
-        alert('로그인이 필요합니다.');
-        return;
-      }
 
       const sessionId = searchSessionIdRef?.current ?? null;
       const folderRes = await upsertUserSavedPlaceFolders(supabase, {
@@ -203,12 +215,13 @@ export default function SaveModal({
     const name = newFolderName.trim();
     if (!name) return;
 
+    if (!user?.id) {
+      requestLogin();
+      return;
+    }
+
     setNewFolderSaving(true);
     try {
-      if (!user?.id) {
-        alert('로그인이 필요합니다.');
-        return;
-      }
       const authUser = user;
       const key = `custom_${Date.now()}`;
       const maxSo = Math.max(
