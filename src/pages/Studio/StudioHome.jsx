@@ -1555,6 +1555,7 @@ export default function StudioHome() {
   const mapRef = useRef(null); // 지도 ref 다시 추가
   /** 잔 리스트에서 「수정」으로 잔 올리기 탭에 올 때는 탭 전환 useEffect가 폼·editingPlaceId를 지우지 않도록 함 */
   const skipAddSectionResetRef = useRef(false);
+  const addPlaceSavingRef = useRef(false);
   /** 잔 리스트 탭 진입 시에만 내 저장 폴더 접기 (다른 탭↔리스트 전환 시 기본 접힘) */
   const prevActiveSectionForListFolderRef = useRef(null);
   /** 잔 아카이브 탭으로 전환할 때만 인사이트 RPC 재조회 (수정 저장은 길이 불변이라 기존 useEffect가 안 돎) */
@@ -1718,6 +1719,7 @@ export default function StudioHome() {
   const [addPlaceShowNewFolder, setAddPlaceShowNewFolder] = useState(false);
   const [addPlaceNewFolderName, setAddPlaceNewFolderName] = useState("");
   const [addPlaceNewFolderSaving, setAddPlaceNewFolderSaving] = useState(false);
+  const [addPlaceSaving, setAddPlaceSaving] = useState(false);
 
   // 수정 모드 상태
   const [editingPlaceId, setEditingPlaceId] = useState(null);
@@ -3158,6 +3160,7 @@ export default function StudioHome() {
   };
 
   const handleAddPlace = async (isDraft = false) => {
+    if (addPlaceSavingRef.current) return;
     try {
       const draftIdPublishedFrom = editingDraftId;
       const removePublishedDraft = () => {
@@ -3178,7 +3181,7 @@ export default function StudioHome() {
 
       // 필수 필드 확인
       if (!formData.name_address || !formData.latitude || !formData.longitude) {
-        alert("장소 이름과 위치를 선택해주세요.");
+        showToast("검색에서 장소를 골라 위치를 잡아 주세요.", "error", 2800);
         return;
       }
 
@@ -3196,7 +3199,7 @@ export default function StudioHome() {
         // 실제 저장인 경우 Supabase에 저장
         // 실제 인증된 사용자 ID 사용
         if (!user) {
-          alert("로그인이 필요합니다.");
+          showToast("로그인이 필요합니다.", "error", 2800);
           return;
         }
 
@@ -3208,9 +3211,12 @@ export default function StudioHome() {
 
         /** 신규 잔 올리기만 폴더 필수 — 수정은 폴더 로딩 실패·비워도 본문 저장 가능 */
         if (!effectiveEditPlaceId && addPlaceSelectedFolders.length === 0) {
-          alert("내 저장 폴더를 1개 이상 선택해주세요.");
+          showToast("내 저장 폴더를 1개 이상 선택해 주세요.", "error", 2800);
           return;
         }
+
+        addPlaceSavingRef.current = true;
+        setAddPlaceSaving(true);
 
         if (effectiveEditPlaceId) {
           // 수정 모드: UPDATE 사용
@@ -3285,7 +3291,7 @@ export default function StudioHome() {
           if (error) {
             console.error("❌ 장소 수정 오류:", error);
             console.error("❌ 에러 상세:", error.message, error.code, error.details);
-            alert(`장소 수정에 실패했습니다: ${error.message}`);
+            showToast(`장소 수정에 실패했습니다: ${error.message}`, "error", 4200);
             return;
           }
 
@@ -3360,10 +3366,12 @@ export default function StudioHome() {
 
           removePublishedDraft();
 
-          alert(
+          showToast(
             folderRes.ok
-              ? "장소가 성공적으로 수정되었습니다!"
-              : `장소는 수정되었습니다. 내 저장 폴더 연결: ${folderRes.message || "실패"}`
+              ? "장소를 수정했습니다."
+              : `장소는 수정했습니다. 폴더 연결: ${folderRes.message || "실패"}`,
+            folderRes.ok ? "success" : "info",
+            3200
           );
           
           // 수정 모드 종료
@@ -3450,7 +3458,11 @@ export default function StudioHome() {
               }
               if (!placeRow) {
                 console.error("❌ 장소 저장 오류:", placeError);
-                alert(`장소 저장에 실패했습니다: ${placeError.message}`);
+                showToast(
+                  `장소 저장에 실패했습니다: ${placeError.message}`,
+                  "error",
+                  4200
+                );
                 return;
               }
             } else {
@@ -3483,12 +3495,16 @@ export default function StudioHome() {
 
             if (curatorError) {
               console.error("❌ curator_places 저장 오류:", curatorError);
-              alert(`큐레이터 추천 저장에 실패했습니다: ${curatorError.message}`);
+              showToast(
+                `큐레이터 추천 저장에 실패했습니다: ${curatorError.message}`,
+                "error",
+                4200
+              );
               return;
             }
             if (!curatorData?.[0]?.id) {
               console.error("❌ curator_places 저장 후 행 없음");
-              alert("큐레이터 추천 저장에 실패했습니다.");
+              showToast("큐레이터 추천 저장에 실패했습니다.", "error", 3200);
               return;
             }
 
@@ -3506,8 +3522,10 @@ export default function StudioHome() {
                 console.warn("loadSavedFolders(신규 저장 후):", e)
               );
             } else {
-              alert(
-                `잔은 올라갔지만 내 저장 폴더 연결에 실패했습니다: ${folderRes.message || ""}`
+              showToast(
+                `잔은 올라갔지만 내 저장 폴더 연결에 실패했습니다: ${folderRes.message || ""}`,
+                "info",
+                4200
               );
             }
             const kakaoForPhotos =
@@ -3589,39 +3607,39 @@ export default function StudioHome() {
             }
 
             removePublishedDraft();
-          }
-          
-          // 폼 초기화
-          setFormData({
-            name_address: "",
-            category: "",
-            alcohol_type: "",
-            atmosphere: "",
-            recommended_menu: "",
-            menu_reason: "",
-            tags: [],
-            latitude: null,
-            longitude: null,
-            kakao_place_id: null,
-            is_public: true
-          });
-          setAddPlacePhotoFiles([]);
-          setAddPlaceSelectedFolders([]);
-          setAddPlaceShowNewFolder(false);
-          setAddPlaceNewFolderName("");
-          
-          setSearchedPlaces([]);
-          setMapCenter({ lat: 37.5665, lng: 126.9780 }); // 서울시청으로 리셋
-          setEditingPlaceId(null); // 수정 모드 종료
 
-          setHasUnsavedChanges(false);
-          setOriginalPlaceBeforeChange(null);
-          
-          // "잔 리스트" 탭으로 자동 이동
-          setActiveSection("list");
+            setFormData({
+              name_address: "",
+              category: "",
+              alcohol_type: "",
+              atmosphere: "",
+              recommended_menu: "",
+              menu_reason: "",
+              tags: [],
+              latitude: null,
+              longitude: null,
+              kakao_place_id: null,
+              is_public: true
+            });
+            setAddPlacePhotoFiles([]);
+            setAddPlaceSelectedFolders([]);
+            setAddPlaceShowNewFolder(false);
+            setAddPlaceNewFolderName("");
+            setSearchedPlaces([]);
+            setMapCenter({ lat: 37.5665, lng: 126.9780 });
+            setEditingPlaceId(null);
+            setHasUnsavedChanges(false);
+            setOriginalPlaceBeforeChange(null);
+            showToast("잔을 올렸습니다.", "success", 2200);
+            setActiveSection("list");
+          } else {
+            showToast("장소를 저장하지 못했습니다. 다시 시도해 주세요.", "error", 3200);
+          }
         }
       } else {
         // 임시저장인 경우
+        addPlaceSavingRef.current = true;
+        setAddPlaceSaving(true);
         const draftRowId = editingDraftId || `${Date.now()}`;
         const draftData = {
           id: draftRowId,
@@ -3679,7 +3697,7 @@ export default function StudioHome() {
           localStorage.removeItem('editing_place_id');
         }
         
-        alert("초안이 임시저장되었습니다.");
+        showToast("초안을 임시저장했습니다.", "success", 2200);
         
         // '잔 채우기' 탭으로 자동 이동
         setActiveSection("drafts");
@@ -3687,7 +3705,14 @@ export default function StudioHome() {
       
     } catch (error) {
       console.error("❌ 저장 오류:", error);
-      alert("저장 중 오류가 발생했습니다: " + error.message);
+      showToast(
+        "저장 중 오류가 발생했습니다: " + (error?.message || "다시 시도해 주세요."),
+        "error",
+        4200
+      );
+    } finally {
+      addPlaceSavingRef.current = false;
+      setAddPlaceSaving(false);
     }
   };
 
@@ -3706,7 +3731,7 @@ export default function StudioHome() {
     
     if (duplicate) {
       console.log("⚠️ 중복된 장소 (내 장소):", duplicate.name);
-      alert("이미 저장된 장소입니다.");
+      showToast("이미 올린 장소입니다.", "info", 2800);
       return true;
     }
     
@@ -4507,7 +4532,43 @@ export default function StudioHome() {
 
   return (
     <>
-    <StudioScrollLayout header={studioHeader} mainStyle={styles.studioScrollMain}>
+    <StudioScrollLayout
+      header={studioHeader}
+      mainStyle={styles.studioScrollMain}
+      footer={
+        activeSection === "add" ? (
+          <div style={styles.addPlaceSaveFooter}>
+            <button
+              type="button"
+              disabled={addPlaceSaving}
+              onClick={() => handleAddPlace(true)}
+              style={{
+                ...styles.addPlaceSaveFooterBtn,
+                backgroundColor: "#444",
+                opacity: addPlaceSaving ? 0.65 : 1,
+                cursor: addPlaceSaving ? "wait" : "pointer",
+              }}
+            >
+              임시저장
+            </button>
+            <button
+              type="button"
+              disabled={addPlaceSaving}
+              onClick={() => handleAddPlace(false)}
+              style={{
+                ...styles.addPlaceSaveFooterBtn,
+                backgroundColor: "#2ECC71",
+                color: "#111",
+                opacity: addPlaceSaving ? 0.65 : 1,
+                cursor: addPlaceSaving ? "wait" : "pointer",
+              }}
+            >
+              {addPlaceSaving ? "저장 중…" : "저장"}
+            </button>
+          </div>
+        ) : null
+      }
+    >
       {/* 잔 올리기 섹션 */}
       {activeSection === "add" && (
         <div style={styles.studioSectionInner}>
@@ -5144,41 +5205,8 @@ export default function StudioHome() {
             </p>
           </div>
 
-          {/* 버튼들 */}
-          <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
-            <button
-              onClick={() => handleAddPlace(true)}
-              style={{
-                padding: "9px 18px",
-                backgroundColor: "#666",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: 600,
-              }}
-              tabIndex={8}
-            >
-              임시저장
-            </button>
-            <button
-              onClick={() => handleAddPlace(false)}
-              style={{
-                padding: "9px 18px",
-                backgroundColor: "#2ECC71",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: 600,
-              }}
-              tabIndex={9}
-            >
-              저장
-            </button>
-          </div>
+          {/* 저장은 하단 고정 바에서 — 스크롤에 가리지 않음 */}
+          <div style={{ height: 8 }} />
         </div>
       )}
 
@@ -7686,6 +7714,25 @@ const styles = {
     minWidth: 0,
     padding: "0 4px",
     boxSizing: "border-box",
+  },
+  addPlaceSaveFooter: {
+    display: "flex",
+    gap: 8,
+    justifyContent: "center",
+    padding: "10px 16px max(12px, env(safe-area-inset-bottom, 0px))",
+    borderTop: "1px solid rgba(255,255,255,0.1)",
+    backgroundColor: "#111111",
+    boxSizing: "border-box",
+  },
+  addPlaceSaveFooterBtn: {
+    minHeight: 44,
+    minWidth: 96,
+    padding: "0 20px",
+    border: "none",
+    borderRadius: 10,
+    color: "white",
+    fontSize: 14,
+    fontWeight: 700,
   },
   archiveStatsGrid: {
     display: "grid",
