@@ -103,6 +103,8 @@ const styles = {
  *   effectiveDate?: string,
  *   operatorName?: string,
  *   sections: { title: string, body?: string[], list?: string[] }[],
+ *   footerNote?: string,
+ *   relatedLinks?: { to: string, label: string }[],
  * }} props
  */
 export default function LegalDocumentLayout({
@@ -111,8 +113,17 @@ export default function LegalDocumentLayout({
   effectiveDate,
   operatorName,
   sections,
+  footerNote,
+  relatedLinks,
 }) {
   const navigate = useNavigate();
+  const note =
+    footerNote ||
+    "본 문서는 서비스 이용을 위한 기본 약관입니다. 개인정보 처리에 관한 상세 내용은 「개인정보 처리방침」을 확인해 주세요.";
+  const links =
+    Array.isArray(relatedLinks) && relatedLinks.length > 0
+      ? relatedLinks
+      : [{ to: "/privacy", label: "개인정보 처리방침 보기" }];
 
   return (
     <div style={styles.page}>
@@ -160,8 +171,23 @@ export default function LegalDocumentLayout({
         ))}
 
         <footer style={styles.footer}>
-          본 문서는 서비스 이용을 위한 기본 약관입니다. 개인정보 처리방침은 별도
-          공지 시 서비스 내에서 확인할 수 있습니다.
+          <p style={{ margin: "0 0 10px" }}>{note}</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {links.map((link) => (
+              <Link
+                key={`${link.to}-${link.label}`}
+                to={link.to}
+                style={{
+                  color: "rgba(255,255,255,0.7)",
+                  textDecoration: "underline",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
         </footer>
       </main>
     </div>
@@ -172,6 +198,27 @@ export default function LegalDocumentLayout({
 export function LegalTermsLink({
   to = "/terms",
   label = "이용약관",
+  style = {},
+}) {
+  return (
+    <Link
+      to={to}
+      style={{
+        color: "rgba(255,255,255,0.45)",
+        fontSize: 11,
+        textDecoration: "underline",
+        ...style,
+      }}
+    >
+      {label}
+    </Link>
+  );
+}
+
+/** @param {{ to?: string, label?: string, style?: object }} props */
+export function LegalPrivacyLink({
+  to = "/privacy",
+  label = "개인정보 처리방침",
   style = {},
 }) {
   return (
