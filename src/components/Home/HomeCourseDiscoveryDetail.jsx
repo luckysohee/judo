@@ -795,31 +795,7 @@ export default function HomeCourseDiscoveryDetail({
               {metricLine.emoji} {metricLine.text}
             </p>
           ) : null}
-          {thumbSteps.length > 0 ? (
-            <div style={{ marginTop: 10 }}>
-              <p style={styles.sectionLabel}>코스 장소</p>
-              {user?.id && !courseCompleted ? (
-                <p style={styles.stampGuide}>{HOME_COURSE_PREVIEW_STAMP_GUIDE}</p>
-              ) : null}
-              <CoursePreviewPlaceStampRow
-                steps={thumbSteps}
-                courseId={courseId}
-                courseDescription={course.description}
-                stampEnabled={Boolean(user?.id) && !courseCompleted}
-                following={followingThisPreview}
-                stampedPlaceIds={stampedSet}
-                guideStepIndex={guideStepIndex}
-                courseCompleted={courseCompleted}
-                user={user}
-                followBusy={followBusy || stampStateLoading}
-                onStartFollow={onStartFollow}
-                onStampStateRefresh={handleStampRefresh}
-                replayBusy={replayBusy}
-                onReplayStamps={onReplayStamps}
-                stampStateVersion={stampStateVersion}
-              />
-            </div>
-          ) : null}
+          {/* 맛집첩(HomeListDiscoveryDetail)과 동일 — 제목·메타 직후, 장소 목록보다 위 */}
           <div style={styles.actionRow}>
             <button
               type="button"
@@ -892,6 +868,31 @@ export default function HomeCourseDiscoveryDetail({
               </button>
             )}
           </div>
+          {thumbSteps.length > 0 ? (
+            <div style={{ marginTop: 10 }}>
+              <p style={styles.sectionLabel}>코스 장소</p>
+              {user?.id && !courseCompleted ? (
+                <p style={styles.stampGuide}>{HOME_COURSE_PREVIEW_STAMP_GUIDE}</p>
+              ) : null}
+              <CoursePreviewPlaceStampRow
+                steps={thumbSteps}
+                courseId={courseId}
+                courseDescription={course.description}
+                stampEnabled={Boolean(user?.id) && !courseCompleted}
+                following={followingThisPreview}
+                stampedPlaceIds={stampedSet}
+                guideStepIndex={guideStepIndex}
+                courseCompleted={courseCompleted}
+                user={user}
+                followBusy={followBusy || stampStateLoading}
+                onStartFollow={onStartFollow}
+                onStampStateRefresh={handleStampRefresh}
+                replayBusy={replayBusy}
+                onReplayStamps={onReplayStamps}
+                stampStateVersion={stampStateVersion}
+              />
+            </div>
+          ) : null}
         </div>
 
         {course.theme_tags?.length > 0 ? (
