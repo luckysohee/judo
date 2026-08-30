@@ -8,7 +8,7 @@ export const LEGAL = {
   /** 사업자명 또는 운영 주체 (예: 주식회사 ○○) */
   operatorName: "주도 서비스 운영팀",
   /** 고객·개인정보 관련 문의 이메일 */
-  contactEmail: "support@judo.app",
+  contactEmail: "lucky.sohee.jang@gmail.com",
   /** 개인정보 보호 책임자(미정 시 운영 주체와 동일하게 표시) */
   privacyOfficer: "주도 서비스 운영팀",
   /** 이용약관 시행일 (표시용) */
