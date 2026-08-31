@@ -15,8 +15,11 @@ import CheckinButton from "../CheckinButton/CheckinButton";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
 import SaveModal from "../SaveModal/SaveModal";
+import ContentSafetyMenu from "../Safety/ContentSafetyMenu";
 import { useToast } from "../Toast/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
+import { shareOrCopy } from "../../lib/native/share";
+import { pickImageFile } from "../../lib/native/camera";
 import { getKakaoPlaceBasicInfoViaProxy } from "../../utils/kakaoAPIProxy";
 import { fetchPlacePhotos } from "../../api/placePhotos";
 import { fetchKakaoPlaceOg } from "../../api/kakaoPlaceOg";
@@ -1238,26 +1241,22 @@ export default function PlacePreviewCard({
     );
   }, [checkinWgs, userLocation, showToast, onShowArrivalWalkingOnMap]);
 
-  const handleShare = (place) => {
+  const handleShare = async (place) => {
     const shareUrl = `${window.location.origin}/place/${place.id}`;
     const shareText = `${place.name} - ${place.curators?.join(', ')} 추천 장소!`;
-    
-    if (navigator.share) {
-      // 모바일 공유 기능
-      navigator.share({
+    try {
+      const r = await shareOrCopy({
         title: place.name,
         text: shareText,
-        url: shareUrl
-      }).catch(err => console.log('공유 실패:', err));
-    } else {
-      // 클립보드 복사
-      navigator.clipboard.writeText(`${shareText}\n${shareUrl}`).then(() => {
-        alert('링크가 복사되었습니다!');
-      }).catch(err => {
-        console.error('클립보드 복사 실패:', err);
-        // 폴백: 프롬프트로 보여주기
-        prompt('링크를 복사하세요:', `${shareText}\n${shareUrl}`);
+        url: shareUrl,
+        dialogTitle: "장소 공유",
       });
+      if (r === "clipboard") {
+        showToast("링크를 복사했어요.", "success", 2400);
+      }
+    } catch (err) {
+      console.error("공유 실패:", err);
+      window.prompt("링크를 복사하세요:", `${shareText}\n${shareUrl}`);
     }
   };
 
@@ -1459,11 +1458,33 @@ export default function PlacePreviewCard({
                 <button
                   type="button"
                   disabled={curatorPhotoUploading}
-                  onClick={() => curatorPhotoInputRef.current?.click()}
+                  onClick={async () => {
+                    const nativeFile = await pickImageFile("photos");
+                    if (nativeFile) {
+                      await handleCuratorPhotoFileChange({
+                        target: { files: [nativeFile] },
+                      });
+                      return;
+                    }
+                    curatorPhotoInputRef.current?.click();
+                  }}
                   style={styles.curatorPhotoUploadBtn}
                 >
                   {curatorPhotoUploading ? "업로드 중…" : "사진 올리기"}
                 </button>
+                <ContentSafetyMenu
+                  targetType="place"
+                  targetId={String(place.id || "")}
+                  targetOwnerId={
+                    String(curatorPlace?.curator_id || "").trim() || null
+                  }
+                  targetLabel="장소"
+                  compact
+                  buttonStyle={{
+                    ...styles.headerShareBtn,
+                    marginRight: 0,
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() => handleShare(place)}
@@ -1485,6 +1506,19 @@ export default function PlacePreviewCard({
               </div>
             ) : (
               <div style={styles.headerPhotoCloseCluster}>
+                <ContentSafetyMenu
+                  targetType="place"
+                  targetId={String(place.id || "")}
+                  targetOwnerId={
+                    String(curatorPlace?.curator_id || "").trim() || null
+                  }
+                  targetLabel="장소"
+                  compact
+                  buttonStyle={{
+                    ...styles.headerShareBtn,
+                    marginRight: 0,
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() => handleShare(place)}

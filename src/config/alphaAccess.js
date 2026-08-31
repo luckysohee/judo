@@ -6,5 +6,5 @@ export function isAlphaAllowlistEnabled() {
   return String(import.meta.env.VITE_ALPHA_ALLOWLIST_ENABLED || "").trim() === "true";
 }
 
-/** 약관 등 비로그인에서도 열어 둘 경로 */
-export const ALPHA_GATE_PUBLIC_PATHS = ["/terms"];
+/** 약관·안전 안내 등 비로그인에서도 열어 둘 경로 */
+export const ALPHA_GATE_PUBLIC_PATHS = ["/terms", "/safety"];

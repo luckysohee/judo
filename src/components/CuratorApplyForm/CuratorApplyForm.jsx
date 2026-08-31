@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import { LegalTermsLink } from "../Legal/LegalDocumentLayout";
+import LegalConsentCheckbox from "../Safety/LegalConsentCheckbox";
 
 export default function CuratorApplyForm() {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ export default function CuratorApplyForm() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   /** 최신 신청이 반려였을 때 관리자 사유 (재작성 참고) */
   const [lastRejectionReason, setLastRejectionReason] = useState("");
 
@@ -70,6 +72,11 @@ export default function CuratorApplyForm() {
 
     if (!contact.trim()) {
       setErrorMessage("연락처 또는 SNS 계정을 입력해 주세요.");
+      return;
+    }
+
+    if (!agreed) {
+      setErrorMessage("이용약관에 동의해 주세요.");
       return;
     }
 
@@ -198,6 +205,15 @@ export default function CuratorApplyForm() {
           입력하신 연락처·SNS는 큐레이터 신청 검토·안내 목적으로만 사용되며, 제3자에게
           제공하지 않습니다.{" "}
           <LegalTermsLink style={{ color: "#aaa" }} />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <LegalConsentCheckbox
+            id="curator-apply-legal-consent"
+            checked={agreed}
+            onChange={setAgreed}
+            style={{ color: "#ccc" }}
+          />
         </div>
 
         {lastRejectionReason ? (
