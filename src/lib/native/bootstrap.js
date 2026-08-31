@@ -1,14 +1,15 @@
 import { isNativePlatform, getNativePlatform } from "./platform";
 
 /**
- * 앱 부팅 시 네이티브 셸 초기화 (StatusBar, Splash, Push 등록 시도).
+ * 앱 부팅 시 네이티브 셸 초기화 (StatusBar, Splash).
+ * 푸시 권한은 기능 출시 전까지 부팅 시 요청하지 않습니다 (과도한 권한 예방).
  * 웹에서는 no-op.
  */
 export async function bootstrapNativeShell() {
   if (!isNativePlatform()) return { platform: "web" };
 
   const platform = getNativePlatform();
-  const result = { platform, statusBar: false, splash: false, push: false };
+  const result = { platform, statusBar: false, splash: false };
 
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
@@ -31,46 +32,6 @@ export async function bootstrapNativeShell() {
     result.splash = true;
   } catch (e) {
     if (import.meta.env.DEV) console.warn("[native] SplashScreen:", e);
-  }
-
-  try {
-    const { PushNotifications } = await import("@capacitor/push-notifications");
-    const perm = await PushNotifications.checkPermissions();
-    let receive = perm.receive;
-    if (receive === "prompt" || receive === "prompt-with-rationale") {
-      const req = await PushNotifications.requestPermissions();
-      receive = req.receive;
-    }
-    if (receive === "granted") {
-      await PushNotifications.register();
-      result.push = true;
-    }
-
-    PushNotifications.addListener("registration", (token) => {
-      try {
-        localStorage.setItem(
-          "judo_push_token",
-          JSON.stringify({
-            value: token?.value || "",
-            platform,
-            at: new Date().toISOString(),
-          })
-        );
-      } catch {
-        /* ignore */
-      }
-      if (import.meta.env.DEV) {
-        console.info("[native] push token registered");
-      }
-    });
-
-    PushNotifications.addListener("registrationError", (err) => {
-      if (import.meta.env.DEV) {
-        console.warn("[native] push registrationError", err);
-      }
-    });
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn("[native] PushNotifications:", e);
   }
 
   try {

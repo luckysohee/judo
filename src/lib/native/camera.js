@@ -1,11 +1,12 @@
 import { isNativePlatform } from "./platform";
 
 /**
- * 네이티브 카메라/갤러리 → File 객체 (웹은 null → 호출측 input 사용).
- * @param {'camera'|'photos'} [source]
+ * 네이티브 사진 보관함에서 이미지 선택 → File.
+ * 카메라(촬영) 권한은 사용하지 않습니다 — 갤러리만.
+ * 웹은 null → 호출측 `<input type="file">` 사용.
  * @returns {Promise<File|null>}
  */
-export async function pickImageFile(source = "photos") {
+export async function pickImageFile() {
   if (!isNativePlatform()) return null;
 
   try {
@@ -16,7 +17,7 @@ export async function pickImageFile(source = "photos") {
       quality: 85,
       allowEditing: false,
       resultType: CameraResultType.Uri,
-      source: source === "camera" ? CameraSource.Camera : CameraSource.Photos,
+      source: CameraSource.Photos,
     });
 
     const path = photo?.webPath || photo?.path;

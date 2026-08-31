@@ -1459,7 +1459,7 @@ export default function PlacePreviewCard({
                   type="button"
                   disabled={curatorPhotoUploading}
                   onClick={async () => {
-                    const nativeFile = await pickImageFile("photos");
+                    const nativeFile = await pickImageFile();
                     if (nativeFile) {
                       await handleCuratorPhotoFileChange({
                         target: { files: [nativeFile] },
