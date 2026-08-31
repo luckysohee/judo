@@ -34,7 +34,32 @@ export default function BlockedUsersPanel({ style }) {
     void reload();
   }, [reload]);
 
-  if (!user?.id) return null;
+  if (!user?.id) {
+    return (
+      <div style={style}>
+        <h3
+          style={{
+            margin: "0 0 8px",
+            fontSize: 15,
+            fontWeight: 800,
+            color: "#fff",
+          }}
+        >
+          차단한 사용자
+        </h3>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: "rgba(255,255,255,0.5)",
+            lineHeight: 1.45,
+          }}
+        >
+          로그인하면 차단한 사용자를 확인하고 해제할 수 있어요.
+        </p>
+      </div>
+    );
+  }
 
   const handleUnblock = async (blockedId) => {
     setBusyId(blockedId);
