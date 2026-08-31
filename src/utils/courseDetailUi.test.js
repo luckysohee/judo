@@ -78,7 +78,7 @@ describe("shareOrCopyCourseLink", () => {
       title: "T",
     });
     expect(r).toBe("clipboard");
-    expect(wt).toHaveBeenCalledWith("https://example.com/c");
+    expect(wt).toHaveBeenCalledWith("T\nhttps://example.com/c");
   });
 
   it("uses share when available", async () => {

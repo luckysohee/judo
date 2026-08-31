@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { LegalTermsLink } from '../Legal/LegalDocumentLayout';
+import LegalConsentCheckbox from '../Safety/LegalConsentCheckbox';
 
 const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
+  const [agreed, setAgreed] = useState(false);
+
   const getFeatureInfo = (featureType) => {
     const features = {
       follow: {
@@ -72,6 +74,19 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
 
   const featureInfo = getFeatureInfo(feature);
 
+  const handleLogin = () => {
+    if (!agreed) {
+      window.alert('계속하려면 이용약관에 동의해 주세요.');
+      return;
+    }
+    try {
+      sessionStorage.setItem('judo_pending_legal_consent', '1');
+    } catch {
+      /* ignore */
+    }
+    onLogin?.();
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -99,7 +114,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
       >
-        {/* 아이콘 */}
         <div style={{
           fontSize: '48px',
           marginBottom: '20px'
@@ -107,7 +121,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
           {featureInfo.icon}
         </div>
 
-        {/* 제목 */}
         <h2 style={{
           color: '#ffffff',
           fontSize: '24px',
@@ -118,7 +131,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
           {featureInfo.title}
         </h2>
 
-        {/* 설명 */}
         <p style={{
           color: 'rgba(255,255,255,0.7)',
           fontSize: '16px',
@@ -129,7 +141,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
           {featureInfo.description}
         </p>
 
-        {/* 혜택 */}
         <div style={{
           marginBottom: '30px',
           textAlign: 'left'
@@ -158,29 +169,36 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
           ))}
         </div>
 
-        {/* 버튼 */}
+        <div style={{ marginBottom: 16, textAlign: 'left' }}>
+          <LegalConsentCheckbox
+            id="feature-login-legal-consent"
+            checked={agreed}
+            onChange={setAgreed}
+          />
+        </div>
+
         <div style={{
           display: 'flex',
           gap: '12px'
         }}>
           <motion.button
             type="button"
-            onClick={onLogin}
+            onClick={handleLogin}
             style={{
               flex: 1,
               padding: '10px 14px',
               borderRadius: '10px',
               border: 'none',
-              backgroundColor: '#3498db',
+              backgroundColor: agreed ? '#3498db' : 'rgba(52,152,219,0.4)',
               color: '#ffffff',
               fontSize: '13px',
               fontWeight: '600',
               lineHeight: 1.35,
               whiteSpace: 'pre-line',
-              cursor: 'pointer'
+              cursor: agreed ? 'pointer' : 'not-allowed'
             }}
-            whileHover={{ backgroundColor: '#2980b9' }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={agreed ? { backgroundColor: '#2980b9' } : undefined}
+            whileTap={agreed ? { scale: 0.95 } : undefined}
           >
             {"로그인하고\n이용하기"}
           </motion.button>
@@ -208,7 +226,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
           </motion.button>
         </div>
 
-        {/* 안내 메시지 */}
         <div style={{
           marginTop: '20px',
           padding: '12px',
@@ -225,16 +242,6 @@ const FeatureLoginPrompt = ({ feature, onClose, onLogin }) => {
             💡 Google, Kakao 계정으로 간편하게 로그인 가능합니다
           </p>
         </div>
-
-        <p style={{ margin: '14px 0 0', textAlign: 'center' }}>
-          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginRight: 6 }}>
-            로그인 시
-          </span>
-          <LegalTermsLink />
-          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginLeft: 6 }}>
-            에 동의한 것으로 봅니다
-          </span>
-        </p>
       </motion.div>
     </div>
   );

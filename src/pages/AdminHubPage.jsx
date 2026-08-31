@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { countAlphaSurveyResponses } from "../api/alphaSurvey";
+import { countPendingContentReports } from "../api/contentReports";
 import { adminTopNavButtonStyle } from "../styles/adminTopNavButton";
 
 const styles = {
@@ -122,6 +123,7 @@ export default function AdminHubPage() {
     gradeQueue: null,
     curatorCount: null,
     alphaSurveyCount: null,
+    pendingReports: null,
     loading: true,
   });
 
@@ -148,7 +150,7 @@ export default function AdminHubPage() {
         }
       };
 
-      const [pendingApps, gradeQueue, curatorCount, alphaSurveyCount] =
+      const [pendingApps, gradeQueue, curatorCount, alphaSurveyCount, pendingReports] =
         await Promise.all([
         safeCount(
           supabase
@@ -166,6 +168,7 @@ export default function AdminHubPage() {
           supabase.from("curators").select("*", { count: "exact", head: true })
         ),
         countAlphaSurveyResponses(),
+        countPendingContentReports(),
       ]);
 
       if (!cancelled) {
@@ -174,6 +177,7 @@ export default function AdminHubPage() {
           gradeQueue,
           curatorCount,
           alphaSurveyCount,
+          pendingReports,
           loading: false,
         });
       }
@@ -311,6 +315,39 @@ export default function AdminHubPage() {
             title="제출 응답 수"
           >
             {formatBadge(stats.alphaSurveyCount)}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          style={styles.card}
+          onClick={() => navigate("/admin/reports")}
+          onMouseOver={(e) => {
+            e.currentTarget.style.borderColor = "rgba(248, 113, 113, 0.4)";
+            e.currentTarget.style.backgroundColor = "#221414";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.borderColor = "#2a2a2a";
+            e.currentTarget.style.backgroundColor = "#171717";
+          }}
+        >
+          <div style={styles.cardMain}>
+            <div style={styles.cardTitle}>UGC 신고 큐</div>
+            <div style={styles.cardDesc}>
+              콘텐츠·계정 신고 검토 · 숨김/기각 (Guideline 1.2)
+            </div>
+          </div>
+          <span
+            style={{
+              ...styles.badge,
+              ...(typeof stats.pendingReports === "number" &&
+              stats.pendingReports > 0
+                ? styles.badgeWarn
+                : styles.badgeMuted),
+            }}
+            title="대기 중 신고"
+          >
+            대기 {formatBadge(stats.pendingReports)}
           </span>
         </button>
 

@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -22,6 +22,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="judo" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -35,7 +42,24 @@
         </provider>
     </application>
 
-    <!-- Permissions -->
-
+    <!--
+      권한은 핵심 기능에만 선언합니다. (Play: 과도한 권한 거부 예방)
+      - 위치: 주변 검색 · 한잔(체크인) GPS 거리 검증
+      - 사진 읽기: 큐레이터 장소/프로필 이미지 업로드 (갤러리)
+      - CAMERA / SMS / CONTACTS / POST_NOTIFICATIONS 등은 사용하지 않음
+      상세: docs/play-data-safety.md
+    -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Android 13+ 갤러리 (장소·프로필 사진). 카메라 촬영 권한은 없음. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Android 12 이하 갤러리 -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
 </manifest>

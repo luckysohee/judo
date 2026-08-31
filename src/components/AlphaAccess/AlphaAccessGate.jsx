@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ALPHA_GATE_PUBLIC_PATHS } from "../../config/alphaAccess";
 import { useAlphaAccess } from "../../hooks/useAlphaAccess";
 import { LEGAL } from "../../config/legal";
+import LegalConsentCheckbox from "../Safety/LegalConsentCheckbox";
 
 const shellStyle = {
   minHeight: "100dvh",
@@ -55,6 +57,20 @@ function GateLoading() {
 
 function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }) {
   const isLogin = mode === "login";
+  const [agreed, setAgreed] = useState(false);
+
+  const requireAgree = (fn) => {
+    if (!agreed) {
+      window.alert("계속하려면 이용약관에 동의해 주세요.");
+      return;
+    }
+    try {
+      sessionStorage.setItem("judo_pending_legal_consent", "1");
+    } catch {
+      /* ignore */
+    }
+    fn?.();
+  };
 
   return (
     <div style={shellStyle}>
@@ -89,13 +105,23 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
           </>
         )}
       </p>
+      {isLogin ? (
+        <div style={{ width: "min(100%, 280px)", textAlign: "left" }}>
+          <LegalConsentCheckbox checked={agreed} onChange={setAgreed} />
+        </div>
+      ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "min(100%, 280px)" }}>
         {isLogin ? (
           <>
             <button
               type="button"
-              style={{ ...btnBase, background: "#fff", color: "#111" }}
-              onClick={() => onGoogleLogin?.()}
+              style={{
+                ...btnBase,
+                background: agreed ? "#fff" : "rgba(255,255,255,0.35)",
+                color: "#111",
+                cursor: agreed ? "pointer" : "not-allowed",
+              }}
+              onClick={() => requireAgree(() => onGoogleLogin?.())}
             >
               Google로 계속
             </button>
@@ -103,10 +129,11 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
               type="button"
               style={{
                 ...btnBase,
-                background: "#FEE500",
+                background: agreed ? "#FEE500" : "rgba(254,229,0,0.35)",
                 color: "#191919",
+                cursor: agreed ? "pointer" : "not-allowed",
               }}
-              onClick={() => onKakaoLogin?.()}
+              onClick={() => requireAgree(() => onKakaoLogin?.())}
             >
               Kakao로 계속
             </button>
@@ -121,17 +148,28 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
           </button>
         )}
       </div>
-      <Link
-        to="/terms"
-        style={{
-          marginTop: 8,
-          fontSize: 13,
-          color: "rgba(255,255,255,0.45)",
-          textDecoration: "underline",
-        }}
-      >
-        이용약관
-      </Link>
+      <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+        <Link
+          to="/terms"
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.45)",
+            textDecoration: "underline",
+          }}
+        >
+          이용약관
+        </Link>
+        <Link
+          to="/safety"
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.45)",
+            textDecoration: "underline",
+          }}
+        >
+          신고·차단 안내
+        </Link>
+      </div>
     </div>
   );
 }
