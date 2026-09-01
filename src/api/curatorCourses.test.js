@@ -15,4 +15,12 @@ describe("curatorCourses API", () => {
       "function"
     );
   });
+
+  it("duplicateCuratorCourseToMine is blocked in favor of scrap", async () => {
+    await expect(
+      curatorCourses.duplicateCuratorCourseToMine(
+        "00000000-0000-4000-8000-000000000001"
+      )
+    ).rejects.toThrow(/스크랩/);
+  });
 });
