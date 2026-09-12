@@ -547,110 +547,45 @@ export async function publishCuratorCourse(courseId) {
   const id = assertUuid(courseId, "publishCuratorCourse.courseId");
   await assertCourseEditable(id, "[코스 공개 실패]");
 
-  const { count, error: cErr } = await supabase
-    .from("curator_course_places")
-    .select("id", { count: "exact", head: true })
-    .eq("course_id", id);
-  throwIfSupabaseError(cErr, "[코스 공개 실패: 스텝 수 조회]");
-
-  const n = typeof count === "number" ? count : 0;
-  if (n < 2) {
-    const err = new Error("코스는 최소 2개 이상의 장소가 필요합니다.");
+  const { data, error } = await supabase.rpc("publish_curator_course", {
+    p_course_id: id,
+  });
+  if (error) {
+    const msg = String(error.message || "");
+    if (msg.includes("같은 장소 순서")) {
+      const err = new Error(
+        "이미 같은 장소 순서의 공개 코스가 있어요. 코스 스크랩 기능을 이용해 주세요."
+      );
+      console.error("[코스 공개 실패]", err);
+      throw err;
+    }
+    if (msg.includes("최소 2개")) {
+      const err = new Error("코스는 최소 2개 이상의 장소가 필요합니다.");
+      console.error("[코스 공개 실패]", err);
+      throw err;
+    }
+    throwIfSupabaseError(error, "[코스 공개 실패]");
+  }
+  if (!data || typeof data !== "object") {
+    const err = new Error("코스 공개에 실패했습니다.");
     console.error("[코스 공개 실패]", err);
     throw err;
   }
-
-  const { data, error } = await supabase
-    .from("curator_courses")
-    .update({ status: "published", is_public: true })
-    .eq("id", id)
-    .select()
-    .single();
-  throwIfSupabaseError(error, "[코스 공개 실패]");
   return data;
 }
 
 /**
- * 공개 코스 → 내 계정의 draft 복사본 (스텝 동일 순서).
+ * @deprecated 타인 코스는 편집 가능한 복사본으로 만들 수 없습니다. `importPublicCuratorCourseSnapshot` 사용.
  * @param {string} courseId
- * @returns {Promise<string>} 새 course id
+ * @returns {Promise<string>}
  */
 export async function duplicateCuratorCourseToMine(courseId) {
-  const id = assertUuid(courseId, "duplicateCuratorCourseToMine.courseId");
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user?.id) {
-    const err = new Error("duplicateCuratorCourseToMine: not authenticated");
-    console.error("[코스 복제 실패]", err);
-    throw err;
-  }
-
-  const src = await fetchCuratorCourseById(id);
-  if (!src) {
-    const err = new Error("duplicateCuratorCourseToMine: course not found");
-    console.error("[코스 복제 실패]", err);
-    throw err;
-  }
-  if (!(src.status === "published" && src.is_public)) {
-    const err = new Error(
-      "duplicateCuratorCourseToMine: only published public courses can be duplicated"
-    );
-    console.error("[코스 복제 실패]", err);
-    throw err;
-  }
-
-  const baseTitle = String(src.title ?? "").trim() || "제목 없음";
-  const newTitle = `[복사] ${baseTitle}`;
-
-  const { data: created, error: insErr } = await supabase
-    .from("curator_courses")
-    .insert({
-      curator_id: user.id,
-      title: newTitle,
-      description: src.description ?? null,
-      area: src.area ?? null,
-      theme_tags: Array.isArray(src.theme_tags) ? src.theme_tags : [],
-      cover_image_url: src.cover_image_url ?? null,
-      status: "draft",
-      is_public: false,
-    })
-    .select("id")
-    .single();
-  throwIfSupabaseError(insErr, "[코스 복제 실패: 코스 생성]");
-  const newId = created?.id;
-  if (!newId) {
-    const err = new Error("duplicateCuratorCourseToMine: missing new id");
-    console.error("[코스 복제 실패]", err);
-    throw err;
-  }
-
-  const steps = Array.isArray(src.curator_course_places)
-    ? src.curator_course_places
-    : [];
-  if (steps.length === 0) {
-    const err = new Error("duplicateCuratorCourseToMine: source has no places");
-    console.error("[코스 복제 실패]", err);
-    throw err;
-  }
-
-  const placeRows = steps
-    .slice()
-    .sort((a, b) => Number(a.order_index) - Number(b.order_index))
-    .map((s) => ({
-      place_id: s.place_id,
-      order_index: Number(s.order_index) || 0,
-      memo: s.memo ?? null,
-      image_url: s.image_url ?? null,
-      stay_minutes:
-        s.stay_minutes == null
-          ? null
-          : Math.max(0, Math.floor(Number(s.stay_minutes))),
-    }));
-
-  await saveCuratorCoursePlaces(newId, placeRows);
-  return newId;
+  assertUuid(courseId, "duplicateCuratorCourseToMine.courseId");
+  const err = new Error(
+    "다른 사람 코스는 그대로 복제할 수 없어요. 코스 스크랩으로 내 목록에만 저장할 수 있어요."
+  );
+  console.error("[코스 복제 차단]", err);
+  throw err;
 }
 
 /*
@@ -675,6 +610,5 @@ export async function duplicateCuratorCourseToMine(courseId) {
   ]);
   await publishCuratorCourse(course.id);
 
-  동시성·토큰 단일화가 필요하면 나중에 RPC `publish_curator_course(p_course_id uuid)` 로
-  COUNT+UPDATE 를 한 트랜잭션에서 처리하는 마이그레이션을 추가하는 것을 권장.
+  동시성·중복 검사는 DB RPC `publish_curator_course(p_course_id uuid)` 에서 처리합니다.
 */

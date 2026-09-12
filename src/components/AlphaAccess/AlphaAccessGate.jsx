@@ -148,7 +148,15 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
           </button>
         )}
       </div>
-      <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+      <div
+        style={{
+          marginTop: 8,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          justifyContent: "center",
+        }}
+      >
         <Link
           to="/terms"
           style={{
@@ -158,6 +166,16 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
           }}
         >
           이용약관
+        </Link>
+        <Link
+          to="/privacy"
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.45)",
+            textDecoration: "underline",
+          }}
+        >
+          개인정보 처리방침
         </Link>
         <Link
           to="/safety"
