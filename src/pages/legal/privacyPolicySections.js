@@ -156,6 +156,10 @@ export const PRIVACY_POLICY_SECTIONS = [
     list: [
       `개인정보 보호책임자: ${LEGAL.privacyOfficer}`,
       `문의 이메일: ${LEGAL.contactEmail}`,
+      ...(LEGAL.businessRegistrationNumber
+        ? [`사업자등록번호: ${LEGAL.businessRegistrationNumber}`]
+        : []),
+      ...(LEGAL.businessAddress ? [`사업장 주소: ${LEGAL.businessAddress}`] : []),
     ],
   },
   {
