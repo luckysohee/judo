@@ -1,7 +1,9 @@
 # Play Console — Data Safety & 권한 제출 가이드 (주도 / JUDO)
 
 Google Play **데이터 보안(Data Safety)** 양식과 `AndroidManifest.xml` 권한이  
-실제 앱·SDK 동작과 일치하도록 작성할 때 쓰는 체크리스트입니다.
+실제 앱·SDK 동작과 일치하도록 작성할 때 쓰는 가이드입니다.
+
+전체 제출 순서: [`docs/store-submission-checklist.md`](./store-submission-checklist.md)
 
 최종 갱신: 코드 기준 `@capacitor/push-notifications`·카메라 촬영 권한 **미사용**.
 
