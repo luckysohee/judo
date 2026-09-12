@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
-import { LegalTermsLink } from "../Legal/LegalDocumentLayout";
+import { LegalPrivacyLink, LegalTermsLink } from "../Legal/LegalDocumentLayout";
 
 export default function CuratorApplyForm() {
   const navigate = useNavigate();
@@ -198,6 +198,8 @@ export default function CuratorApplyForm() {
           입력하신 연락처·SNS는 큐레이터 신청 검토·안내 목적으로만 사용되며, 제3자에게
           제공하지 않습니다.{" "}
           <LegalTermsLink style={{ color: "#aaa" }} />
+          {" · "}
+          <LegalPrivacyLink style={{ color: "#aaa" }} />
         </div>
 
         {lastRejectionReason ? (

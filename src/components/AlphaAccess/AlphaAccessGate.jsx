@@ -121,17 +121,36 @@ function AlphaAccessWall({ mode, email, onGoogleLogin, onKakaoLogin, onSignOut }
           </button>
         )}
       </div>
-      <Link
-        to="/terms"
+      <div
         style={{
           marginTop: 8,
-          fontSize: 13,
-          color: "rgba(255,255,255,0.45)",
-          textDecoration: "underline",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          justifyContent: "center",
         }}
       >
-        이용약관
-      </Link>
+        <Link
+          to="/terms"
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.45)",
+            textDecoration: "underline",
+          }}
+        >
+          이용약관
+        </Link>
+        <Link
+          to="/privacy"
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.45)",
+            textDecoration: "underline",
+          }}
+        >
+          개인정보 처리방침
+        </Link>
+      </div>
     </div>
   );
 }
