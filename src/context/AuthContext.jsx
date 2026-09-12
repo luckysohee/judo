@@ -4,6 +4,20 @@ import { supabase } from "../lib/supabase";
 import { syncAuthProviderToProfile } from "../lib/syncAuthProviderToProfile";
 import { getAuthOAuthRedirectUrl } from "../utils/authRedirectUrl";
 import { oauthQueryParamsForDevFreshLogin } from "../lib/authDevFreshLogin.js";
+import { recordLegalConsent } from "../api/legalConsent";
+
+const PENDING_LEGAL_KEY = "judo_pending_legal_consent";
+
+function flushPendingLegalConsent(userId) {
+  if (!userId) return;
+  try {
+    if (sessionStorage.getItem(PENDING_LEGAL_KEY) !== "1") return;
+    sessionStorage.removeItem(PENDING_LEGAL_KEY);
+  } catch {
+    return;
+  }
+  recordLegalConsent(userId).catch(() => {});
+}
 
 const AuthContext = createContext(null);
 
@@ -31,6 +45,7 @@ export function AuthProvider({ children }) {
         const u = data?.session?.user;
         if (u) {
           syncAuthProviderToProfile(supabase, u).catch(() => {});
+          flushPendingLegalConsent(u.id);
         }
       })
       .finally(() => {
@@ -45,6 +60,7 @@ export function AuthProvider({ children }) {
       const u = nextSession?.user;
       if (u) {
         syncAuthProviderToProfile(supabase, u).catch(() => {});
+        flushPendingLegalConsent(u.id);
       }
     });
 

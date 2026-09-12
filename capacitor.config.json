@@ -4,5 +4,19 @@
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "scheme": "judo"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#0e0e0e",
+      "showSpinner": false
+    }
   }
 }

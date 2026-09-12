@@ -9,6 +9,7 @@ import PickUserButton, {
 } from "../components/PickUserButton/PickUserButton";
 import PlacePicksPublicList from "../components/PlacePick/PlacePicksPublicList";
 import UserTastePreferencesSection from "../components/Onboarding/UserTastePreferencesSection";
+import ContentSafetyMenu from "../components/Safety/ContentSafetyMenu";
 import {
   studioCoursesBtnGhost,
   studioCoursesBtnPrimary,
@@ -252,7 +253,17 @@ export default function UserProfilePage() {
           ←
         </button>
         <span style={styles.headerTitle}>프로필</span>
-        <div style={{ width: 40 }} aria-hidden />
+        {!isSelf && targetId ? (
+          <ContentSafetyMenu
+            targetType="profile"
+            targetId={targetId}
+            targetOwnerId={targetId}
+            targetLabel="프로필"
+            compact
+          />
+        ) : (
+          <div style={{ width: 40 }} aria-hidden />
+        )}
       </div>
 
       <div style={styles.content}>
@@ -315,6 +326,27 @@ export default function UserProfilePage() {
             loading={profilePicksLoading}
           />
         </section>
+
+        {isSelf ? (
+          <section style={styles.section}>
+            <h2 style={styles.sectionTitle}>안전 · 차단</h2>
+            <p style={styles.sectionHint}>
+              신고·차단한 사용자를 관리하고 이용약관을 확인할 수 있어요.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate("/safety")}
+              style={{
+                ...studioCoursesBtnGhost,
+                width: "100%",
+                minHeight: 44,
+                justifyContent: "center",
+              }}
+            >
+              신고·차단 설정 열기
+            </button>
+          </section>
+        ) : null}
 
         {isSelf ? (
           <section style={styles.section}>

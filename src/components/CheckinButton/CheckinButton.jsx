@@ -26,26 +26,9 @@ function parseCoord(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function readGeoOnce(options) {
-  return new Promise((resolve, reject) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      reject(new Error("geolocation_not_supported"));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracyM:
-            typeof pos.coords.accuracy === "number" && Number.isFinite(pos.coords.accuracy)
-              ? pos.coords.accuracy
-              : null,
-        }),
-      (err) => reject(err),
-      options
-    );
-  });
+async function readGeoOnce(options) {
+  const { getCurrentPosition } = await import("../../lib/native/geolocation");
+  return getCurrentPosition(options);
 }
 
 /** 엄격 기록용: 캐시된 위치 우선(지도 내 위치) → 빠른 저정확도 → 고정확도 */
@@ -328,6 +311,12 @@ export default function CheckinButton({
   };
 
   const toastAfterSuccess = async (skipDistanceCheck) => {
+    try {
+      const { hapticMedium } = await import("../../lib/native/haptics");
+      void hapticMedium();
+    } catch {
+      /* ignore */
+    }
     const s = await refreshAfterRecord();
     const total = s?.totalDedup ?? 0;
     if (skipDistanceCheck) {
