@@ -1,6 +1,7 @@
 # App Store / Play Review Notes — 주도 (JUDO)
 
-심사·콘솔 제출 시 붙여 넣을 요약입니다.
+심사·콘솔 제출 시 붙여 넣을 요약입니다.  
+제출 전 할 일 목록: [`docs/store-submission-checklist.md`](./store-submission-checklist.md)
 
 ---
 
