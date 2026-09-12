@@ -68,6 +68,7 @@ import {
   searchKakaoAddressViaProxy,
   searchKakaoKeywordViaProxy,
 } from "../../utils/kakaoAPIProxy.js";
+import { confirmCuratorPlacePublishOverlapIfNeeded } from "../../api/curatorPlacePublishOverlap.js";
 
 /**
  * 스튜디오 상단 탭 표기 고정.
@@ -197,6 +198,7 @@ async function upsertCuratorPlaceForStudio(
     tags = [],
     alcohol_types = [],
     moods = [],
+    is_public = true,
   }
 ) {
   const pid = String(placeUuid).trim();
@@ -207,6 +209,7 @@ async function upsertCuratorPlaceForStudio(
     tags: safeArr(tags),
     alcohol_types: safeArr(alcohol_types),
     moods: safeArr(moods),
+    is_archived: is_public === false,
   };
 
   const { data: rows, error: selErr } = await supabase
@@ -1602,6 +1605,21 @@ export default function StudioHome() {
       
       // is_public을 is_archived로 변환 (true=공개=false=archived, false=비공개=true=archived)
       const isArchived = !updatedPlace.is_public;
+
+      if (!isArchived) {
+        try {
+          const proceed = await confirmCuratorPlacePublishOverlapIfNeeded(
+            updatedPlace.id
+          );
+          if (!proceed) {
+            return;
+          }
+        } catch (overlapErr) {
+          console.error("❌ 공개 겹침 차단:", overlapErr);
+          alert(overlapErr?.message || "공개할 수 없습니다.");
+          return;
+        }
+      }
       
       // curator_places: curator_id = curators.user_id (= auth uid) 만 본인 행 갱신
       const { error } = await supabase
@@ -3452,12 +3470,31 @@ export default function StudioHome() {
           
           // 2. 큐레이터 추천에 저장
         if (placeData && placeData.data && placeData.data[0]) {
-          const curatorFields = {
+          const insertedPlaceUuid = placeData.data[0].id;
+          const willPublishPublic = formData.is_public !== false;
+
+          if (willPublishPublic) {
+            try {
+              const proceed = await confirmCuratorPlacePublishOverlapIfNeeded(
+                insertedPlaceUuid
+              );
+              if (!proceed) {
+                return;
+              }
+            } catch (overlapErr) {
+              console.error("❌ 잔 올리기 공개 겹침 차단:", overlapErr);
+              alert(overlapErr?.message || "공개할 수 없습니다.");
+              return;
+            }
+          }
+
+            const curatorFields = {
             display_name: user.display_name || user.nickname || user.email,
             one_line_reason: formData.menu_reason || "",
             tags: formData.tags || [],
             alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
             moods: formData.atmosphere ? [formData.atmosphere] : [],
+            is_public: formData.is_public !== false,
           };
             console.log("📝 저장할 curator_places 필드:", curatorFields);
 
@@ -3483,7 +3520,6 @@ export default function StudioHome() {
             console.log("✅ curator_places 저장 성공:", curatorData);
 
             const insertedRow = placeData.data[0];
-            const insertedPlaceUuid = insertedRow?.id;
 
             const folderRes = await persistUserSavedPlaceFolders(
               insertedPlaceUuid,
