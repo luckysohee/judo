@@ -13,6 +13,7 @@ import CuratorProfilePage from "./pages/CuratorProfilePage";
 import UserProfilePage from "./pages/UserProfilePage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import SafetySettingsPage from "./pages/SafetySettingsPage";
 import SavedPlacesPage from "./pages/SavedPlacesPage";
 import CuratorApplyForm from "./components/CuratorApplyForm/CuratorApplyForm";
 import CheckinTest from "./pages/CheckinTest";
@@ -28,6 +29,7 @@ const SearchInsightsPage = lazyWithRetry(() => import("./pages/SearchInsightsPag
 const CuratorManagementPage = lazyWithRetry(() => import("./pages/CuratorManagementPage"));
 const AdminCuratorsAuditPage = lazyWithRetry(() => import("./pages/AdminCuratorsAuditPage"));
 const AdminAlphaSurveyPage = lazyWithRetry(() => import("./pages/AdminAlphaSurveyPage"));
+const AdminReportsPage = lazyWithRetry(() => import("./pages/AdminReportsPage"));
 const StudioHome = lazyWithRetry(() => import("./pages/Studio/StudioHome"));
 const StudioFollowersPage = lazyWithRetry(() => import("./pages/Studio/StudioFollowersPage"));
 const StudioCourseEditor = lazyWithRetry(() => import("./pages/Studio/StudioCourseEditor"));
@@ -80,6 +82,7 @@ function App() {
       <Route path="/u/:userId" element={<UserProfilePage />} />
       <Route path="/terms" element={<TermsOfServicePage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/safety" element={<SafetySettingsPage />} />
       <Route path="/saved" element={<SavedPlacesPage />} />
       <Route path="/admin" element={<AdminRoute />}>
         <Route index element={<Lazy><AdminHubPage /></Lazy>} />
@@ -87,6 +90,7 @@ function App() {
         <Route path="search-insights" element={<Lazy><SearchInsightsPage /></Lazy>} />
         <Route path="curators" element={<Lazy><AdminCuratorsAuditPage /></Lazy>} />
         <Route path="alpha-survey" element={<Lazy><AdminAlphaSurveyPage /></Lazy>} />
+        <Route path="reports" element={<Lazy><AdminReportsPage /></Lazy>} />
         <Route path="curator/:userId" element={<Lazy><CuratorManagementPage /></Lazy>} />
       </Route>
       <Route path="/curator-apply" element={<CuratorApplyForm />} />

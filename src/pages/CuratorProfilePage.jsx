@@ -19,6 +19,7 @@ import { placePickJoinRowToDetailPlace } from "../utils/placePickRowDisplay";
 import PlaceDetail from "../components/PlaceDetail/PlaceDetail";
 import { isPlaceSaved } from "../utils/storage";
 import { getPickCounts } from "../utils/userProfileFollows";
+import ContentSafetyMenu from "../components/Safety/ContentSafetyMenu";
 import {
   getCuratorArchiveStats,
   buildCuratorArchiveVibes,
@@ -217,6 +218,14 @@ export default function CuratorProfilePage() {
         >
           ← 뒤로
         </button>
+        {profileUserId && !isSelf ? (
+          <ContentSafetyMenu
+            targetType="profile"
+            targetId={profileUserId}
+            targetOwnerId={profileUserId}
+            targetLabel="큐레이터"
+          />
+        ) : null}
       </div>
 
       <div style={styles.content}>
@@ -350,6 +359,10 @@ const styles = {
   header: {
     padding: "16px",
     borderBottom: "1px solid #222222",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   backButton: {
     border: "1px solid #444444",

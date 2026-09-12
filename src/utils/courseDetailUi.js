@@ -38,37 +38,15 @@ export function canBookmarkPublishedPublicCourse(course) {
 }
 
 /**
- * Web Share API 우선, 실패 시 클립보드.
+ * 네이티브 Share 시트 → Web Share API → 클립보드.
  * @returns {Promise<'shared'|'clipboard'|'aborted'>}
  */
 export async function shareOrCopyCourseLink({ url, title, text }) {
-  const u = String(url ?? "").trim();
-  if (!u) throw new Error("shareOrCopyCourseLink: url required");
-
-  if (
-    typeof navigator !== "undefined" &&
-    typeof navigator.share === "function"
-  ) {
-    try {
-      await navigator.share({
-        title: title || "코스",
-        text: String(text ?? title ?? "").trim() || title || "",
-        url: u,
-      });
-      return "shared";
-    } catch (e) {
-      if (e && (e.name === "AbortError" || String(e.message || "").includes("Abort"))) {
-        return "aborted";
-      }
-    }
-  }
-
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(u);
-    return "clipboard";
-  }
-
-  const err = new Error("CLIPBOARD_UNAVAILABLE");
-  err.url = u;
-  throw err;
+  const { shareOrCopy } = await import("../lib/native/share");
+  return shareOrCopy({
+    url,
+    title: title || "코스",
+    text: String(text ?? title ?? "").trim() || title || "",
+    dialogTitle: "코스 공유",
+  });
 }

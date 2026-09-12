@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRealtimeCheckins, consumeNewPeerCheckinRows } from '../../hooks/useRealtimeCheckins';
 import { useAuth } from '../../context/AuthContext';
 import { useToastSettings } from '../../hooks/useToastSettings';
+import { useBlockedUserIds } from '../../hooks/useBlockedUserIds';
 import { supabase } from '../../lib/supabase';
 import { resolveCheckinRowDisplayName } from '../../utils/checkinDisplayName';
 
@@ -49,6 +50,7 @@ const CheckInToast = () => {
   const { recentCheckins } = useRealtimeCheckins();
   const { user } = useAuth();
   const { toastEnabled } = useToastSettings();
+  const { blockedIds } = useBlockedUserIds();
   const [displayCheckins, setDisplayCheckins] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [profilesById, setProfilesById] = useState({});
@@ -366,7 +368,9 @@ const CheckInToast = () => {
 
   // 실시간으로 새로 들어온 타인 체크인만 — 홈 좌측 피드(최대 3줄, 잠시 후 사라짐)
   useEffect(() => {
-    const freshRows = consumeNewPeerCheckinRows(recentCheckins, user);
+    const freshRows = consumeNewPeerCheckinRows(recentCheckins, user).filter(
+      (r) => !blockedIds.has(String(r?.user_id || "").trim())
+    );
     if (freshRows.length === 0) return;
 
     const nearbyCheckins = filterNearbyCheckins(freshRows);
@@ -385,7 +389,7 @@ const CheckInToast = () => {
     });
 
     formattedCheckins.forEach((group) => scheduleHide(group.id));
-  }, [recentCheckins, userLocation, user, scheduleHide, enrichCheckinRow]);
+  }, [recentCheckins, userLocation, user, scheduleHide, enrichCheckinRow, blockedIds]);
 
   useEffect(() => {
     if (!Object.keys(profilesById).length) return;

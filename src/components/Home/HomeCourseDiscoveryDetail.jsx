@@ -12,6 +12,7 @@ import {
 import { shareOrCopyCourseLink } from "../../utils/courseDetailUi";
 import { supabase } from "../../lib/supabase";
 import CoursePreviewPlaceStampRow from "../Course/CoursePreviewPlaceStampRow";
+import ContentSafetyMenu from "../Safety/ContentSafetyMenu";
 import {
   areAllCourseStepsStamped,
   fetchCourseStampSteps,
@@ -734,17 +735,28 @@ export default function HomeCourseDiscoveryDetail({
           ← 목록
         </button>
         <p style={styles.topTitle}>코스 미리보기</p>
-        {typeof onSheetCollapse === "function" ? (
-          <button
-            type="button"
-            style={styles.collapseBtn}
-            onClick={() => onSheetCollapse()}
-            aria-label="시트 접기"
-            title="아래로 접기"
-          >
-            ∨ 접기
-          </button>
-        ) : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {courseId ? (
+            <ContentSafetyMenu
+              targetType="course"
+              targetId={courseId}
+              targetOwnerId={curatorId || null}
+              targetLabel="코스"
+              compact
+            />
+          ) : null}
+          {typeof onSheetCollapse === "function" ? (
+            <button
+              type="button"
+              style={styles.collapseBtn}
+              onClick={() => onSheetCollapse()}
+              aria-label="시트 접기"
+              title="아래로 접기"
+            >
+              ∨ 접기
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div style={styles.scroll}>
