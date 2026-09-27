@@ -10,6 +10,7 @@ import { supabase } from "../../lib/supabase";
 import CheckinButton from "../CheckinButton/CheckinButton";
 import { PlacePickButton } from "../PlacePick/PlacePickButton";
 import { PlacePickDetailSummary } from "../PlacePick/PlacePickDetailSummary";
+import { signatureMenusFromPlace } from "../../utils/parseSignatureMenus.js";
 
 export function SelectedRecommendedPlaceDetailCard({
   selectedRecommendedPlace,
@@ -73,6 +74,10 @@ export function SelectedRecommendedPlaceDetailCard({
   );
   const checkinWgs = useMemo(
     () => resolvePlaceWgs84(mergedPlaceForPick),
+    [mergedPlaceForPick],
+  );
+  const signatureMenus = useMemo(
+    () => signatureMenusFromPlace(mergedPlaceForPick),
     [mergedPlaceForPick],
   );
   const [hanjanStatsNorm, setHanjanStatsNorm] = useState(null);
@@ -191,6 +196,23 @@ export function SelectedRecommendedPlaceDetailCard({
         </div>
 
         <div className="space-y-3 px-4 py-4 text-sm text-neutral-700">
+          {signatureMenus.length > 0 ? (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                추천 메뉴
+              </span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {signatureMenus.map((menu) => (
+                  <span
+                    key={menu}
+                    className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200/90"
+                  >
+                    {menu}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {signalTags.length ? (
             <div className="flex flex-wrap gap-1.5">
               {signalTags.slice(0, 6).map((t) => (

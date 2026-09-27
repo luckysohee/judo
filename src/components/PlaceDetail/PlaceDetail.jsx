@@ -7,6 +7,7 @@ import { resolvePlaceWgs84 } from "../../utils/placeCoords";
 import { checkinPlaceKeyFromPlace } from "../../utils/checkinPlaceKeyFromPlace";
 import { normalizeHanjanStats } from "../../utils/hanjanSocialCopy";
 import { getJudoOperationMode } from "../../utils/judoOperationMode";
+import { signatureMenusFromPlace } from "../../utils/parseSignatureMenus.js";
 import { supabase } from "../../lib/supabase";
 
 // 기본 이미지 폴백 시스템
@@ -66,6 +67,7 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
   const liveSet = liveCuratorNameSet instanceof Set ? liveCuratorNameSet : new Set();
   const isLive = isLiveProp || (place.curators || []).some((name) => liveSet.has(name));
   const displayTags = filterPlaceTagsForDisplay(place.tags || []);
+  const signatureMenus = useMemo(() => signatureMenusFromPlace(place), [place]);
 
   // 이미지 로딩 상태
   const [imageLoaded, setImageLoaded] = useState(true);
@@ -187,6 +189,19 @@ export default function PlaceDetail({ place, onClose, onSave, isSaved, isLive: i
             <div style={styles.meta}>
               {place.region} · <strong>저장 {place.savedCount}</strong>
             </div>
+
+            {signatureMenus.length > 0 ? (
+              <section style={{ ...styles.section, marginTop: 4 }}>
+                <div style={styles.sectionTitle}>추천 메뉴</div>
+                <div style={styles.chipRow}>
+                  {signatureMenus.map((menu) => (
+                    <span key={menu} style={styles.signatureMenuChip}>
+                      {menu}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {(place.curators || []).length > 0 ? (
               <section style={{ ...styles.section, marginTop: 10 }}>
@@ -538,6 +553,15 @@ const styles = {
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "12px",
+  },
+  signatureMenuChip: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.95)",
+    background: "rgba(46, 204, 113, 0.16)",
+    border: "1px solid rgba(46, 204, 113, 0.4)",
+    borderRadius: "999px",
+    padding: "6px 12px",
   },
   curatorChip: {
     border: "1px solid #333333",
