@@ -43,6 +43,7 @@ import {
 } from "../../utils/hanjanSocialCopy";
 import { readStudioDrafts, writeStudioDrafts } from "../../utils/studioDraftsLocal";
 import { createPerfTrace } from "../../utils/devPerfTrace.js";
+import { signatureMenusFromPlace } from "../../utils/parseSignatureMenus.js";
 
 function mergeUniqueUrls(...lists) {
   const seen = new Set();
@@ -995,6 +996,10 @@ export default function PlacePreviewCard({
 
   const featuredOneLineReason = oneLineTrim(featuredCuratorCommentPlace);
   const showFeaturedCuratorCommentBox = featuredOneLineReason.length > 0;
+  const signatureMenus = useMemo(
+    () => signatureMenusFromPlace(place),
+    [place]
+  );
 
   // 빠른저장 버튼 핸들러
   const handleQuickSaveClick = async () => {
@@ -1427,16 +1432,6 @@ export default function PlacePreviewCard({
           <>
         <div style={styles.header}>
           <div style={styles.headerRight}>
-            {/* 카카오맵 상세보기 링크 */}
-            {(isKakaoPlace || kakaoDetails) && (
-              <button
-                type="button"
-                onClick={handleKakaoView}
-                style={styles.kakaoLink}
-              >
-                카카오맵에서 열기
-              </button>
-            )}
             {(displayLat && displayLng) && (
               <button onClick={handleRoadviewOpen} style={styles.kakaoLink}>
                 로드뷰
@@ -1572,7 +1567,7 @@ export default function PlacePreviewCard({
                 <div style={styles.photoHeroSkeletonStandalone} aria-hidden />
               ) : (
                 <div style={styles.imageFallback}>
-                  사진 없음 · 큐레이터는 「사진 올리기」 또는 카카오맵에서 확인
+                  사진 없음 · 큐레이터는 「사진 올리기」로 등록
                 </div>
               )}
               {canUserDeleteCuratorPhotoUrl(heroPreviewUrl) ? (
@@ -1650,14 +1645,14 @@ export default function PlacePreviewCard({
                 ? "Google Places로 자동 매칭된 이미지 · 동일 업체가 아닐 수 있음"
                 : showCuratorPhotoBadge && (isKakaoPlace || kakaoDetails)
                 ? previewHasKakaoOpenablePhoto
-                  ? "큐레이터 등록 사진 포함 · 카카오 사진 탭 시 상세로 이동"
-                  : "큐레이터 등록 사진 · 지도는 상단 「카카오맵에서 열기」"
+                  ? "큐레이터 등록 사진 포함 · 일부 사진은 카카오 상세로 이동"
+                  : "큐레이터 등록 사진"
                 : showCuratorPhotoBadge
                 ? "큐레이터 등록 사진"
                 : isKakaoPlace || kakaoDetails
                 ? previewHasKakaoOpenablePhoto
-                  ? "사진 · 더 보려면 「카카오맵에서 열기」"
-                  : "지도는 상단 「카카오맵에서 열기」"
+                  ? "사진 · 전체 메뉴는 아래 「카카오맵」에서"
+                  : "전체 메뉴·상세는 아래 「카카오맵」에서"
                 : ""}
             </div>
             {showGooglePhotoCredit && placePhotoAttributions.length > 0 ? (
@@ -1676,7 +1671,7 @@ export default function PlacePreviewCard({
           </div>
         ) : (isKakaoPlace || kakaoDetails) ? (
           <div style={styles.imageFallback}>
-            사진 없음 · 큐레이터는 「사진 올리기」 또는 카카오맵에서 확인
+            사진 없음 · 큐레이터는 「사진 올리기」로 등록
           </div>
         ) : (
           <div style={styles.imageFallback}>이미지 없음</div>
@@ -1914,6 +1909,16 @@ export default function PlacePreviewCard({
                 {kakaoDetails?.review_count && (
                   <span style={styles.reviewCount}>({kakaoDetails.review_count}리뷰)</span>
                 )}
+                {signatureMenus.length > 0 && (
+                  <div style={styles.signatureMenuRow}>
+                    <span style={styles.signatureMenuLabel}>메뉴</span>
+                    {signatureMenus.map((menu) => (
+                      <span key={menu} style={styles.signatureMenuChip}>
+                        {menu}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* 큐레이터 한줄평: 내용 있을 때만 상단 박스 (아래 curatorRow 칩은 유지) */}
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
@@ -1952,6 +1957,16 @@ export default function PlacePreviewCard({
                 {displayPhone && (
                   <div style={styles.phoneLine}>📞 {displayPhone}</div>
                 )}
+                {signatureMenus.length > 0 && (
+                  <div style={styles.signatureMenuRow}>
+                    <span style={styles.signatureMenuLabel}>메뉴</span>
+                    {signatureMenus.map((menu) => (
+                      <span key={menu} style={styles.signatureMenuChip}>
+                        {menu}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* 큐레이터 한줄평: 내용 있을 때만 상단 박스 (아래 curatorRow 칩은 유지) */}
                 {showFeaturedCuratorCommentBox && (
                   <div style={styles.curatorComment}>
@@ -1981,6 +1996,16 @@ export default function PlacePreviewCard({
                 </span>
               ))}
           </div>
+
+          {(isKakaoPlace || kakaoDetails) && (
+            <button
+              type="button"
+              onClick={handleKakaoView}
+              style={styles.kakaoSecondaryLink}
+            >
+              전체 메뉴·상세는 카카오맵에서
+            </button>
+          )}
 
           <div className="hide-scrollbar" style={styles.curatorRow}>
             <div style={styles.curatorScrollContainer}>
@@ -2673,6 +2698,43 @@ const styles = {
     borderRadius: "3px",
     textDecoration: "underline",
     transition: "all 0.2s"
+  },
+  kakaoSecondaryLink: {
+    display: "block",
+    width: "100%",
+    marginTop: "6px",
+    marginBottom: "2px",
+    background: "none",
+    border: "none",
+    color: "rgba(255,255,255,0.38)",
+    fontSize: "11px",
+    cursor: "pointer",
+    padding: "4px 0",
+    textAlign: "left",
+    textDecoration: "underline",
+  },
+  signatureMenuRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "6px",
+    marginTop: "8px",
+    width: "100%",
+  },
+  signatureMenuLabel: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.55)",
+    marginRight: "2px",
+  },
+  signatureMenuChip: {
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "rgba(255,255,255,0.92)",
+    background: "rgba(46, 204, 113, 0.16)",
+    border: "1px solid rgba(46, 204, 113, 0.35)",
+    borderRadius: "999px",
+    padding: "3px 9px",
   },
   curatorPhotoUploadBtn: {
     backgroundColor: "rgba(255,255,255,0.07)",
