@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { signatureMenusFromPlace } from '../../utils/parseSignatureMenus.js';
 
 // 카테고리 정제 함수
 const cleanCategory = (categoryName) => {
@@ -18,6 +19,7 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
   const cleanCat = cleanCategory(place.category_name);
   const isTarget = isTargetCategory(place.category_name);
   const isCurator = userRole === 'curator' || userRole === 'admin';
+  const signatureMenus = useMemo(() => signatureMenusFromPlace(place), [place]);
   
   const handleKakaoView = () => {
     if (place.place_url) {
@@ -149,6 +151,41 @@ const KakaoPlaceOverlay = ({ place, onClose, onQuickSave, userRole, onSave, save
           fontWeight: '500'
         }}>
           {cleanCat}
+        </div>
+      )}
+
+      {/* 추천 메뉴 (큐레이터 시그니처) */}
+      {signatureMenus.length > 0 && (
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: '6px',
+          marginBottom: '10px',
+        }}>
+          <span style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: 'rgba(255,255,255,0.55)',
+          }}>
+            메뉴
+          </span>
+          {signatureMenus.map((menu) => (
+            <span
+              key={menu}
+              style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'rgba(255,255,255,0.92)',
+                background: 'rgba(46, 204, 113, 0.16)',
+                border: '1px solid rgba(46, 204, 113, 0.35)',
+                borderRadius: '999px',
+                padding: '3px 9px',
+              }}
+            >
+              {menu}
+            </span>
+          ))}
         </div>
       )}
 
