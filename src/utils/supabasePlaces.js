@@ -265,7 +265,7 @@ export async function fetchCuratorPlacesMergedWithPlaces(
   const { data: cpRows, error: cpErr } = await supabaseClient
     .from("curator_places")
     .select(
-      "id, place_id, created_at, curator_id, one_line_reason, tags, alcohol_types, moods, display_name, is_archived"
+      "id, place_id, created_at, curator_id, one_line_reason, recommended_menu, tags, alcohol_types, moods, display_name, is_archived"
     )
     .eq("curator_id", uid)
     .order("created_at", { ascending: false });

@@ -195,6 +195,7 @@ async function upsertCuratorPlaceForStudio(
   {
     display_name,
     one_line_reason = "",
+    recommended_menu = "",
     tags = [],
     alcohol_types = [],
     moods = [],
@@ -203,9 +204,11 @@ async function upsertCuratorPlaceForStudio(
 ) {
   const pid = String(placeUuid).trim();
   const safeArr = (a) => (Array.isArray(a) ? a : []);
+  const menuText = String(recommended_menu ?? "").trim();
   const patch = {
     display_name,
     one_line_reason,
+    recommended_menu: menuText || null,
     tags: safeArr(tags),
     alcohol_types: safeArr(alcohol_types),
     moods: safeArr(moods),
@@ -383,7 +386,7 @@ function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
         category: "미분류",
         alcohol_type: alc[0] ?? "",
         atmosphere: moodArr[0] ?? "",
-        recommended_menu: "",
+        recommended_menu: String(curatorPlace.recommended_menu ?? "").trim(),
         menu_reason: line ?? "",
         tags: filterPlaceTagsForDisplay(parseDbStringArray(curatorPlace.tags)),
         alcohol_types: alc,
@@ -409,7 +412,10 @@ function mapCuratorJoinRowsToMyPlaces(curatorPlacesData) {
       category: normalizeStudioPlaceCategory(place.category || "") || "미분류",
       alcohol_type: alc[0] ?? place.alcohol_type ?? "",
       atmosphere: moodArr[0] ?? place.atmosphere ?? "",
-      recommended_menu: place.recommended_menu || "",
+      recommended_menu:
+        String(curatorPlace.recommended_menu ?? "").trim() ||
+        String(place.recommended_menu ?? "").trim() ||
+        "",
       menu_reason: line !== null ? line : (place.menu_reason || ""),
       tags: filterPlaceTagsForDisplay(tagsMerged),
       alcohol_types: alc,
@@ -3325,6 +3331,7 @@ export default function StudioHome() {
               display_name:
                 user.display_name || user.nickname || user.email,
               one_line_reason: formData.menu_reason || "",
+              recommended_menu: formData.recommended_menu || "",
               tags: formData.tags || [],
               alcohol_types: formData.alcohol_type
                 ? [formData.alcohol_type]
@@ -3358,6 +3365,7 @@ export default function StudioHome() {
                     tags: formData.tags || [],
                     alcohol_type: formData.alcohol_type || "",
                     atmosphere: formData.atmosphere || "",
+                    recommended_menu: formData.recommended_menu || "",
                     menu_reason: formData.menu_reason || "",
                   }
                 : place
@@ -3491,6 +3499,7 @@ export default function StudioHome() {
             const curatorFields = {
             display_name: user.display_name || user.nickname || user.email,
             one_line_reason: formData.menu_reason || "",
+            recommended_menu: formData.recommended_menu || "",
             tags: formData.tags || [],
             alcohol_types: formData.alcohol_type ? [formData.alcohol_type] : [],
             moods: formData.atmosphere ? [formData.atmosphere] : [],
@@ -4691,6 +4700,34 @@ export default function StudioHome() {
             </select>
           </div>
 
+          {/* 대표 메뉴 — 카드에 1~3개로 노출 */}
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>대표 메뉴</label>
+            <input
+              type="text"
+              value={formData.recommended_menu}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  recommended_menu: e.target.value,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                border: "1px solid #333",
+                borderRadius: "6px",
+                backgroundColor: "#222",
+                color: "white",
+                fontSize: "14px",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+              placeholder="예: 삼겹살, 냉면, 소주안주 (쉼표로 구분, 최대 3개 노출)"
+              tabIndex={6}
+            />
+          </div>
+
           {/* 추천이유 */}
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "600", fontSize: "12px" }}>추천이유</label>
@@ -4711,7 +4748,7 @@ export default function StudioHome() {
                 boxSizing: "border-box"
               }}
               placeholder="추천하는 이유를 알려주세요"
-              tabIndex={6}
+              tabIndex={7}
             />
           </div>
 
