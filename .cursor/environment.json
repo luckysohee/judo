@@ -1,0 +1,14 @@
+{
+  "name": "judo (Vite + Express API + Python crawler)",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "dev (vite :5173 + api :4000)",
+      "command": "source .venv/bin/activate && npm run dev"
+    }
+  ],
+  "ports": [
+    { "name": "vite web", "port": 5173 },
+    { "name": "api server", "port": 4000 }
+  ]
+}
