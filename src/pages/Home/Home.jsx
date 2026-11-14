@@ -250,10 +250,13 @@ import {
   peekHomeViewportPrefetch,
   takeHomeViewportPrefetch,
 } from "../../utils/warmupHomeMapBoot";
+import { writeHomeMapViewportSessionCache } from "../../utils/homeMapViewportSessionCache";
 import {
-  readHomeMapViewportSessionCacheForBoot,
-  writeHomeMapViewportSessionCache,
-} from "../../utils/homeMapViewportSessionCache";
+  clearHomeMapWindowSession,
+  readHomeMapBootPlaceCache,
+  resolveHomeMapBootWindow,
+  writeHomeMapWindowSession,
+} from "../../utils/homeMapWindowSession";
 import { fetchMySavedPlacesForHomeMap } from "./fetchMySavedPlacesForMap";
 import {
   walkingRouteDisplayMinutes,
@@ -315,7 +318,7 @@ import {
 } from "../../utils/situationPlaceFilter";
 import { getJudoOperationMode } from "../../utils/judoOperationMode";
 
-import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey, getSeongsuBootViewportCacheKey } from "../../utils/homeMapViewportBounds";
+import { defaultHomeMapViewportBounds, computeHomeViewportCacheKey } from "../../utils/homeMapViewportBounds";
 import {
   AI_API_BASE,
   appendSelectedPlacePinIfMissing,
@@ -401,6 +404,8 @@ const MAP_BLANK_PICK_MAX_LEVEL = 4;
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
+  const restoredMapWindowRef = useRef(resolveHomeMapBootWindow(location.state));
+  const restoredMapWindow = restoredMapWindowRef.current;
   const mapRef = useRef(null);
   const { showToast } = useToast();
 
@@ -1445,12 +1450,8 @@ export default function Home() {
     return reasons.length > 0 ? reasons.join(', ') : '검색·거리 기준 후보';
   };
 
-  const SEONGSU_BOOT_VIEWPORT_CACHE_KEY = getSeongsuBootViewportCacheKey(5);
-
   const [dbPlaces, setDbPlaces] = useState(
-    () =>
-      readHomeMapViewportSessionCacheForBoot(SEONGSU_BOOT_VIEWPORT_CACHE_KEY)
-        ?.merged ?? [],
+    () => readHomeMapBootPlaceCache(restoredMapWindow)?.merged ?? [],
   ); // DB에서 가져온 장소 목록 (현재 지도 뷰포트 기준)
   /** 탭 새로고침마다 바뀌는 값 — 큐레이터 스트립 첫 후보 로테이션·동순위 섞기 */
   const curatorSpotlightSaltRef = useRef(
@@ -1476,8 +1477,10 @@ export default function Home() {
   const lastFetchedViewportRef = useRef(null);
   /** 첫 뷰포트 마커 부트스트랩 — 이후 팬은 선마커 없이 한 번에 갱신 */
   const mapMarkersBootstrappedRef = useRef(false);
-  const lastMapBoundsRef = useRef(null);
-  const lastMapLevelRef = useRef(null);
+  const lastMapBoundsRef = useRef(restoredMapWindow?.bounds ?? null);
+  const lastMapLevelRef = useRef(
+    Number.isFinite(restoredMapWindow?.level) ? restoredMapWindow.level : null,
+  );
   /** 빠른 칩 등: 1차·2차 들어가도 코스 파이프라인 말고 일반 검색일 때 카드 미리보기 허용 */
   const homeSearchSkipCoursePreviewRef = useRef(false);
   /** `loadDbPlacesForViewport`가 선언되기 전에도 읽을 수 있게 — 술 상황 칩 ON 시 bbox 확대 */
@@ -1491,7 +1494,9 @@ export default function Home() {
   const [mapViewportLoadFailed, setMapViewportLoadFailed] = useState(false);
   /** 줌 아웃용 그리드 숫자 클러스터 — 상세 마커보다 먼저 표시 */
   const [mapDensityClusters, setMapDensityClusters] = useState([]);
-  const [mapZoomLevel, setMapZoomLevel] = useState(5);
+  const [mapZoomLevel, setMapZoomLevel] = useState(
+    Number.isFinite(restoredMapWindow?.level) ? restoredMapWindow.level : 5,
+  );
   const mapDensityLoadSeqRef = useRef(0);
   const mapDensityFetchCacheRef = useRef({});
   /** placeholder KST 구간 갱신(분 단위) */
@@ -4609,9 +4614,8 @@ export default function Home() {
   );
 
   useLayoutEffect(() => {
-    const parsed = readHomeMapViewportSessionCacheForBoot(
-      SEONGSU_BOOT_VIEWPORT_CACHE_KEY,
-    );
+    const restored = restoredMapWindowRef.current;
+    const parsed = readHomeMapBootPlaceCache(restored);
     if (!parsed?.merged?.length) return;
     mapMarkersBootstrappedRef.current = true;
     if (parsed.cacheKey && parsed.plainRows && parsed.joinRows) {
@@ -4619,11 +4623,11 @@ export default function Home() {
         plainRows: parsed.plainRows,
         joinRows: parsed.joinRows,
       };
-      const computed = computeHomeViewportCacheKey(
-        defaultHomeMapViewportBounds(5),
-        5,
-        { limit: HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT },
-      );
+      const boundsRaw = restored?.bounds ?? defaultHomeMapViewportBounds(5);
+      const bootLevel = Number.isFinite(restored?.level) ? restored.level : 5;
+      const computed = computeHomeViewportCacheKey(boundsRaw, bootLevel, {
+        limit: HOME_MAP_VIEWPORT_LIMIT_BOOT_DEFAULT,
+      });
       if (computed) {
         lastFetchedViewportRef.current = {
           cacheKey: parsed.cacheKey,
@@ -4637,19 +4641,26 @@ export default function Home() {
     }
     emitMapMarkersReady(parsed.merged.length, { fromSessionCache: true });
     if (import.meta.env.DEV) {
-      devLog("📦 session viewport cache hit (seongsu boot):", parsed.merged.length);
+      devLog(
+        restored
+          ? "📦 session viewport cache hit (restored window):"
+          : "📦 session viewport cache hit (seongsu boot):",
+        parsed.merged.length,
+      );
     }
   }, [emitMapMarkersReady]);
 
-  /** 지도 SDK·idle 전 성수 기본 bbox로 places 선요청 + 세션 캐시로 즉시 마커 */
+  /** 지도 SDK·idle 전 — 복원 창이 있으면 그 bbox, 없으면 성수 기본 bbox로 places 선요청 */
   useEffect(() => {
     bootViewportLoadStartedRef.current = true;
     isFirstViewportScheduleRef.current = false;
 
-    const defaultBounds = defaultHomeMapViewportBounds(5);
-    lastMapBoundsRef.current = defaultBounds;
-    lastMapLevelRef.current = 5;
-    void loadDbPlacesForViewport({ boundsRaw: defaultBounds, mapLevel: 5 });
+    const restored = restoredMapWindowRef.current;
+    const bootBounds = restored?.bounds ?? defaultHomeMapViewportBounds(5);
+    const bootLevel = Number.isFinite(restored?.level) ? restored.level : 5;
+    lastMapBoundsRef.current = bootBounds;
+    lastMapLevelRef.current = bootLevel;
+    void loadDbPlacesForViewport({ boundsRaw: bootBounds, mapLevel: bootLevel });
     /** mount-only warm start */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -4683,6 +4694,18 @@ export default function Home() {
         Number.isFinite(lng)
       ) {
         setMapViewportCenterFromUser({ lat, lng });
+        if (bounds?.sw && bounds?.ne) {
+          const persistLevel =
+            typeof level === "number" && Number.isFinite(level)
+              ? level
+              : lastMapLevelRef.current;
+          writeHomeMapWindowSession({
+            lat,
+            lng,
+            level: persistLevel,
+            bounds,
+          });
+        }
       }
     },
     [debouncedLoadMapDensity, scheduleDbPlacesForBounds]
@@ -6712,6 +6735,7 @@ const handleClearSearch = () => {
       navigate("/", { replace: true });
       return;
     }
+    clearHomeMapWindowSession();
     window.location.href = "/";
   }, [location.pathname, navigate]);
 
@@ -9910,6 +9934,16 @@ const handleClearSearch = () => {
           ) : null}
           <MapView
             ref={mapRef}
+            initialCenter={
+              restoredMapWindow
+                ? { lat: restoredMapWindow.lat, lng: restoredMapWindow.lng }
+                : undefined
+            }
+            initialLevel={
+              Number.isFinite(restoredMapWindow?.level)
+                ? restoredMapWindow.level
+                : undefined
+            }
             showFloatingLocationButton={false}
             onMyLocationLoadingChange={setMapLocationLoading}
             places={mapPlacesForMapView}

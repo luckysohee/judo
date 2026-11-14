@@ -22,9 +22,23 @@ export function readHomeMapViewportSessionCache() {
  * @param {string | null | undefined} bootCacheKey
  */
 export function readHomeMapViewportSessionCacheForBoot(bootCacheKey) {
+  return readHomeMapViewportSessionCacheMatching(
+    bootCacheKey ? [bootCacheKey] : [],
+  );
+}
+
+/**
+ * cacheKey가 후보 중 하나와 같을 때만 복원. 빈 목록이면 유효 캐시 그대로.
+ * @param {string[] | null | undefined} cacheKeys
+ */
+export function readHomeMapViewportSessionCacheMatching(cacheKeys) {
   const parsed = readHomeMapViewportSessionCache();
   if (!parsed) return null;
-  if (bootCacheKey && parsed.cacheKey !== bootCacheKey) return null;
+  const keys = Array.isArray(cacheKeys)
+    ? cacheKeys.filter((k) => typeof k === "string" && k.length > 0)
+    : [];
+  if (keys.length === 0) return parsed;
+  if (!keys.includes(parsed.cacheKey)) return null;
   return parsed;
 }
 
