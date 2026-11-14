@@ -2,7 +2,10 @@ import { fetchMapPlacesInBounds } from "../api/placesInBounds";
 import { getAiApiBaseUrl } from "./apiBaseUrl";
 import { loadKakaoMapsSdk } from "./loadKakaoMapsSdk";
 import { formatBoundsPlaceRowsForMap } from "./formatBoundsPlaceRowsForMap";
-import { writeHomeMapViewportSessionCache } from "./homeMapViewportSessionCache";
+import {
+  readHomeMapViewportSessionCache,
+  writeHomeMapViewportSessionCache,
+} from "./homeMapViewportSessionCache";
 import {
   computeHomeViewportCacheKey,
   defaultHomeMapViewportBounds,
@@ -53,12 +56,15 @@ function startViewportPrefetch() {
         joinRows: bundle.joinRows,
       };
       if (Array.isArray(result.plainRows) && result.plainRows.length > 0) {
-        writeHomeMapViewportSessionCache({
-          cacheKey: params.cacheKey,
-          plainRows: result.plainRows,
-          joinRows: result.joinRows || [],
-          merged: formatBoundsPlaceRowsForMap(result.plainRows),
-        });
+        // 복원된 다른 창의 장소 캐시를 성수 선요청으로 덮지 않는다.
+        if (!readHomeMapViewportSessionCache()) {
+          writeHomeMapViewportSessionCache({
+            cacheKey: params.cacheKey,
+            plainRows: result.plainRows,
+            joinRows: result.joinRows || [],
+            merged: formatBoundsPlaceRowsForMap(result.plainRows),
+          });
+        }
       }
       return result;
     })

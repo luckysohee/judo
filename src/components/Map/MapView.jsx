@@ -472,6 +472,12 @@ const MapView = forwardRef(({
   livePlaceIds,
   onCurrentLocationChange,
   center,
+  /**
+   * 홈 재마운트 시 직전 카메라. Map 생성 시에만 쓰이며 `center`처럼 이후 이동하지 않는다.
+   */
+  initialCenter,
+  /** Kakao level — `initialCenter`와 함께 첫 생성에만 적용. 없으면 성수 기본 5 */
+  initialLevel,
   userFolders,
   onQuickSave,
   userRole,
@@ -604,6 +610,8 @@ const MapView = forwardRef(({
     }
   }, [lockMapGestures]);
 
+  const initialCenterRef = useRef(initialCenter);
+  const initialLevelRef = useRef(initialLevel);
   const userInteractedRef = useRef(false);
   /** places 자동 fit / fetch 루프 차단 — 장소 클릭·내 위치·선택 이동 직후 보호(ms) */
   const isLockedRef = useRef(false);
@@ -1334,13 +1342,25 @@ const MapView = forwardRef(({
           try {
             if (import.meta.env.DEV) console.log("지도 초기화 시작...");
             const lockGestures = Boolean(lockMapGesturesRef.current);
+            const bootCenter = initialCenterRef.current;
+            const bootLat = Number(bootCenter?.lat);
+            const bootLng = Number(bootCenter?.lng);
+            const hasBootCenter =
+              Number.isFinite(bootLat) && Number.isFinite(bootLng);
+            const bootLevelRaw = Number(initialLevelRef.current);
+            const bootLevel =
+              Number.isFinite(bootLevelRaw) &&
+              bootLevelRaw >= 1 &&
+              bootLevelRaw <= 14
+                ? bootLevelRaw
+                : 5;
             const map = new window.kakao.maps.Map(containerEl, {
                 center: new window.kakao.maps.LatLng(
-                  DEFAULT_MAP_CENTER.lat,
-                  DEFAULT_MAP_CENTER.lng
+                  hasBootCenter ? bootLat : DEFAULT_MAP_CENTER.lat,
+                  hasBootCenter ? bootLng : DEFAULT_MAP_CENTER.lng
                 ),
-                // 첫 진입은 성수 중심 좁은 범위 유지 (압구정까지 초기 노출 방지)
-                level: 5,
+                // 복원 카메라가 없으면 성수 중심 좁은 범위 유지 (압구정까지 초기 노출 방지)
+                level: bootLevel,
                 ...(lockGestures
                   ? {
                       draggable: false,
